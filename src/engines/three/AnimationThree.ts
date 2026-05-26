@@ -645,12 +645,15 @@ export class BakedAnimationController {
     }
   }
 
-  private cleanupClipMonitor(actionId: string) {
+  private cleanupClipMonitor(actionId: string, options: { resolveFinished?: boolean } = {}) {
     const monitor = this.clipMonitors.get(actionId);
     if (!monitor || monitor.cleanedUp) return;
+    const { resolveFinished = true } = options;
     monitor.cleanedUp = true;
     try { monitor.action.paused = true; } catch {}
-    monitor.resolveFinished();
+    if (resolveFinished) {
+      monitor.resolveFinished();
+    }
     monitor.listeners.clear();
     this.clipMonitors.delete(actionId);
     this.actionIdToClip.delete(actionId);
@@ -2183,7 +2186,7 @@ export class BakedAnimationController {
             try { action.stop(); } catch {}
             try { mixer.uncacheAction(clip); } catch {}
             try { mixer.uncacheClip(clip); } catch {}
-            this.cleanupClipMonitor(actionId);
+            this.cleanupClipMonitor(actionId, { resolveFinished: false });
             clip = nextClip;
             action = mixer.clipAction(clip);
             actionId = this.setActionId(action, clip.name);
@@ -2430,9 +2433,7 @@ export class BakedAnimationController {
       if (!dict || !infl || dict[morphKey] === undefined) return;
 
       const morphIndex = dict[morphKey];
-      const inheritedStartValue = keyframes[0]?.inherit
-        ? this.host.getCurrentMorphValue?.(morphKey, meshNames) ?? infl[morphIndex] ?? 0
-        : undefined;
+      const inheritedStartValue = keyframes[0]?.inherit ? infl[morphIndex] ?? 0 : undefined;
 
       const times: number[] = [];
       const values: number[] = [];
@@ -2484,9 +2485,7 @@ export class BakedAnimationController {
     const addTrackForMesh = (mesh: Mesh) => {
       const infl = mesh.morphTargetInfluences;
       if (!infl || morphIndex < 0 || morphIndex >= infl.length) return;
-      const inheritedStartValue = keyframes[0]?.inherit
-        ? this.host.getCurrentMorphIndexValue?.(morphIndex, meshNames) ?? infl[morphIndex] ?? 0
-        : undefined;
+      const inheritedStartValue = keyframes[0]?.inherit ? infl[morphIndex] ?? 0 : undefined;
 
       const times: number[] = [];
       const values: number[] = [];

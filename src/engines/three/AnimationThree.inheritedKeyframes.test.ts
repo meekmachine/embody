@@ -97,6 +97,16 @@ function getQuaternionTrackValues(clip: NonNullable<ReturnType<BakedAnimationCon
   return Array.from(track!.values as ArrayLike<number>);
 }
 
+async function isPromiseSettled(promise: Promise<void>): Promise<boolean> {
+  let settled = false;
+  promise.then(
+    () => { settled = true; },
+    () => { settled = true; }
+  );
+  await Promise.resolve();
+  return settled;
+}
+
 describe('BakedAnimationController inherited first keyframes', () => {
   it('anchors direct morph curves to the current morph value', () => {
     const mesh = makeMorphMesh('Face', { Smile: 0 });
@@ -121,6 +131,34 @@ describe('BakedAnimationController inherited first keyframes', () => {
     const values = getNumberTrackValues(clip!, `${(mesh as any).uuid}.morphTargetInfluences[0]`);
     expect(values[0]).toBeCloseTo(0.42);
     expect(values[1]).toBeCloseTo(1);
+  });
+
+  it('anchors inherited direct morph curves to each target mesh value', () => {
+    const faceA = makeMorphMesh('FaceA', { Smile: 0 });
+    const faceB = makeMorphMesh('FaceB', { Smile: 0 });
+    faceA.morphTargetInfluences![0] = 0.25;
+    faceB.morphTargetInfluences![0] = 0.75;
+    const profile: Profile = {
+      auToMorphs: {},
+      auToBones: {},
+      boneNodes: {},
+      morphToMesh: { face: ['FaceA', 'FaceB'] },
+      visemeKeys: [],
+    };
+    const controller = new BakedAnimationController(makeHost({ profile, meshes: [faceA, faceB] }));
+
+    const clip = controller.snippetToClip('direct-inherit-per-mesh', {
+      Smile: [
+        { time: 0, intensity: 0, inherit: true },
+        { time: 0.5, intensity: 1 },
+      ],
+    });
+
+    expect(clip).toBeTruthy();
+    const faceAValues = getNumberTrackValues(clip!, `${(faceA as any).uuid}.morphTargetInfluences[0]`);
+    const faceBValues = getNumberTrackValues(clip!, `${(faceB as any).uuid}.morphTargetInfluences[0]`);
+    expect(faceAValues).toEqual([0.25, 1]);
+    expect(faceBValues).toEqual([0.75, 1]);
   });
 
   it('keeps non-inherited direct morph curves absolute', () => {
@@ -172,6 +210,38 @@ describe('BakedAnimationController inherited first keyframes', () => {
     const values = getNumberTrackValues(clip!, `${(mesh as any).uuid}.morphTargetInfluences[0]`);
     expect(values[0]).toBeCloseTo(0.55);
     expect(values[1]).toBeCloseTo(0.8);
+  });
+
+  it('anchors inherited morph-index tracks to each target mesh value', () => {
+    const faceA = makeMorphMesh('FaceA', { Other: 0, Smile: 1 });
+    const faceB = makeMorphMesh('FaceB', { Other: 0, Smile: 1 });
+    faceA.morphTargetInfluences![1] = 0.15;
+    faceB.morphTargetInfluences![1] = 0.65;
+    const profile: Profile = {
+      auToMorphs: {
+        12: { left: [], right: [], center: [1] },
+      },
+      auToBones: {},
+      boneNodes: {},
+      morphToMesh: { face: ['FaceA', 'FaceB'] },
+      visemeKeys: [],
+    };
+    const controller = new BakedAnimationController(makeHost({ profile, meshes: [faceA, faceB], auValues: { 12: 0.15 } }));
+
+    const clip = controller.snippetToClip('index-inherit-per-mesh', {
+      12: [
+        { time: 0, intensity: 0, inherit: true },
+        { time: 0.5, intensity: 0.9 },
+      ],
+    });
+
+    expect(clip).toBeTruthy();
+    const faceAValues = getNumberTrackValues(clip!, `${(faceA as any).uuid}.morphTargetInfluences[1]`);
+    const faceBValues = getNumberTrackValues(clip!, `${(faceB as any).uuid}.morphTargetInfluences[1]`);
+    expect(faceAValues[0]).toBeCloseTo(0.15);
+    expect(faceAValues[1]).toBeCloseTo(0.9);
+    expect(faceBValues[0]).toBeCloseTo(0.65);
+    expect(faceBValues[1]).toBeCloseTo(0.9);
   });
 
   it('anchors auto viseme jaw tracks to the current jaw quaternion', () => {
@@ -324,5 +394,37 @@ describe('BakedAnimationController inherited first keyframes', () => {
     expect(nextHandle).toBeTruthy();
     nextHandle!.setTime?.(0);
     expect(mesh.morphTargetInfluences![0]).toBeCloseTo(0.9);
+  });
+
+  it('keeps the finished promise pending while replaying an inherited handle', async () => {
+    const mesh = makeMorphMesh('Face', { Smile: 0 });
+    mesh.morphTargetInfluences![0] = 0.2;
+    const profile: Profile = {
+      auToMorphs: {},
+      auToBones: {},
+      boneNodes: {},
+      morphToMesh: { face: ['Face'] },
+      visemeKeys: [],
+    };
+    const controller = new BakedAnimationController(makeHost({ profile, meshes: [mesh] }));
+
+    const clip = controller.snippetToClip('direct-replay-promise-inherit', {
+      Smile: [
+        { time: 0, intensity: 0, inherit: true },
+        { time: 0.5, intensity: 1 },
+      ],
+    });
+    expect(clip).toBeTruthy();
+
+    const handle = controller.playClip(clip!, { loopMode: 'once' });
+    expect(handle).toBeTruthy();
+    expect(await isPromiseSettled(handle!.finished)).toBe(false);
+
+    mesh.morphTargetInfluences![0] = 0.8;
+    handle!.play();
+    expect(await isPromiseSettled(handle!.finished)).toBe(false);
+
+    controller.update(0.5);
+    expect(await isPromiseSettled(handle!.finished)).toBe(true);
   });
 });
