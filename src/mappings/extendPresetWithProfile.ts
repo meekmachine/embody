@@ -52,7 +52,7 @@ const mergeAnnotationRegion = (
   merged.objects = override.objects ? [...override.objects] : base.objects ? [...base.objects] : undefined;
   merged.children = override.children ? [...override.children] : base.children ? [...base.children] : undefined;
   merged.cameraOffset = override.cameraOffset
-    ? { ...override.cameraOffset }
+    ? { ...base.cameraOffset, ...override.cameraOffset }
     : base.cameraOffset
       ? { ...base.cameraOffset }
       : undefined;
@@ -139,7 +139,7 @@ const mergeHairPhysicsConfig = (
  * - Scalars: extension wins when provided.
  * - Maps: shallow-merged by key, values cloned.
  * - Arrays: replaced when the extension provides them (except annotationRegions).
- * - annotationRegions: merged by region name, shallow field merge (extension wins).
+ * - annotationRegions: merged by region name, with nested camera/style fields preserved.
  */
 export function extendPresetWithProfile(base: Profile, extension?: Partial<Profile>): Profile {
   if (!extension) {
@@ -162,8 +162,19 @@ export function extendPresetWithProfile(base: Profile, extension?: Partial<Profi
     auFacePartToMeshCategory: base.auFacePartToMeshCategory || extension.auFacePartToMeshCategory
       ? mergeRecord(base.auFacePartToMeshCategory || {}, extension.auFacePartToMeshCategory || {})
       : undefined,
+    mappingSections: extension.mappingSections
+      ? [...extension.mappingSections]
+      : base.mappingSections
+        ? [...base.mappingSections]
+        : undefined,
     visemeKeys: extension.visemeKeys ? [...extension.visemeKeys] : [...base.visemeKeys],
+    visemeSystemId: extension.visemeSystemId ?? base.visemeSystemId,
+    visemeSlots: extension.visemeSlots ? [...extension.visemeSlots] : base.visemeSlots ? [...base.visemeSlots] : undefined,
+    visemeBindings: base.visemeBindings || extension.visemeBindings
+      ? mergeRecord(base.visemeBindings || {}, extension.visemeBindings || {})
+      : undefined,
     visemeMeshCategory: extension.visemeMeshCategory ?? base.visemeMeshCategory,
+    visemeJawAmounts: extension.visemeJawAmounts ? [...extension.visemeJawAmounts] : base.visemeJawAmounts ? [...base.visemeJawAmounts] : undefined,
     auMixDefaults: base.auMixDefaults || extension.auMixDefaults
       ? mergeRecord(base.auMixDefaults || {}, extension.auMixDefaults || {})
       : undefined,

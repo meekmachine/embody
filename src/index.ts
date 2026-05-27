@@ -96,8 +96,13 @@ export type {
   CurvePoint,
   CurvesMap,
   ClipOptions,
+  ClipEvent,
+  ClipEventListener,
   ClipHandle,
   Snippet,
+  MorphTargetAttributeData,
+  MorphTargetDelta,
+  AddMorphTargetOptions,
 } from './core/types';
 
 // ============================================================================
@@ -112,6 +117,15 @@ export type {
   HairMorphTargetMapping,
   HairMorphTargetValueMapping,
   HairMorphAxis,
+  VisemeSlot,
+  VisemeSlotFeatures,
+  VisemeBinding,
+  VisemeBindingTarget,
+  MappingEditorSection,
+  MappingEditorModel,
+  MorphCandidate,
+  MorphCandidateMatch,
+  MorphCandidateReason,
   MorphCategory,
   MeshCategory,
   BlendingMode,
@@ -121,8 +135,58 @@ export type {
 
 export { BLENDING_MODES } from './mappings/types';
 
+export {
+  buildMappingEditorModel,
+  compileVisemeKeys,
+  getMeshNamesForAUProfile,
+  getMeshNamesForVisemeProfile,
+  getProfileVisemeSlots,
+  getVisemeBindingTargets,
+  getVisemeJawAmounts,
+  getVisemeSlotIndex,
+  mapProviderVisemeToSlot,
+  resolveVisemeMeshCategory,
+} from './mappings/visemeSystem';
+
+export type {
+  ProviderVisemeEvent,
+  ProviderVisemeMatch,
+  ResolvedVisemeBindingTarget,
+} from './mappings/visemeSystem';
+
 // ============================================================================
-// CHARACTER CONFIG (Regions, Markers)
+// PROFILES
+// ============================================================================
+
+export type {
+  ProfileOverrides,
+  ProfilePresetId,
+  ProfileRuntimeConfig,
+  ResolvedProfileRuntimeConfig,
+  PresetBackedProfileRuntimeConfig,
+  CustomProfileRuntimeConfig,
+  CharacterProfile,
+  ProfileRegistry,
+  // Deprecated compatibility types
+  CharacterConfig,
+  CharacterRegistry,
+} from './profiles/types';
+
+export {
+  extendProfileConfigWithPreset,
+  extractLegacyCharacterProfileOverrides,
+  getProfilePresetId,
+  mergeProfileRegionsByName,
+  resolveProfileFromPreset,
+  // Deprecated compatibility exports
+  applyCharacterProfileToPreset,
+  extendCharacterConfigWithPreset,
+  extractProfileOverrides,
+  mergeRegionsByName as mergeCharacterRegionsByName,
+} from './profiles/resolveProfileConfig';
+
+// ============================================================================
+// REGIONS AND MARKERS
 // ============================================================================
 
 export type {
@@ -135,18 +199,37 @@ export type {
   ExpandedRegionState,
   FallbackConfig,
   MarkerGroup,
+  AnnotationRegion,
   Region,
   MarkerStyle,
-  CharacterConfig,
-  CharacterRegistry,
-} from './characters/types';
+} from './regions/types';
+
+export type {
+  CameraRelativeGazeOffset,
+  CameraRelativeGazeOptions,
+} from './camera/cameraRelativeGaze';
+
+export { computeCameraRelativeGazeOffset } from './camera/cameraRelativeGaze';
+
+export type {
+  AnnotationLaterality,
+} from './camera/annotationCameraAngles';
 
 export {
-  applyCharacterProfileToPreset,
-  extendCharacterConfigWithPreset,
-  extractProfileOverrides,
-  mergeRegionsByName as mergeCharacterRegionsByName,
-} from './characters/extendCharacterConfigWithPreset';
+  detectAnnotationLaterality,
+  getDefaultAnnotationLaterality,
+  getModelLocalOrbitAngle,
+  getRegionSemanticSide,
+  getSemanticHorizontalSign,
+  getSemanticHorizontalSignForSide,
+  getWorldDirectionForCameraAngle,
+  normalizeCameraAngle,
+  passesMarkerCameraAngleGate,
+  resolveRegionCameraAngle,
+  resolveRegionVisibilityCameraAngle,
+  toModelLocalDirection,
+  toWorldDirection,
+} from './camera/annotationCameraAngles';
 
 // ========================================================================
 // REGION MAPPING HELPERS
@@ -157,6 +240,11 @@ export {
   resolveBoneName,
   resolveBoneNames,
   resolveFaceCenter,
+} from './regions/regionMapping';
+
+export type {
+  BoneResolutionProfile,
+  ResolvedFaceCenter,
 } from './regions/regionMapping';
 
 // ============================================================================
@@ -177,6 +265,9 @@ export {
   CC4_EYE_MESH_NODES,
   CC4_MESHES,
   VISEME_KEYS,
+  CC4_VISEME_SYSTEM_ID,
+  CC4_VISEME_SLOTS,
+  CC4_MAPPING_SECTIONS,
   VISEME_JAW_AMOUNTS,
   MORPH_TO_MESH,
   AU_INFO,
@@ -190,8 +281,13 @@ export {
 // Fish/skeletal preset
 export { BETTA_FISH_PRESET, AU_MAPPING_CONFIG, FISH_AU_MAPPING_CONFIG } from './presets/bettaFish';
 
-// Preset resolution by type name
-export { getPreset, getPresetWithProfile } from './presets';
+// Preset lookup and profile extension by type name
+export {
+  getPreset,
+  getPresetWithProfile,
+  resolvePreset,
+  resolvePresetWithOverrides,
+} from './presets';
 export type { PresetType } from './presets';
 
 // ============================================================================

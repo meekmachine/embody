@@ -6,6 +6,9 @@
  */
 
 import type { BoneBinding, AUInfo, CompositeRotation } from '../core/types';
+import type { AnnotationRegion } from '../regions/types';
+
+export type { AnnotationRegion } from '../regions/types';
 
 /**
  * Profile - Complete configuration for AU-to-morph/bone mappings
@@ -88,8 +91,20 @@ export interface Profile {
    */
   auFacePartToMeshCategory?: Record<string, string>;
 
+  /** Optional ordered mapping sections for authoring UIs. Presets own this metadata, not consumers. */
+  mappingSections?: MappingEditorSection[];
+
   /** Viseme targets in order (typically 15 phoneme positions) */
   visemeKeys: MorphTargetRef[];
+
+  /** Optional id of the profile-defined viseme system (for example, 'cc4-arkit-15'). */
+  visemeSystemId?: string;
+
+  /** Optional profile-defined viseme slots used by editors and id-based runtime APIs. */
+  visemeSlots?: VisemeSlot[];
+
+  /** Optional authoring bindings keyed by viseme slot id. */
+  visemeBindings?: Record<string, VisemeBinding>;
 
   /**
    * Optional `morphToMesh` category to use for viseme morph routing.
@@ -209,49 +224,6 @@ export interface HairPhysicsProfileConfig {
 
 
 /**
- * Annotation region definition for camera markers.
- */
-export interface AnnotationRegion {
-  name: string;
-  bones?: string[];
-  meshes?: string[];
-  objects?: string[];
-  /**
-   * Camera framing multiplier for this annotation.
-   * Smaller values zoom in tighter; larger values leave more space around the target.
-   */
-  paddingFactor?: number;
-  cameraAngle?: number;
-  cameraOffset?: {
-    x?: number;
-    y?: number;
-    z?: number;
-  };
-  parent?: string;
-  children?: string[];
-  expandAnimation?: 'outward' | 'staggered';
-  style?: {
-    markerColor?: number;
-    markerRadius?: number;
-    lineColor?: number;
-    labelColor?: string;
-    labelBackground?: string;
-    labelFontSize?: number;
-    opacity?: number;
-    lineDirection?: 'radial' | 'camera' | 'up' | 'down' | 'left' | 'right' | 'forward' | 'backward' | { x: number; y: number; z: number };
-    line?: {
-      style?: 'solid' | 'dashed' | 'dotted';
-      curve?: 'straight' | 'bezier' | 'arc';
-      arrowHead?: boolean;
-      thickness?: number;
-      length?: number;
-    };
-  };
-  groupId?: string;
-  isFallback?: boolean;
-}
-
-/**
  * Morph target key (name in morphTargetDictionary).
  */
 export type MorphTargetKey = string;
@@ -265,6 +237,82 @@ export type MorphTargetIndex = number;
  * Morph target reference (key or index).
  */
 export type MorphTargetRef = MorphTargetKey | MorphTargetIndex;
+
+export interface VisemeSlotFeatures {
+  jawOpen?: number;
+  lipClosed?: number;
+  lipRound?: number;
+  lipSpread?: number;
+  tongueTip?: number;
+  fricative?: number;
+  nasal?: number;
+}
+
+export interface VisemeSlot {
+  /** Stable profile/runtime id, such as 'aa', 'bmp', or 'rest'. */
+  id: string;
+  /** Human-readable editor label. */
+  label: string;
+  /** Optional display/runtime order. Lower values render first. */
+  order?: number;
+  /** Provider-specific viseme ids that should map to this slot. */
+  providerIds?: Record<string, Array<string | number>>;
+  /** Phoneme hints that can map provider phonemes to this slot. */
+  phonemes?: string[];
+  /** Regex strings used to classify likely morph candidates for this slot. */
+  matchers?: string[];
+  /** Semantic hints for approximate provider or UI matching. */
+  features?: VisemeSlotFeatures;
+  /** Optional default jaw amount for this slot. */
+  defaultJawAmount?: number;
+}
+
+export interface VisemeBindingTarget {
+  morph: MorphTargetRef;
+  weight?: number;
+}
+
+export interface VisemeBinding {
+  targets?: VisemeBindingTarget[];
+  /** Legacy/simplified single-target binding used by existing LoomLarge profiles. */
+  morph?: MorphTargetRef;
+  jawAmount?: number;
+  note?: string;
+  sharedWith?: string[];
+}
+
+export type MappingSectionKind = 'au' | 'viseme' | 'hair' | 'unmapped' | 'custom';
+
+export interface MappingEditorSection {
+  id: string;
+  label: string;
+  kind: MappingSectionKind;
+  order: number;
+  meshCategory?: string;
+  facePart?: string;
+}
+
+export type MorphCandidateReason = 'explicit' | 'regex' | 'alias' | 'phoneme' | 'provider' | 'unmapped';
+
+export interface MorphCandidateMatch {
+  slotId: string;
+  label: string;
+  confidence: number;
+  reason: MorphCandidateReason;
+  pattern?: string;
+}
+
+export interface MorphCandidate {
+  morph: string;
+  sectionId: string;
+  kind: 'explicit' | 'candidate' | 'conflict' | 'unmapped';
+  matches: MorphCandidateMatch[];
+}
+
+export interface MappingEditorModel {
+  sections: MappingEditorSection[];
+  candidates: MorphCandidate[];
+}
 
 export interface MorphTargetsBySide {
   left: MorphTargetRef[];

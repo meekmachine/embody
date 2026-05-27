@@ -2,7 +2,7 @@
  * Loom3 - Preset Exports
  *
  * All AU presets are exported from here.
- * Frontend passes a presetType string and Loom3 looks up the preset internally.
+ * Frontend passes a presetType string and Loom3 looks up or extends the preset internally.
  */
 
 // CC4 preset (default for humanoid characters)
@@ -49,6 +49,9 @@ export function getPreset(presetType: PresetType | string | undefined) {
   }
 }
 
+// Backwards-compatible lookup alias retained for LoomLarge consumers.
+export const resolvePreset = getPreset;
+
 /**
  * Get a preset, then extend it with an optional profile.
  */
@@ -58,3 +61,6 @@ export function getPresetWithProfile(
 ): Profile {
   return extendPresetWithProfile(getPreset(presetType), profile);
 }
+
+// Backwards-compatible extension alias retained for LoomLarge consumers.
+export const resolvePresetWithOverrides = getPresetWithProfile;

@@ -7,6 +7,7 @@
  */
 
 import {
+  BufferAttribute,
   Quaternion,
   Vector3,
   Box3,
@@ -32,9 +33,11 @@ import type {
   ClipHandle,
   Snippet,
   CompositeRotation,
-    RotationAxis,
-    AnimationBlendMode,
-  } from '../../core/types';
+  RotationAxis,
+  AnimationBlendMode,
+  MorphTargetDelta,
+  AddMorphTargetOptions,
+} from '../../core/types';
 import { getCompositeAxisBinding, getCompositeAxisValue } from '../../core/compositeAxis';
 import { AnimationThree, BakedAnimationController } from './AnimationThree';
 import { getSideScale } from './balanceUtils';
@@ -42,6 +45,14 @@ import { HairPhysicsController, type HairPhysicsConfig, type HairPhysicsConfigUp
 import { CC4_PRESET, CC4_MESHES, COMPOSITE_ROTATIONS as CC4_COMPOSITE_ROTATIONS } from '../../presets/cc4';
 import { getPreset } from '../../presets';
 import { extendPresetWithProfile } from '../../mappings/extendPresetWithProfile';
+import {
+  getProfileVisemeSlots,
+  getMeshNamesForAUProfile,
+  getMeshNamesForVisemeProfile,
+  getVisemeBindingTargets,
+  getVisemeJawAmounts,
+  getVisemeSlotIndex,
+} from '../../mappings/visemeSystem';
 import type { NodeBase, ResolvedBones } from './types';
 
 const deg2rad = (d: number) => (d * Math.PI) / 180;
@@ -80,6 +91,7 @@ function clamp01(x: number) {
 }
 
 type MorphTargetHandle = { infl: number[]; idx: number };
+type WeightedMorphTargetHandle = MorphTargetHandle & { weight: number };
 type ResolvedMorphTargetsBySide = {
   left: MorphTargetHandle[];
   right: MorphTargetHandle[];
@@ -133,7 +145,7 @@ export class Loom3 implements LoomLarge {
   private morphKeyCache = new Map<string, MorphTargetHandle[]>();
   private morphIndexCache = new Map<string, MorphTargetHandle[]>();
   private resolvedAUMorphTargets = new Map<number, ResolvedMorphTargetsBySide>();
-  private resolvedVisemeTargets: MorphTargetHandle[][] = [];
+  private resolvedVisemeTargets: WeightedMorphTargetHandle[][] = [];
 
   // Bones
   private bones: ResolvedBones = {};
@@ -196,6 +208,7 @@ export class Loom3 implements LoomLarge {
       computeSideValues: (base, balance) => this.computeSideValues(base, balance),
       getAUMixWeight: (auId) => this.getAUMixWeight(auId),
       isMixedAU: (auId) => this.isMixedAU(auId),
+      reapplyProceduralState: () => this.reapplyProceduralStateAfterBakedUpdate(),
     });
 
     this.hairPhysics = new HairPhysicsController({
@@ -234,14 +247,11 @@ export class Loom3 implements LoomLarge {
     this.morphKeyCache.clear();
     this.morphIndexCache.clear();
 
-    // Build mesh lookup
+    // Build mesh lookup. Keep all named meshes addressable so runtime morph
+    // authoring can add the first morph target to a previously static mesh.
     model.traverse((obj: any) => {
       if (obj.isMesh && obj.name) {
-        const infl = obj.morphTargetInfluences;
-        const dict = obj.morphTargetDictionary;
-        if ((Array.isArray(infl) && infl.length > 0) || (dict && Object.keys(dict).length > 0)) {
-          this.meshByName.set(obj.name, obj);
-        }
+        this.meshByName.set(obj.name, obj);
       }
     });
 
@@ -328,12 +338,17 @@ export class Loom3 implements LoomLarge {
       this.resolvedAUMorphTargets.set(auId, resolved);
     }
 
-    for (let i = 0; i < (this.config.visemeKeys || []).length; i += 1) {
-      const key = this.config.visemeKeys[i];
+    for (let i = 0; i < getProfileVisemeSlots(this.config).length; i += 1) {
       const visemeMeshNames = this.getMeshNamesForViseme();
-      const targets = typeof key === 'number'
-        ? this.resolveMorphTargetsByIndex(key, visemeMeshNames)
-        : this.resolveMorphTargets(key, visemeMeshNames);
+      const targets: WeightedMorphTargetHandle[] = [];
+      for (const bindingTarget of getVisemeBindingTargets(this.config, i)) {
+        const resolved = typeof bindingTarget.morph === 'number'
+          ? this.resolveMorphTargetsByIndex(bindingTarget.morph, visemeMeshNames)
+          : this.resolveMorphTargets(bindingTarget.morph, visemeMeshNames);
+        for (const target of resolved) {
+          targets.push({ ...target, weight: bindingTarget.weight });
+        }
+      }
       this.resolvedVisemeTargets[i] = targets;
     }
   }
@@ -724,6 +739,65 @@ export class Loom3 implements LoomLarge {
   // MORPH CONTROL
   // ============================================================================
 
+  addMorphTarget(target: MorphTargetDelta, options: AddMorphTargetOptions = {}): number {
+    const staleMorphTargets = this.collectResolvedExpressionMorphTargets();
+    const index = this.applyMorphTargetDelta(target, options);
+    this.refreshMorphTargets([target.meshName]);
+    this.reinitializeRuntimeStateFromCurrentControls(staleMorphTargets);
+    return index;
+  }
+
+  addMorphTargets(targets: MorphTargetDelta[], options: AddMorphTargetOptions = {}): Record<string, number> {
+    const staleMorphTargets = this.collectResolvedExpressionMorphTargets();
+    const result: Record<string, number> = {};
+
+    for (const target of targets) {
+      const index = this.applyMorphTargetDelta(target, options);
+      result[`${target.meshName}:${target.name}`] = index;
+    }
+
+    this.refreshMorphTargets(Array.from(new Set(targets.map((target) => target.meshName))));
+    this.reinitializeRuntimeStateFromCurrentControls(staleMorphTargets);
+    return result;
+  }
+
+  ensureMorphInfluence(meshName: string, morphName: string): number {
+    const mesh = this.requireNamedMesh(meshName);
+    const dict = this.getMeshMorphDictionary(mesh);
+    const existing = dict[morphName];
+    if (existing !== undefined) return existing;
+
+    const position = mesh.geometry.getAttribute('position');
+    if (!position) {
+      throw new Error(`Cannot create morph target "${morphName}" on mesh "${meshName}": geometry has no position attribute.`);
+    }
+
+    return this.addMorphTarget({
+      meshName,
+      name: morphName,
+      position: new Float32Array(position.count * position.itemSize),
+      relative: true,
+    });
+  }
+
+  refreshMorphTargets(_meshNames?: string[]): void {
+    this.morphKeyCache.clear();
+    this.morphIndexCache.clear();
+
+    if (this.model) {
+      this.meshByName.clear();
+      this.model.traverse((obj: any) => {
+        if (obj.isMesh && obj.name) {
+          this.meshByName.set(obj.name, obj);
+        }
+      });
+      this.meshes = collectMorphMeshes(this.model);
+    }
+
+    this.rebuildMorphTargetsCache();
+    this.hairPhysics.refreshMeshSelection();
+  }
+
   /**
    * Set a morph target value.
    *
@@ -896,53 +970,48 @@ export class Loom3 implements LoomLarge {
   // ============================================================================
 
   setViseme(visemeIndex: number, value: number, jawScale = 1.0): void {
-    if (visemeIndex < 0 || visemeIndex >= this.config.visemeKeys.length) return;
+    if (visemeIndex < 0 || visemeIndex >= this.visemeValues.length) return;
 
     const val = clamp01(value);
     this.visemeValues[visemeIndex] = val;
     this.visemeJawScales[visemeIndex] = jawScale;
-
-    const targets = this.resolvedVisemeTargets[visemeIndex];
-    if (targets && targets.length > 0) {
-      this.applyMorphTargets(targets, val);
-    } else {
-      const morphKey = this.config.visemeKeys[visemeIndex];
-      const visemeMeshNames = this.getMeshNamesForViseme();
-      if (typeof morphKey === 'number') {
-        this.setMorphInfluence(morphKey, val, visemeMeshNames);
-      } else if (typeof morphKey === 'string') {
-        this.setMorph(morphKey, val, visemeMeshNames);
-      }
-    }
-
-    const jawAmount = this.getVisemeJawAmount(visemeIndex) * val * jawScale;
-    if (Math.abs(jawScale) > 1e-6 && Math.abs(jawAmount) > 1e-6) {
-      this.updateBoneRotation('JAW', 'pitch', jawAmount);
-    }
+    this.applyVisemeRuntimeState();
   }
 
   transitionViseme(visemeIndex: number, to: number, durationMs = 80, jawScale = 1.0): TransitionHandle {
-    if (visemeIndex < 0 || visemeIndex >= this.config.visemeKeys.length) {
+    if (visemeIndex < 0 || visemeIndex >= this.visemeValues.length) {
       return { promise: Promise.resolve(), pause: () => {}, resume: () => {}, cancel: () => {} };
     }
 
-    const morphKey = this.config.visemeKeys[visemeIndex];
     const target = clamp01(to);
-    this.visemeValues[visemeIndex] = target;
+    const from = this.visemeValues[visemeIndex] ?? 0;
     this.visemeJawScales[visemeIndex] = jawScale;
-    const visemeMeshNames = this.getMeshNamesForViseme();
 
-    const morphHandle = typeof morphKey === 'number'
-      ? this.transitionMorphInfluence(morphKey, target, durationMs, visemeMeshNames)
-      : this.transitionMorph(morphKey, target, durationMs, visemeMeshNames);
+    return this.animation.addTransition(
+      `viseme_value_${visemeIndex}`,
+      from,
+      target,
+      durationMs,
+      (value) => {
+        this.visemeValues[visemeIndex] = clamp01(value);
+        this.visemeJawScales[visemeIndex] = jawScale;
+        this.applyVisemeRuntimeState();
+      }
+    );
+  }
 
-    const jawAmount = this.getVisemeJawAmount(visemeIndex) * target * jawScale;
-    if (Math.abs(jawScale) <= 1e-6 || Math.abs(jawAmount) <= 1e-6) {
-      return morphHandle;
+  setVisemeById(slotId: string, value: number, jawScale = 1.0): void {
+    const index = getVisemeSlotIndex(this.config, slotId);
+    if (index < 0) return;
+    this.setViseme(index, value, jawScale);
+  }
+
+  transitionVisemeById(slotId: string, to: number, durationMs = 80, jawScale = 1.0): TransitionHandle {
+    const index = getVisemeSlotIndex(this.config, slotId);
+    if (index < 0) {
+      return { promise: Promise.resolve(), pause: () => {}, resume: () => {}, cancel: () => {} };
     }
-
-    const jawHandle = this.transitionBoneRotation('JAW', 'pitch', jawAmount, durationMs);
-    return this.combineHandles([morphHandle, jawHandle]);
+    return this.transitionViseme(index, to, durationMs, jawScale);
   }
 
   // ============================================================================
@@ -989,8 +1058,9 @@ export class Loom3 implements LoomLarge {
 
   resetToNeutral(): void {
     this.auValues = {};
-    this.visemeValues = new Array(this.config.visemeKeys.length).fill(0);
-    this.visemeJawScales = new Array(this.config.visemeKeys.length).fill(1);
+    const visemeCount = getProfileVisemeSlots(this.config).length;
+    this.visemeValues = new Array(visemeCount).fill(0);
+    this.visemeJawScales = new Array(visemeCount).fill(1);
     this.translations = {};
     this.initBoneRotations();
     this.clearTransitions();
@@ -1030,16 +1100,42 @@ export class Loom3 implements LoomLarge {
       this.setAU(auId, value, this.auBalances[auId]);
     }
 
-    for (let visemeIndex = 0; visemeIndex < this.visemeValues.length; visemeIndex += 1) {
-      const value = this.visemeValues[visemeIndex] ?? 0;
-      if (value <= 0) continue;
-      this.setViseme(visemeIndex, value, this.visemeJawScales[visemeIndex] ?? 1);
-    }
+    this.applyVisemeRuntimeState();
 
     if (this.model) {
       this.flushPendingComposites();
       this.model.updateMatrixWorld(true);
     }
+  }
+
+  private reapplyProceduralStateAfterBakedUpdate(): void {
+    if (!this.model) {
+      return;
+    }
+
+    let hasActiveOverrides = false;
+
+    for (const [auIdStr, value] of Object.entries(this.auValues)) {
+      if (value <= 0) continue;
+      const auId = Number(auIdStr);
+      if (Number.isNaN(auId)) continue;
+      hasActiveOverrides = true;
+      this.setAU(auId, value, this.auBalances[auId]);
+    }
+
+    for (let visemeIndex = 0; visemeIndex < this.visemeValues.length; visemeIndex += 1) {
+      const value = this.visemeValues[visemeIndex] ?? 0;
+      if (value <= 0) continue;
+      hasActiveOverrides = true;
+      this.setViseme(visemeIndex, value, this.visemeJawScales[visemeIndex] ?? 1);
+    }
+
+    if (!hasActiveOverrides) {
+      return;
+    }
+
+    this.flushPendingComposites();
+    this.model.updateMatrixWorld(true);
   }
 
   // ============================================================================
@@ -1358,22 +1454,11 @@ export class Loom3 implements LoomLarge {
    * Routing is driven by `auFacePartToMeshCategory` in profile config.
    */
   getMeshNamesForAU(auId: number): string[] {
-    const m = this.config.morphToMesh;
-    const info = this.config.auInfo?.[String(auId)];
-    const facePart = info?.facePart;
-    if (facePart) {
-      const category = this.config.auFacePartToMeshCategory?.[facePart];
-      if (category) {
-        return m?.[category] || [];
-      }
-    }
-    return m?.face || [];
+    return getMeshNamesForAUProfile(this.config, auId);
   }
 
   getMeshNamesForViseme(): string[] {
-    const m = this.config.morphToMesh;
-    const category = this.config.visemeMeshCategory || (m?.viseme ? 'viseme' : 'face');
-    return m?.[category] || m?.face || [];
+    return getMeshNamesForVisemeProfile(this.config);
   }
 
   // ============================================================================
@@ -1472,6 +1557,41 @@ export class Loom3 implements LoomLarge {
     }
   }
 
+  private applyVisemeRuntimeState(): void {
+    for (const targets of this.resolvedVisemeTargets) {
+      for (const target of targets || []) {
+        if (target.idx < target.infl.length) {
+          target.infl[target.idx] = 0;
+        }
+      }
+    }
+
+    for (let index = 0; index < this.visemeValues.length; index += 1) {
+      const value = clamp01(this.visemeValues[index] ?? 0);
+      if (value <= 1e-6) continue;
+      const targets = this.resolvedVisemeTargets[index] || [];
+      for (const target of targets) {
+        if (target.idx >= target.infl.length) continue;
+        const weighted = clamp01(value * target.weight);
+        target.infl[target.idx] = Math.max(target.infl[target.idx] ?? 0, weighted);
+      }
+    }
+
+    this.updateBoneRotation('JAW', 'pitch', this.getActiveVisemeJawAmount());
+  }
+
+  private getActiveVisemeJawAmount(): number {
+    let jawAmount = 0;
+    for (let index = 0; index < this.visemeValues.length; index += 1) {
+      const value = clamp01(this.visemeValues[index] ?? 0);
+      if (value <= 1e-6) continue;
+      const jawScale = this.visemeJawScales[index] ?? 1;
+      if (Math.abs(jawScale) <= 1e-6) continue;
+      jawAmount = Math.max(jawAmount, this.getVisemeJawAmount(index) * value * jawScale);
+    }
+    return jawAmount;
+  }
+
   private getMorphValue(key: string): number {
     if (this.faceMesh) {
       const dict = this.faceMesh.morphTargetDictionary;
@@ -1510,6 +1630,188 @@ export class Loom3 implements LoomLarge {
     return 0;
   }
 
+  private applyMorphTargetDelta(target: MorphTargetDelta, options: AddMorphTargetOptions): number {
+    const mesh = this.requireNamedMesh(target.meshName);
+    const sourceGeometry = mesh.geometry;
+    const position = sourceGeometry.getAttribute('position');
+    if (!position) {
+      throw new Error(`Cannot add morph target "${target.name}" to mesh "${target.meshName}": geometry has no position attribute.`);
+    }
+    if (!target.name || !target.name.trim()) {
+      throw new Error(`Cannot add morph target to mesh "${target.meshName}": target name is required.`);
+    }
+
+    const replace = options.replace === true;
+    const resetInfluence = options.resetInfluence !== false;
+    const forceGeometryReplacement = options.forceGeometryReplacement !== false;
+    const previousInfluences = mesh.morphTargetInfluences ? [...mesh.morphTargetInfluences] : [];
+    const previousDictionary = this.getMeshMorphDictionary(mesh);
+    const existingIndex = previousDictionary[target.name];
+
+    if (existingIndex !== undefined && !replace) {
+      throw new Error(`Morph target "${target.name}" already exists on mesh "${target.meshName}". Pass replace: true to overwrite it.`);
+    }
+
+    const geometry = forceGeometryReplacement ? sourceGeometry.clone() : sourceGeometry;
+    const dictionary = { ...previousDictionary };
+    const usedIndices = Object.values(dictionary).filter(Number.isInteger);
+    const existingAttributeTargetCount = Math.max(
+      0,
+      ...Object.values(geometry.morphAttributes).map((attributes) => attributes?.length ?? 0)
+    );
+    const nextIndex = Math.max(existingAttributeTargetCount, usedIndices.length ? Math.max(...usedIndices) + 1 : 0);
+    const index = existingIndex ?? nextIndex;
+    dictionary[target.name] = index;
+
+    this.setMorphAttributeAtIndex(geometry, 'position', target.position, position.itemSize, position.count, index, target.name);
+
+    const normal = geometry.getAttribute('normal');
+    if (target.normal) {
+      this.setMorphAttributeAtIndex(geometry, 'normal', target.normal, normal?.itemSize ?? 3, position.count, index, target.name);
+    } else {
+      this.setZeroMorphAttributeAtIndex(geometry, 'normal', normal?.itemSize ?? 3, position.count, index, target.name);
+    }
+
+    const tangent = geometry.getAttribute('tangent');
+    if (target.tangent) {
+      this.setMorphAttributeAtIndex(geometry, 'tangent', target.tangent, tangent?.itemSize ?? 4, position.count, index, target.name);
+    } else {
+      this.setZeroMorphAttributeAtIndex(geometry, 'tangent', tangent?.itemSize ?? 4, position.count, index, target.name);
+    }
+    const color = geometry.getAttribute('color');
+    const existingColorMorph = geometry.morphAttributes.color?.find(Boolean);
+    this.setZeroMorphAttributeAtIndex(
+      geometry,
+      'color',
+      color?.itemSize ?? existingColorMorph?.itemSize ?? 3,
+      position.count,
+      index,
+      target.name
+    );
+
+    geometry.morphTargetsRelative = target.relative !== false;
+    (geometry as any).morphTargetDictionary = dictionary;
+
+    if (forceGeometryReplacement) {
+      mesh.geometry = geometry;
+      sourceGeometry.dispose();
+    }
+
+    const influenceLength = Math.max(previousInfluences.length, index + 1);
+    const influences = previousInfluences.slice(0, influenceLength);
+    while (influences.length < influenceLength) {
+      influences.push(0);
+    }
+    if (resetInfluence) {
+      influences[index] = 0;
+    }
+
+    mesh.morphTargetDictionary = dictionary;
+    mesh.morphTargetInfluences = influences;
+    this.addRuntimeMorphMesh(mesh);
+
+    if (!this.config.morphToMesh?.face?.length) {
+      this.config.morphToMesh = {
+        ...this.config.morphToMesh,
+        face: [mesh.name],
+      };
+    }
+
+    return index;
+  }
+
+  private requireNamedMesh(meshName: string): Mesh {
+    const mesh = this.meshByName.get(meshName);
+    if (mesh) return mesh;
+
+    if (this.model) {
+      let found: Mesh | null = null;
+      this.model.traverse((obj: any) => {
+        if (!found && obj.isMesh && obj.name === meshName) {
+          found = obj as Mesh;
+        }
+      });
+      if (found) {
+        this.meshByName.set(meshName, found);
+        return found;
+      }
+    }
+
+    throw new Error(`Mesh "${meshName}" was not found in the current model.`);
+  }
+
+  private getMeshMorphDictionary(mesh: Mesh): Record<string, number> {
+    const meshDictionary = mesh.morphTargetDictionary as Record<string, number> | undefined;
+    const geometryDictionary = (mesh.geometry as any).morphTargetDictionary as Record<string, number> | undefined;
+    const dictionary = meshDictionary || geometryDictionary || {};
+    mesh.morphTargetDictionary = dictionary;
+    (mesh.geometry as any).morphTargetDictionary = dictionary;
+    return dictionary;
+  }
+
+  private setMorphAttributeAtIndex(
+    geometry: Mesh['geometry'],
+    semantic: string,
+    data: Float32Array | number[],
+    itemSize: number,
+    vertexCount: number,
+    index: number,
+    name: string
+  ): void {
+    const expectedLength = vertexCount * itemSize;
+    if (data.length !== expectedLength) {
+      throw new Error(
+        `Morph target "${name}" ${semantic} data has ${data.length} values; expected ${expectedLength} ` +
+        `(${vertexCount} vertices * itemSize ${itemSize}).`
+      );
+    }
+
+    const attributes = geometry.morphAttributes[semantic] ? [...geometry.morphAttributes[semantic]] : [];
+    while (attributes.length < index) {
+      const empty = new BufferAttribute(new Float32Array(expectedLength), itemSize);
+      (empty as any).name = `morph_${attributes.length}`;
+      attributes.push(empty);
+    }
+
+    const values = data instanceof Float32Array ? new Float32Array(data) : Float32Array.from(data);
+    const attribute = new BufferAttribute(values, itemSize);
+    (attribute as any).name = name;
+    attributes[index] = attribute;
+    geometry.morphAttributes[semantic] = attributes;
+  }
+
+  private setZeroMorphAttributeAtIndex(
+    geometry: Mesh['geometry'],
+    semantic: string,
+    itemSize: number,
+    vertexCount: number,
+    index: number,
+    name: string
+  ): void {
+    if (!geometry.morphAttributes[semantic]?.length) return;
+
+    const expectedLength = vertexCount * itemSize;
+    const attributes = [...geometry.morphAttributes[semantic]];
+    while (attributes.length < index) {
+      const empty = new BufferAttribute(new Float32Array(expectedLength), itemSize);
+      (empty as any).name = `morph_${attributes.length}`;
+      attributes.push(empty);
+    }
+
+    const empty = new BufferAttribute(new Float32Array(expectedLength), itemSize);
+    (empty as any).name = name;
+    attributes[index] = empty;
+    geometry.morphAttributes[semantic] = attributes;
+  }
+
+  private addRuntimeMorphMesh(mesh: Mesh): void {
+    const key = mesh.name || (mesh as any).uuid;
+    const exists = this.meshes.some((candidate) => (candidate.name || (candidate as any).uuid) === key);
+    if (!exists) {
+      this.meshes.push(mesh);
+    }
+  }
+
   private getMorphKeyCacheKey(key: string, meshNames?: string[]): string {
     return meshNames?.length ? `key:${key}@${meshNames.join(',')}` : `key:${key}`;
   }
@@ -1519,7 +1821,7 @@ export class Loom3 implements LoomLarge {
   }
 
   private syncVisemeRuntimeState(): void {
-    const visemeCount = this.config.visemeKeys.length;
+    const visemeCount = getProfileVisemeSlots(this.config).length;
     this.visemeValues = Array.from(
       { length: visemeCount },
       (_, index) => this.visemeValues[index] ?? 0
@@ -1531,7 +1833,8 @@ export class Loom3 implements LoomLarge {
   }
 
   private getVisemeJawAmount(visemeIndex: number): number {
-    return this.config.visemeJawAmounts?.[visemeIndex]
+    return getVisemeJawAmounts(this.config)?.[visemeIndex]
+      ?? this.config.visemeJawAmounts?.[visemeIndex]
       ?? Loom3.VISEME_JAW_AMOUNTS[visemeIndex]
       ?? 0;
   }

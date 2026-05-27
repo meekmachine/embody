@@ -91,6 +91,40 @@ export interface Loom3Config {
 }
 
 // ============================================================================
+// RUNTIME MORPH TARGET AUTHORING
+// ============================================================================
+
+export type MorphTargetAttributeData = Float32Array | number[];
+
+export interface MorphTargetDelta {
+  /** Mesh name from the loaded Three.js scene. */
+  meshName: string;
+  /** Morph target name to add to morphTargetDictionary. */
+  name: string;
+  /** POSITION deltas, usually XYZ values relative to the base mesh. */
+  position: MorphTargetAttributeData;
+  /** Optional NORMAL deltas. */
+  normal?: MorphTargetAttributeData;
+  /** Optional TANGENT deltas. */
+  tangent?: MorphTargetAttributeData;
+  /** Whether deltas are relative to base attributes. Defaults to true. */
+  relative?: boolean;
+}
+
+export interface AddMorphTargetOptions {
+  /** Replace an existing morph target with the same name. */
+  replace?: boolean;
+  /** Initialize the new or replaced influence value to zero. Defaults to true. */
+  resetInfluence?: boolean;
+  /**
+   * Replace and dispose the BufferGeometry instead of mutating it in place.
+   * Defaults to true because Three.js does not support mutating morph attributes
+   * after a geometry has rendered.
+   */
+  forceGeometryReplacement?: boolean;
+}
+
+// ============================================================================
 // BAKED ANIMATION TYPES (Three.js AnimationMixer support)
 // ============================================================================
 
@@ -246,6 +280,40 @@ export interface AnimationActionHandle {
 // SNIPPET-TO-CLIP TYPES (Dynamic clip construction from AU curves)
 // ============================================================================
 
+export type ClipEvent =
+  | {
+      type: 'keyframe';
+      clipName: string;
+      keyframeIndex: number;
+      totalKeyframes: number;
+      currentTime: number;
+      duration: number;
+      iteration: number;
+    }
+  | {
+      type: 'loop';
+      clipName: string;
+      iteration: number;
+      currentTime: number;
+      duration: number;
+    }
+  | {
+      type: 'seek';
+      clipName: string;
+      currentTime: number;
+      duration: number;
+      iteration: number;
+    }
+  | {
+      type: 'completed';
+      clipName: string;
+      currentTime: number;
+      duration: number;
+      iteration: number;
+    };
+
+export type ClipEventListener = (event: ClipEvent) => void;
+
 /**
  * A single keyframe point in an animation curve.
  */
@@ -348,6 +416,8 @@ export interface ClipHandle {
   getTime: () => number;
   /** Get total clip duration in seconds */
   getDuration: () => number;
+  /** Subscribe to clip lifecycle events emitted by the runtime update loop */
+  subscribe?: (listener: ClipEventListener) => () => void;
   /** Promise that resolves when clip finishes (non-looping only) */
   finished: Promise<void>;
 }

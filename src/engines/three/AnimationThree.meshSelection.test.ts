@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Mesh, MeshBasicMaterial, Object3D } from 'three';
 import type { Profile } from '../../mappings/types';
+import { getMeshNamesForAUProfile, getMeshNamesForVisemeProfile } from '../../mappings/visemeSystem';
 import { BakedAnimationController, type BakedAnimationHost } from './AnimationThree';
 
 function makeMorphMesh(name: string, dictionary: Record<string, number>): Mesh {
@@ -13,20 +14,11 @@ function makeMorphMesh(name: string, dictionary: Record<string, number>): Mesh {
 }
 
 function getMeshNamesForAU(profile: Profile, auId: number): string[] {
-  const info = profile.auInfo?.[String(auId)];
-  const facePart = info?.facePart;
-  if (facePart) {
-    const category = profile.auFacePartToMeshCategory?.[facePart];
-    if (category) return profile.morphToMesh?.[category] || [];
-  }
-  return profile.morphToMesh?.face || [];
+  return getMeshNamesForAUProfile(profile, auId);
 }
 
 function getMeshNamesForViseme(profile: Profile): string[] {
-  const category = profile.visemeMeshCategory || (profile.morphToMesh?.viseme ? 'viseme' : 'face');
-  const visemeMeshes = profile.morphToMesh?.[category];
-  if (visemeMeshes && visemeMeshes.length > 0) return visemeMeshes;
-  return profile.morphToMesh?.face || [];
+  return getMeshNamesForVisemeProfile(profile);
 }
 
 function makeHost(profile: Profile, meshes: Mesh[]): BakedAnimationHost {
@@ -127,5 +119,66 @@ describe('BakedAnimationController mesh selection', () => {
     const trackNames = clip!.tracks.map((track) => track.name);
     expect(trackNames.some((name) => name.includes((visemeMesh as any).uuid))).toBe(true);
     expect(trackNames.some((name) => name.includes((faceMesh as any).uuid))).toBe(false);
+  });
+
+  it('builds viseme clip tracks from one-to-many weighted bindings', () => {
+    const visemeMesh = makeMorphMesh('VisemeMesh', { Mouth_Aah: 0, Mouth_Wide: 1 });
+
+    const profile: Profile = {
+      auToMorphs: {},
+      auToBones: {},
+      boneNodes: {},
+      morphToMesh: { face: [], viseme: ['VisemeMesh'] },
+      visemeKeys: ['Legacy_AA'],
+      visemeSlots: [{ id: 'aa', label: 'AA', order: 0 }],
+      visemeBindings: {
+        aa: {
+          targets: [
+            { morph: 'Mouth_Aah' },
+            { morph: 'Mouth_Wide', weight: 0.5 },
+          ],
+        },
+      },
+      visemeMeshCategory: 'viseme',
+    };
+
+    const host = makeHost(profile, [visemeMesh]);
+    const controller = new BakedAnimationController(host);
+    const clip = controller.snippetToClip(
+      'viseme-bindings',
+      { '0': [{ time: 0, intensity: 0 }, { time: 1, intensity: 1 }] },
+      { snippetCategory: 'visemeSnippet' }
+    );
+
+    expect(clip).toBeTruthy();
+    const trackByName = new Map(clip!.tracks.map((track) => [track.name, track]));
+    const aahTrack = trackByName.get(`${(visemeMesh as any).uuid}.morphTargetInfluences[0]`);
+    const wideTrack = trackByName.get(`${(visemeMesh as any).uuid}.morphTargetInfluences[1]`);
+
+    expect(aahTrack?.values[1]).toBeCloseTo(1);
+    expect(wideTrack?.values[1]).toBeCloseTo(0.5);
+  });
+
+  it('does not fall back to face when the explicit viseme mesh category is empty', () => {
+    const faceMesh = makeMorphMesh('FaceMesh', { Viseme_AA: 0 });
+
+    const profile: Profile = {
+      auToMorphs: {},
+      auToBones: {},
+      boneNodes: {},
+      morphToMesh: { face: ['FaceMesh'], viseme: [] },
+      visemeKeys: ['Viseme_AA'],
+      visemeMeshCategory: 'viseme',
+    };
+
+    const host = makeHost(profile, [faceMesh]);
+    const controller = new BakedAnimationController(host);
+    const clip = controller.snippetToClip(
+      'viseme-empty-routing',
+      { '0': [{ time: 0, intensity: 0 }, { time: 1, intensity: 1 }] },
+      { snippetCategory: 'visemeSnippet' }
+    );
+
+    expect(clip).toBeNull();
   });
 });
