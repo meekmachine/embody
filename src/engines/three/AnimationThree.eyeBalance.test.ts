@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { Euler, Object3D, Quaternion } from 'three';
 import type { Profile } from '../../mappings/types';
-import { BakedAnimationController, type BakedAnimationHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './AnimationThree';
 
 function makeEyeBoneHost(): {
-  controller: BakedAnimationController;
+  controller: AnimationController;
   eyeL: Object3D;
   eyeR: Object3D;
 } {
@@ -55,7 +55,7 @@ function makeEyeBoneHost(): {
     compositeRotations: compositeRotations as any,
   };
 
-  const host: BakedAnimationHost = {
+  const host: AnimationControllerHost = {
     getModel: () => new Object3D(),
     getMeshes: () => [],
     getMeshByName: () => undefined,
@@ -85,7 +85,7 @@ function makeEyeBoneHost(): {
   };
 
   return {
-    controller: new BakedAnimationController(host),
+    controller: new AnimationController(host),
     eyeL,
     eyeR,
   };
@@ -107,7 +107,7 @@ function getRotationDegrees(clip: any, obj: Object3D): [number, number, number] 
   ];
 }
 
-describe('BakedAnimationController eye balance', () => {
+describe('AnimationController eye balance', () => {
   it('applies snippet balance to bilateral eye bone tracks', () => {
     const { controller, eyeL, eyeR } = makeEyeBoneHost();
 

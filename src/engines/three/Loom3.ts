@@ -39,7 +39,7 @@ import type {
   AddMorphTargetOptions,
 } from '../../core/types';
 import { getCompositeAxisBinding, getCompositeAxisValue } from '../../core/compositeAxis';
-import { AnimationThree, BakedAnimationController } from './AnimationThree';
+import { AnimationThree, AnimationController } from './AnimationThree';
 import { getSideScale } from './balanceUtils';
 import { HairPhysicsController, type HairPhysicsConfig, type HairPhysicsConfigUpdate, type HairPhysicsDirectionConfig, type HairMorphTargets } from './hair/HairPhysicsController';
 import { CC4_PRESET, CC4_MESHES, COMPOSITE_ROTATIONS as CC4_COMPOSITE_ROTATIONS } from '../../presets/cc4';
@@ -162,7 +162,7 @@ export class Loom3 implements LoomLarge {
     0.12, 0.18, 0.02, 0.25, 0.60, 0.40,
   ];
 
-  private bakedAnimations: BakedAnimationController;
+  private animationController: AnimationController;
   private hairPhysics: HairPhysicsController;
 
   // Internal animation loop
@@ -196,12 +196,18 @@ export class Loom3 implements LoomLarge {
     this.compositeRotations = this.config.compositeRotations || CC4_COMPOSITE_ROTATIONS;
     this.auToCompositeMap = buildAUToCompositeMap(this.compositeRotations);
 
-    this.bakedAnimations = new BakedAnimationController({
+    this.animationController = new AnimationController({
       getModel: () => this.model,
       getMeshes: () => this.meshes,
       getMeshByName: (name) => this.meshByName.get(name),
       getMeshNamesForAU: (auId) => this.getMeshNamesForAU(auId),
       getMeshNamesForViseme: () => this.getMeshNamesForViseme(),
+      getCurrentAUValue: (auId) => this.getAU(auId),
+      getCurrentVisemeValue: (visemeIndex) => this.visemeValues[visemeIndex] ?? 0,
+      getCurrentMorphValue: (morphKey, meshNames) => this.getMorphValueForMeshes(morphKey, meshNames),
+      getCurrentMorphIndexValue: (morphIndex, meshNames) => this.getMorphValueByIndexForMeshes(morphIndex, meshNames),
+      getCurrentBoneQuaternion: (nodeKey) => this.bones[nodeKey]?.obj.quaternion.clone() ?? null,
+      getCurrentBonePositionValue: (nodeKey, axis) => this.bones[nodeKey]?.obj.position[axis] ?? null,
       getBones: () => this.bones,
       getConfig: () => this.config,
       getCompositeRotations: () => this.compositeRotations,
@@ -214,9 +220,9 @@ export class Loom3 implements LoomLarge {
     this.hairPhysics = new HairPhysicsController({
       getMeshByName: (name) => this.meshByName.get(name),
       getSelectedHairMeshNames: () => this.config.morphToMesh?.hair || [],
-      // Hair physics needs clip construction, but mixer ownership still lives in BakedAnimationController.
-      buildClip: (clipName, curves, options) => this.bakedAnimations.buildClip(clipName, curves, options),
-      cleanupSnippet: (name) => this.bakedAnimations.cleanupSnippet(name),
+      // Hair physics reuses the shared mixer-backed clip builder.
+      buildClip: (clipName, curves, options) => this.animationController.buildClip(clipName, curves, options),
+      cleanupSnippet: (name) => this.animationController.cleanupSnippet(name),
     });
 
     this.applyHairPhysicsProfileConfig();
@@ -430,7 +436,7 @@ export class Loom3 implements LoomLarge {
     this.animation.tick(dtSeconds);
     this.flushPendingComposites();
 
-    this.bakedAnimations.update(dtSeconds);
+    this.animationController.update(dtSeconds);
     this.hairPhysics.update(dtSeconds);
   }
 
@@ -463,7 +469,7 @@ export class Loom3 implements LoomLarge {
   dispose(): void {
     this.stop();
     this.clearTransitions();
-    this.bakedAnimations.dispose();
+    this.animationController.dispose();
     this.meshes = [];
     this.model = null;
     this.bones = {};
@@ -1612,6 +1618,14 @@ export class Loom3 implements LoomLarge {
     return 0;
   }
 
+  private getMorphValueForMeshes(key: string, meshNames?: string[]): number {
+    const targets = this.resolveMorphTargets(key, meshNames);
+    if (targets.length > 0) {
+      return targets[0].infl[targets[0].idx] ?? 0;
+    }
+    return this.getMorphValue(key);
+  }
+
   private getMorphValueByIndex(index: number): number {
     const idx = Number.isInteger(index) && index >= 0 ? index : null;
     if (idx === null) return 0;
@@ -1628,6 +1642,14 @@ export class Loom3 implements LoomLarge {
       if (idx < infl.length) return infl[idx] ?? 0;
     }
     return 0;
+  }
+
+  private getMorphValueByIndexForMeshes(index: number, meshNames?: string[]): number {
+    const targets = this.resolveMorphTargetsByIndex(index, meshNames);
+    if (targets.length > 0) {
+      return targets[0].infl[targets[0].idx] ?? 0;
+    }
+    return this.getMorphValueByIndex(index);
   }
 
   private applyMorphTargetDelta(target: MorphTargetDelta, options: AddMorphTargetOptions): number {
@@ -2217,87 +2239,87 @@ export class Loom3 implements LoomLarge {
   // ============================================================================
 
   loadAnimationClips(clips: unknown[]): void {
-    this.bakedAnimations.loadAnimationClips(clips);
+    this.animationController.loadAnimationClips(clips);
   }
 
   getAnimationClips(): AnimationClipInfo[] {
-    return this.bakedAnimations.getAnimationClips();
+    return this.animationController.getAnimationClips();
   }
 
   removeAnimationClip(clipName: string): boolean {
-    return this.bakedAnimations.removeAnimationClip(clipName);
+    return this.animationController.removeAnimationClip(clipName);
   }
 
   playAnimation(clipName: string, options: AnimationPlayOptions = {}): AnimationActionHandle | null {
-    return this.bakedAnimations.playAnimation(clipName, options);
+    return this.animationController.playAnimation(clipName, options);
   }
 
   stopAnimation(clipName: string): void {
-    this.bakedAnimations.stopAnimation(clipName);
+    this.animationController.stopAnimation(clipName);
   }
 
   stopAllAnimations(): void {
-    this.bakedAnimations.stopAllAnimations();
+    this.animationController.stopAllAnimations();
   }
 
   pauseAnimation(clipName: string): void {
-    this.bakedAnimations.pauseAnimation(clipName);
+    this.animationController.pauseAnimation(clipName);
   }
 
   resumeAnimation(clipName: string): void {
-    this.bakedAnimations.resumeAnimation(clipName);
+    this.animationController.resumeAnimation(clipName);
   }
 
   pauseAllAnimations(): void {
-    this.bakedAnimations.pauseAllAnimations();
+    this.animationController.pauseAllAnimations();
   }
 
   resumeAllAnimations(): void {
-    this.bakedAnimations.resumeAllAnimations();
+    this.animationController.resumeAllAnimations();
   }
 
   setAnimationSpeed(clipName: string, speed: number): void {
-    this.bakedAnimations.setAnimationSpeed(clipName, speed);
+    this.animationController.setAnimationSpeed(clipName, speed);
   }
 
   setAnimationIntensity(clipName: string, intensity: number): void {
-    this.bakedAnimations.setAnimationIntensity(clipName, intensity);
+    this.animationController.setAnimationIntensity(clipName, intensity);
   }
 
   setAnimationLoopMode(clipName: string, loopMode: 'repeat' | 'once' | 'pingpong'): void {
-    this.bakedAnimations.setAnimationLoopMode(clipName, loopMode);
+    this.animationController.setAnimationLoopMode(clipName, loopMode);
   }
 
   setAnimationRepeatCount(clipName: string, repeatCount?: number): void {
-    this.bakedAnimations.setAnimationRepeatCount(clipName, repeatCount);
+    this.animationController.setAnimationRepeatCount(clipName, repeatCount);
   }
 
   setAnimationReverse(clipName: string, reverse: boolean): void {
-    this.bakedAnimations.setAnimationReverse(clipName, reverse);
+    this.animationController.setAnimationReverse(clipName, reverse);
   }
 
   setAnimationBlendMode(clipName: string, blendMode: AnimationBlendMode): void {
-    this.bakedAnimations.setAnimationBlendMode(clipName, blendMode);
+    this.animationController.setAnimationBlendMode(clipName, blendMode);
   }
 
   seekAnimation(clipName: string, time: number): void {
-    this.bakedAnimations.seekAnimation(clipName, time);
+    this.animationController.seekAnimation(clipName, time);
   }
 
   setAnimationTimeScale(timeScale: number): void {
-    this.bakedAnimations.setAnimationTimeScale(timeScale);
+    this.animationController.setAnimationTimeScale(timeScale);
   }
 
   getAnimationState(clipName: string): AnimationState | null {
-    return this.bakedAnimations.getAnimationState(clipName);
+    return this.animationController.getAnimationState(clipName);
   }
 
   getPlayingAnimations(): AnimationState[] {
-    return this.bakedAnimations.getPlayingAnimations();
+    return this.animationController.getPlayingAnimations();
   }
 
   crossfadeTo(clipName: string, duration = 0.3, options: AnimationPlayOptions = {}): AnimationActionHandle | null {
-    return this.bakedAnimations.crossfadeTo(clipName, duration, options);
+    return this.animationController.crossfadeTo(clipName, duration, options);
   }
 
   snippetToClip(
@@ -2305,18 +2327,18 @@ export class Loom3 implements LoomLarge {
     curves: CurvesMap,
     options?: ClipOptions
   ): AnimationClip | null {
-    return this.bakedAnimations.snippetToClip(clipName, curves, options);
+    return this.animationController.snippetToClip(clipName, curves, options);
   }
 
   playClip(clip: AnimationClip, options?: ClipOptions): ClipHandle | null {
-    return this.bakedAnimations.playClip(clip, options);
+    return this.animationController.playClip(clip, options);
   }
 
   playSnippet(
     snippet: Snippet | { name: string; curves: CurvesMap },
     options?: ClipOptions
   ): ClipHandle | null {
-    return this.bakedAnimations.playSnippet(snippet, options);
+    return this.animationController.playSnippet(snippet, options);
   }
 
   buildClip(
@@ -2324,23 +2346,23 @@ export class Loom3 implements LoomLarge {
     curves: CurvesMap,
     options?: ClipOptions
   ): ClipHandle | null {
-    return this.bakedAnimations.buildClip(clipName, curves, options);
+    return this.animationController.buildClip(clipName, curves, options);
   }
 
   cleanupSnippet(name: string) {
-    this.bakedAnimations.cleanupSnippet(name);
+    this.animationController.cleanupSnippet(name);
   }
 
   updateClipParams(
     name: string,
     params: { weight?: number; rate?: number; loop?: boolean; loopMode?: 'once' | 'repeat' | 'pingpong'; repeatCount?: number; reverse?: boolean; actionId?: string }
   ): boolean {
-    return this.bakedAnimations.updateClipParams(name, params);
+    return this.animationController.updateClipParams(name, params);
   }
 
   /**
    * Check if curves can be played through buildClip.
-   * Returns false if curves contain bone-only AUs that can't be baked to morph tracks.
+   * Returns false if curves contain data that cannot be converted to mixer tracks.
    */
   supportsClipCurves(
     curves: Record<string, Array<{ time: number; intensity: number; inherit?: boolean }>>

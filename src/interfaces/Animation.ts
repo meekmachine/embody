@@ -231,14 +231,14 @@ export interface Animation {
   getAnimationClips(): AnimationClipInfo[];
 
   /**
-   * Remove a baked animation clip by name.
-   * @param clipName - Name of the baked animation clip to remove
+   * Remove a loaded animation clip by name.
+   * @param clipName - Name of the animation clip to remove
    * @returns True when the clip existed and was removed
    */
   removeAnimationClip(clipName: string): boolean;
 
   /**
-   * Play a baked animation by name.
+   * Play a loaded animation clip by name.
    * @param clipName - Name of the animation clip to play
    * @param options - Playback options (speed, intensity, loop, etc.)
    * @returns Handle for controlling the animation, or null if clip not found
@@ -404,7 +404,7 @@ export interface Animation {
 
   /**
    * Check if the given curves can be played through buildClip.
-   * Returns false if curves contain bone-only AUs that can't be baked.
+   * Returns false if curves contain data that cannot be converted to mixer tracks.
    */
   supportsClipCurves(
     curves: Record<string, Array<CurvePoint>>

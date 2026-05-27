@@ -17,7 +17,7 @@ Loom3 is broader than a face-controller wrapper. The library spans four practica
 - Runtime control: Action Units, visemes, direct morphs, continuum pairs, composite rotations, transitions, and mixer playback.
 - Rig configuration: built-in presets, profile overrides, preset lookup and extension, name resolution, viseme routing, mix weights, and skeletal-only preset support.
 - Inspection and validation: mesh, morph, and bone discovery; preset-fit checks; correction suggestions; and full model analysis.
-- Runtime tooling: mesh/material debugging, baked animation clip helpers, hair physics, and region/geometry helpers for annotation or camera tooling.
+- Runtime tooling: mesh/material debugging, mixer animation clip helpers, hair physics, and region/geometry helpers for annotation or camera tooling.
 
 ## Reading Paths
 
@@ -1870,7 +1870,7 @@ Loom3 can convert AU/morph curves into AnimationMixer clips for smooth, mixer-on
 Key APIs:
 - `snippetToClip(name, curves, options)` builds an AnimationClip from curves.
 - `playClip(clip, options)` returns a ClipHandle you can pause/resume/stop.
-- `clipHandle.subscribe(listener)` streams lifecycle events from the runtime update loop.
+- `clipHandle.subscribe(listener)` streams lifecycle events during mixer updates.
 - `clipHandle.stop()` now resolves cleanly (no rejected promise).
 
 ```typescript
@@ -1890,6 +1890,18 @@ if (clip) {
   await handle.finished;
   unsubscribe?.();
 }
+```
+
+When the first keyframe has `inherit: true`, Loom3 anchors that first mixer
+track value to the character's current live target value instead of treating the
+placeholder intensity as a real reset. The following keyframes remain authored
+targets:
+
+```typescript
+const handle = loom.buildClip('smile-from-current-pose', {
+  // Starts from the current AU 12/morph/bone state, then moves to 0.7.
+  '12': [{ time: 0, intensity: 0, inherit: true }, { time: 0.25, intensity: 0.7 }],
+}, { loop: false });
 ```
 
 Clip stream events are discrete runtime events, not a polling surface:
@@ -2044,7 +2056,7 @@ const state = loom.getAnimationState('Idle');
 
 ### Combining with facial animation
 
-Baked animations and facial AU control work together seamlessly. The AnimationMixer updates automatically when you call `loom.update()` or use `loom.start()`:
+Loaded mixer clips and facial AU control work together seamlessly. The AnimationMixer updates automatically when you call `loom.update()` or use `loom.start()`:
 
 ```typescript
 loom.loadAnimationClips(gltf.animations);

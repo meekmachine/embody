@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { Object3D, Quaternion } from 'three';
 import type { Profile } from '../../mappings/types';
 import type { ResolvedBones } from './types';
-import { BakedAnimationController, type BakedAnimationHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './AnimationThree';
 
-function makeHost(): { controller: BakedAnimationController; bones: ResolvedBones } {
+function makeHost(): { controller: AnimationController; bones: ResolvedBones } {
   const head = new Object3D();
   head.name = 'Head';
 
@@ -38,7 +38,7 @@ function makeHost(): { controller: BakedAnimationController; bones: ResolvedBone
     ],
   };
 
-  const host: BakedAnimationHost = {
+  const host: AnimationControllerHost = {
     getModel: () => new Object3D(),
     getMeshes: () => [],
     getMeshByName: () => undefined,
@@ -50,16 +50,16 @@ function makeHost(): { controller: BakedAnimationController; bones: ResolvedBone
     isMixedAU: () => false,
   };
 
-  return { controller: new BakedAnimationController(host), bones };
+  return { controller: new AnimationController(host), bones };
 }
 
-function getTrackComponent(clip: NonNullable<ReturnType<BakedAnimationController['snippetToClip']>>, obj: Object3D, componentIndex: number) {
+function getTrackComponent(clip: NonNullable<ReturnType<AnimationController['snippetToClip']>>, obj: Object3D, componentIndex: number) {
   const track = clip.tracks.find((entry) => entry.name === `${(obj as any).uuid}.quaternion`);
   expect(track).toBeTruthy();
   return Array.from((track!.values as ArrayLike<number>)).slice(-4)[componentIndex];
 }
 
-describe('BakedAnimationController grouped composite rotation axes', () => {
+describe('AnimationController grouped composite rotation axes', () => {
   it('uses grouped negative/positive AUs when baking quaternion tracks', () => {
     const negative = makeHost();
     const negativeClip = negative.controller.snippetToClip('grouped-negative', {

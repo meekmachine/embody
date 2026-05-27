@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Mesh, MeshBasicMaterial, Object3D } from 'three';
 import type { Profile } from '../../mappings/types';
 import { getMeshNamesForAUProfile, getMeshNamesForVisemeProfile } from '../../mappings/visemeSystem';
-import { BakedAnimationController, type BakedAnimationHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './AnimationThree';
 
 function makeMorphMesh(name: string, dictionary: Record<string, number>): Mesh {
   const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
@@ -21,7 +21,7 @@ function getMeshNamesForViseme(profile: Profile): string[] {
   return getMeshNamesForVisemeProfile(profile);
 }
 
-function makeHost(profile: Profile, meshes: Mesh[]): BakedAnimationHost {
+function makeHost(profile: Profile, meshes: Mesh[]): AnimationControllerHost {
   const meshMap = new Map(meshes.map((mesh) => [mesh.name, mesh]));
   return {
     getModel: () => new Object3D(),
@@ -38,7 +38,7 @@ function makeHost(profile: Profile, meshes: Mesh[]): BakedAnimationHost {
   };
 }
 
-describe('BakedAnimationController mesh selection', () => {
+describe('AnimationController mesh selection', () => {
   it('routes AU clip tracks using AU mesh mapping (eye AUs stay on eye meshes)', () => {
     const faceMesh = makeMorphMesh('FaceMesh', { Eye_Look_Left: 0 });
     const eyeMesh = makeMorphMesh('EyeMesh', { Eye_Look_Left: 0 });
@@ -58,7 +58,7 @@ describe('BakedAnimationController mesh selection', () => {
     };
 
     const host = makeHost(profile, [faceMesh, eyeMesh]);
-    const controller = new BakedAnimationController(host);
+    const controller = new AnimationController(host);
     const clip = controller.snippetToClip(
       'eye-au-routing',
       { '61': [{ time: 0, intensity: 0 }, { time: 1, intensity: 1 }] }
@@ -85,7 +85,7 @@ describe('BakedAnimationController mesh selection', () => {
     };
 
     const host = makeHost(profile, [faceMesh, accessoryMesh]);
-    const controller = new BakedAnimationController(host);
+    const controller = new AnimationController(host);
     const clip = controller.snippetToClip(
       'no-all-mesh-fallback',
       { '1': [{ time: 0, intensity: 0 }, { time: 1, intensity: 1 }] }
@@ -108,7 +108,7 @@ describe('BakedAnimationController mesh selection', () => {
     };
 
     const host = makeHost(profile, [faceMesh, visemeMesh]);
-    const controller = new BakedAnimationController(host);
+    const controller = new AnimationController(host);
     const clip = controller.snippetToClip(
       'viseme-routing',
       { '0': [{ time: 0, intensity: 0 }, { time: 1, intensity: 1 }] },
@@ -143,7 +143,7 @@ describe('BakedAnimationController mesh selection', () => {
     };
 
     const host = makeHost(profile, [visemeMesh]);
-    const controller = new BakedAnimationController(host);
+    const controller = new AnimationController(host);
     const clip = controller.snippetToClip(
       'viseme-bindings',
       { '0': [{ time: 0, intensity: 0 }, { time: 1, intensity: 1 }] },
@@ -172,7 +172,7 @@ describe('BakedAnimationController mesh selection', () => {
     };
 
     const host = makeHost(profile, [faceMesh]);
-    const controller = new BakedAnimationController(host);
+    const controller = new AnimationController(host);
     const clip = controller.snippetToClip(
       'viseme-empty-routing',
       { '0': [{ time: 0, intensity: 0 }, { time: 1, intensity: 1 }] },

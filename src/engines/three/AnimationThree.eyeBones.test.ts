@@ -3,7 +3,7 @@ import { Object3D, Quaternion } from 'three';
 import type { Profile } from '../../mappings/types';
 import { BONE_AU_TO_BINDINGS, COMPOSITE_ROTATIONS } from '../../presets/cc4';
 import type { ResolvedBones } from './types';
-import { BakedAnimationController, type BakedAnimationHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './AnimationThree';
 
 const INDEPENDENT_EYE_CASES = [
   { auId: 65, trackNode: 'EYE_L', otherNode: 'EYE_R', label: 'left-eye yaw' },
@@ -21,7 +21,7 @@ function snapshot(obj: Object3D) {
   };
 }
 
-function makeHost(): { host: BakedAnimationHost; bones: ResolvedBones } {
+function makeHost(): { host: AnimationControllerHost; bones: ResolvedBones } {
   const model = new Object3D();
   const leftEye = new Object3D();
   const rightEye = new Object3D();
@@ -43,7 +43,7 @@ function makeHost(): { host: BakedAnimationHost; bones: ResolvedBones } {
     visemeKeys: [],
   };
 
-  const host: BakedAnimationHost = {
+  const host: AnimationControllerHost = {
     getModel: () => model,
     getMeshes: () => [],
     getMeshByName: () => undefined,
@@ -58,10 +58,10 @@ function makeHost(): { host: BakedAnimationHost; bones: ResolvedBones } {
   return { host, bones };
 }
 
-describe('BakedAnimationController independent eye bone rotations', () => {
+describe('AnimationController independent eye bone rotations', () => {
   it.each(INDEPENDENT_EYE_CASES)('emits only the intended eye quaternion track for $label', ({ auId, trackNode, otherNode }) => {
     const { host, bones } = makeHost();
-    const controller = new BakedAnimationController(host);
+    const controller = new AnimationController(host);
 
     const clip = controller.snippetToClip(`eye-${auId}`, {
       [auId]: [
@@ -87,7 +87,7 @@ describe('BakedAnimationController independent eye bone rotations', () => {
 
   it('keeps shared eye AUs driving both eye quaternion tracks', () => {
     const { host, bones } = makeHost();
-    const controller = new BakedAnimationController(host);
+    const controller = new AnimationController(host);
 
     const clip = controller.snippetToClip('shared-eyes', {
       61: [
