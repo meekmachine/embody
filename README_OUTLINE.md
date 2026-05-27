@@ -21,9 +21,33 @@ The goal is:
 - Make the FACS-based semantic layer feel like a strength: it is well-defined, reusable, and configurable enough for AI-assisted mapping workflows.
 - Put preset/profile fit before advanced runtime control, because readers need to know whether their character matches the mappings first.
 - Treat the animation system as a first-class value proposition, not a late appendix.
-- Keep LoomLarge references useful but secondary; they should clarify the product, not narrate documentation assembly.
+- Keep CharacterLoom references useful but secondary; they should clarify the product, not narrate documentation assembly.
 - Describe current shipped viseme and jaw behavior exactly as it is today.
 - Push long tables, edge cases, provider-specific details, and workflow depth into companion docs.
+
+## Current Strategy Updates From May 2026 Review
+
+Use the May 25 issue comments in `#97` and `#98`, the current `origin/main` exports, and the open PR/issue state as the authoritative planning layer for this README pass.
+
+Document as shipped:
+
+- CharacterLoom public links and current drawer tabs: `animation`, `poses`, `gestures`, `speech`, `blink`, `aus`, `visemes`, `tracking`, `hair`, `meshes`, `bones`, `mappings`, `annotations`, and `properties`.
+- Profile-first config APIs from `#140`, with old `CharacterConfig` names treated as compatibility aliases.
+- Profile-defined viseme slots/bindings, id-based viseme APIs, provider matching helpers, and strongest-active jaw aggregation from `#131` and `#135`.
+- Runtime morph target authoring from `#123`.
+- Clip lifecycle events from `#120`.
+- Baked clip face/body/scene channel metadata and separated baked/generated playback passes from `#114` and `#133`.
+- Annotation camera-angle/laterality helpers from `#145`.
+
+Keep as pending or roadmap:
+
+- full provider lip-sync sequence compilation from `#141` / draft PR `#143`
+- inherited first-keyframe semantics from `#136` / PR `#142`
+- base pose runtime APIs from PR `#138`
+- hardened dynamic clip parameter updates from `#116` / PR `#137`
+- canonical semantic joint-control authoring/inference APIs from `#108`
+- external morph/skin/animation payload rehydration from `#122`
+- Rust/Wasm runtime-core investigation from `#146`
 
 ## Proposed Main README Sections
 
@@ -32,7 +56,7 @@ The goal is:
 - State what Loom3 is in one clean paragraph.
 - Say that it is the expressive runtime and profile layer for performant, mixable Three.js character animation.
 - Explain the central abstraction: developers work in expressive semantics instead of rig plumbing.
-- Briefly clarify the boundary with LoomLarge.
+- Briefly clarify the boundary with CharacterLoom and the internal LoomLarge app/repo.
 
 ### 2. Why Loom3 exists
 
@@ -176,10 +200,13 @@ The goal is:
 - Recommend recreating a Loom3-specific diagram inspired by the JALI speech-style graphic rather than relying on unexplained jargon.
 - Then explain the current shipped Loom3 truth exactly:
 - the shipped CC4 `VISEME_KEYS` order
-- current live viseme APIs are index-based
-- clip generation uses profile `visemeJawAmounts`
-- live `setViseme()` and `transitionViseme()` still use the runtime's internal jaw table
-- Make clear that viseme and jaw behavior are under active overhaul in `#100`.
+- compatibility APIs are index-based: `setViseme()` and `transitionViseme()`
+- profile-defined slot APIs also ship: `setVisemeById()` and `transitionVisemeById()`
+- profile slots can include provider ids, phoneme hints, matchers, and default jaw amounts
+- `getVisemeBindingTargets()` and related helpers are the current binding source for live and generated viseme playback
+- live jaw coupling now reads profile/slot jaw amounts, with the old private table only as a final fallback
+- overlapping live visemes use the strongest active jaw contribution
+- Make clear that provider-source modeling and richer speech sequence compilation are still under active overhaul in `#100`, `#86`, `#141`, and draft PR `#143`.
 - Do not describe the future model as if it already ships.
 - Give readers the correct current behavior plus the broad direction of change.
 - Keep provider-specific depth out of the main README.
@@ -187,7 +214,9 @@ The goal is:
 ### 14. Animation system
 
 - This needs to be one of the central sections, not an afterthought.
-- Start by saying Loom3 works with Three.js `AnimationMixer`, and that this is what makes baked and procedural animation mixable.
+- Start by saying Loom3 exposes a shared playback model on top of Three.js `AnimationMixer` infrastructure.
+- Do not say baked and generated clips all live in one undifferentiated mixer world.
+- Be explicit after `#133`: baked source actions and generated/procedural clip actions are evaluated through separate passes so procedural snippets can safely override baked additive face tracks.
 - Explain the animation model as a coherent system:
 - transitions
 - baked animation clips
@@ -204,7 +233,8 @@ The goal is:
 - playback rate
 - loop behavior
 - Explain why baked and generated clips are remixable:
-- same mixer-backed playback world
+- normalized playback/control surface
+- separated mixer passes for safe precedence
 - same control surfaces
 - shared update ownership
 - Explain how direct runtime control coexists with clip playback.
@@ -242,7 +272,7 @@ The goal is:
 - `resolveFaceCenter()`
 - `findFaceCenter()`
 - orientation helpers
-- Keep the current Loom3 versus LoomLarge annotation boundary accurate.
+- Keep the current Loom3 versus CharacterLoom annotation boundary accurate.
 - Link to the deeper annotation configuration doc instead of inlining every field.
 
 ### 18. Skeletal-only and non-human presets
@@ -254,11 +284,11 @@ The goal is:
 - Use the shipped fish preset structure, not pseudo-API inventions.
 - Keep the full fish preset walkthrough in a deeper doc.
 
-### 19. LoomLarge companion walkthrough
+### 19. CharacterLoom companion walkthrough
 
 - Keep this optional and concise.
 - Use screenshots and links only when they help the reader understand the product.
-- Each LoomLarge reference should answer:
+- Each CharacterLoom reference should answer:
 - what the reader is looking at
 - why it matters
 - what to inspect next
@@ -351,7 +381,7 @@ Concretely, that means:
 - the animation section must explain the playback model as a system, not as a method list
 - the animation section must explain remixability, efficiency, and reliability in plain language
 - the walkthrough prose must explain the product state being shown, not the documentation process
-- LoomLarge screenshots and links need to justify their presence with actual reader value
+- CharacterLoom screenshots and links need to justify their presence with actual reader value
 
 ## Recommended Section Order For The Rewrite
 
@@ -373,7 +403,7 @@ Concretely, that means:
 16. Hair physics
 17. Regions, geometry, and annotation helpers
 18. Skeletal-only and non-human presets
-19. LoomLarge companion walkthrough
+19. CharacterLoom companion walkthrough
 20. Compact API reference
 21. Further reading
 22. License

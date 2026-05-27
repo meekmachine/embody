@@ -193,7 +193,7 @@ That means the Loom3 README should clearly say:
 
 ### README implication
 
-The relationship with LoomLarge and with external speech/agent systems should be stated plainly.
+The relationship with CharacterLoom, the internal LoomLarge app/repo, and external speech/agent systems should be stated plainly.
 
 Loom3 should come across as:
 

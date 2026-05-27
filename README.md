@@ -17,19 +17,20 @@ Loom3 gives Three.js characters a single expressive control system. It lets you 
 At the center of Loom3 is a semantic layer built around FACS Action Units and visemes. You tell the character what shape or motion you want, and Loom3 maps that request to the morph targets, bone rotations, bone translations, and mixer playback needed by the rig. A smile can use morphs and bones together. A spoken mouth shape can combine a viseme with jaw motion. A head movement can coordinate multiple rotation axes instead of acting like a single disconnected control.
 
 In practical terms, Loom3 gives you:
-- expressive face and speech control through AUs, visemes, continuum pairs, and direct morph access
+- expressive face and speech control through AUs, profile-defined viseme slots, continuum pairs, and direct morph access
 - coordinated head, eye, jaw, and tongue motion through composite rotations and paired controls
 - reusable character mappings through presets, profile overrides, name resolution, and skeletal-only support
+- runtime morph target authoring for generated morphs or external morph data your app has already loaded
 - runtime-safe profile edits for bone authoring flows, including re-resolving newly introduced semantic bones on a loaded model
-- runtime playback tools through transitions, snippets, generated clips, baked clips, crossfades, weights, and `AnimationMixer`
+- runtime playback tools through transitions, snippets, generated clips, baked clip channels, clip events, crossfades, weights, and `AnimationMixer`
 - inspection and validation tools for meshes, morphs, bones, preset fit, correction suggestions, and model analysis
-- supporting character tools such as region helpers, geometry helpers, mesh debugging, and hair physics
+- supporting character tools such as region helpers, camera-angle helpers, geometry helpers, mesh debugging, and hair physics
 
 ## Why This Is Valuable
 
 The value is that Loom3 turns a rig into something you can direct more naturally and reuse more confidently.
 
-Instead of manually wiring smile morphs, head rotations, eye-bone controls, jaw pivots, viseme tables, and clip playback as separate systems, you get one expressive layer over the whole character. That makes animation easier to author, easier to retarget, and easier to keep consistent as a project grows.
+Instead of manually wiring smile morphs, head rotations, eye-bone controls, jaw pivots, speech mouth-shape routing, and clip playback as separate systems, you get one expressive layer over the whole character. That makes animation easier to author, easier to retarget, and easier to keep consistent as a project grows.
 
 It also improves the result on screen. Because Loom3 can combine morphs and bones for the same AU or viseme, facial shapes, speech shapes, head motion, and eye direction can read as parts of the same performance instead of separate effects fighting for control.
 
@@ -40,22 +41,27 @@ It also improves the result on screen. Because Loom3 can combine morphs and bone
 - Skeletal-only or non-human character: go to [Creating Skeletal Animation Presets](#6-creating-skeletal-animation-presets) and then [Baked Animations and Procedural Clips](#16-baked-animations-and-procedural-clips).
 - Tooling, camera, or inspection workflow: read [Preset Selection & Validation](#3-preset-selection--validation), [Getting to Know Your Character](#4-getting-to-know-your-character), and [Regions & Geometry Helpers](#17-regions--geometry-helpers).
 
-## LoomLarge Companion
+## CharacterLoom Companion
 
-These links open the LoomLarge companion app on useful tabs while you read the package docs. They are convenience links for exploration, not the source of truth for the npm API.
+These links open the CharacterLoom companion app on useful tabs while you read the package docs. They are convenience links for exploration, not the source of truth for the npm API.
 
-| Goal | Open in LoomLarge |
+| Goal | Open in CharacterLoom |
 |------|-------------------|
-| Start with the main runtime surface | [Animation tab](https://loomlarge.web.app/?drawer=open&tab=animation) |
-| Inspect preset and profile settings | [Properties tab](https://loomlarge.web.app/?drawer=open&tab=properties) |
-| Inspect AU, morph, and bone routing | [Mappings tab](https://loomlarge.web.app/?drawer=open&tab=mappings) |
-| Inspect meshes and material state | [Meshes tab](https://loomlarge.web.app/?drawer=open&tab=meshes) |
-| Inspect resolved bones | [Bones tab](https://loomlarge.web.app/?drawer=open&tab=bones) |
-| Tune expressions and continuum pairs | [Action Units tab](https://loomlarge.web.app/?drawer=open&tab=action-units) |
-| Inspect lip-sync views | [Visemes tab](https://loomlarge.web.app/?drawer=open&tab=visemes) and [Speech tab](https://loomlarge.web.app/?drawer=open&tab=speech) |
-| Tune hair behavior | [Hair tab](https://loomlarge.web.app/?drawer=open&tab=hair) |
+| Start with the main runtime surface | [Animation tab](https://www.characterloom.com/?drawer=open&tab=animation) |
+| Inspect preset and profile settings | [Properties tab](https://www.characterloom.com/?drawer=open&tab=properties) |
+| Inspect AU, morph, and bone routing | [Mappings tab](https://www.characterloom.com/?drawer=open&tab=mappings) |
+| Inspect meshes and material state | [Meshes tab](https://www.characterloom.com/?drawer=open&tab=meshes) |
+| Inspect resolved bones | [Bones tab](https://www.characterloom.com/?drawer=open&tab=bones) |
+| Tune expressions and continuum pairs | [Emotes / AUs tab](https://www.characterloom.com/?drawer=open&tab=aus) |
+| Inspect simple transition behavior | [Blink tab](https://www.characterloom.com/?drawer=open&tab=blink) |
+| Inspect poses and reusable character state | [Poses tab](https://www.characterloom.com/?drawer=open&tab=poses) |
+| Inspect gestures and snippet-style motion | [Gestures tab](https://www.characterloom.com/?drawer=open&tab=gestures) |
+| Inspect lip-sync views | [Visemes tab](https://www.characterloom.com/?drawer=open&tab=visemes) and [Speech tab](https://www.characterloom.com/?drawer=open&tab=speech) |
+| Inspect gaze and head tracking | [Eye & Head tab](https://www.characterloom.com/?drawer=open&tab=tracking) |
+| Inspect annotation and camera regions | [Annotations tab](https://www.characterloom.com/?drawer=open&tab=annotations) |
+| Tune hair behavior | [Hair tab](https://www.characterloom.com/?drawer=open&tab=hair) |
 
-Use these links as companion product views while reading the package docs. They are most useful when you want to compare a concept in the README with the corresponding authoring or inspection surface in LoomLarge.
+Use these links as companion product views while reading the package docs. They are most useful when you want to compare a concept in the README with the corresponding authoring or inspection surface in CharacterLoom.
 
 ## Table of Contents
 
@@ -97,7 +103,7 @@ Additional:
 
 ## 1. Installation & Setup
 
-Open in LoomLarge: [Animation tab](https://loomlarge.web.app/?drawer=open&tab=animation)
+Open in CharacterLoom: [Animation tab](https://www.characterloom.com/?drawer=open&tab=animation)
 
 ![Project structure with Loom3 installed](./assets/readme/project-structure.svg)
 
@@ -216,7 +222,7 @@ const meshes = collectMorphMeshes(gltf.scene);
 
 ## 2. Using Presets
 
-Open in LoomLarge: [Properties tab](https://loomlarge.web.app/?drawer=open&tab=properties) | [Mappings tab](https://loomlarge.web.app/?drawer=open&tab=mappings)
+Open in CharacterLoom: [Properties tab](https://www.characterloom.com/?drawer=open&tab=properties) | [Mappings tab](https://www.characterloom.com/?drawer=open&tab=mappings)
 
 ![Diagram showing how Loom3 presets connect AUs to morphs and bones](./assets/readme/preset-au-flow.svg)
 
@@ -267,11 +273,17 @@ import { CC4_PRESET } from '@lovelace_lol/loom3';
   suffixPattern: '_\\d+$|\\.\\d+$',
 
   visemeKeys: [
-    // 15 viseme morph names for lip-sync
+    // Legacy/index-compatible viseme morph names for lip-sync
     'AE', 'Ah', 'B_M_P', 'Ch_J', 'EE',
     'Er', 'F_V', 'Ih', 'K_G_H_NG', 'Oh',
     'R', 'S_Z', 'T_L_D_N', 'Th', 'W_OO'
   ],
+
+  visemeSystemId: 'cc4-arkit-15',
+  visemeSlots: [
+    // Stable slot ids, display labels, provider ids, phoneme hints, and jaw defaults
+  ],
+  visemeMeshCategory: 'viseme',
 
   morphToMesh: {
     // Routes morph categories to specific meshes
@@ -313,6 +325,8 @@ Two caveats are worth calling out:
 
 Other `Profile` fields that are easy to miss:
 - `morphToMesh` routes categories such as `face`, `viseme`, `eye`, `tongue`, and `hair` to specific mesh names.
+- `visemeSystemId`, `visemeSlots`, `visemeMeshCategory`, and optional `visemeBindings` describe the profile-owned lip-sync mapping surface.
+- `mappingSections` defines editor grouping metadata so downstream tools do not have to hardcode preset layout.
 - `eyeMeshNodes` provides fallback eye nodes when a rig uses meshes instead of bones for eye control.
 - `auMixDefaults` sets the default morph/bone blend weight per AU.
 - `compositeRotations` defines the per-node pitch/yaw/roll axis layout used by the composite rotation system.
@@ -375,16 +389,21 @@ const loom = new Loom3({
 
 `annotationRegions` is the Loom3 field for camera/marker region defaults and profile overrides.
 
-If your app fetches a full saved `CharacterConfig` from Firestore or another backend, use `extendCharacterConfigWithPreset(...)` to build the runtime shape before handing that config to camera/marker tooling:
+If your app fetches a saved profile record from Firestore or another backend, use `extendProfileConfigWithPreset(...)` to build the runtime shape before handing that config to camera/marker tooling:
 
 ```typescript
-import { extendCharacterConfigWithPreset } from '@lovelace_lol/loom3';
+import { extendProfileConfigWithPreset } from '@lovelace_lol/loom3';
 
 async function loadRuntimeConfig() {
-  const savedConfig = await fetchCharacterConfig();
-  return extendCharacterConfigWithPreset(savedConfig);
+  const savedConfig = await fetchCharacterProfile();
+  return extendProfileConfigWithPreset({
+    ...savedConfig,
+    profilePresetId: savedConfig.profilePresetId ?? 'cc4',
+  });
 }
 ```
+
+`CharacterConfig`, `auPresetType`, and `extendCharacterConfigWithPreset(...)` are still exported as deprecated compatibility aliases for older saved character records. New integrations should model preset selection with `profilePresetId`, keep profile overrides on top-level `Profile` fields, and use `annotationRegions` / `regions` only for camera and marker runtime data.
 
 For the current runtime-oriented documentation, including:
 
@@ -393,7 +412,7 @@ For the current runtime-oriented documentation, including:
 - `cameraOffset`
 - `style.lineDirection`
 - the difference between `cameraAngle: 0` and omitting `cameraAngle`
-- the current LoomLarge runtime note that annotations have not been moved from the demo project into Loom3 yet
+- camera-angle and laterality helper behavior
 
 see [ANNOTATION_CONFIGURATION.md](./ANNOTATION_CONFIGURATION.md).
 
@@ -403,7 +422,7 @@ see [ANNOTATION_CONFIGURATION.md](./ANNOTATION_CONFIGURATION.md).
 
 ## 3. Preset Selection & Validation
 
-Open in LoomLarge: [Properties tab](https://loomlarge.web.app/?drawer=open&tab=properties) | [Mappings tab](https://loomlarge.web.app/?drawer=open&tab=mappings) | [Bones tab](https://loomlarge.web.app/?drawer=open&tab=bones)
+Open in CharacterLoom: [Properties tab](https://www.characterloom.com/?drawer=open&tab=properties) | [Mappings tab](https://www.characterloom.com/?drawer=open&tab=mappings) | [Bones tab](https://www.characterloom.com/?drawer=open&tab=bones)
 
 Before you tune AUs or hand-edit a profile, confirm that you picked the right preset and that the model actually matches it. Loom3 exposes a full preset-selection and validation workflow, not just low-level control APIs.
 
@@ -506,7 +525,7 @@ Use this section when you need to:
 
 ## 4. Getting to Know Your Character
 
-Open in LoomLarge: [Meshes tab](https://loomlarge.web.app/?drawer=open&tab=meshes) | [Bones tab](https://loomlarge.web.app/?drawer=open&tab=bones) | [Mappings tab](https://loomlarge.web.app/?drawer=open&tab=mappings)
+Open in CharacterLoom: [Meshes tab](https://www.characterloom.com/?drawer=open&tab=meshes) | [Bones tab](https://www.characterloom.com/?drawer=open&tab=bones) | [Mappings tab](https://www.characterloom.com/?drawer=open&tab=mappings)
 
 ![Console-style diagram showing Loom3 mesh and morph target inspection output](./assets/readme/console-mesh-output.svg)
 
@@ -700,18 +719,18 @@ This is especially useful for:
 
 ## 5. Extending & Custom Presets
 
-Open in LoomLarge: [Properties tab](https://loomlarge.web.app/?drawer=open&tab=properties) | [Mappings tab](https://loomlarge.web.app/?drawer=open&tab=mappings)
+Open in CharacterLoom: [Properties tab](https://www.characterloom.com/?drawer=open&tab=properties) | [Mappings tab](https://www.characterloom.com/?drawer=open&tab=mappings)
 
 ![Diagram showing preset inheritance and profile override merging](./assets/readme/preset-inheritance.svg)
 
 ### Extending an existing preset
 
-Use `resolveProfile` to override specific mappings while keeping the rest:
+Use `extendPresetWithProfile()` or `resolvePresetWithOverrides()` to override specific mappings while keeping the rest:
 
 ```typescript
-import { CC4_PRESET, resolveProfile } from '@lovelace_lol/loom3';
+import { CC4_PRESET, extendPresetWithProfile } from '@lovelace_lol/loom3';
 
-const MY_PRESET = resolveProfile(CC4_PRESET, {
+const MY_PRESET = extendPresetWithProfile(CC4_PRESET, {
 
   // Override AU12 (smile) with custom morph names
   auToMorphs: {
@@ -785,7 +804,7 @@ The profile is still the source of truth. Downstream authoring tools should upda
 
 ## 6. Creating Skeletal Animation Presets
 
-Open in LoomLarge: [Bones tab](https://loomlarge.web.app/?drawer=open&tab=bones) | [Action Units tab](https://loomlarge.web.app/?drawer=open&tab=action-units) | [Animation tab](https://loomlarge.web.app/?drawer=open&tab=animation)
+Open in CharacterLoom: [Bones tab](https://www.characterloom.com/?drawer=open&tab=bones) | [Emotes / AUs tab](https://www.characterloom.com/?drawer=open&tab=aus) | [Animation tab](https://www.characterloom.com/?drawer=open&tab=animation)
 
 ![Betta fish model with bones panel visible](./assets/readme/fish-bones-ui.webp)
 
@@ -1057,7 +1076,7 @@ async function swimCycle() {
 
 ## 7. Action Unit Control
 
-Open in LoomLarge: [Action Units tab](https://loomlarge.web.app/?drawer=open&tab=action-units)
+Open in CharacterLoom: [Emotes / AUs tab](https://www.characterloom.com/?drawer=open&tab=aus)
 
 ![Grid of Loom3 Action Unit examples on a character](./assets/readme/au-values-grid.webp)
 
@@ -1131,7 +1150,7 @@ console.log(smileAmount);
 
 ## 8. Bone Blending and Mix Weights
 
-Open in LoomLarge: [Action Units tab](https://loomlarge.web.app/?drawer=open&tab=action-units)
+Open in CharacterLoom: [Emotes / AUs tab](https://www.characterloom.com/?drawer=open&tab=aus)
 
 ![Comparison of morph-only, mixed, and bone-only AU results](./assets/readme/mix-weight-comparison.webp)
 
@@ -1173,7 +1192,7 @@ Only AUs that have both morph and bone bindings participate in this system. You 
 
 ## 9. Bone Rotations and Transformations
 
-Open in LoomLarge: [Action Units tab](https://loomlarge.web.app/?drawer=open&tab=action-units) | [Bones tab](https://loomlarge.web.app/?drawer=open&tab=bones)
+Open in CharacterLoom: [Emotes / AUs tab](https://www.characterloom.com/?drawer=open&tab=aus) | [Bones tab](https://www.characterloom.com/?drawer=open&tab=bones)
 
 ![Diagram showing pitch, yaw, and roll axes on the head](./assets/readme/head-axes-diagram.svg)
 
@@ -1229,9 +1248,9 @@ Those controls are not isolated morph tweaks. The composite eye rotations combin
 Bone mappings can be edited while the character is already live:
 
 ```typescript
-import { resolveProfile } from '@lovelace_lol/loom3';
+import { extendPresetWithProfile } from '@lovelace_lol/loom3';
 
-const nextProfile = resolveProfile(loom.getProfile(), {
+const nextProfile = extendPresetWithProfile(loom.getProfile(), {
   boneNodes: {
     HEAD: 'Head',
     EYE_L: 'LeftEye',
@@ -1269,7 +1288,7 @@ inside the same mixer-playable animation.
 
 ## 10. Continuum Pairs
 
-Open in LoomLarge: [Action Units tab](https://loomlarge.web.app/?drawer=open&tab=action-units)
+Open in CharacterLoom: [Emotes / AUs tab](https://www.characterloom.com/?drawer=open&tab=aus)
 
 ![Continuum slider UI for paired Loom3 AUs](./assets/readme/continuum-slider-ui.webp)
 
@@ -1297,12 +1316,14 @@ loom.setAU(51, -0.5);  // right via the paired AU
 That same shorthand works for transitions:
 
 ```typescript
-await loom.transitionAU(51, -0.6, 300).promise;
+async function turnHeadRight() {
+  await loom.transitionAU(51, -0.6, 300).promise;
+}
 ```
 
 ## 11. Direct Morph Control
 
-Open in LoomLarge: [Meshes tab](https://loomlarge.web.app/?drawer=open&tab=meshes) | [Mappings tab](https://loomlarge.web.app/?drawer=open&tab=mappings)
+Open in CharacterLoom: [Meshes tab](https://www.characterloom.com/?drawer=open&tab=meshes) | [Mappings tab](https://www.characterloom.com/?drawer=open&tab=mappings)
 
 ![Direct morph control screenshot with a live morph preview](./assets/readme/direct-morph-control.webp)
 
@@ -1322,11 +1343,27 @@ loom.setMorphInfluence(12, 0.3);
 loom.transitionMorphInfluence(12, 0.8, 200);
 ```
 
-This is the lower-level path. It is useful, but the main value of Loom3 is still that most of the time you do not need to think at this level.
+### Runtime morph authoring
+
+Loom3 can also add or reserve morph targets after a model has loaded. This is for generated morphs, externally loaded morph delta data, or authoring tools that need to create a named influence slot before the final deltas are available.
+
+```typescript
+const index = loom.addMorphTarget({
+  meshName: 'CC_Base_Body',
+  name: 'Custom_Smile_Boost',
+  position: customPositionDeltas,
+});
+
+loom.setMorphInfluence(index, 0.75, ['CC_Base_Body']);
+```
+
+Use `addMorphTargets()` when registering several morphs at once. Use `ensureMorphInfluence(meshName, morphName)` when you only need a named zero-delta slot, and call `refreshMorphTargets()` after external geometry or morph-dictionary edits so AU, viseme, hair, and clip-generation caches see the updated targets.
+
+This is still the lower-level path. It is useful for tools and generated assets, but the main value of Loom3 is still that most expression control can stay in the semantic AU, viseme, and profile layers.
 
 ## 12. Lip Sync and Speech Animation
 
-Open in LoomLarge: [Visemes tab](https://loomlarge.web.app/?drawer=open&tab=visemes) | [Speech tab](https://loomlarge.web.app/?drawer=open&tab=speech)
+Open in CharacterLoom: [Visemes tab](https://www.characterloom.com/?drawer=open&tab=visemes) | [Speech tab](https://www.characterloom.com/?drawer=open&tab=speech)
 
 ![Grid of all 15 Loom3 viseme mouth shapes](./assets/readme/viseme-grid.webp)
 
@@ -1347,18 +1384,29 @@ Loom3 is a good fit for this kind of speech animation because it can:
 - turn timed speech curves into mixer-playable animation
 - blend speech animation with the rest of the character’s motion
 
-### The current low-level API
+### Current runtime APIs
 
-Today, the low-level speech API in Loom3 is still viseme-based:
+The compatibility API is still index-based:
 
 ```typescript
 loom.setViseme(1, 1.0);
 loom.transitionViseme(3, 1.0, 80);
 ```
 
-That is an implementation detail readers should know, but the higher-level concept is still lip sync and speech animation.
+Profiles can also expose stable viseme slot ids:
 
-For the shipped CC4 preset, the viseme indices are the zero-based positions in the exported `VISEME_KEYS` array shown below.
+```typescript
+loom.setVisemeById?.('ah', 1.0);
+
+async function closeMouth() {
+  const handle = loom.transitionVisemeById?.('b-m-p', 1.0, 80);
+  await handle?.promise;
+}
+```
+
+The index methods remain useful for compatibility and simple callers. The id methods are the better shape for authoring tools and provider adapters because they address profile-defined slots instead of assuming one fixed global viseme order.
+
+For the shipped CC4 preset, the legacy viseme indices are the zero-based positions in the exported `VISEME_KEYS` array shown below.
 
 ### Current shipped CC4 viseme order
 
@@ -1388,13 +1436,12 @@ For the shipped CC4 preset, the exported `VISEME_KEYS` order is:
 
 The jaw path is important enough to state explicitly:
 - live `setViseme()` and `transitionViseme()` move the viseme morphs and can also drive jaw bone motion through `jawScale`
-- clip generation can also auto-generate jaw rotation from viseme curves
+- clip generation can auto-generate jaw rotation from viseme curves
+- one viseme slot can resolve to one or more weighted morph targets through profile-defined bindings
 
-The current shipped implementation is still split:
-- clip generation uses `profile.visemeJawAmounts`
-- live viseme playback still uses the runtime’s internal jaw table
+The current runtime now resolves live and baked viseme playback through the same profile-owned binding path. Live playback keeps track of the active viseme state and uses the strongest active jaw contribution, so clearing a viseme can close the jaw correctly and overlapping visemes do not leave the last-written jaw pose stuck open.
 
-That mismatch is real, and the broader viseme / lip / jaw overhaul is tracked in issue `#100`.
+The larger viseme / lip / jaw design work is still tracked in issue `#100`, especially provider-specific source models and richer speech pipelines. The shipped package already supports profile-defined slots, id-based runtime calls, provider-id matching helpers, weighted binding targets, and profile-driven jaw amounts.
 
 ### Using jawScale
 
@@ -1410,6 +1457,25 @@ loom.setViseme(1, 1.0, 0);
 ```
 
 That control is one of the ways you can approximate different styles of speech even before building a fuller speech pipeline.
+
+### Provider mapping helpers
+
+Profile slots can carry provider ids and phoneme hints. Use `mapProviderVisemeToSlot(...)` when an upstream service gives you a provider-specific id or phoneme and you need to route it into the profile's viseme slots:
+
+```typescript
+import { mapProviderVisemeToSlot } from '@lovelace_lol/loom3';
+
+const match = mapProviderVisemeToSlot(loom.getProfile(), {
+  provider: 'azure',
+  id: 2,
+});
+
+if (match) {
+  loom.setVisemeById?.(match.slotId, 1.0);
+}
+```
+
+This is a mapping primitive, not a full text-to-speech pipeline. A first-class lip-sync sequence compiler is being developed separately.
 
 ### Speech clip example
 
@@ -1437,19 +1503,23 @@ if (clip) {
 
 ## 13. Animation System
 
-Open in LoomLarge: [Animation tab](https://loomlarge.web.app/?drawer=open&tab=animation)
+Open in CharacterLoom: [Animation tab](https://www.characterloom.com/?drawer=open&tab=animation)
 
 ![Diagram showing a Loom3 transition timeline with easing and handle methods](./assets/readme/transition-timeline-easing.svg)
 
 This is one of the most important sections of the package.
 
-Loom3 is not just “some transition helpers.” It is an animation system that lets imported clips and procedurally generated clips live in the same `AnimationMixer` world.
+Loom3 is not just “some transition helpers.” It is an animation system with a shared playback model for imported clips, generated clips, snippets, and direct runtime transitions.
+
+The public control surface is intentionally unified, but the runtime is not one unsafe pile of mixer actions. Baked clips and generated/procedural clips are evaluated through separated playback passes so procedural face, viseme, and gaze clips can safely override or layer after baked source animation when they target the same character channels.
 
 That is what makes the library useful for real-time, socially interactive characters:
 - body animation can come from imported clips
 - facial expression can come from AU transitions
 - gaze, speech, or prosody can be generated procedurally
-- all of it can still be mixed, layered, crossfaded, weighted, paused, and resumed coherently
+- baked source clips can be partitioned into face, body, and scene channels instead of being treated as one unsafe bundle
+- clip handles can stream keyframe, loop, seek, and completion events without replacing the existing completion promise
+- all of it can still be mixed, layered, crossfaded, weighted, paused, resumed, and inspected coherently through the package API
 
 ### Four terms worth knowing
 
@@ -1470,6 +1540,7 @@ In Loom3, a curve might target:
 - an AU
 - a viseme slot
 - a morph target
+- a bone-related control such as a composite rotation or translation
 
 #### Snippet
 
@@ -1488,6 +1559,8 @@ When Loom3 compiles curves into a clip, that clip can contain:
 - morph influence tracks
 - quaternion bone rotation tracks
 - bone translation tracks
+
+Clip handles can also expose `subscribe(listener)` for runtime lifecycle events. That gives scheduler and UI code a discrete event stream for keyframes, loops, seeks, and completion without polling animation time every frame.
 
 ### Why this is exciting
 
@@ -1511,6 +1584,7 @@ Use mixer playback when:
 - you want a reusable animation asset
 - you want stronger layering and mixing behavior
 - you want generated motion to live beside baked motion
+- you want scheduler/UI code to observe clip events or update clip parameters without rebuilding the motion
 
 ### Combined example
 
@@ -1547,7 +1621,7 @@ loom.transitionAU(12, 0.6, 180);
 
 ## 14. Playback & State Control
 
-Open in LoomLarge: [Animation tab](https://loomlarge.web.app/?drawer=open&tab=animation)
+Open in CharacterLoom: [Animation tab](https://www.characterloom.com/?drawer=open&tab=animation)
 
 ![Playback controls UI showing Loom3 pause and resume controls](./assets/readme/pause-resume-controls.webp)
 
@@ -1562,7 +1636,10 @@ const handle = loom.transitionAU(12, 1.0, 500);
 handle.pause();
 handle.resume();
 handle.cancel();
-await handle.promise;
+
+async function waitForTransition() {
+  await handle.promise;
+}
 ```
 
 ### Engine pause and resume
@@ -1593,7 +1670,7 @@ loom.dispose();
 
 ## 15. Hair Physics
 
-Open in LoomLarge: [Hair tab](https://loomlarge.web.app/?drawer=open&tab=hair)
+Open in CharacterLoom: [Hair tab](https://www.characterloom.com/?drawer=open&tab=hair)
 
 ![Animated GIF showing Loom3 hair physics reacting to head motion](./assets/readme/hair-physics.gif)
 
@@ -1652,7 +1729,7 @@ If hair moves the wrong way, the first thing to inspect is the direction mapping
 
 ## 16. Baked Animations and Procedural Clips
 
-Open in LoomLarge: [Animation tab](https://loomlarge.web.app/?drawer=open&tab=animation)
+Open in CharacterLoom: [Animation tab](https://www.characterloom.com/?drawer=open&tab=animation)
 
 This section is the practical API surface for working with `AnimationMixer` in Loom3.
 
@@ -1675,18 +1752,31 @@ const clips = loom.getAnimationClips();
 console.log(clips);
 ```
 
+Loaded baked source clips can report derived runtime channels:
+
+```typescript
+for (const clip of loom.getAnimationClips()) {
+  console.log(clip.name, clip.channels);
+  // channels: face/body/scene metadata when a source clip was partitioned
+}
+```
+
+Loom3 partitions baked clips so face-safe tracks, body tracks, and scene tracks can be reasoned about separately. Face tracks can layer additively when requested, body tracks stay on replace blending, and scene tracks are surfaced as metadata instead of being played as character-runtime tracks.
+
 ### Playing a baked clip
 
 ```typescript
-const handle = loom.playAnimation('Wave', {
-  speed: 1.0,
-  intensity: 1.0,
-  loop: false,
-  loopMode: 'once',
-  clampWhenFinished: true,
-});
+async function playWave() {
+  const handle = loom.playAnimation('Wave', {
+    speed: 1.0,
+    intensity: 1.0,
+    loop: false,
+    loopMode: 'once',
+    clampWhenFinished: true,
+  });
 
-await handle?.finished;
+  await handle?.finished;
+}
 ```
 
 ### Crossfading
@@ -1710,14 +1800,23 @@ const clip = loom.snippetToClip('gaze', {
 ### Playing that generated clip
 
 ```typescript
-if (clip) {
-  const clipHandle = loom.playClip(clip, {
-    loop: false,
-    playbackRate: 1.0,
-    mixerWeight: 1.0,
-  });
+async function playGeneratedClip() {
+  if (clip) {
+    const clipHandle = loom.playClip(clip, {
+      loop: false,
+      playbackRate: 1.0,
+      mixerWeight: 1.0,
+    });
 
-  await clipHandle?.finished;
+    const unsubscribe = clipHandle?.subscribe?.((event) => {
+      if (event.type === 'keyframe') {
+        console.log(event.currentTime, event.keyframeIndex);
+      }
+    });
+
+    await clipHandle?.finished;
+    unsubscribe?.();
+  }
 }
 ```
 
@@ -1767,7 +1866,7 @@ which is exactly why Loom3 can turn high-level semantic motion into something th
 
 ## 17. Regions & Geometry Helpers
 
-Open in LoomLarge: [Bones tab](https://loomlarge.web.app/?drawer=open&tab=bones) | [Mappings tab](https://loomlarge.web.app/?drawer=open&tab=mappings)
+Open in CharacterLoom: [Bones tab](https://www.characterloom.com/?drawer=open&tab=bones) | [Mappings tab](https://www.characterloom.com/?drawer=open&tab=mappings) | [Annotations tab](https://www.characterloom.com/?drawer=open&tab=annotations)
 
 These helpers are for applications that need semantic face regions, marker anchors, or camera targets in addition to direct animation control.
 
@@ -1787,7 +1886,7 @@ console.log(result.center, result.method, result.debugInfo);
 ### Resolving region-driven centers
 
 ```typescript
-import type { CharacterConfig, Region } from '@lovelace_lol/loom3';
+import type { BoneResolutionProfile, Region } from '@lovelace_lol/loom3';
 import { resolveBoneName, resolveBoneNames, resolveFaceCenter } from '@lovelace_lol/loom3';
 
 const region: Region = {
@@ -1797,13 +1896,9 @@ const region: Region = {
 };
 
 const config = {
-  characterId: 'demo',
-  characterName: 'Demo',
-  modelPath: '/demo.glb',
-  regions: [region],
   bonePrefix: 'CC_Base_',
   boneNodes: { HEAD: 'Head' },
-} satisfies CharacterConfig;
+} satisfies BoneResolutionProfile;
 
 const headBone = resolveBoneName('HEAD', config);
 const resolvedBones = resolveBoneNames(['HEAD'], config);
@@ -1822,17 +1917,53 @@ const forward = getModelForwardDirection(gltf.scene);
 const facing = detectFacingDirection(gltf.scene);
 ```
 
+### Camera-relative gaze and annotation angles
+
+Loom3 also exports pure camera and annotation helpers for downstream tools that need consistent model-local camera math:
+
+```typescript
+import * as THREE from 'three';
+import {
+  computeCameraRelativeGazeOffset,
+  detectAnnotationLaterality,
+  getModelLocalOrbitAngle,
+  resolveRegionCameraAngle,
+  resolveRegionVisibilityCameraAngle,
+  passesMarkerCameraAngleGate,
+} from '@lovelace_lol/loom3';
+
+const modelCenter = new THREE.Vector3();
+gltf.scene.getWorldPosition(modelCenter);
+
+const gazeOffset = computeCameraRelativeGazeOffset(
+  gltf.scene,
+  camera.position,
+  modelCenter
+);
+
+const laterality = detectAnnotationLaterality(gltf.scene, regions, config);
+const cameraAngle = resolveRegionCameraAngle(region, laterality);
+const markerAngle = resolveRegionVisibilityCameraAngle(region, laterality);
+const currentCameraAngle = getModelLocalOrbitAngle(gltf.scene, modelCenter, camera.position);
+const visible = passesMarkerCameraAngleGate({
+  markerAngle,
+  currentCameraAngle,
+});
+```
+
+These helpers do not subscribe to camera changes or own a camera controller. They are reusable math primitives: app code should cache or recompute them when the camera/model state changes.
+
 Use these helpers when you need to:
 - place annotation markers using semantic regions instead of hard-coded coordinates
-- resolve prefixed/suffixed bone names from a reusable character config
+- resolve prefixed/suffixed bone names from a reusable profile or bone-resolution object
 - derive a face anchor for camera tooling or interaction layers
-- reason about model orientation before building your own camera or annotation system
+- reason about model orientation, laterality, and visibility before building your own camera or annotation system
 
 ---
 
 ## 18. API Reference
 
-Open in LoomLarge: [Animation tab](https://loomlarge.web.app/?drawer=open&tab=animation)
+Open in CharacterLoom: [Animation tab](https://www.characterloom.com/?drawer=open&tab=animation)
 
 This is a compact reference for the public surface exported by `@lovelace_lol/loom3`.
 
@@ -1842,15 +1973,17 @@ This is a compact reference for the public surface exported by `@lovelace_lol/lo
 - `collectMorphMeshes()` gathers meshes that already expose morph targets.
 - Lifecycle: `onReady()`, `update()`, `start()`, `stop()`, `dispose()`.
 - Preset state: `setProfile()`, `getProfile()`.
-- Control APIs: `setAU()`, `transitionAU()`, `setContinuum()`, `transitionContinuum()`, `setMorph()`, `transitionMorph()`, `setViseme()`, `transitionViseme()`.
+- Control APIs: `setAU()`, `transitionAU()`, `setContinuum()`, `transitionContinuum()`, `setMorph()`, `transitionMorph()`, `setViseme()`, `transitionViseme()`, `setVisemeById()`, `transitionVisemeById()`.
+- Runtime morph authoring: `addMorphTarget()`, `addMorphTargets()`, `ensureMorphInfluence()`, `refreshMorphTargets()`.
 - Bone/profile helpers: `getCompositeRotations()`, `hasLeftRightBones()`.
 - Transition state: `pause()`, `resume()`, `getPaused()`, `clearTransitions()`, `getActiveTransitionCount()`, `resetToNeutral()`.
 
 ### Presets and profiles
 
 - Presets: `CC4_PRESET`, `BETTA_FISH_PRESET`, `resolvePreset()`, `resolvePresetWithOverrides()`.
-- Profile composition: `resolveProfile()`.
-- CC4 exports: `VISEME_KEYS`, `VISEME_JAW_AMOUNTS`, `CONTINUUM_PAIRS_MAP`, `CONTINUUM_LABELS`, `AU_INFO`, `COMPOSITE_ROTATIONS`, `AU_MIX_DEFAULTS`.
+- Profile composition: `extendPresetWithProfile()`, `getPresetWithProfile()`, `resolvePresetWithOverrides()`, `extendProfileConfigWithPreset()`, `extractLegacyCharacterProfileOverrides()`, `getProfilePresetId()`, `mergeProfileRegionsByName()`, `resolveProfileFromPreset()`.
+- CC4 exports: `VISEME_KEYS`, `CC4_VISEME_SYSTEM_ID`, `CC4_VISEME_SLOTS`, `CC4_MAPPING_SECTIONS`, `VISEME_JAW_AMOUNTS`, `CONTINUUM_PAIRS_MAP`, `CONTINUUM_LABELS`, `AU_INFO`, `COMPOSITE_ROTATIONS`, `AU_MIX_DEFAULTS`.
+- Viseme/profile helpers: `buildMappingEditorModel()`, `compileVisemeKeys()`, `getProfileVisemeSlots()`, `getVisemeBindingTargets()`, `getVisemeJawAmounts()`, `getVisemeSlotIndex()`, `mapProviderVisemeToSlot()`, `resolveVisemeMeshCategory()`, `getMeshNamesForVisemeProfile()`, `getMeshNamesForAUProfile()`.
 - Compatibility helpers: `isMixedAU()`, `hasLeftRightMorphs()`.
 
 ### Validation and inspection
@@ -1869,9 +2002,9 @@ This is a compact reference for the public surface exported by `@lovelace_lol/lo
 
 ### Types and lower-level exports
 
-- Configuration/types: `Profile`, `MeshInfo`, `BlendingMode`, `TransitionHandle`, `ClipHandle`, `Snippet`, `AnimationState`, `AnimationClipInfo`.
+- Configuration/types: `Profile`, `ProfileRuntimeConfig`, `CharacterProfile`, `VisemeSlot`, `VisemeBinding`, `MappingEditorModel`, `MeshInfo`, `BlendingMode`, `TransitionHandle`, `ClipHandle`, `ClipEvent`, `ClipEventListener`, `Snippet`, `AnimationState`, `AnimationClipInfo`, `MorphTargetDelta`, `MorphTargetAttributeData`, `AddMorphTargetOptions`.
 - Standalone implementations: `AnimationThree`, `HairPhysics`, `BLENDING_MODES`.
-- Region and geometry helpers: `resolveBoneName()`, `resolveBoneNames()`, `resolveFaceCenter()`, `findFaceCenter()`, `getModelForwardDirection()`, `detectFacingDirection()`.
+- Region, annotation, and geometry helpers: `resolveBoneName()`, `resolveBoneNames()`, `resolveFaceCenter()`, `findFaceCenter()`, `getModelForwardDirection()`, `detectFacingDirection()`, `computeCameraRelativeGazeOffset()`, `detectAnnotationLaterality()`, `getDefaultAnnotationLaterality()`, `getModelLocalOrbitAngle()`, `getWorldDirectionForCameraAngle()`, `normalizeCameraAngle()`, `passesMarkerCameraAngleGate()`, `resolveRegionCameraAngle()`, `resolveRegionVisibilityCameraAngle()`, `toModelLocalDirection()`, `toWorldDirection()`.
 
 ---
 
