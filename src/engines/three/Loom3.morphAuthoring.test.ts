@@ -133,6 +133,54 @@ describe('Loom3 runtime morph target authoring', () => {
     expect(normalMorphs?.[1]?.array).toEqual(new Float32Array(9));
   });
 
+  it('rejects mixed relative and absolute morph targets on an existing morph geometry', () => {
+    const face = makeMesh('FaceMesh', { ExistingSmile: smileDelta });
+    const model = new Object3D();
+    model.add(face);
+
+    const engine = new Loom3({
+      presetType: 'cc4',
+      profile: { morphToMesh: { face: ['FaceMesh'] } },
+    });
+    engine.onReady({ model, meshes: [face] });
+
+    expect(() => engine.addMorphTarget({
+      meshName: 'FaceMesh',
+      name: 'AbsoluteSmile',
+      position: bodyDelta,
+      relative: false,
+    }, { forceGeometryReplacement: false })).toThrow(/existing morph targets are relative/);
+    expect(face.geometry.morphTargetsRelative).toBe(true);
+    expect(face.morphTargetDictionary?.AbsoluteSmile).toBeUndefined();
+  });
+
+  it('prevalidates bulk morph targets before mutating any mesh', () => {
+    const face = makeMesh('FaceMesh');
+    const model = new Object3D();
+    model.add(face);
+
+    const engine = new Loom3({
+      presetType: 'cc4',
+      profile: { morphToMesh: { face: ['FaceMesh'] } },
+    });
+    engine.onReady({ model, meshes: [] });
+
+    expect(() => engine.addMorphTargets([
+      {
+        meshName: 'FaceMesh',
+        name: 'GoodMorph',
+        position: bodyDelta,
+      },
+      {
+        meshName: 'FaceMesh',
+        name: 'BadMorph',
+        position: new Float32Array([0, 1, 2]),
+      },
+    ])).toThrow(/expected 9/);
+    expect(face.morphTargetDictionary?.GoodMorph).toBeUndefined();
+    expect(face.geometry.morphAttributes.position).toBeUndefined();
+  });
+
   it('creates the first morph influence slot on a static mesh', async () => {
     const body = makeMesh('BodyMesh');
     const model = new Object3D();

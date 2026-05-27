@@ -19,6 +19,7 @@
 
 ### Morph routing and docs
 - Morph targeting prefers `morphToMesh.face` when present and falls back to scanning meshes for morph keys.
+- Runtime morph authoring can register generated targets after load, with batch preflight and relative/absolute mode guards.
 - README terminology now uses `Loom3` as the primary name, with `@lovelace_lol/loom3` as the package import.
 - The docs now reflect the current viseme keys, preset extension helpers, and profile fields that the code actually exports.
 - Publish versions are computed by `.github/workflows/publish.yml` from the current npm version or release tag before `npm publish`; the committed `package.json` version is only the baseline used by that workflow.
