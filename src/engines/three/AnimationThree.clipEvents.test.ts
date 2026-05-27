@@ -3,7 +3,7 @@ import { Object3D, Quaternion } from 'three';
 import type { Profile } from '../../mappings/types';
 import { BONE_AU_TO_BINDINGS, COMPOSITE_ROTATIONS } from '../../presets/cc4';
 import type { ResolvedBones } from './types';
-import { BakedAnimationController, type BakedAnimationHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './AnimationThree';
 
 function snapshot(obj: Object3D) {
   return {
@@ -14,7 +14,7 @@ function snapshot(obj: Object3D) {
   };
 }
 
-function makeHost(): BakedAnimationHost {
+function makeHost(): AnimationControllerHost {
   const model = new Object3D();
   const leftEye = new Object3D();
   leftEye.name = 'CC_Base_L_Eye';
@@ -45,9 +45,9 @@ function makeHost(): BakedAnimationHost {
   };
 }
 
-describe('BakedAnimationController clip events', () => {
+describe('AnimationController clip events', () => {
   it('emits keyframe and completion events from mixer updates', () => {
-    const controller = new BakedAnimationController(makeHost());
+    const controller = new AnimationController(makeHost());
     const clip = controller.snippetToClip('eye-event-clip', {
       61: [
         { time: 0, intensity: 0 },
@@ -99,7 +99,7 @@ describe('BakedAnimationController clip events', () => {
   });
 
   it('emits seek events when the playhead is scrubbed directly', () => {
-    const controller = new BakedAnimationController(makeHost());
+    const controller = new AnimationController(makeHost());
     const clip = controller.snippetToClip('seek-event-clip', {
       61: [
         { time: 0, intensity: 0 },

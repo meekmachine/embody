@@ -134,10 +134,10 @@ export type AnimationSource = 'baked' | 'clip' | 'snippet';
 /** Shared blend-mode surface for downstream animation UIs. */
 export type AnimationBlendMode = 'replace' | 'additive';
 
-/** Runtime channel classes derived from one authored baked source clip. */
+/** Mixer channel classes derived from one authored baked source clip. */
 export type BakedClipChannel = 'face' | 'body' | 'scene';
 
-/** Metadata describing one derived baked runtime channel. */
+/** Metadata describing one derived baked mixer channel. */
 export interface BakedClipChannelInfo {
   /** Logical channel key surfaced to downstream UIs. */
   channel: BakedClipChannel;
@@ -153,16 +153,16 @@ export interface BakedClipChannelInfo {
 export type AnimationEasing = 'linear' | 'easeInOut' | 'easeInOutCubic' | 'easeIn' | 'easeOut';
 
 /**
- * Options for playing a baked animation clip.
+ * Options for playing a mixer animation clip.
  */
 export interface AnimationPlayOptions {
   /** Playback speed multiplier (default: 1.0). Alias: playbackRate. */
   speed?: number;
-  /** Alias for speed so baked clips and snippet clips can share one UI contract. */
+  /** Alias for speed so loaded clips and dynamic clips can share one UI contract. */
   playbackRate?: number;
   /** Animation intensity/weight (default: 1.0). Alias: weight. */
   intensity?: number;
-  /** Alias for intensity so baked clips and snippet clips can share one UI contract. */
+  /** Alias for intensity so loaded clips and dynamic clips can share one UI contract. */
   weight?: number;
   /** Whether the animation should loop (default: true) */
   loop?: boolean;
@@ -347,7 +347,7 @@ export interface ClipOptions {
   repeatCount?: number;
   /** Playback rate multiplier (default: 1.0) */
   playbackRate?: number;
-  /** Alias for playbackRate so clip-backed animations can share one UI contract with baked clips. */
+  /** Alias for playbackRate so dynamic clips can share one UI contract with loaded clips. */
   speed?: number;
   /** Play clip backwards when true (implemented via negative time scale) */
   reverse?: boolean;
@@ -420,7 +420,7 @@ export interface ClipHandle {
   getTime: () => number;
   /** Get total clip duration in seconds */
   getDuration: () => number;
-  /** Subscribe to clip lifecycle events emitted by the runtime update loop */
+  /** Subscribe to clip lifecycle events emitted during mixer updates */
   subscribe?: (listener: ClipEventListener) => () => void;
   /** Promise that resolves when clip finishes (non-looping only) */
   finished: Promise<void>;

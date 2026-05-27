@@ -11,13 +11,13 @@ import type {
 } from '../../core/types';
 import type { ResolvedBones } from './types';
 
-const RUNTIME_CLIP_PREFIX = '__loom3_baked_partition__/';
+const MIXER_CLIP_PREFIX = '__loom3_baked_partition__/';
 const FACE_SAFE_TARGET_RE = /(head|neck|jaw|eye|brow|lid|mouth|lip|face|cheek|nose|tongue|teeth)/i;
 const BODY_LIKE_TARGET_RE = /(root|armature|hips?|pelvis|spine|waist|chest|torso|shoulder|arm|forearm|hand|finger|leg|thigh|calf|knee|foot|toe|tail|wing|fin|body|abdomen|clavicle)/i;
 const SCENE_LIKE_TARGET_RE = /(camera|cam|scene|world|global|origin|pivot|cube)/i;
 const CHANNEL_ORDER: BakedClipChannel[] = ['face', 'body', 'scene'];
 
-export interface PartitionedBakedRuntimeClip {
+export interface PartitionedBakedMixerClip {
   channel: BakedClipChannel;
   clip: AnimationClip;
 }
@@ -25,7 +25,7 @@ export interface PartitionedBakedRuntimeClip {
 export interface PartitionedBakedClip {
   sourceClip: AnimationClip;
   channels: BakedClipChannelInfo[];
-  runtimeClips: PartitionedBakedRuntimeClip[];
+  mixerClips: PartitionedBakedMixerClip[];
 }
 
 type ParsedTrackTarget = {
@@ -34,8 +34,8 @@ type ParsedTrackTarget = {
   targetName: string;
 };
 
-function getRuntimeClipName(sourceClipName: string, channel: BakedClipChannel): string {
-  return `${RUNTIME_CLIP_PREFIX}${sourceClipName}/${channel}`;
+function getMixerClipName(sourceClipName: string, channel: BakedClipChannel): string {
+  return `${MIXER_CLIP_PREFIX}${sourceClipName}/${channel}`;
 }
 
 function parseTrackTarget(trackName: string, model: Object3D): ParsedTrackTarget | null {
@@ -161,7 +161,7 @@ export function partitionBakedClip(
     tracksByChannel.get(channel)?.push(track.clone());
   }
 
-  const runtimeClips: PartitionedBakedRuntimeClip[] = [];
+  const mixerClips: PartitionedBakedMixerClip[] = [];
   const channels: BakedClipChannelInfo[] = [];
 
   for (const channel of CHANNEL_ORDER) {
@@ -183,15 +183,15 @@ export function partitionBakedClip(
       continue;
     }
 
-    runtimeClips.push({
+    mixerClips.push({
       channel,
-      clip: new AnimationClip(getRuntimeClipName(clip.name, channel), clip.duration, tracks),
+      clip: new AnimationClip(getMixerClipName(clip.name, channel), clip.duration, tracks),
     });
   }
 
   return {
     sourceClip: clip,
     channels,
-    runtimeClips,
+    mixerClips,
   };
 }

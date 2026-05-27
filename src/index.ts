@@ -84,7 +84,7 @@ export type {
   CompositeRotation,
   CompositeRotationState,
   RotationsState,
-  // Baked animation types
+  // Mixer animation types
   AnimationSource,
   AnimationBlendMode,
   AnimationEasing,
@@ -92,7 +92,7 @@ export type {
   AnimationClipInfo,
   AnimationState,
   AnimationActionHandle,
-  // Snippet-to-clip types
+  // Dynamic clip types
   CurvePoint,
   CurvesMap,
   ClipOptions,

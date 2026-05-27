@@ -67,12 +67,12 @@ describe('bakedClipPartitioning', () => {
       { channel: 'body', trackCount: 1, playable: true, blendMode: 'replace' },
       { channel: 'scene', trackCount: 1, playable: false, blendMode: undefined },
     ]);
-    expect(partitioned.runtimeClips.map((entry) => entry.channel)).toEqual(['face', 'body']);
-    expect(partitioned.runtimeClips[0]?.clip.tracks.map((track) => track.name)).toEqual([
+    expect(partitioned.mixerClips.map((entry) => entry.channel)).toEqual(['face', 'body']);
+    expect(partitioned.mixerClips[0]?.clip.tracks.map((track) => track.name)).toEqual([
       'FaceMesh.morphTargetInfluences[0]',
       `${head.uuid}.quaternion`,
     ]);
-    expect(partitioned.runtimeClips[1]?.clip.tracks.map((track) => track.name)).toEqual([
+    expect(partitioned.mixerClips[1]?.clip.tracks.map((track) => track.name)).toEqual([
       `${hip.uuid}.position[x]`,
     ]);
   });

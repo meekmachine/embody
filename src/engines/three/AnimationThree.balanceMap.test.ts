@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Mesh, MeshBasicMaterial, Object3D } from 'three';
 import type { Profile } from '../../mappings/types';
-import { BakedAnimationController, type BakedAnimationHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './AnimationThree';
 
-function makeHost(): { host: BakedAnimationHost; mesh: Mesh } {
+function makeHost(): { host: AnimationControllerHost; mesh: Mesh } {
   const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
   mesh.name = 'FaceMesh';
   (mesh as any).morphTargetDictionary = {
@@ -25,7 +25,7 @@ function makeHost(): { host: BakedAnimationHost; mesh: Mesh } {
     visemeKeys: [],
   };
 
-  const host: BakedAnimationHost = {
+  const host: AnimationControllerHost = {
     getModel: () => new Object3D(),
     getMeshes: () => [mesh],
     getMeshByName: (name: string) => (name === 'FaceMesh' ? mesh : undefined),
@@ -46,10 +46,10 @@ function getTrackValues(clip: any, morphIndex: number): number[] {
   return Array.from(track.values as ArrayLike<number>);
 }
 
-describe('BakedAnimationController snippetToClip balanceMap', () => {
+describe('AnimationController snippetToClip balanceMap', () => {
   it('applies per-AU balance overrides while preserving global fallback', () => {
     const { host } = makeHost();
-    const controller = new BakedAnimationController(host);
+    const controller = new AnimationController(host);
     const curves = {
       12: [
         { time: 0, intensity: 0 },

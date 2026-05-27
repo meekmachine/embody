@@ -11,10 +11,10 @@ import {
   Vector3,
 } from 'three';
 import type { Profile } from '../../mappings/types';
-import { BakedAnimationController, type BakedAnimationHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './AnimationThree';
 
 function makeHost(options: { includeHeadBone?: boolean; includeCamera?: boolean } = {}): {
-  controller: BakedAnimationController;
+  controller: AnimationController;
   model: Object3D;
   mesh: Mesh;
   head: Object3D | null;
@@ -59,7 +59,7 @@ function makeHost(options: { includeHeadBone?: boolean; includeCamera?: boolean 
     visemeKeys: [],
   };
 
-  const host: BakedAnimationHost = {
+  const host: AnimationControllerHost = {
     getModel: () => model,
     getMeshes: () => [mesh],
     getMeshByName: (name: string) => (name === 'FaceMesh' ? mesh : undefined),
@@ -71,7 +71,7 @@ function makeHost(options: { includeHeadBone?: boolean; includeCamera?: boolean 
     isMixedAU: () => false,
   };
 
-  return { controller: new BakedAnimationController(host), model, mesh, head, camera };
+  return { controller: new AnimationController(host), model, mesh, head, camera };
 }
 
 function makeTransformClip(model: Object3D, name: string): AnimationClip {
@@ -117,7 +117,7 @@ function makeSceneClip(camera: Object3D, name: string): AnimationClip {
   ]);
 }
 
-describe('BakedAnimationController playback state normalization', () => {
+describe('AnimationController playback state normalization', () => {
   it('normalizes baked clip options into the shared animation state surface', () => {
     const { controller } = makeHost();
     controller.loadAnimationClips([makeMorphClip('Idle')]);
@@ -165,7 +165,7 @@ describe('BakedAnimationController playback state normalization', () => {
     });
   });
 
-  it('partitions mixed baked clips into face and body runtime channels', () => {
+  it('partitions mixed baked clips into face and body mixer channels', () => {
     const { controller, model, head } = makeHost({ includeHeadBone: true });
     expect(head).toBeTruthy();
     controller.loadAnimationClips([makeMixedClip(model, head!, 'HeadAndBody')]);

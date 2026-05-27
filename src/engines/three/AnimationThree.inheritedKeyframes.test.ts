@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Mesh, MeshBasicMaterial, Object3D, Quaternion, Vector3 } from 'three';
 import type { Profile } from '../../mappings/types';
 import type { ResolvedBones } from './types';
-import { BakedAnimationController, type BakedAnimationHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './AnimationThree';
 
 function makeMorphMesh(name: string, dictionary: Record<string, number>): Mesh {
   const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
@@ -36,7 +36,7 @@ function makeHost({
   bones?: ResolvedBones;
   auValues?: Record<number, number>;
   visemeValues?: number[];
-}): BakedAnimationHost {
+}): AnimationControllerHost {
   const model = new Object3D();
   for (const mesh of meshes) model.add(mesh);
   for (const bone of Object.values(bones)) {
@@ -85,13 +85,13 @@ function makeHost({
   };
 }
 
-function getNumberTrackValues(clip: NonNullable<ReturnType<BakedAnimationController['snippetToClip']>>, trackNamePart: string): number[] {
+function getNumberTrackValues(clip: NonNullable<ReturnType<AnimationController['snippetToClip']>>, trackNamePart: string): number[] {
   const track = clip.tracks.find((entry) => entry.name.includes(trackNamePart));
   expect(track).toBeTruthy();
   return Array.from(track!.values as ArrayLike<number>);
 }
 
-function getQuaternionTrackValues(clip: NonNullable<ReturnType<BakedAnimationController['snippetToClip']>>, obj: Object3D): number[] {
+function getQuaternionTrackValues(clip: NonNullable<ReturnType<AnimationController['snippetToClip']>>, obj: Object3D): number[] {
   const track = clip.tracks.find((entry) => entry.name === `${(obj as any).uuid}.quaternion`);
   expect(track).toBeTruthy();
   return Array.from(track!.values as ArrayLike<number>);
@@ -107,7 +107,7 @@ async function isPromiseSettled(promise: Promise<void>): Promise<boolean> {
   return settled;
 }
 
-describe('BakedAnimationController inherited first keyframes', () => {
+describe('AnimationController inherited first keyframes', () => {
   it('anchors direct morph curves to the current morph value', () => {
     const mesh = makeMorphMesh('Face', { Smile: 0 });
     mesh.morphTargetInfluences![0] = 0.42;
@@ -118,7 +118,7 @@ describe('BakedAnimationController inherited first keyframes', () => {
       morphToMesh: { face: ['Face'] },
       visemeKeys: [],
     };
-    const controller = new BakedAnimationController(makeHost({ profile, meshes: [mesh] }));
+    const controller = new AnimationController(makeHost({ profile, meshes: [mesh] }));
 
     const clip = controller.snippetToClip('direct-inherit', {
       Smile: [
@@ -145,7 +145,7 @@ describe('BakedAnimationController inherited first keyframes', () => {
       morphToMesh: { face: ['FaceA', 'FaceB'] },
       visemeKeys: [],
     };
-    const controller = new BakedAnimationController(makeHost({ profile, meshes: [faceA, faceB] }));
+    const controller = new AnimationController(makeHost({ profile, meshes: [faceA, faceB] }));
 
     const clip = controller.snippetToClip('direct-inherit-per-mesh', {
       Smile: [
@@ -171,7 +171,7 @@ describe('BakedAnimationController inherited first keyframes', () => {
       morphToMesh: { face: ['Face'] },
       visemeKeys: [],
     };
-    const controller = new BakedAnimationController(makeHost({ profile, meshes: [mesh] }));
+    const controller = new AnimationController(makeHost({ profile, meshes: [mesh] }));
 
     const clip = controller.snippetToClip('direct-absolute', {
       Smile: [
@@ -197,7 +197,7 @@ describe('BakedAnimationController inherited first keyframes', () => {
       morphToMesh: { face: ['Face'] },
       visemeKeys: [],
     };
-    const controller = new BakedAnimationController(makeHost({ profile, meshes: [mesh], auValues: { 12: 0.55 } }));
+    const controller = new AnimationController(makeHost({ profile, meshes: [mesh], auValues: { 12: 0.55 } }));
 
     const clip = controller.snippetToClip('au-morph-inherit', {
       12: [
@@ -226,7 +226,7 @@ describe('BakedAnimationController inherited first keyframes', () => {
       morphToMesh: { face: ['FaceA', 'FaceB'] },
       visemeKeys: [],
     };
-    const controller = new BakedAnimationController(makeHost({ profile, meshes: [faceA, faceB], auValues: { 12: 0.15 } }));
+    const controller = new AnimationController(makeHost({ profile, meshes: [faceA, faceB], auValues: { 12: 0.15 } }));
 
     const clip = controller.snippetToClip('index-inherit-per-mesh', {
       12: [
@@ -257,7 +257,7 @@ describe('BakedAnimationController inherited first keyframes', () => {
       visemeKeys: ['AA'],
       visemeJawAmounts: [1],
     };
-    const controller = new BakedAnimationController(makeHost({
+    const controller = new AnimationController(makeHost({
       profile,
       bones: { JAW: jaw },
       visemeValues: [0.7],
@@ -306,7 +306,7 @@ describe('BakedAnimationController inherited first keyframes', () => {
         },
       ],
     };
-    const controller = new BakedAnimationController(makeHost({
+    const controller = new AnimationController(makeHost({
       profile,
       bones: { HEAD: head },
       auValues: { 1: 0.5 },
@@ -340,7 +340,7 @@ describe('BakedAnimationController inherited first keyframes', () => {
       morphToMesh: {},
       visemeKeys: [],
     };
-    const controller = new BakedAnimationController(makeHost({
+    const controller = new AnimationController(makeHost({
       profile,
       bones: { HEAD: head },
       auValues: { 90: 0.375 },
@@ -368,7 +368,7 @@ describe('BakedAnimationController inherited first keyframes', () => {
       morphToMesh: { face: ['Face'] },
       visemeKeys: [],
     };
-    const controller = new BakedAnimationController(makeHost({ profile, meshes: [mesh] }));
+    const controller = new AnimationController(makeHost({ profile, meshes: [mesh] }));
 
     const clip = controller.snippetToClip('direct-replay-inherit', {
       Smile: [
@@ -406,7 +406,7 @@ describe('BakedAnimationController inherited first keyframes', () => {
       morphToMesh: { face: ['Face'] },
       visemeKeys: [],
     };
-    const controller = new BakedAnimationController(makeHost({ profile, meshes: [mesh] }));
+    const controller = new AnimationController(makeHost({ profile, meshes: [mesh] }));
 
     const clip = controller.snippetToClip('direct-replay-promise-inherit', {
       Smile: [
