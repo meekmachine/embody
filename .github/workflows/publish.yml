@@ -1,4 +1,4 @@
-name: Publish to NPM
+name: Publish Embody to NPM
 
 on:
   push:
@@ -192,7 +192,7 @@ jobs:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           if gh release view "${TAG}" >/dev/null 2>&1; then
-            gh release edit "${TAG}" --title "${TAG}" --notes "Published @lovelace_lol/loom3 ${VERSION}"
+            gh release edit "${TAG}" --title "${TAG}" --notes "Published ${{ steps.release.outputs.package_name }} ${VERSION}"
           else
-            gh release create "${TAG}" --target "${GITHUB_SHA}" --title "${TAG}" --notes "Published @lovelace_lol/loom3 ${VERSION}"
+            gh release create "${TAG}" --target "${GITHUB_SHA}" --title "${TAG}" --notes "Published ${{ steps.release.outputs.package_name }} ${VERSION}"
           fi
