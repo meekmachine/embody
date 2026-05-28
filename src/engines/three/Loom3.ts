@@ -746,6 +746,7 @@ export class Loom3 implements LoomLarge {
   // ============================================================================
 
   addMorphTarget(target: MorphTargetDelta, options: AddMorphTargetOptions = {}): number {
+    this.validateMorphTargetDelta(target, options);
     const staleMorphTargets = this.collectResolvedExpressionMorphTargets();
     const index = this.applyMorphTargetDelta(target, options);
     this.refreshMorphTargets([target.meshName]);
@@ -754,16 +755,42 @@ export class Loom3 implements LoomLarge {
   }
 
   addMorphTargets(targets: MorphTargetDelta[], options: AddMorphTargetOptions = {}): Record<string, number> {
-    const staleMorphTargets = this.collectResolvedExpressionMorphTargets();
-    const result: Record<string, number> = {};
+    if (targets.length === 0) return {};
 
+    const batchKeys = new Set<string>();
+    const batchRelativeModeByMesh = new Map<string, boolean>();
     for (const target of targets) {
-      const index = this.applyMorphTargetDelta(target, options);
-      result[`${target.meshName}:${target.name}`] = index;
+      const key = `${target.meshName}:${target.name}`;
+      if (batchKeys.has(key)) {
+        throw new Error(`Morph target "${target.name}" for mesh "${target.meshName}" appears more than once in the same batch.`);
+      }
+      batchKeys.add(key);
+      this.validateMorphTargetDelta(target, options);
+      const targetIsRelative = target.relative !== false;
+      const batchRelativeMode = batchRelativeModeByMesh.get(target.meshName);
+      if (batchRelativeMode !== undefined && batchRelativeMode !== targetIsRelative) {
+        throw new Error(`Cannot mix relative and absolute morph targets for mesh "${target.meshName}" in the same batch.`);
+      }
+      batchRelativeModeByMesh.set(target.meshName, targetIsRelative);
     }
 
-    this.refreshMorphTargets(Array.from(new Set(targets.map((target) => target.meshName))));
-    this.reinitializeRuntimeStateFromCurrentControls(staleMorphTargets);
+    const staleMorphTargets = this.collectResolvedExpressionMorphTargets();
+    const result: Record<string, number> = {};
+    const touchedMeshes = new Set<string>();
+
+    try {
+      for (const target of targets) {
+        const index = this.applyMorphTargetDelta(target, options);
+        touchedMeshes.add(target.meshName);
+        result[`${target.meshName}:${target.name}`] = index;
+      }
+    } finally {
+      if (touchedMeshes.size > 0) {
+        this.refreshMorphTargets(Array.from(touchedMeshes));
+        this.reinitializeRuntimeStateFromCurrentControls(staleMorphTargets);
+      }
+    }
+
     return result;
   }
 
@@ -1652,6 +1679,34 @@ export class Loom3 implements LoomLarge {
     return this.getMorphValueByIndex(index);
   }
 
+  private validateMorphTargetDelta(target: MorphTargetDelta, options: AddMorphTargetOptions): void {
+    const mesh = this.requireNamedMesh(target.meshName);
+    const geometry = mesh.geometry;
+    const position = geometry.getAttribute('position');
+    if (!position) {
+      throw new Error(`Cannot add morph target "${target.name}" to mesh "${target.meshName}": geometry has no position attribute.`);
+    }
+    if (!target.name || !target.name.trim()) {
+      throw new Error(`Cannot add morph target to mesh "${target.meshName}": target name is required.`);
+    }
+
+    const existingIndex = this.getMeshMorphDictionary(mesh)[target.name];
+    if (existingIndex !== undefined && options.replace !== true) {
+      throw new Error(`Morph target "${target.name}" already exists on mesh "${target.meshName}". Pass replace: true to overwrite it.`);
+    }
+
+    this.assertMorphAttributeDataLength(target.name, 'position', target.position, position.itemSize, position.count);
+    const normal = geometry.getAttribute('normal');
+    if (target.normal) {
+      this.assertMorphAttributeDataLength(target.name, 'normal', target.normal, normal?.itemSize ?? 3, position.count);
+    }
+    const tangent = geometry.getAttribute('tangent');
+    if (target.tangent) {
+      this.assertMorphAttributeDataLength(target.name, 'tangent', target.tangent, tangent?.itemSize ?? 4, position.count);
+    }
+    this.assertCompatibleMorphTargetMode(geometry, target);
+  }
+
   private applyMorphTargetDelta(target: MorphTargetDelta, options: AddMorphTargetOptions): number {
     const mesh = this.requireNamedMesh(target.meshName);
     const sourceGeometry = mesh.geometry;
@@ -1673,6 +1728,7 @@ export class Loom3 implements LoomLarge {
     if (existingIndex !== undefined && !replace) {
       throw new Error(`Morph target "${target.name}" already exists on mesh "${target.meshName}". Pass replace: true to overwrite it.`);
     }
+    this.assertCompatibleMorphTargetMode(sourceGeometry, target);
 
     const geometry = forceGeometryReplacement ? sourceGeometry.clone() : sourceGeometry;
     const dictionary = { ...previousDictionary };
@@ -1771,6 +1827,36 @@ export class Loom3 implements LoomLarge {
     return dictionary;
   }
 
+  private assertMorphAttributeDataLength(
+    name: string,
+    semantic: string,
+    data: Float32Array | number[],
+    itemSize: number,
+    vertexCount: number
+  ): void {
+    const expectedLength = vertexCount * itemSize;
+    if (data.length !== expectedLength) {
+      throw new Error(
+        `Morph target "${name}" ${semantic} data has ${data.length} values; expected ${expectedLength} ` +
+        `(${vertexCount} vertices * itemSize ${itemSize}).`
+      );
+    }
+  }
+
+  private assertCompatibleMorphTargetMode(geometry: Mesh['geometry'], target: MorphTargetDelta): void {
+    const hasExistingMorphTargets = Object.values(geometry.morphAttributes).some((attributes) => (attributes?.length ?? 0) > 0);
+    if (!hasExistingMorphTargets) return;
+
+    const targetIsRelative = target.relative !== false;
+    if (geometry.morphTargetsRelative !== targetIsRelative) {
+      const existingMode = geometry.morphTargetsRelative ? 'relative' : 'absolute';
+      const targetMode = targetIsRelative ? 'relative' : 'absolute';
+      throw new Error(
+        `Cannot add ${targetMode} morph target "${target.name}" to mesh "${target.meshName}" because existing morph targets are ${existingMode}.`
+      );
+    }
+  }
+
   private setMorphAttributeAtIndex(
     geometry: Mesh['geometry'],
     semantic: string,
@@ -1780,14 +1866,9 @@ export class Loom3 implements LoomLarge {
     index: number,
     name: string
   ): void {
-    const expectedLength = vertexCount * itemSize;
-    if (data.length !== expectedLength) {
-      throw new Error(
-        `Morph target "${name}" ${semantic} data has ${data.length} values; expected ${expectedLength} ` +
-        `(${vertexCount} vertices * itemSize ${itemSize}).`
-      );
-    }
+    this.assertMorphAttributeDataLength(name, semantic, data, itemSize, vertexCount);
 
+    const expectedLength = vertexCount * itemSize;
     const attributes = geometry.morphAttributes[semantic] ? [...geometry.morphAttributes[semantic]] : [];
     while (attributes.length < index) {
       const empty = new BufferAttribute(new Float32Array(expectedLength), itemSize);
