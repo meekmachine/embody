@@ -1,7 +1,7 @@
 {
-  "name": "@lovelace_lol/loom3",
-  "version": "1.0.27",
-  "description": "Lightweight 3D character animation engine for facial AUs, visemes, and bone-driven motion",
+  "name": "@lovelace_lol/embody",
+  "version": "0.0.0",
+  "description": "Renderer-agnostic character animation runtime for facial AUs, visemes, and bone-driven motion",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -58,12 +58,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/meekmachine/Loom3.git"
+    "url": "git+https://github.com/meekmachine/embody.git"
   },
   "bugs": {
-    "url": "https://github.com/meekmachine/Loom3/issues"
+    "url": "https://github.com/meekmachine/embody/issues"
   },
-  "homepage": "https://github.com/meekmachine/Loom3#readme",
+  "homepage": "https://github.com/meekmachine/embody#readme",
   "author": "Jonathan Sutton Fields",
   "license": "MIT",
   "packageManager": "npm@10.9.2"
