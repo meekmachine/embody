@@ -16,7 +16,10 @@ const checks = [
   ['three Loom3 ESM', typeof three.Loom3 === 'function'],
   ['three Loom3 CJS', typeof threeCjs.Loom3 === 'function'],
   ['three inspector ESM', typeof three.ThreeModelInspector === 'function'],
+  ['three clip adapter ESM', typeof three.ThreeClipAdapter === 'function'],
   ['three applier CJS', typeof threeCjs.ThreeFrameApplier === 'function'],
+  ['core compiler ESM', typeof core.TsClipCompiler === 'function'],
+  ['root compiler CJS', typeof rootCjs.TsClipCompiler === 'function'],
   ['core ESM object', typeof core === 'object'],
   ['core CJS object', typeof coreCjs === 'object'],
 ];

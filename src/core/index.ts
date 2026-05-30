@@ -37,3 +37,15 @@ export type {
   TransformSpace,
   Vec3,
 } from './contracts';
+
+export {
+  TsClipCompiler,
+  numericArrayToNumbers,
+} from './TsClipCompiler';
+export type {
+  TsClipCompilerInput,
+  TsClipCompilerKeyframe,
+  TsClipCompilerTrackInput,
+  TsClipCurveTarget,
+  TsClipCurvesInput,
+} from './TsClipCompiler';

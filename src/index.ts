@@ -51,12 +51,29 @@ export type {
   ThreeModelInspectionOptions,
 } from './engines/three/ThreeModelInspector';
 export { THREE_BLENDING_MODES, ThreeFrameApplier } from './engines/three/ThreeFrameApplier';
+export { ThreeClipAdapter } from './engines/three/ThreeClipAdapter';
 export type {
   ThreeFrameApplierBindings,
   ThreeMaterialConfig,
   ThreeMorphTargetBinding,
   ThreeResolvedMaterialConfig,
 } from './engines/three/ThreeFrameApplier';
+export type {
+  ThreeClipAdapterBindings,
+  ThreeClipMeshBinding,
+  ThreeClipMorphTargetBinding,
+} from './engines/three/ThreeClipAdapter';
+export {
+  TsClipCompiler,
+  numericArrayToNumbers,
+} from './core/TsClipCompiler';
+export type {
+  TsClipCompilerInput,
+  TsClipCompilerKeyframe,
+  TsClipCompilerTrackInput,
+  TsClipCurveTarget,
+  TsClipCurvesInput,
+} from './core/TsClipCompiler';
 
 // Legacy aliases (deprecated - use Loom3 instead)
 export { Loom3 as Loom3Three } from './engines/three/Loom3';
