@@ -7,4 +7,5 @@
    {:index
     {:exports
      {createAnimationRuntime embody.entry/create-animation-runtime
+      createClipPlan embody.entry/create-clip-plan
       installEmbody embody.entry/install-embody}}}}}}

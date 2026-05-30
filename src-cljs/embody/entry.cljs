@@ -10,9 +10,14 @@
   ([config] (animation/create-runtime config nil))
   ([config connector] (animation/create-runtime config connector)))
 
+(defn create-clip-plan
+  ([clip-name curves] (animation/create-clip-plan clip-name curves nil))
+  ([clip-name curves options] (animation/create-clip-plan clip-name curves options)))
+
 (defn install-embody
   ([] (install-embody js/globalThis))
   ([target]
-   (let [api #js {:createAnimationRuntime create-animation-runtime}]
+   (let [api #js {:createAnimationRuntime create-animation-runtime
+                  :createClipPlan create-clip-plan}]
      (aset target "Embody" api)
      api)))

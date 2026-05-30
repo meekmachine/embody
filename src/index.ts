@@ -99,6 +99,8 @@ export type {
   ClipEvent,
   ClipEventListener,
   ClipHandle,
+  EmbodyClipPlan,
+  EmbodyClipPlanPlayback,
   EmbodyAnimationRuntime,
   EmbodyAnimationRuntimeConnector,
   EmbodyAnimationRuntimeFactory,

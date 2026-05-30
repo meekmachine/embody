@@ -351,6 +351,33 @@ export type EmbodyAnimationRuntimeFactory = (
   connector?: EmbodyAnimationRuntimeConnector | null
 ) => EmbodyAnimationRuntime;
 
+export interface EmbodyClipPlanPlayback {
+  source?: AnimationSource;
+  loop: boolean;
+  loopMode: 'repeat' | 'pingpong' | 'once';
+  repeatCount?: number;
+  reverse: boolean;
+  weight: number;
+  mixerWeight: number;
+  rate: number;
+  playbackRate: number;
+  speed: number;
+  startTime: number;
+  blendMode?: AnimationBlendMode;
+  easing?: AnimationEasing;
+}
+
+export interface EmbodyClipPlan {
+  clipName: string;
+  duration: number;
+  keyframeTimes: number[];
+  curveCount: number;
+  keyframeCount: number;
+  hasInheritedStart: boolean;
+  inheritedCurveIds: string[];
+  playback: EmbodyClipPlanPlayback;
+}
+
 /**
  * A single keyframe point in an animation curve.
  */
@@ -427,6 +454,11 @@ export interface ClipOptions {
   autoVisemeJaw?: boolean;
   /** Optional source override for downstream consumers */
   source?: AnimationSource;
+  /**
+   * Internal CLJS-planned metadata passed to renderer connectors.
+   * Hosts may use this to avoid re-deriving duration, keyframe times, and normalized playback state.
+   */
+  clipPlan?: EmbodyClipPlan;
 }
 
 /**

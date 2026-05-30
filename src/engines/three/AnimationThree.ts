@@ -811,27 +811,40 @@ export class AnimationController {
     defaults: { loop: boolean; source: AnimationSource }
   ): NormalizedPlaybackState {
     const clipOptions = options as ClipOptions | undefined;
-    const rawRate = options?.playbackRate ?? options?.speed ?? 1.0;
+    const plannedPlayback = clipOptions?.clipPlan?.playback;
+    const rawRate = options?.playbackRate
+      ?? options?.speed
+      ?? plannedPlayback?.playbackRate
+      ?? plannedPlayback?.rate
+      ?? 1.0;
     const playbackRate = Number.isFinite(rawRate) ? Math.max(0, Math.abs(rawRate)) : 1.0;
-    const rawWeight = options?.weight ?? options?.intensity ?? clipOptions?.mixerWeight ?? 1.0;
+    const rawWeight = options?.weight
+      ?? options?.intensity
+      ?? clipOptions?.mixerWeight
+      ?? plannedPlayback?.weight
+      ?? plannedPlayback?.mixerWeight
+      ?? 1.0;
     const weight = Number.isFinite(rawWeight) ? Math.max(0, rawWeight) : 1.0;
     const loopMode = options?.loopMode
+      ?? plannedPlayback?.loopMode
       ?? (typeof options?.loop === 'boolean'
         ? (options.loop ? 'repeat' : 'once')
         : (defaults.loop ? 'repeat' : 'once'));
-    const requestedBlendMode = options?.blendMode ?? (clipOptions?.mixerAdditive ? 'additive' : 'replace');
+    const requestedBlendMode = options?.blendMode
+      ?? plannedPlayback?.blendMode
+      ?? (clipOptions?.mixerAdditive ? 'additive' : 'replace');
     return {
-      source: options?.source ?? defaults.source,
+      source: options?.source ?? plannedPlayback?.source ?? defaults.source,
       loop: loopMode !== 'once',
       loopMode,
-      repeatCount: options?.repeatCount,
-      reverse: !!options?.reverse,
+      repeatCount: options?.repeatCount ?? plannedPlayback?.repeatCount,
+      reverse: typeof options?.reverse === 'boolean' ? options.reverse : !!plannedPlayback?.reverse,
       playbackRate,
       weight,
       balance: Number.isFinite(options?.balance) ? options?.balance ?? 0 : 0,
       requestedBlendMode,
       blendMode: requestedBlendMode,
-      easing: options?.easing ?? 'linear',
+      easing: options?.easing ?? plannedPlayback?.easing ?? 'linear',
     };
   }
 
@@ -1816,7 +1829,13 @@ export class AnimationController {
     const balanceMap = options?.balanceMap;
     const meshNames = options?.meshNames;
     const visemeSlotCount = getProfileVisemeSlots(config).length;
-    let maxTime = 0;
+    const clipPlan = options?.clipPlan;
+    const plannedKeyframeTimes = Array.isArray(clipPlan?.keyframeTimes)
+      ? Array.from(new Set(clipPlan.keyframeTimes.filter((time) => Number.isFinite(time) && time >= 0))).sort((a, b) => a - b)
+      : null;
+    let maxTime = typeof clipPlan?.duration === 'number' && Number.isFinite(clipPlan.duration)
+      ? Math.max(0, clipPlan.duration)
+      : 0;
 
     const isNumericAU = (id: string) => /^\d+$/.test(id);
     const isVisemeIndex = (id: string) => {
@@ -1849,6 +1868,9 @@ export class AnimationController {
     };
 
     const keyframeTimes = (() => {
+      if (plannedKeyframeTimes?.length) {
+        return plannedKeyframeTimes;
+      }
       const times = new Set<number>();
       Object.values(curves).forEach((arr) => {
         arr.forEach((kf) => times.add(kf.time));
