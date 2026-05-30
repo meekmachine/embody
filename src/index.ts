@@ -67,6 +67,7 @@ export {
   TsClipCompiler,
   numericArrayToNumbers,
 } from './core/TsClipCompiler';
+export { TsRuntimeCore } from './core/TsRuntimeCore';
 export type {
   TsClipCompilerInput,
   TsClipCompilerKeyframe,
@@ -74,6 +75,7 @@ export type {
   TsClipCurveTarget,
   TsClipCurvesInput,
 } from './core/TsClipCompiler';
+export type { TsRuntimeCoreOptions } from './core/TsRuntimeCore';
 
 // Legacy aliases (deprecated - use Loom3 instead)
 export { Loom3 as Loom3Three } from './engines/three/Loom3';

@@ -19,7 +19,9 @@ const checks = [
   ['three clip adapter ESM', typeof three.ThreeClipAdapter === 'function'],
   ['three applier CJS', typeof threeCjs.ThreeFrameApplier === 'function'],
   ['core compiler ESM', typeof core.TsClipCompiler === 'function'],
+  ['core runtime ESM', typeof core.TsRuntimeCore === 'function'],
   ['root compiler CJS', typeof rootCjs.TsClipCompiler === 'function'],
+  ['root runtime CJS', typeof rootCjs.TsRuntimeCore === 'function'],
   ['core ESM object', typeof core === 'object'],
   ['core CJS object', typeof coreCjs === 'object'],
 ];

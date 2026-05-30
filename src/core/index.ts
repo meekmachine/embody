@@ -42,6 +42,7 @@ export {
   TsClipCompiler,
   numericArrayToNumbers,
 } from './TsClipCompiler';
+export { TsRuntimeCore } from './TsRuntimeCore';
 export type {
   TsClipCompilerInput,
   TsClipCompilerKeyframe,
@@ -49,3 +50,4 @@ export type {
   TsClipCurveTarget,
   TsClipCurvesInput,
 } from './TsClipCompiler';
+export type { TsRuntimeCoreOptions } from './TsRuntimeCore';
