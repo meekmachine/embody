@@ -27,9 +27,36 @@ export interface EmbodyClipHandle {
   finished: Promise<void>;
 }
 
+export interface EmbodyClipPlanPlayback {
+  source?: string;
+  loop: boolean;
+  loopMode: 'once' | 'repeat' | 'pingpong';
+  repeatCount?: number;
+  reverse: boolean;
+  weight: number;
+  mixerWeight: number;
+  rate: number;
+  playbackRate: number;
+  speed: number;
+  startTime: number;
+  blendMode?: string;
+  easing?: string;
+}
+
+export interface EmbodyClipPlan {
+  clipName: string;
+  duration: number;
+  keyframeTimes: number[];
+  curveCount: number;
+  keyframeCount: number;
+  hasInheritedStart: boolean;
+  inheritedCurveIds: string[];
+  playback: EmbodyClipPlanPlayback;
+}
+
 export interface EmbodyAnimationConnector {
-  buildClip?(clipName: string, curves: Record<string, unknown>, options: Record<string, unknown>): unknown;
-  playClip?(clipName: string, curves?: Record<string, unknown>, options?: Record<string, unknown>): unknown;
+  buildClip?(clipName: string, curves: Record<string, unknown>, options?: any): unknown;
+  playClip?(clipName: string, curves?: Record<string, unknown>, options?: any): unknown;
   stopClip?(clipName: string): void;
   pauseClip?(clipName: string): void;
   resumeClip?(clipName: string): void;
@@ -67,4 +94,13 @@ export function createAnimationRuntime(
   connector?: EmbodyAnimationConnector | null
 ): EmbodyAnimationRuntime;
 
-export function installEmbody(target?: Record<string, unknown>): { createAnimationRuntime: typeof createAnimationRuntime };
+export function createClipPlan(
+  clipName: string,
+  curves: Record<string, unknown>,
+  options?: Record<string, unknown> | null
+): EmbodyClipPlan;
+
+export function installEmbody(target?: Record<string, unknown>): {
+  createAnimationRuntime: typeof createAnimationRuntime;
+  createClipPlan: typeof createClipPlan;
+};

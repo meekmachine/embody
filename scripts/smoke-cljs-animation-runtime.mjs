@@ -5,7 +5,25 @@ import {
   COMPOSITE_ROTATIONS,
   Loom3,
 } from '../dist/index.js';
-import { createAnimationRuntime } from '../dist/cljs/index.js';
+import { createAnimationRuntime, createClipPlan } from '../dist/cljs/index.js';
+
+const planned = createClipPlan(
+  'gaze/look',
+  {
+    43: [
+      { time: 1.2, intensity: 1 },
+      { time: 0, intensity: 0, inherit: true },
+    ],
+  },
+  { loopMode: 'once', weight: 0.75, playbackRate: 1.5, source: 'snippet' },
+);
+
+assert.deepEqual(planned.keyframeTimes, [0, 1.2]);
+assert.equal(planned.duration, 1.2);
+assert.equal(planned.hasInheritedStart, true);
+assert.deepEqual(planned.inheritedCurveIds, ['43']);
+assert.equal(planned.playback.playbackRate, 1.5);
+assert.equal(planned.playback.weight, 0.75);
 
 const commands = [];
 const connectorCalls = [];
@@ -55,6 +73,12 @@ assert.equal(handle.clipName, 'gaze/look');
 assert.equal(handle.actionId, 'gaze/look:action');
 assert.equal(handle.getDuration(), 1.2);
 assert.equal(connectorCalls[0][0], 'buildClip');
+assert.equal(connectorCalls[0][3].playbackRate, 1.5);
+assert.equal(connectorCalls[0][3].speed, 1.5);
+assert.equal(connectorCalls[0][3].weight, 0.75);
+assert.equal(connectorCalls[0][3].mixerWeight, 0.75);
+assert.equal(connectorCalls[0][3].clipPlan.duration, 1.2);
+assert.deepEqual(connectorCalls[0][3].clipPlan.keyframeTimes, [0, 1.2]);
 assert.equal(commands.some((command) => command.op === 'buildClip'), true);
 
 const events = [];
@@ -114,18 +138,20 @@ const integratedHandle = loom.buildClip(
       { time: 1, intensity: 0 },
     ],
   },
-  { loopMode: 'once', source: 'snippet' },
+  { loopMode: 'once', source: 'snippet', playbackRate: 2, weight: 0.5 },
 );
 
 assert.ok(integratedHandle);
 assert.equal(typeof integratedHandle.subscribe, 'function');
+assert.equal(loom.getAnimationState('cljs-integrated-eye').playbackRate, 2);
+assert.equal(loom.getAnimationState('cljs-integrated-eye').weight, 0.5);
 
 const integratedEvents = [];
 integratedHandle.subscribe((event) => integratedEvents.push(event));
 
-loom.update(0.5);
+loom.update(0.25);
 assert.notEqual(leftEye.quaternion.w, 1);
-loom.update(0.5);
+loom.update(0.25);
 
 assert.equal(integratedEvents.some((event) => event.type === 'keyframe' && event.currentTime === 0.5), true);
 assert.equal(integratedEvents.some((event) => event.type === 'completed'), true);

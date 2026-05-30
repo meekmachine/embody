@@ -79,6 +79,21 @@
    (number-or fallback 0)
    (vals curves)))
 
+(defn- collect-keyframe-times [curves]
+  (->> (vals curves)
+       (mapcat (fn [points] (map :time points)))
+       (filter finite-number?)
+       set
+       (sort <)
+       vec))
+
+(defn- inherited-curve-ids [curves]
+  (->> curves
+       (keep (fn [[curve-id points]]
+               (when (:inherit (first points))
+                 curve-id)))
+       vec))
+
 (defn- normalize-loop-mode [options]
   (let [mode (or (:loopMode options) (:mixerLoopMode options))]
     (cond
@@ -90,9 +105,14 @@
   (let [options (or options {})
         loop-mode (normalize-loop-mode options)
         rate (or (:playbackRate options) (:rate options) (:speed options))
-        weight (or (:weight options) (:intensity options))]
-    (cond-> {:weight (max 0 (number-or weight 1))
-             :rate (max 0 (number-or rate 1))
+        weight (or (:weight options) (:mixerWeight options) (:intensity options))
+        normalized-rate (max 0 (number-or rate 1))
+        normalized-weight (max 0 (number-or weight 1))]
+    (cond-> {:weight normalized-weight
+             :mixerWeight normalized-weight
+             :rate normalized-rate
+             :playbackRate normalized-rate
+             :speed normalized-rate
              :loopMode loop-mode
              :loop (not= loop-mode "once")
              :repeatCount (:repeatCount options)
@@ -108,25 +128,64 @@
       (contains? options :snippetCategory) (assoc :snippetCategory (:snippetCategory options))
       (contains? options :autoVisemeJaw) (assoc :autoVisemeJaw (boolean (:autoVisemeJaw options))))))
 
+(defn- playback-plan [options]
+  {:source (:source options)
+   :loop (:loop options)
+   :loopMode (:loopMode options)
+   :repeatCount (:repeatCount options)
+   :reverse (:reverse options)
+   :weight (:weight options)
+   :mixerWeight (:mixerWeight options)
+   :rate (:rate options)
+   :playbackRate (:playbackRate options)
+   :speed (:speed options)
+   :startTime (:startTime options)
+   :blendMode (:blendMode options)
+   :easing (:easing options)})
+
+(defn- build-plan [clip-name curves options]
+  (let [keyframe-times (collect-keyframe-times curves)
+        inherited-curve-ids (inherited-curve-ids curves)
+        duration (calculate-duration curves (:duration options))]
+    {:clipName clip-name
+     :duration duration
+     :keyframeTimes keyframe-times
+     :curveCount (count curves)
+     :keyframeCount (reduce + 0 (map count (vals curves)))
+     :hasInheritedStart (pos? (count inherited-curve-ids))
+     :inheritedCurveIds inherited-curve-ids
+     :playback (playback-plan options)}))
+
+(defn- connector-options [options plan]
+  (assoc options :clipPlan plan))
+
+(defn create-clip-plan [clip-name-js curves-js options-js]
+  (let [clip-name (key->string clip-name-js)
+        curves (normalize-curves (js->data curves-js))
+        options (normalize-options (js->data options-js))]
+    (data->js (build-plan clip-name curves options))))
+
 (defn- make-action-id [clip-name]
   (str clip-name "#" (now-ms) "-" (.floor js/Math (* (.random js/Math) 1000000))))
 
 (defn- handle-state
-  [clip-name curves options connector-result]
+  [clip-name curves options plan connector-result]
   (let [result (or connector-result {})
         action-id (or (:actionId result) (:id result) (make-action-id clip-name))
-        duration (calculate-duration curves (:duration result))]
+        duration (number-or (:duration result) (:duration plan))]
     {:clipName clip-name
      :actionId action-id
      :duration duration
      :time (number-or (:time result) (:startTime options))
      :weight (:weight options)
      :rate (:rate options)
+     :playbackRate (:playbackRate options)
      :loopMode (:loopMode options)
      :loop (:loop options)
      :repeatCount (:repeatCount options)
      :reverse (:reverse options)
      :source (:source options)
+     :plan plan
      :status "playing"
      :createdAt (now-ms)
      :updatedAt (now-ms)}))
@@ -251,19 +310,22 @@
                (let [clip-name (key->string clip-name-js)
                      curves (normalize-curves (js->data curves-js))
                      options (normalize-options (js->data options-js))
+                     plan (build-plan clip-name curves options)
+                     options-for-connector (connector-options options plan)
                      connector-result-js (call-connector! connector
                                                           ["buildClip" "playClip"]
                                                           clip-name
                                                           (data->js curves)
-                                                          (data->js options))]
+                                                          (data->js options-for-connector))]
                  (when connector-result-js
                    (let [connector-result (js->data connector-result-js)
-                         handle (handle-state clip-name curves options connector-result)]
+                         handle (handle-state clip-name curves options plan connector-result)]
                      (upsert-handle! state handle)
                      (command! state connector "buildClip" clip-name
                                {:actionId (:actionId handle)
                                 :duration (:duration handle)
-                                :options options})
+                                :options options
+                                :plan plan})
                      (emit-state! connector state)
                      (make-handle clip-name)))))
              (make-handle [clip-name]
