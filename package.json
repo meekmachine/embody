@@ -11,10 +11,15 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./cljs": {
+      "types": "./types/cljs.d.ts",
+      "import": "./dist/cljs/index.js"
     }
   },
   "files": [
     "dist",
+    "types",
     "README.md",
     "LICENSE"
   ],
@@ -22,10 +27,13 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "npm run build:cljs && tsup",
+    "build:cljs": "shadow-cljs release npm",
     "dev": "tsup --watch",
+    "dev:cljs": "shadow-cljs watch npm",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:cljs": "npm run build:cljs && node scripts/smoke-cljs-animation-runtime.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "prepare": "npm run build",
@@ -37,6 +45,7 @@
   "devDependencies": {
     "@types/three": "^0.170.0",
     "@vitest/coverage-v8": "^3.2.4",
+    "shadow-cljs": "^3.4.11",
     "three": "^0.170.0",
     "tsup": "^8.0.0",
     "typescript": "^5.9.0",

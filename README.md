@@ -5,7 +5,41 @@ The missing character controller for Three.js! Loom3 allows you to bring humanoi
 
 Loom3 provides mappings that connect [Facial Action Coding System (FACS)](https://en.wikipedia.org/wiki/Facial_Action_Coding_System) Action Units to the morph targets and bone transforms found in 3d character assets. Instead of manually figuring out which blend shapes correspond to which facial movements, you can simply say `setAU(12, 0.8)` and the library handles the rest.
 
+> **Embody package note:** this repository now publishes as `@lovelace_lol/embody`. The TypeScript API still exports the historical `Loom3` names so LoomLarge and other existing apps can migrate without a repo-wide rename. New CLJS-first runtime work should use the Embody name internally and treat `Loom3` as a compatibility surface.
+
 > **Note:** If you previously used the `loomlarge` npm package, it has been renamed to `@lovelace_lol/loom3`.
+
+## CLJS Animation Runtime
+
+The Embody CLJS entry point is available at `@lovelace_lol/embody/cljs`.
+It owns clip-handle state, handle methods, event subscription, and the command
+stream for snippet playback. Renderer-specific code should stay in a small
+connector object that creates or mutates the actual Three.js `AnimationClip`,
+`AnimationAction`, and `AnimationMixer` objects.
+
+```ts
+import { createAnimationRuntime } from '@lovelace_lol/embody/cljs';
+
+const runtime = createAnimationRuntime({}, {
+  buildClip(name, curves, options) {
+    // Minimal connector: build the Three.js clip/action and return metadata.
+    return { actionId: `${name}:action`, duration: 1.2 };
+  },
+  setClipWeight(name, weight) {
+    // Apply weight to the renderer action.
+  },
+  onCommand(command) {
+    // Optional observable boundary for Most.js, Effect, or dev tooling.
+  },
+});
+
+const handle = runtime.buildClip('gaze/look', {
+  43: [{ time: 0, intensity: 0, inherit: true }, { time: 1.2, intensity: 1 }],
+}, { loopMode: 'once', source: 'snippet' });
+
+handle.setWeight(0.6);
+runtime.acceptClipEvent({ type: 'completed', clipName: 'gaze/look' });
+```
 
 ![Hero image showing Loom3 controlling a facial expression](./assets/readme/hero-expressions.webp)
 
