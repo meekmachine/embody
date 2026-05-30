@@ -4,8 +4,8 @@ import {
   BONE_AU_TO_BINDINGS,
   COMPOSITE_ROTATIONS,
   Loom3,
+  createAnimationRuntime,
 } from '../dist/index.js';
-import { createAnimationRuntime } from '../dist/cljs/index.js';
 
 const commands = [];
 const connectorCalls = [];

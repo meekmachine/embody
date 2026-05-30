@@ -27,17 +27,17 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup && shadow-cljs release package",
+    "build": "tsup && shadow-cljs release package && node scripts/expose-cljs-main-export.mjs",
     "build:cljs": "shadow-cljs release package",
     "dev": "tsup --watch",
     "dev:cljs": "shadow-cljs watch package",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:cljs": "tsup && shadow-cljs release package && node scripts/smoke-cljs-animation-runtime.mjs",
+    "test:cljs": "npm run build && node scripts/smoke-cljs-animation-runtime.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "prepare": "tsup && shadow-cljs release package",
-    "prepublishOnly": "tsup && shadow-cljs release package"
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
     "three": ">=0.150.0"
