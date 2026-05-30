@@ -27,13 +27,13 @@
     "access": "public"
   },
   "scripts": {
-    "build": "npm run build:cljs && tsup",
+    "build": "shadow-cljs release package && tsup",
     "build:cljs": "shadow-cljs release package",
     "dev": "tsup --watch",
     "dev:cljs": "shadow-cljs watch package",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:cljs": "npm run build:cljs && node scripts/smoke-cljs-animation-runtime.mjs",
+    "test:cljs": "shadow-cljs release package && node scripts/smoke-cljs-animation-runtime.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "prepare": "npm run build",
