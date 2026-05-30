@@ -211,7 +211,7 @@
                      event-type (or (:type event) (:event event))]
                  (when-not (= "" clip-name)
                    (case event-type
-                     ("time" "progress" "frame")
+                     ("time" "progress" "frame" "keyframe" "seek" "loop")
                      (update-handle! state clip-name assoc
                                      :time (number-or (:currentTime event) (:time event))
                                      :updatedAt (now-ms))
@@ -251,20 +251,21 @@
                (let [clip-name (key->string clip-name-js)
                      curves (normalize-curves (js->data curves-js))
                      options (normalize-options (js->data options-js))
-                     connector-result (js->data
-                                       (call-connector! connector
-                                                        ["buildClip" "playClip"]
-                                                        clip-name
-                                                        (data->js curves)
-                                                        (data->js options)))
-                     handle (handle-state clip-name curves options connector-result)]
-                 (upsert-handle! state handle)
-                 (command! state connector "buildClip" clip-name
-                           {:actionId (:actionId handle)
-                            :duration (:duration handle)
-                            :options options})
-                 (emit-state! connector state)
-                 (make-handle clip-name)))
+                     connector-result-js (call-connector! connector
+                                                          ["buildClip" "playClip"]
+                                                          clip-name
+                                                          (data->js curves)
+                                                          (data->js options))]
+                 (when connector-result-js
+                   (let [connector-result (js->data connector-result-js)
+                         handle (handle-state clip-name curves options connector-result)]
+                     (upsert-handle! state handle)
+                     (command! state connector "buildClip" clip-name
+                               {:actionId (:actionId handle)
+                                :duration (:duration handle)
+                                :options options})
+                     (emit-state! connector state)
+                     (make-handle clip-name)))))
              (make-handle [clip-name]
                (let [finished (js/Promise.
                                (fn [resolve _reject]

@@ -1,4 +1,10 @@
 import assert from 'node:assert/strict';
+import { Object3D } from 'three';
+import {
+  BONE_AU_TO_BINDINGS,
+  COMPOSITE_ROTATIONS,
+  Loom3,
+} from '../dist/index.js';
 import { createAnimationRuntime } from '../dist/cljs/index.js';
 
 const commands = [];
@@ -79,3 +85,49 @@ assert.equal(connectorCalls.some((call) => call[0] === 'resumeClip'), true);
 assert.equal(connectorCalls.some((call) => call[0] === 'stopClip'), true);
 
 console.log('CLJS animation runtime smoke passed');
+
+const model = new Object3D();
+const leftEye = new Object3D();
+leftEye.name = 'CC_Base_L_Eye';
+model.add(leftEye);
+
+const loom = new Loom3({
+  animationRuntimeFactory: createAnimationRuntime,
+  profile: {
+    auToMorphs: {},
+    auToBones: BONE_AU_TO_BINDINGS,
+    boneNodes: { EYE_L: 'CC_Base_L_Eye' },
+    morphToMesh: {},
+    visemeKeys: [],
+    compositeRotations: COMPOSITE_ROTATIONS,
+  },
+});
+
+loom.onReady({ meshes: [], model });
+
+const integratedHandle = loom.buildClip(
+  'cljs-integrated-eye',
+  {
+    65: [
+      { time: 0, intensity: 0 },
+      { time: 0.5, intensity: 1 },
+      { time: 1, intensity: 0 },
+    ],
+  },
+  { loopMode: 'once', source: 'snippet' },
+);
+
+assert.ok(integratedHandle);
+assert.equal(typeof integratedHandle.subscribe, 'function');
+
+const integratedEvents = [];
+integratedHandle.subscribe((event) => integratedEvents.push(event));
+
+loom.update(0.5);
+assert.notEqual(leftEye.quaternion.w, 1);
+loom.update(0.5);
+
+assert.equal(integratedEvents.some((event) => event.type === 'keyframe' && event.currentTime === 0.5), true);
+assert.equal(integratedEvents.some((event) => event.type === 'completed'), true);
+
+console.log('CLJS runtime wired to Three animation smoke passed');

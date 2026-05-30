@@ -18,6 +18,20 @@ connector object that creates or mutates the actual Three.js `AnimationClip`,
 `AnimationAction`, and `AnimationMixer` objects.
 
 ```ts
+import { Loom3 } from '@lovelace_lol/embody';
+import { createAnimationRuntime } from '@lovelace_lol/embody/cljs';
+
+const loom = new Loom3({ animationRuntimeFactory: createAnimationRuntime });
+```
+
+With that factory installed, scheduled snippets created through `buildClip()` and
+`playSnippet()` use CLJS-owned handle state. The Three.js implementation remains
+the connector that builds `AnimationClip`s, mutates `AnimationAction`s, advances
+the `AnimationMixer`, and reports clip events back to CLJS.
+
+The lower-level runtime can also be tested directly with a custom connector:
+
+```ts
 import { createAnimationRuntime } from '@lovelace_lol/embody/cljs';
 
 const runtime = createAnimationRuntime({}, {

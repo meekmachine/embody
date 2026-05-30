@@ -88,6 +88,11 @@ export interface Loom3Config {
   profile?: import('../mappings/types').Profile;
   /** Preset type to resolve if profile is not provided. */
   presetType?: import('../presets').PresetType | string;
+  /**
+   * Optional CLJS animation runtime factory from `@lovelace_lol/embody/cljs`.
+   * Scheduled snippets route through this runtime when supplied.
+   */
+  animationRuntimeFactory?: EmbodyAnimationRuntimeFactory;
 }
 
 // ============================================================================
@@ -313,6 +318,38 @@ export type ClipEvent =
     };
 
 export type ClipEventListener = (event: ClipEvent) => void;
+
+export interface EmbodyAnimationRuntimeConnector {
+  buildClip?: (clipName: string, curves: CurvesMap, options?: ClipOptions) => unknown;
+  playClip?: (clipName: string, curves?: CurvesMap, options?: ClipOptions) => unknown;
+  stopClip?: (clipName: string) => void;
+  pauseClip?: (clipName: string) => void;
+  resumeClip?: (clipName: string) => void;
+  setClipWeight?: (clipName: string, weight: number) => void;
+  setClipPlaybackRate?: (clipName: string, rate: number) => void;
+  setClipLoop?: (clipName: string, mode: 'once' | 'repeat' | 'pingpong', repeatCount?: number) => void;
+  setClipTime?: (clipName: string, time: number) => void;
+  getClipTime?: (clipName: string) => number;
+  getClipDuration?: (clipName: string) => number;
+  updateClipParams?: (clipName: string, params: Record<string, unknown>) => boolean;
+  cleanupSnippet?: (clipName: string) => void;
+  onCommand?: (command: Record<string, unknown>) => void;
+  onState?: (state: Record<string, unknown>) => void;
+}
+
+export interface EmbodyAnimationRuntime {
+  snapshot(): Record<string, unknown>;
+  buildClip(clipName: string, curves: CurvesMap, options?: ClipOptions): ClipHandle | null;
+  playSnippet(clipName: string, curves: CurvesMap, options?: ClipOptions): ClipHandle | null;
+  acceptClipEvent(event: ClipEvent | Record<string, unknown>): boolean;
+  cleanupSnippet(clipName: string): boolean;
+  updateClipParams(clipName: string, params: Record<string, unknown>): boolean;
+}
+
+export type EmbodyAnimationRuntimeFactory = (
+  config?: Record<string, unknown> | null,
+  connector?: EmbodyAnimationRuntimeConnector | null
+) => EmbodyAnimationRuntime;
 
 /**
  * A single keyframe point in an animation curve.

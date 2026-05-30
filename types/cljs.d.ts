@@ -51,12 +51,12 @@ export interface EmbodyAnimationRuntime {
     clipName: string,
     curves: Record<string, unknown>,
     options?: Record<string, unknown>
-  ): EmbodyClipHandle;
+  ): EmbodyClipHandle | null;
   playSnippet(
     clipName: string,
     curves: Record<string, unknown>,
     options?: Record<string, unknown>
-  ): EmbodyClipHandle;
+  ): EmbodyClipHandle | null;
   acceptClipEvent(event: EmbodyClipEvent): boolean;
   cleanupSnippet(clipName: string): boolean;
   updateClipParams(clipName: string, params: Record<string, unknown>): boolean;
