@@ -11,15 +11,14 @@ Loom3 provides mappings that connect [Facial Action Coding System (FACS)](https:
 
 ## CLJS Animation Runtime
 
-The Embody CLJS entry point is available at `@lovelace_lol/embody/cljs`.
-It owns clip-handle state, handle methods, event subscription, and the command
-stream for snippet playback. Renderer-specific code should stay in a small
-connector object that creates or mutates the actual Three.js `AnimationClip`,
-`AnimationAction`, and `AnimationMixer` objects.
+The Embody package compiles its CLJS animation runtime into the normal
+JavaScript package entrypoint. It owns clip-handle state, handle methods, event
+subscription, and the command stream for snippet playback. Renderer-specific code
+should stay in a small connector object that creates or mutates the actual
+Three.js `AnimationClip`, `AnimationAction`, and `AnimationMixer` objects.
 
 ```ts
-import { Loom3 } from '@lovelace_lol/embody';
-import { createAnimationRuntime } from '@lovelace_lol/embody/cljs';
+import { Loom3, createAnimationRuntime } from '@lovelace_lol/embody';
 
 const loom = new Loom3({ animationRuntimeFactory: createAnimationRuntime });
 ```
@@ -32,7 +31,7 @@ the `AnimationMixer`, and reports clip events back to CLJS.
 The lower-level runtime can also be tested directly with a custom connector:
 
 ```ts
-import { createAnimationRuntime } from '@lovelace_lol/embody/cljs';
+import { createAnimationRuntime } from '@lovelace_lol/embody';
 
 const runtime = createAnimationRuntime({}, {
   buildClip(name, curves, options) {

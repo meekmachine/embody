@@ -29,7 +29,7 @@ export interface LoomLargeConfig {
   /** Preset type to resolve if profile is not provided. */
   presetType?: PresetType | string;
   /**
-   * Optional CLJS animation runtime factory from `@lovelace_lol/embody/cljs`.
+   * Optional compiled animation runtime factory from the package entrypoint.
    * When supplied, scheduled snippet playback uses CLJS-owned clip handle state
    * while this Three.js engine remains the renderer connector.
    */

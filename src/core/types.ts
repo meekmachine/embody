@@ -89,7 +89,7 @@ export interface Loom3Config {
   /** Preset type to resolve if profile is not provided. */
   presetType?: import('../presets').PresetType | string;
   /**
-   * Optional CLJS animation runtime factory from `@lovelace_lol/embody/cljs`.
+   * Optional compiled animation runtime factory from the package entrypoint.
    * Scheduled snippets route through this runtime when supplied.
    */
   animationRuntimeFactory?: EmbodyAnimationRuntimeFactory;
