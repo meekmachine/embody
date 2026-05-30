@@ -28,9 +28,9 @@
   },
   "scripts": {
     "build": "npm run build:cljs && tsup",
-    "build:cljs": "shadow-cljs release npm",
+    "build:cljs": "shadow-cljs release package",
     "dev": "tsup --watch",
-    "dev:cljs": "shadow-cljs watch npm",
+    "dev:cljs": "shadow-cljs watch package",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:cljs": "npm run build:cljs && node scripts/smoke-cljs-animation-runtime.mjs",

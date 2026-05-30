@@ -1,4 +1,4 @@
-(ns embody.npm
+(ns embody.entry
   (:require [embody.animation :as animation]))
 
 ;; Public ESM facade for `@lovelace_lol/embody/cljs`. Keep this namespace thin:
