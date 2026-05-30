@@ -43,6 +43,13 @@ export type {
   AnimationControllerHost,
   BakedAnimationHost,
 } from './engines/three/AnimationThree';
+export { ThreeModelInspector } from './engines/three/ThreeModelInspector';
+export type {
+  ThreeAnimationClipDescriptor,
+  ThreeAnimationTrackDescriptor,
+  ThreeModelInspection,
+  ThreeModelInspectionOptions,
+} from './engines/three/ThreeModelInspector';
 
 // Legacy aliases (deprecated - use Loom3 instead)
 export { Loom3 as Loom3Three } from './engines/three/Loom3';

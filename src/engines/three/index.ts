@@ -14,3 +14,10 @@ export type {
   AnimationControllerHost,
   BakedAnimationHost,
 } from './AnimationThree';
+export { ThreeModelInspector } from './ThreeModelInspector';
+export type {
+  ThreeAnimationClipDescriptor,
+  ThreeAnimationTrackDescriptor,
+  ThreeModelInspection,
+  ThreeModelInspectionOptions,
+} from './ThreeModelInspector';
