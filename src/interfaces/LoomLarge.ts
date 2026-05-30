@@ -10,6 +10,7 @@ import type { Profile, MeshInfo } from '../mappings/types';
 import type { PresetType } from '../presets';
 import type { Animation } from './Animation';
 import type { Hair } from './Hair';
+import type { EmbodyAnimationRuntimeFactory } from '../core/types';
 
 /**
  * Payload for initializing the engine with a loaded model
@@ -27,6 +28,12 @@ export interface LoomLargeConfig {
   profile?: Partial<Profile>;
   /** Preset type to resolve if profile is not provided. */
   presetType?: PresetType | string;
+  /**
+   * Optional CLJS animation runtime factory from `@lovelace_lol/embody/cljs`.
+   * When supplied, scheduled snippet playback uses CLJS-owned clip handle state
+   * while this Three.js engine remains the renderer connector.
+   */
+  animationRuntimeFactory?: EmbodyAnimationRuntimeFactory;
 }
 
 // MeshInfo is imported from mappings/types.ts

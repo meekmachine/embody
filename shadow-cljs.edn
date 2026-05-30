@@ -1,0 +1,10 @@
+{:source-paths ["src-cljs"]
+ :builds
+ {:package
+  {:target :esm
+   :output-dir "dist/cljs"
+   :modules
+   {:index
+    {:exports
+     {createAnimationRuntime embody.entry/create-animation-runtime
+      installEmbody embody.entry/install-embody}}}}}}

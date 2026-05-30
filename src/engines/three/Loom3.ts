@@ -215,6 +215,8 @@ export class Loom3 implements LoomLarge {
       getAUMixWeight: (auId) => this.getAUMixWeight(auId),
       isMixedAU: (auId) => this.isMixedAU(auId),
       reapplyProceduralState: () => this.reapplyProceduralStateAfterBakedUpdate(),
+    }, {
+      animationRuntimeFactory: config.animationRuntimeFactory,
     });
 
     this.hairPhysics = new HairPhysicsController({
