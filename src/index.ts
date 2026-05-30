@@ -105,6 +105,46 @@ export type {
   AddMorphTargetOptions,
 } from './core/types';
 
+export type {
+  BoneDescriptor,
+  BoneFrameDelta,
+  BoneId,
+  BoneTransformTrackTarget,
+  ChannelId,
+  ClipChannelIR,
+  ClipChannelKind,
+  ClipIR,
+  ClipInterpolation,
+  ClipTrackIR,
+  ClipTrackTarget,
+  ClipTrackTargetKind,
+  ClipTrackTransformProperty,
+  ClipTrackValueType,
+  FrameDelta,
+  FrameValueMode,
+  HostAnimationHandle,
+  HostAnimationPlayOptions,
+  HostAnimationSystem,
+  HostFrameApplier,
+  HostModelInspector,
+  HostTargetId,
+  MeshDescriptor,
+  MeshFrameDelta,
+  MeshId,
+  MeshVisibilityTrackTarget,
+  ModelDescriptor,
+  MorphTargetDescriptor,
+  MorphTargetFrameDelta,
+  MorphTargetId,
+  MorphTargetTrackTarget,
+  NumericArray,
+  Quat,
+  TrackId,
+  Transform,
+  TransformSpace,
+  Vec3,
+} from './core/contracts';
+
 // ============================================================================
 // MAPPINGS
 // ============================================================================
