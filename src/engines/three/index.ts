@@ -21,3 +21,10 @@ export type {
   ThreeModelInspection,
   ThreeModelInspectionOptions,
 } from './ThreeModelInspector';
+export { THREE_BLENDING_MODES, ThreeFrameApplier } from './ThreeFrameApplier';
+export type {
+  ThreeFrameApplierBindings,
+  ThreeMaterialConfig,
+  ThreeMorphTargetBinding,
+  ThreeResolvedMaterialConfig,
+} from './ThreeFrameApplier';

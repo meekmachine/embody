@@ -50,6 +50,13 @@ export type {
   ThreeModelInspection,
   ThreeModelInspectionOptions,
 } from './engines/three/ThreeModelInspector';
+export { THREE_BLENDING_MODES, ThreeFrameApplier } from './engines/three/ThreeFrameApplier';
+export type {
+  ThreeFrameApplierBindings,
+  ThreeMaterialConfig,
+  ThreeMorphTargetBinding,
+  ThreeResolvedMaterialConfig,
+} from './engines/three/ThreeFrameApplier';
 
 // Legacy aliases (deprecated - use Loom3 instead)
 export { Loom3 as Loom3Three } from './engines/three/Loom3';
