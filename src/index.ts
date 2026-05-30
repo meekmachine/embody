@@ -32,7 +32,17 @@
 // ============================================================================
 
 export { Loom3, collectMorphMeshes } from './engines/three/Loom3';
-export { AnimationThree } from './engines/three/AnimationThree';
+export {
+  AnimationThree,
+  ThreeAnimationSystem,
+  AnimationController,
+  BakedAnimationController,
+} from './engines/three/AnimationThree';
+export type {
+  ThreeAnimationSystemHost,
+  AnimationControllerHost,
+  BakedAnimationHost,
+} from './engines/three/AnimationThree';
 
 // Legacy aliases (deprecated - use Loom3 instead)
 export { Loom3 as Loom3Three } from './engines/three/Loom3';

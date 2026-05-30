@@ -197,7 +197,7 @@ export class AnimationThree {
   }
 }
 
-export interface AnimationControllerHost {
+export interface ThreeAnimationSystemHost {
   getModel: () => Object3D | null;
   getMeshes: () => Mesh[];
   getMeshByName: (name: string) => Mesh | undefined;
@@ -218,8 +218,11 @@ export interface AnimationControllerHost {
   reapplyProceduralState?: () => void;
 }
 
-/** @deprecated Use AnimationControllerHost. */
-export type BakedAnimationHost = AnimationControllerHost;
+/** @deprecated Use ThreeAnimationSystemHost. */
+export type AnimationControllerHost = ThreeAnimationSystemHost;
+
+/** @deprecated Use ThreeAnimationSystemHost. */
+export type BakedAnimationHost = ThreeAnimationSystemHost;
 
 // Lightweight unique id for mixer actions/handles
 const makeActionId = () => `act_${Math.random().toString(36).slice(2, 8)}_${Date.now().toString(36)}`;
@@ -285,8 +288,8 @@ type DynamicClipSource = {
 
 const ADDITIVE_BAKED_MIXER_CLIP_SUFFIX = '__loom3_additive_delta';
 
-export class AnimationController {
-  private host: AnimationControllerHost;
+export class ThreeAnimationSystem {
+  private host: ThreeAnimationSystemHost;
   // Clip-backed snippets need a later mixer pass so they can override baked additive tracks.
   private animationMixer: AnimationMixer | null = null;
   private clipAnimationMixer: AnimationMixer | null = null;
@@ -309,7 +312,7 @@ export class AnimationController {
   private clipMonitors = new Map<string, ClipMonitor>();
   private dynamicClipSources = new WeakMap<AnimationClip, DynamicClipSource>();
 
-  constructor(host: AnimationControllerHost) {
+  constructor(host: ThreeAnimationSystemHost) {
     this.host = host;
   }
 
@@ -2646,5 +2649,8 @@ export class AnimationController {
   }
 }
 
-/** @deprecated Use AnimationController. */
-export { AnimationController as BakedAnimationController };
+/** @deprecated Use ThreeAnimationSystem. */
+export { ThreeAnimationSystem as AnimationController };
+
+/** @deprecated Use ThreeAnimationSystem. */
+export { ThreeAnimationSystem as BakedAnimationController };

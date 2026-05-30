@@ -39,7 +39,7 @@ import type {
   AddMorphTargetOptions,
 } from '../../core/types';
 import { getCompositeAxisBinding, getCompositeAxisValue } from '../../core/compositeAxis';
-import { AnimationThree, AnimationController } from './AnimationThree';
+import { AnimationThree, ThreeAnimationSystem } from './AnimationThree';
 import { getSideScale } from './balanceUtils';
 import { HairPhysicsController, type HairPhysicsConfig, type HairPhysicsConfigUpdate, type HairPhysicsDirectionConfig, type HairMorphTargets } from './hair/HairPhysicsController';
 import { CC4_PRESET, CC4_MESHES, COMPOSITE_ROTATIONS as CC4_COMPOSITE_ROTATIONS } from '../../presets/cc4';
@@ -162,7 +162,7 @@ export class Loom3 implements LoomLarge {
     0.12, 0.18, 0.02, 0.25, 0.60, 0.40,
   ];
 
-  private animationController: AnimationController;
+  private animationController: ThreeAnimationSystem;
   private hairPhysics: HairPhysicsController;
 
   // Internal animation loop
@@ -196,7 +196,7 @@ export class Loom3 implements LoomLarge {
     this.compositeRotations = this.config.compositeRotations || CC4_COMPOSITE_ROTATIONS;
     this.auToCompositeMap = buildAUToCompositeMap(this.compositeRotations);
 
-    this.animationController = new AnimationController({
+    this.animationController = new ThreeAnimationSystem({
       getModel: () => this.model,
       getMeshes: () => this.meshes,
       getMeshByName: (name) => this.meshByName.get(name),

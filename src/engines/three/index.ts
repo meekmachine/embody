@@ -3,4 +3,14 @@
  */
 
 export { Loom3, collectMorphMeshes } from './Loom3';
-export { AnimationThree } from './AnimationThree';
+export {
+  AnimationThree,
+  ThreeAnimationSystem,
+  AnimationController,
+  BakedAnimationController,
+} from './AnimationThree';
+export type {
+  ThreeAnimationSystemHost,
+  AnimationControllerHost,
+  BakedAnimationHost,
+} from './AnimationThree';
