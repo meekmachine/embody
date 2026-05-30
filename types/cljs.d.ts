@@ -8,7 +8,7 @@ export interface EmbodyClipEvent {
   [key: string]: unknown;
 }
 
-export type EmbodyClipEventListener = (event: EmbodyClipEvent) => void;
+export type EmbodyClipEventListener = (event: any) => void;
 
 export interface EmbodyClipHandle {
   clipName: string;
