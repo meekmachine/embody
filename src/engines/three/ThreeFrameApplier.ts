@@ -97,6 +97,14 @@ export class ThreeFrameApplier implements HostFrameApplier<Object3D> {
     model.updateMatrixWorld(true);
   }
 
+  applyObjectTransform(
+    target: Object3D,
+    transform: Transform,
+    mode: 'absolute' | 'additive' = 'absolute'
+  ): void {
+    this.applyTransform(target, transform, mode);
+  }
+
   applyMorphTargets(targets: readonly { infl: number[]; idx: number }[], value: number): void {
     for (const target of targets) {
       if (target.idx >= 0 && target.idx < target.infl.length) {
@@ -182,7 +190,7 @@ export class ThreeFrameApplier implements HostFrameApplier<Object3D> {
         if (typeof config.depthTest === 'boolean') {
           material.depthTest = config.depthTest;
         }
-        if (config.blending) {
+        if (config.blending && config.blending in THREE_BLENDING_MODES) {
           material.blending = THREE_BLENDING_MODES[config.blending];
         }
         material.needsUpdate = true;
