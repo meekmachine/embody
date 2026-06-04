@@ -11,6 +11,7 @@ export {
 } from './AnimationThree';
 export type {
   ThreeAnimationSystemHost,
+  ThreeAnimationSystemOptions,
   AnimationControllerHost,
   BakedAnimationHost,
 } from './AnimationThree';

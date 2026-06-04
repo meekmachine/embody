@@ -5,6 +5,7 @@ export default defineConfig({
     index: 'src/index.ts',
     core: 'src/core/index.ts',
     three: 'src/engines/three/index.ts',
+    cljs: 'src/cljs.ts',
   },
   format: ['cjs', 'esm'],
   dts: true,

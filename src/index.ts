@@ -40,6 +40,7 @@ export {
 } from './engines/three/AnimationThree';
 export type {
   ThreeAnimationSystemHost,
+  ThreeAnimationSystemOptions,
   AnimationControllerHost,
   BakedAnimationHost,
 } from './engines/three/AnimationThree';
