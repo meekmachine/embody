@@ -11,6 +11,16 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "import": "./dist/core.js",
+      "require": "./dist/core.cjs"
+    },
+    "./three": {
+      "types": "./dist/three.d.ts",
+      "import": "./dist/three.js",
+      "require": "./dist/three.cjs"
     }
   },
   "files": [
@@ -28,6 +38,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:exports": "npm run build && node scripts/smoke/package-exports.mjs",
+    "bench:parity": "npm run build && node scripts/bench/parity.mjs",
+    "rust:test": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo test --manifest-path rust/embody-wasm/Cargo.toml",
+    "rust:wasm-build": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo build --manifest-path rust/embody-wasm/Cargo.toml --target wasm32-unknown-unknown --release",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },

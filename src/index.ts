@@ -32,7 +32,50 @@
 // ============================================================================
 
 export { Loom3, collectMorphMeshes } from './engines/three/Loom3';
-export { AnimationThree } from './engines/three/AnimationThree';
+export {
+  AnimationThree,
+  ThreeAnimationSystem,
+  AnimationController,
+  BakedAnimationController,
+} from './engines/three/AnimationThree';
+export type {
+  ThreeAnimationSystemHost,
+  AnimationControllerHost,
+  BakedAnimationHost,
+} from './engines/three/AnimationThree';
+export { ThreeModelInspector } from './engines/three/ThreeModelInspector';
+export type {
+  ThreeAnimationClipDescriptor,
+  ThreeAnimationTrackDescriptor,
+  ThreeModelInspection,
+  ThreeModelInspectionOptions,
+} from './engines/three/ThreeModelInspector';
+export { THREE_BLENDING_MODES, ThreeFrameApplier } from './engines/three/ThreeFrameApplier';
+export { ThreeClipAdapter } from './engines/three/ThreeClipAdapter';
+export type {
+  ThreeFrameApplierBindings,
+  ThreeMaterialConfig,
+  ThreeMorphTargetBinding,
+  ThreeResolvedMaterialConfig,
+} from './engines/three/ThreeFrameApplier';
+export type {
+  ThreeClipAdapterBindings,
+  ThreeClipMeshBinding,
+  ThreeClipMorphTargetBinding,
+} from './engines/three/ThreeClipAdapter';
+export {
+  TsClipCompiler,
+  numericArrayToNumbers,
+} from './core/TsClipCompiler';
+export { TsRuntimeCore } from './core/TsRuntimeCore';
+export type {
+  TsClipCompilerInput,
+  TsClipCompilerKeyframe,
+  TsClipCompilerTrackInput,
+  TsClipCurveTarget,
+  TsClipCurvesInput,
+} from './core/TsClipCompiler';
+export type { TsRuntimeCoreOptions } from './core/TsRuntimeCore';
 
 // Legacy aliases (deprecated - use Loom3 instead)
 export { Loom3 as Loom3Three } from './engines/three/Loom3';
@@ -104,6 +147,46 @@ export type {
   MorphTargetDelta,
   AddMorphTargetOptions,
 } from './core/types';
+
+export type {
+  BoneDescriptor,
+  BoneFrameDelta,
+  BoneId,
+  BoneTransformTrackTarget,
+  ChannelId,
+  ClipChannelIR,
+  ClipChannelKind,
+  ClipIR,
+  ClipInterpolation,
+  ClipTrackIR,
+  ClipTrackTarget,
+  ClipTrackTargetKind,
+  ClipTrackTransformProperty,
+  ClipTrackValueType,
+  FrameDelta,
+  FrameValueMode,
+  HostAnimationHandle,
+  HostAnimationPlayOptions,
+  HostAnimationSystem,
+  HostFrameApplier,
+  HostModelInspector,
+  HostTargetId,
+  MeshDescriptor,
+  MeshFrameDelta,
+  MeshId,
+  MeshVisibilityTrackTarget,
+  ModelDescriptor,
+  MorphTargetDescriptor,
+  MorphTargetFrameDelta,
+  MorphTargetId,
+  MorphTargetTrackTarget,
+  NumericArray,
+  Quat,
+  TrackId,
+  Transform,
+  TransformSpace,
+  Vec3,
+} from './core/contracts';
 
 // ============================================================================
 // MAPPINGS

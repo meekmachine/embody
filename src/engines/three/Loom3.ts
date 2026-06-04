@@ -39,8 +39,9 @@ import type {
   AddMorphTargetOptions,
 } from '../../core/types';
 import { getCompositeAxisBinding, getCompositeAxisValue } from '../../core/compositeAxis';
-import { AnimationThree, AnimationController } from './AnimationThree';
+import { AnimationThree, ThreeAnimationSystem } from './AnimationThree';
 import { getSideScale } from './balanceUtils';
+import { ThreeModelInspector } from './ThreeModelInspector';
 import { HairPhysicsController, type HairPhysicsConfig, type HairPhysicsConfigUpdate, type HairPhysicsDirectionConfig, type HairMorphTargets } from './hair/HairPhysicsController';
 import { CC4_PRESET, CC4_MESHES, COMPOSITE_ROTATIONS as CC4_COMPOSITE_ROTATIONS } from '../../presets/cc4';
 import { getPreset } from '../../presets';
@@ -162,8 +163,9 @@ export class Loom3 implements LoomLarge {
     0.12, 0.18, 0.02, 0.25, 0.60, 0.40,
   ];
 
-  private animationController: AnimationController;
+  private animationController: ThreeAnimationSystem;
   private hairPhysics: HairPhysicsController;
+  private modelInspector = new ThreeModelInspector();
 
   // Internal animation loop
   private clock = new Clock(false); // Don't auto-start
@@ -196,7 +198,7 @@ export class Loom3 implements LoomLarge {
     this.compositeRotations = this.config.compositeRotations || CC4_COMPOSITE_ROTATIONS;
     this.auToCompositeMap = buildAUToCompositeMap(this.compositeRotations);
 
-    this.animationController = new AnimationController({
+    this.animationController = new ThreeAnimationSystem({
       getModel: () => this.model,
       getMeshes: () => this.meshes,
       getMeshByName: (name) => this.meshByName.get(name),
@@ -234,44 +236,27 @@ export class Loom3 implements LoomLarge {
 
   onReady(payload: ReadyPayload): void {
     const { meshes, model } = payload;
+    const inspection = this.modelInspector.inspectModel(model, {
+      meshes,
+      profile: this.config,
+      previousBones: this.bones,
+    });
 
-    const collectedMeshes = collectMorphMeshes(model);
-    const meshByKey = new Map<string, Mesh>();
-    const addMesh = (mesh: Mesh) => {
-      const key = mesh.name || (mesh as any).uuid;
-      if (!meshByKey.has(key)) {
-        meshByKey.set(key, mesh);
-      }
-    };
-
-    meshes.forEach(addMesh);
-    collectedMeshes.forEach(addMesh);
-
-    this.meshes = Array.from(meshByKey.values());
+    this.meshes = inspection.morphMeshes;
     this.model = model;
-    this.meshByName.clear();
+    this.meshByName = inspection.meshByName;
     this.morphKeyCache.clear();
     this.morphIndexCache.clear();
 
-    // Build mesh lookup. Keep all named meshes addressable so runtime morph
-    // authoring can add the first morph target to a previously static mesh.
-    model.traverse((obj: any) => {
-      if (obj.isMesh && obj.name) {
-        this.meshByName.set(obj.name, obj);
-      }
-    });
-
     // Resolve bones
-    this.bones = this.resolveBones(model);
+    this.bones = inspection.bones;
     this.rigReady = true;
     this.missingBoneWarnings.clear();
     this.initBoneRotations();
 
     // Find primary face mesh (use head bone proximity when available)
-    this.resolvedFaceMeshes = this.resolveFaceMeshes(this.meshes);
-    this.faceMesh = this.resolvedFaceMeshes.length > 0
-      ? this.meshByName.get(this.resolvedFaceMeshes[0]) || null
-      : null;
+    this.resolvedFaceMeshes = inspection.resolvedFaceMeshes;
+    this.faceMesh = inspection.faceMesh;
 
     // Auto-detect face morph meshes only if preset/profile doesn't define them.
     // When morphToMesh.face is already configured (e.g., CC4 preset specifies
