@@ -2127,6 +2127,7 @@ export class ThreeAnimationSystem {
     const meshNames = options?.meshNames;
     const bones = this.host.getBones();
     const visemeChannels = channels.filter((channel) => channel.target.type === 'viseme');
+    const auChannels = channels.filter((channel) => channel.target.type === 'au');
     let maxTime = 0;
 
     const hasInheritedStart = (arr: ScalarKeyframe[] | undefined) => !!arr?.[0]?.inherit;
@@ -2312,6 +2313,173 @@ export class ThreeAnimationSystem {
           jawValues.push(jawQ.x, jawQ.y, jawQ.z, jawQ.w);
         }
         tracks.push(new QuaternionKeyframeTrack(`${jawEntry.obj.uuid}.quaternion`, keyframeTimes, jawValues));
+      }
+    }
+
+    if (keyframeTimes.length > 0 && auChannels.length > 0) {
+      const compositeRotations = this.host.getCompositeRotations();
+      const hasChannelAU = new Set<number>(
+        auChannels.map((channel) => channel.target.type === 'au' ? channel.target.id : -1)
+      );
+      const channelsByAU = new Map<number, SnippetChannel[]>();
+      auChannels.forEach((channel) => {
+        if (channel.target.type !== 'au') return;
+        const existing = channelsByAU.get(channel.target.id) ?? [];
+        existing.push(channel);
+        channelsByAU.set(channel.target.id, existing);
+      });
+
+      const getAxisSampleForNode = (
+        auId: number,
+        nodeKey: BoneKey,
+        t: number
+      ) => {
+        const channelsForAU = channelsByAU.get(auId);
+        if (!channelsForAU) return 0;
+
+        let value = 0;
+        for (const channel of channelsForAU) {
+          if (channel.target.type !== 'au') continue;
+          const rawValue = sampleTypedChannel(channel, t);
+          if (rawValue <= 1e-6) continue;
+
+          const binding = config.auToBones[auId]?.find((b) => b.node === nodeKey) ?? null;
+          if (!binding?.side) {
+            value = Math.max(value, rawValue);
+            continue;
+          }
+
+          const curveBalance = channel.target.balance ?? resolveCurveBalance(String(auId), globalBalance, balanceMap);
+          value = Math.max(value, rawValue * getSideScale(curveBalance, binding.side));
+        }
+        return value;
+      };
+
+      const getAxisValue = (
+        nodeKey: BoneKey,
+        axisConfig: RotationAxis | null | undefined,
+        t: number
+      ) =>
+        getCompositeAxisValue(axisConfig, (auId: number) => getAxisSampleForNode(auId, nodeKey, t));
+
+      const getAxisBinding = (
+        nodeKey: BoneKey,
+        axisConfig: RotationAxis | null | undefined,
+        axisValue: number,
+        t: number
+      ) => getCompositeAxisBinding(
+        nodeKey,
+        axisConfig,
+        axisValue,
+        (auId: number) => getAxisSampleForNode(auId, nodeKey, t),
+        config.auToBones
+      );
+
+      const autoVisemeJawHandledJaw =
+        autoVisemeJaw &&
+        jawScale > 0 &&
+        visemeJawAmounts &&
+        visemeChannels.length > 0;
+
+      for (const composite of compositeRotations) {
+        const nodeKey = composite.node as BoneKey;
+
+        if (nodeKey === 'JAW' && autoVisemeJawHandledJaw) {
+          continue;
+        }
+
+        const entry = bones[nodeKey];
+        if (!entry) {
+          console.log(`[typedSnippetToClip] Skipping composite for "${nodeKey}" - bone not resolved`);
+          continue;
+        }
+
+        const relevantAUs = new Set<number>();
+        [composite.pitch, composite.yaw, composite.roll]
+          .filter(Boolean)
+          .forEach((axisConfig) => {
+            axisConfig!.aus.forEach((auId) => {
+              if (hasChannelAU.has(auId)) relevantAUs.add(auId);
+            });
+          });
+
+        if (relevantAUs.size === 0) {
+          continue;
+        }
+
+        const values: number[] = [];
+        const currentBoneQ = Array.from(relevantAUs).some((auId) =>
+          channelsByAU.get(auId)?.some((channel) => hasInheritedStart(channel.keyframes))
+        )
+          ? this.host.getCurrentBoneQuaternion?.(nodeKey) ?? null
+          : null;
+
+        for (let timeIndex = 0; timeIndex < keyframeTimes.length; timeIndex += 1) {
+          const t = keyframeTimes[timeIndex];
+          if (timeIndex === 0 && currentBoneQ) {
+            values.push(currentBoneQ.x, currentBoneQ.y, currentBoneQ.z, currentBoneQ.w);
+            continue;
+          }
+
+          const compositeQ = new Quaternion().copy(entry.baseQuat);
+
+          const applyAxis = (
+            axisConfig: RotationAxis | null | undefined
+          ) => {
+            if (!axisConfig) return;
+            const axisValue = getAxisValue(nodeKey, axisConfig, t);
+            if (Math.abs(axisValue) <= 1e-6) return;
+
+            const binding = getAxisBinding(nodeKey, axisConfig, axisValue, t);
+            if (!binding?.maxDegrees || !binding.channel) return;
+
+            const radians = (binding.maxDegrees * Math.PI / 180) * Math.abs(axisValue) * binding.scale;
+            const axis = binding.channel === 'rx' ? X_AXIS : binding.channel === 'ry' ? Y_AXIS : Z_AXIS;
+            const deltaQ = new Quaternion().setFromAxisAngle(axis, radians);
+            compositeQ.multiply(deltaQ);
+          };
+
+          applyAxis(composite.yaw);
+          applyAxis(composite.pitch);
+          applyAxis(composite.roll);
+
+          values.push(compositeQ.x, compositeQ.y, compositeQ.z, compositeQ.w);
+        }
+
+        tracks.push(new QuaternionKeyframeTrack(`${entry.obj.uuid}.quaternion`, keyframeTimes, values));
+      }
+
+      for (const channel of auChannels) {
+        if (channel.target.type !== 'au') continue;
+        const auId = channel.target.id;
+        const bindings = config.auToBones[auId] || [];
+
+        for (const binding of bindings) {
+          if (binding.channel !== 'tx' && binding.channel !== 'ty' && binding.channel !== 'tz') continue;
+          const entry = bones[binding.node as BoneKey];
+          if (!entry || binding.maxUnits === undefined) continue;
+
+          const axisIndex: 'x' | 'y' | 'z' = binding.channel === 'tx' ? 'x' : binding.channel === 'ty' ? 'y' : 'z';
+          const basePos = entry.basePos[axisIndex];
+          const inheritedStartValue = channel.keyframes[0]?.inherit
+            ? this.host.getCurrentBonePositionValue?.(binding.node, axisIndex) ?? entry.obj.position[axisIndex]
+            : undefined;
+          const values: number[] = [];
+
+          for (const t of keyframeTimes) {
+            const rawValue = sampleTypedChannel(channel, t);
+            const curveBalance = channel.target.balance ?? resolveCurveBalance(String(auId), globalBalance, balanceMap);
+            const sideScale = binding.side ? getSideScale(curveBalance, binding.side) : 1;
+            const value = clampIntensity(rawValue * sideScale);
+            values.push(
+              inheritedStartValue !== undefined && t === keyframeTimes[0]
+                ? inheritedStartValue
+                : basePos + (value * binding.maxUnits * binding.scale)
+            );
+          }
+
+          tracks.push(new NumberKeyframeTrack(`${entry.obj.uuid}.position[${axisIndex}]`, keyframeTimes, values));
+        }
       }
     }
 
