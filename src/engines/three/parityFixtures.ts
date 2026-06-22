@@ -10,6 +10,7 @@ import {
 } from 'three';
 import type { KeyframeTrack } from 'three';
 import type { Profile } from '../../mappings/types';
+import type { SnippetChannel } from '../../core/types';
 import { Loom3 } from './Loom3';
 
 export const FACE_MORPHS = [
@@ -186,6 +187,44 @@ export function makeParityScene(profile: Profile = makeParityProfile()): ParityS
   engine.registerHairObjects([hair]);
 
   return { profile, model, engine, face, viseme, hair, head, jaw, body, camera };
+}
+
+export function makePolymerLipVocalChannels(): SnippetChannel[] {
+  return [
+    {
+      target: { type: 'viseme', id: 0 },
+      keyframes: [
+        { time: 0, intensity: 0 },
+        { time: 0.5, intensity: 0.8 },
+      ],
+    },
+    {
+      target: { type: 'viseme', id: 1 },
+      keyframes: [
+        { time: 0, intensity: 0 },
+        { time: 0.5, intensity: 0.5 },
+      ],
+    },
+  ];
+}
+
+export function makePolymerJawVocalChannels(): SnippetChannel[] {
+  return [
+    {
+      target: { type: 'au', id: 26 },
+      keyframes: [
+        { time: 0, intensity: 0 },
+        { time: 0.5, intensity: 0.75 },
+      ],
+    },
+  ];
+}
+
+export function makePolymerCombinedVocalChannels(): SnippetChannel[] {
+  return [
+    ...makePolymerLipVocalChannels(),
+    ...makePolymerJawVocalChannels(),
+  ];
 }
 
 export function round(value: number, digits = 6): number {

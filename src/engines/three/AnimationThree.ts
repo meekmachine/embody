@@ -2278,7 +2278,11 @@ export class ThreeAnimationSystem {
             values
           ));
         }
+        continue;
       }
+
+      const unsupportedType = String((target as { type?: unknown }).type ?? 'unknown');
+      console.warn(`[Loom3] typedSnippetToClip: Unsupported typed snippet target "${unsupportedType}" in "${clipName}"`);
     }
 
     const autoVisemeJaw = options?.autoVisemeJaw === true;
