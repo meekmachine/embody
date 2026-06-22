@@ -335,6 +335,38 @@ export interface CurvePoint {
  */
 export type CurvesMap = Record<string, CurvePoint[]>;
 
+export type SnippetChannelTarget =
+  | { type: 'au'; id: number; balance?: number }
+  | { type: 'viseme'; id: number; meshNames?: string[] }
+  | { type: 'morph'; id: string | number; meshNames?: string[] }
+  | {
+      type: 'bone';
+      id: BoneKey;
+      channel: 'rx' | 'ry' | 'rz' | 'tx' | 'ty' | 'tz';
+      scale?: number;
+      maxDegrees?: number;
+      maxUnits?: number;
+    };
+
+/**
+ * A typed snippet channel names the target namespace explicitly. This avoids
+ * the legacy curve-map ambiguity where numeric key "1" can mean AU 1 or
+ * viseme slot 1 depending on snippetCategory.
+ */
+export interface SnippetChannel {
+  target: SnippetChannelTarget;
+  keyframes: CurvePoint[];
+  /** Per-channel intensity multiplier applied in addition to ClipOptions.intensityScale. */
+  intensityScale?: number;
+}
+
+export interface TypedSnippet {
+  name: string;
+  channels: SnippetChannel[];
+  maxTime?: number;
+  loop?: boolean;
+}
+
 /**
  * Options for building and playing a clip from curves.
  */

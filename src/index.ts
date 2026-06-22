@@ -138,6 +138,9 @@ export type {
   // Dynamic clip types
   CurvePoint,
   CurvesMap,
+  SnippetChannelTarget,
+  SnippetChannel,
+  TypedSnippet,
   ClipOptions,
   ClipEvent,
   ClipEventListener,
