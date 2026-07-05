@@ -83,6 +83,55 @@ const easeInOutCubic = (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 
 // Export easing functions for external use
 export { easeInOutQuad, easeInOutCubic };
 
+function debugFlagEnabled(name: string): boolean {
+  try {
+    const locationLike = (globalThis as { location?: { search?: string } }).location;
+    const search = typeof locationLike?.search === 'string' ? locationLike.search : '';
+    if (!search) return false;
+    const value = new URLSearchParams(search).get(name);
+    return value === '1' || value === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function typedLipSyncDebugEnabled(): boolean {
+  return debugFlagEnabled('polymerVocalDebug') || debugFlagEnabled('polymerLipSyncDebug');
+}
+
+function logTypedLipSyncDebug(label: string, payload: unknown): void {
+  if (!typedLipSyncDebugEnabled()) return;
+  try {
+    console.info(`${label} ${JSON.stringify(payload)}`);
+  } catch {
+    console.info(label, payload);
+  }
+}
+
+function summarizeKeyframes(keyframes: ScalarKeyframe[]) {
+  return {
+    frames: keyframes.length,
+    firstSec: keyframes[0]?.time ?? null,
+    lastSec: keyframes[keyframes.length - 1]?.time ?? null,
+    peak: keyframes.reduce((max, frame) => Math.max(max, Number.isFinite(frame.intensity) ? frame.intensity : 0), 0),
+  };
+}
+
+function summarizeTypedChannel(channel: SnippetChannel) {
+  return {
+    target: channel.target,
+    intensityScale: channel.intensityScale ?? 1,
+    ...summarizeKeyframes(channel.keyframes ?? []),
+  };
+}
+
+function summarizeBindingTarget(bindingTarget: ReturnType<typeof getVisemeBindingTargets>[number]) {
+  return {
+    morph: bindingTarget.morph,
+    weight: bindingTarget.weight,
+  };
+}
+
 export class AnimationThree {
   private transitions = new Map<string, Transition>();
 
@@ -2130,6 +2179,20 @@ export class ThreeAnimationSystem {
     const auChannels = channels.filter((channel) => channel.target.type === 'au');
     let maxTime = 0;
 
+    logTypedLipSyncDebug('[Embody Typed LipSync] typedSnippetToClip input', {
+      clipName,
+      channelCount: channels.length,
+      visemeChannels: visemeChannels.map(summarizeTypedChannel),
+      auChannels: auChannels.map(summarizeTypedChannel),
+      options: {
+        source: options?.source,
+        autoVisemeJaw: options?.autoVisemeJaw,
+        jawScale: options?.jawScale,
+        intensityScale: options?.intensityScale,
+        snippetCategory: options?.snippetCategory,
+      },
+    });
+
     const hasInheritedStart = (arr: ScalarKeyframe[] | undefined) => !!arr?.[0]?.inherit;
     const clampIntensity = (v: number) => Math.max(0, Math.min(2, v));
     const channelScale = (channel: SnippetChannel) => intensityScale * (channel.intensityScale ?? 1);
@@ -2181,7 +2244,9 @@ export class ThreeAnimationSystem {
 
       if (target.type === 'viseme') {
         const visemeMeshNames = this.getMeshNamesForViseme(config, target.meshNames ?? meshNames);
-        for (const bindingTarget of getVisemeBindingTargets(config, target.id)) {
+        const bindingTargets = getVisemeBindingTargets(config, target.id);
+        const tracksBefore = tracks.length;
+        for (const bindingTarget of bindingTargets) {
           const effectiveScale = channelScale(channel) * bindingTarget.weight;
           if (typeof bindingTarget.morph === 'number') {
             this.addMorphIndexTracks(tracks, bindingTarget.morph, channel.keyframes, effectiveScale, visemeMeshNames);
@@ -2189,6 +2254,16 @@ export class ThreeAnimationSystem {
             this.addMorphTracks(tracks, bindingTarget.morph, channel.keyframes, effectiveScale, visemeMeshNames);
           }
         }
+        logTypedLipSyncDebug('[Embody Typed LipSync] viseme binding', {
+          clipName,
+          visemeId: target.id,
+          meshNames: visemeMeshNames,
+          bindingCount: bindingTargets.length,
+          bindings: bindingTargets.map(summarizeBindingTarget),
+          keyframes: summarizeKeyframes(channel.keyframes),
+          tracksBefore,
+          tracksAfter: tracks.length,
+        });
         continue;
       }
 
@@ -2500,6 +2575,13 @@ export class ThreeAnimationSystem {
       options,
       hasInheritedStart: this.channelsHaveInheritedStart(channels),
     });
+    logTypedLipSyncDebug('[Embody Typed LipSync] clip created', {
+      clipName,
+      trackCount: tracks.length,
+      durationSec: maxTime,
+      visemeIds: visemeChannels.map((channel) => channel.target.type === 'viseme' ? channel.target.id : null),
+      auIds: auChannels.map((channel) => channel.target.type === 'au' ? channel.target.id : null),
+    });
     console.log(`[Loom3] typedSnippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);
 
     return clip;
@@ -2723,6 +2805,17 @@ export class ThreeAnimationSystem {
     snippet: TypedSnippet | { name: string; channels: SnippetChannel[] },
     options?: ClipOptions
   ): ClipHandle | null {
+    logTypedLipSyncDebug('[Embody Typed LipSync] playTypedSnippet', {
+      name: snippet.name,
+      channelCount: snippet.channels.length,
+      channels: snippet.channels.map(summarizeTypedChannel),
+      options: {
+        source: options?.source,
+        autoVisemeJaw: options?.autoVisemeJaw,
+        jawScale: options?.jawScale,
+        intensityScale: options?.intensityScale,
+      },
+    });
     const clip = this.typedSnippetToClip(snippet.name, snippet.channels, options);
     if (!clip) {
       return null;
