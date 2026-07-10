@@ -264,7 +264,7 @@ describe('Three parity fixtures', () => {
     expect(snapshotBones(engine).JAW.rotation[2]).toBeCloseTo(0);
   });
 
-  it('runs a Polymer-style jaw-only vocal snippet through AU 26 where mapped', () => {
+  it('runs a Polymer-style jaw-only vocal snippet through lip-sync control 103 where mapped', () => {
     const { engine, viseme } = makeParityScene();
 
     const handle = engine.playTypedSnippet(
@@ -277,7 +277,7 @@ describe('Three parity fixtures', () => {
     expect(snapshotBones(engine).JAW.rotation[2]).toBeCloseTo(22.5);
   });
 
-  it('runs combined Polymer-style lip and AU 26 channels independently', () => {
+  it('runs combined Polymer-style lip and lip-sync jaw channels independently', () => {
     const { engine, viseme } = makeParityScene();
 
     const handle = engine.playTypedSnippet(

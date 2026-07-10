@@ -2176,6 +2176,7 @@ export class ThreeAnimationSystem {
     const meshNames = options?.meshNames;
     const bones = this.host.getBones();
     const visemeChannels = channels.filter((channel) => channel.target.type === 'viseme');
+    const lipSyncChannels = channels.filter((channel) => channel.target.type === 'lipSync');
     const auChannels = channels.filter((channel) => channel.target.type === 'au');
     let maxTime = 0;
 
@@ -2183,6 +2184,7 @@ export class ThreeAnimationSystem {
       clipName,
       channelCount: channels.length,
       visemeChannels: visemeChannels.map(summarizeTypedChannel),
+      lipSyncChannels: lipSyncChannels.map(summarizeTypedChannel),
       auChannels: auChannels.map(summarizeTypedChannel),
       options: {
         source: options?.source,
@@ -2220,7 +2222,7 @@ export class ThreeAnimationSystem {
           inheritedStartValue = typeof target.id === 'number'
             ? this.host.getCurrentMorphIndexValue?.(target.id, target.meshNames ?? meshNames)
             : this.host.getCurrentMorphValue?.(target.id, target.meshNames ?? meshNames);
-        } else if (target.channel === 'tx' || target.channel === 'ty' || target.channel === 'tz') {
+        } else if (target.type === 'bone' && (target.channel === 'tx' || target.channel === 'ty' || target.channel === 'tz')) {
           const axis = target.channel === 'tx' ? 'x' : target.channel === 'ty' ? 'y' : 'z';
           inheritedStartValue = this.host.getCurrentBonePositionValue?.(target.id, axis) ?? undefined;
         }
@@ -2264,6 +2266,58 @@ export class ThreeAnimationSystem {
           tracksBefore,
           tracksAfter: tracks.length,
         });
+        continue;
+      }
+
+      if (target.type === 'lipSync') {
+        const bindings = config.lipSyncToBones?.[target.id] ?? [];
+        for (const binding of bindings) {
+          if (!binding.channel) continue;
+          const entry = bones[binding.node as BoneKey];
+          if (!entry) continue;
+          const scale = binding.scale ?? 1;
+
+          if (binding.channel === 'rx' || binding.channel === 'ry' || binding.channel === 'rz') {
+            const axis = binding.channel === 'rx' ? X_AXIS : binding.channel === 'ry' ? Y_AXIS : Z_AXIS;
+            const maxDegrees = binding.maxDegrees ?? 30;
+            const inheritedStart = hasInheritedStart(channel.keyframes)
+              ? this.host.getCurrentBoneQuaternion?.(binding.node) ?? null
+              : null;
+            const times = channel.keyframes.map((frame) => frame.time);
+            const values: number[] = [];
+            for (let index = 0; index < channel.keyframes.length; index += 1) {
+              if (index === 0 && inheritedStart) {
+                values.push(inheritedStart.x, inheritedStart.y, inheritedStart.z, inheritedStart.w);
+                continue;
+              }
+              const intensity = clampIntensity(channel.keyframes[index].intensity * channelScale(channel));
+              const radians = (maxDegrees * Math.PI / 180) * intensity * scale;
+              const q = new Quaternion().copy(entry.baseQuat);
+              q.multiply(new Quaternion().setFromAxisAngle(axis, radians));
+              values.push(q.x, q.y, q.z, q.w);
+            }
+            tracks.push(new QuaternionKeyframeTrack(`${entry.obj.uuid}.quaternion`, times, values));
+            continue;
+          }
+
+          if (binding.channel === 'tx' || binding.channel === 'ty' || binding.channel === 'tz') {
+            const axis = binding.channel === 'tx' ? 'x' : binding.channel === 'ty' ? 'y' : 'z';
+            const maxUnits = binding.maxUnits ?? 1;
+            const inheritedStart = channel.keyframes[0]?.inherit
+              ? this.host.getCurrentBonePositionValue?.(binding.node, axis) ?? entry.obj.position[axis]
+              : undefined;
+            const values = channel.keyframes.map((frame, index) => {
+              if (index === 0 && inheritedStart !== undefined) return inheritedStart;
+              const intensity = clampIntensity(frame.intensity * channelScale(channel));
+              return entry.basePos[axis] + intensity * maxUnits * scale;
+            });
+            tracks.push(new NumberKeyframeTrack(
+              `${entry.obj.uuid}.position[${axis}]`,
+              channel.keyframes.map((frame) => frame.time),
+              values
+            ));
+          }
+        }
         continue;
       }
 
@@ -2580,6 +2634,7 @@ export class ThreeAnimationSystem {
       trackCount: tracks.length,
       durationSec: maxTime,
       visemeIds: visemeChannels.map((channel) => channel.target.type === 'viseme' ? channel.target.id : null),
+      lipSyncIds: lipSyncChannels.map((channel) => channel.target.type === 'lipSync' ? channel.target.id : null),
       auIds: auChannels.map((channel) => channel.target.type === 'au' ? channel.target.id : null),
     });
     console.log(`[Loom3] typedSnippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);

@@ -106,6 +106,9 @@ export function makeParityProfile(overrides: Partial<Profile> = {}): Profile {
       30: [{ node: 'HEAD', channel: 'ry', scale: -1, maxDegrees: 20 }],
       31: [{ node: 'HEAD', channel: 'ry', scale: 1, maxDegrees: 20 }],
     },
+    lipSyncToBones: {
+      103: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
+    },
     boneNodes: {
       HEAD: 'Head',
       JAW: 'Jaw',
@@ -211,7 +214,7 @@ export function makePolymerLipVocalChannels(): SnippetChannel[] {
 export function makePolymerJawVocalChannels(): SnippetChannel[] {
   return [
     {
-      target: { type: 'au', id: 26 },
+      target: { type: 'lipSync', id: 103 },
       keyframes: [
         { time: 0, intensity: 0 },
         { time: 0.5, intensity: 0.75 },

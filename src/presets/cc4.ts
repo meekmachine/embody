@@ -460,10 +460,6 @@ export const BONE_AU_TO_BINDINGS: Record<number, BoneBinding[]> = {
   25: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 20 }],
   26: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
   27: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 35 }],
-  // AU103 is the bone-only jaw open channel for lip sync. It behaves like any
-  // other AU in this map, but intentionally has no AU_TO_MORPHS entry so it
-  // cannot trigger the CC4 Jaw_Open morph over the active viseme mouth shapes.
-  103: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
 
   // Jaw lateral (left/right)
   30: [{ node: 'JAW', channel: 'ry', scale: -1, maxDegrees: 15 }],
@@ -526,6 +522,16 @@ export const BONE_AU_TO_BINDINGS: Record<number, BoneBinding[]> = {
   40: [{ node: 'TONGUE', channel: 'ry', scale: 1, maxDegrees: 20 }],
   41: [{ node: 'TONGUE', channel: 'rx', scale: -1, maxDegrees: 20 }],
   42: [{ node: 'TONGUE', channel: 'rx', scale: 1, maxDegrees: 20 }],
+};
+
+// ============================================================================
+// LIP-SYNC TO BONES - Speech articulation controls that are not FACS AUs
+// ============================================================================
+
+export const LIP_SYNC_TO_BONES: Record<number, BoneBinding[]> = {
+  // Lip-sync control 103 is a jaw bone-open curve for speech. It intentionally
+  // stays out of AU_TO_MORPHS/AU_INFO so it cannot trigger the CC4 Jaw_Open morph.
+  103: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
 };
 
 // ============================================================================
@@ -772,7 +778,7 @@ export const checkBindingsForLeftRight = (bindings: BoneBinding[] | undefined): 
 export const COMPOSITE_ROTATIONS: CompositeRotation[] = [
   {
     node: 'JAW',
-    pitch: { aus: [25, 26, 27, 103], axis: 'rz' },  // Jaw drop (opens mouth downward)
+    pitch: { aus: [25, 26, 27], axis: 'rz' },  // Jaw drop (opens mouth downward)
     yaw: { aus: [30, 35], axis: 'ry', negative: 30, positive: 35 },  // Jaw lateral (left/right)
     roll: null  // Jaw doesn't have roll
   },
@@ -1002,7 +1008,6 @@ export const AU_INFO: Record<string, AUInfo> = {
   '31': { id:'31', name:'Jaw Clencher',      muscularBasis:'masseter + temporalis', faceArea:'Lower', facePart:'Jaw' },
   '32': { id:'32', name:'Lip Bite',          muscularBasis:'orbicularis oris', faceArea:'Lower', facePart:'Mouth' },
   '35': { id:'35', name:'Jaw Right',         faceArea:'Lower', facePart:'Jaw' },
-  '103': { id:'103', name:'Jaw Bone Open',    faceArea:'Lower', facePart:'Jaw' },
 
   // Head position (M51-M56 in FACS notation)
   '51': { id:'51', name:'Head Turn Left',    faceArea:'Upper', facePart:'Head' },
@@ -1131,7 +1136,8 @@ export const CC4_MAPPING_SECTIONS: MappingEditorSection[] = [
   { id: 'Eye', label: 'Eye', kind: 'au', order: 11, meshCategory: 'eye', facePart: 'Eye' },
   { id: 'Hair', label: 'Hair', kind: 'hair', order: 12, meshCategory: 'hair' },
   { id: 'Visemes', label: 'Visemes', kind: 'viseme', order: 13, meshCategory: 'viseme' },
-  { id: 'Unmapped', label: 'Unmapped', kind: 'unmapped', order: 14, meshCategory: 'face' },
+  { id: 'LipSync', label: 'Lip Sync', kind: 'lipSync', order: 14, meshCategory: 'face' },
+  { id: 'Unmapped', label: 'Unmapped', kind: 'unmapped', order: 15, meshCategory: 'face' },
 ];
 
 // ============================================================================
@@ -1184,6 +1190,7 @@ export const CC4_PRESET: Profile = {
   // No emoji for humans - uses FaTheaterMasks icon instead
   auToMorphs: AU_TO_MORPHS,
   auToBones: BONE_AU_TO_BINDINGS,
+  lipSyncToBones: LIP_SYNC_TO_BONES,
   boneNodes: CC4_BONE_NODES,
   bonePrefix: CC4_BONE_PREFIX,
   suffixPattern: CC4_SUFFIX_PATTERN,

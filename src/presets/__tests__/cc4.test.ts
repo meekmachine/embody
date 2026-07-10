@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   AU_TO_MORPHS,
   BONE_AU_TO_BINDINGS,
+  LIP_SYNC_TO_BONES,
   CC4_PRESET,
   COMPOSITE_ROTATIONS,
   CONTINUUM_PAIRS_MAP,
@@ -181,12 +182,14 @@ describe('CC4 Preset', () => {
       expect(BONE_AU_TO_BINDINGS[26][0].node).toBe('JAW');
     });
 
-    it('should map AU103 as a normal bone-only AU without a Jaw_Open morph', () => {
+    it('should keep lip-sync control 103 out of AU maps', () => {
       expect(AU_TO_MORPHS[103]).toBeUndefined();
-      expect(BONE_AU_TO_BINDINGS[103]).toEqual([
+      expect(BONE_AU_TO_BINDINGS[103]).toBeUndefined();
+      expect(CC4_PRESET.auInfo?.['103']).toBeUndefined();
+      expect(LIP_SYNC_TO_BONES[103]).toEqual([
         expect.objectContaining({ node: 'JAW', channel: 'rz', maxDegrees: 30 }),
       ]);
-      expect(isMixedAU(103)).toBe(false);
+      expect(CC4_PRESET.lipSyncToBones?.[103]).toEqual(LIP_SYNC_TO_BONES[103]);
     });
   });
 
@@ -215,7 +218,7 @@ describe('CC4 Preset', () => {
       const jaw = COMPOSITE_ROTATIONS.find(c => c.node === 'JAW');
       expect(jaw).toBeDefined();
       expect(jaw!.pitch).toBeDefined(); // Jaw open/close
-      expect(jaw!.pitch!.aus).toContain(103);
+      expect(jaw!.pitch!.aus).not.toContain(103);
     });
 
     it('should include TONGUE composite', () => {

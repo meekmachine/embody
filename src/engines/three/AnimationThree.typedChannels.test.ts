@@ -198,7 +198,7 @@ describe('AnimationController typed snippet channels', () => {
     expect(Math.abs(values[6])).toBeGreaterThan(0.1);
   });
 
-  it('routes AU103 to the jaw bone without creating Jaw_Open morph tracks', () => {
+  it('routes lip-sync control 103 to the jaw bone without creating Jaw_Open morph tracks', () => {
     const face = makeMorphMesh('Face', { Jaw_Open: 0 });
     const jaw = makeBone('Jaw');
     const bones: ResolvedBones = { JAW: jaw };
@@ -206,7 +206,8 @@ describe('AnimationController typed snippet channels', () => {
       auToMorphs: {
         26: { left: [], right: [], center: ['Jaw_Open'] },
       },
-      auToBones: {
+      auToBones: {},
+      lipSyncToBones: {
         103: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
       },
       boneNodes: { JAW: 'Jaw' },
@@ -216,7 +217,7 @@ describe('AnimationController typed snippet channels', () => {
     const compositeRotations: CompositeRotation[] = [
       {
         node: 'JAW',
-        pitch: { aus: [103], axis: 'rz' },
+        pitch: { aus: [26], axis: 'rz' },
         yaw: null,
         roll: null,
       },
@@ -225,7 +226,7 @@ describe('AnimationController typed snippet channels', () => {
 
     const clip = controller.typedSnippetToClip('typed-jaw-bone-only-au', [
       {
-        target: { type: 'au', id: 103 },
+        target: { type: 'lipSync', id: 103 },
         keyframes: [{ time: 0, intensity: 0 }, { time: 0.2, intensity: 1 }],
       },
     ], { autoVisemeJaw: false });

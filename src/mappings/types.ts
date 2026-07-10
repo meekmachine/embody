@@ -32,6 +32,14 @@ export interface Profile {
   /** AU ID to bone bindings (e.g., AU 51 → [{ node: 'HEAD', channel: 'ry', scale: 1, maxDegrees: 30 }]) */
   auToBones: Record<number, BoneBinding[]>;
 
+  /**
+   * Lip-sync control ID to bone bindings.
+   * These controls are speech-articulation targets, not FACS AUs. CC4 uses
+   * lip-sync control 103 for jaw bone-open motion without the AU26 Jaw_Open
+   * morph, so viseme shapes remain visible while the jaw opens.
+   */
+  lipSyncToBones?: Record<number, BoneBinding[]>;
+
   /** Bone key to actual node name in the model (e.g., 'HEAD' → 'Head' or 'CC_Base_Head') */
   boneNodes: Record<string, string>;
 
@@ -281,7 +289,7 @@ export interface VisemeBinding {
   sharedWith?: string[];
 }
 
-export type MappingSectionKind = 'au' | 'viseme' | 'hair' | 'unmapped' | 'custom';
+export type MappingSectionKind = 'au' | 'viseme' | 'lipSync' | 'hair' | 'unmapped' | 'custom';
 
 export interface MappingEditorSection {
   id: string;
