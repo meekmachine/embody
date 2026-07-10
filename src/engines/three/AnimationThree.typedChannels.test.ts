@@ -4,6 +4,7 @@ import type { Profile } from '../../mappings/types';
 import type { CompositeRotation, SnippetChannel } from '../../core/types';
 import type { ResolvedBones } from './types';
 import { AnimationController, type AnimationControllerHost } from './AnimationThree';
+import { CC4_JAW_BONE_OPEN_AU } from '../../presets/cc4';
 
 function makeMorphMesh(name: string, dictionary: Record<string, number>): Mesh {
   const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
@@ -191,6 +192,47 @@ describe('AnimationController typed snippet channels', () => {
     ], { autoVisemeJaw: false });
 
     expect(clip).toBeTruthy();
+    const quaternionTrack = clip!.tracks.find((track) => track.name === `${(jaw.obj as any).uuid}.quaternion`);
+    expect(quaternionTrack).toBeTruthy();
+    const values = Array.from(quaternionTrack!.values as ArrayLike<number>);
+    expect(values.slice(0, 4)).toEqual([0, 0, 0, 1]);
+    expect(Math.abs(values[6])).toBeGreaterThan(0.1);
+  });
+
+  it('routes the CC4 jaw bone-only AU to the jaw without creating Jaw_Open morph tracks', () => {
+    const face = makeMorphMesh('Face', { Jaw_Open: 0 });
+    const jaw = makeBone('Jaw');
+    const bones: ResolvedBones = { JAW: jaw };
+    const profile: Profile = {
+      auToMorphs: {
+        26: { left: [], right: [], center: ['Jaw_Open'] },
+      },
+      auToBones: {
+        [CC4_JAW_BONE_OPEN_AU]: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
+      },
+      boneNodes: { JAW: 'Jaw' },
+      morphToMesh: { face: ['Face'] },
+      visemeKeys: [],
+    };
+    const compositeRotations: CompositeRotation[] = [
+      {
+        node: 'JAW',
+        pitch: { aus: [CC4_JAW_BONE_OPEN_AU], axis: 'rz' },
+        yaw: null,
+        roll: null,
+      },
+    ];
+    const controller = new AnimationController(makeHost(profile, [face], bones, compositeRotations));
+
+    const clip = controller.typedSnippetToClip('typed-jaw-bone-only-au', [
+      {
+        target: { type: 'au', id: CC4_JAW_BONE_OPEN_AU },
+        keyframes: [{ time: 0, intensity: 0 }, { time: 0.2, intensity: 1 }],
+      },
+    ], { autoVisemeJaw: false });
+
+    expect(clip).toBeTruthy();
+    expect(clip!.tracks.some((track) => track.name.includes('morphTargetInfluences'))).toBe(false);
     const quaternionTrack = clip!.tracks.find((track) => track.name === `${(jaw.obj as any).uuid}.quaternion`);
     expect(quaternionTrack).toBeTruthy();
     const values = Array.from(quaternionTrack!.values as ArrayLike<number>);
