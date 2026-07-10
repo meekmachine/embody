@@ -523,10 +523,31 @@ export const BONE_AU_TO_BINDINGS: Record<number, BoneBinding[]> = {
   41: [{ node: 'TONGUE', channel: 'rx', scale: -1, maxDegrees: 20 }],
   42: [{ node: 'TONGUE', channel: 'rx', scale: 1, maxDegrees: 20 }],
 
-  // Lip-sync pseudo-control 103 uses the same mapping table as AUs, but is
-  // grouped under the Lip Sync authoring category and kept out of AU_INFO.
-  // It opens the jaw bone without activating the AU26 Jaw_Open morph.
+};
+
+// ============================================================================
+// LIP-SYNC SUPPORT CONTROL BINDINGS
+// ============================================================================
+
+/**
+ * Lip-sync support controls are not FACS AUs. They are semantic controls emitted
+ * by speech planning when the runtime needs articulation support that should not
+ * activate a visible FACS morph. Control 103 opens the jaw bone for speech while
+ * leaving AU 26's Jaw_Open morph untouched.
+ *
+ * This is kept as a separate preset object so the data model does not pretend
+ * lip-sync support controls are ordinary AUs. `CC4_PROFILE_BONE_BINDINGS` folds
+ * it into the legacy `Profile.auToBones` field until Embody has the canonical
+ * control/binding model tracked in meekmachine/embody#30.
+ */
+export const LIP_SYNC_CONTROL_TO_BINDINGS: Record<number, BoneBinding[]> = {
   103: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
+};
+
+/** Legacy compatibility map consumed by the current runtime profile shape. */
+export const CC4_PROFILE_BONE_BINDINGS: Record<number, BoneBinding[]> = {
+  ...BONE_AU_TO_BINDINGS,
+  ...LIP_SYNC_CONTROL_TO_BINDINGS,
 };
 
 // ============================================================================
@@ -1184,7 +1205,7 @@ export const CC4_PRESET: Profile = {
   animalType: 'human',
   // No emoji for humans - uses FaTheaterMasks icon instead
   auToMorphs: AU_TO_MORPHS,
-  auToBones: BONE_AU_TO_BINDINGS,
+  auToBones: CC4_PROFILE_BONE_BINDINGS,
   boneNodes: CC4_BONE_NODES,
   bonePrefix: CC4_BONE_PREFIX,
   suffixPattern: CC4_SUFFIX_PATTERN,
