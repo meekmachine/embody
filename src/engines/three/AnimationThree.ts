@@ -2175,9 +2175,17 @@ export class ThreeAnimationSystem {
     const balanceMap = options?.balanceMap;
     const meshNames = options?.meshNames;
     const bones = this.host.getBones();
+    type ProfileMappedTarget =
+      | Extract<SnippetChannel['target'], { type: 'au' }>
+      | Extract<SnippetChannel['target'], { type: 'lipSync' }>;
+    const isProfileMappedTarget = (target: SnippetChannel['target']): target is ProfileMappedTarget =>
+      target.type === 'au' || target.type === 'lipSync';
+    const isProfileMappedChannel = (channel: SnippetChannel): channel is SnippetChannel & { target: ProfileMappedTarget } =>
+      isProfileMappedTarget(channel.target);
     const visemeChannels = channels.filter((channel) => channel.target.type === 'viseme');
     const lipSyncChannels = channels.filter((channel) => channel.target.type === 'lipSync');
     const auChannels = channels.filter((channel) => channel.target.type === 'au');
+    const profileMappedChannels = channels.filter(isProfileMappedChannel);
     let maxTime = 0;
 
     logTypedLipSyncDebug('[Embody Typed LipSync] typedSnippetToClip input', {
@@ -2269,88 +2277,38 @@ export class ThreeAnimationSystem {
         continue;
       }
 
-      if (target.type === 'lipSync') {
-        const bindings = config.lipSyncToBones?.[target.id] ?? [];
-        for (const binding of bindings) {
-          if (!binding.channel) continue;
-          const entry = bones[binding.node as BoneKey];
-          if (!entry) continue;
-          const scale = binding.scale ?? 1;
-
-          if (binding.channel === 'rx' || binding.channel === 'ry' || binding.channel === 'rz') {
-            const axis = binding.channel === 'rx' ? X_AXIS : binding.channel === 'ry' ? Y_AXIS : Z_AXIS;
-            const maxDegrees = binding.maxDegrees ?? 30;
-            const inheritedStart = hasInheritedStart(channel.keyframes)
-              ? this.host.getCurrentBoneQuaternion?.(binding.node) ?? null
-              : null;
-            const times = channel.keyframes.map((frame) => frame.time);
-            const values: number[] = [];
-            for (let index = 0; index < channel.keyframes.length; index += 1) {
-              if (index === 0 && inheritedStart) {
-                values.push(inheritedStart.x, inheritedStart.y, inheritedStart.z, inheritedStart.w);
-                continue;
-              }
-              const intensity = clampIntensity(channel.keyframes[index].intensity * channelScale(channel));
-              const radians = (maxDegrees * Math.PI / 180) * intensity * scale;
-              const q = new Quaternion().copy(entry.baseQuat);
-              q.multiply(new Quaternion().setFromAxisAngle(axis, radians));
-              values.push(q.x, q.y, q.z, q.w);
-            }
-            tracks.push(new QuaternionKeyframeTrack(`${entry.obj.uuid}.quaternion`, times, values));
-            continue;
-          }
-
-          if (binding.channel === 'tx' || binding.channel === 'ty' || binding.channel === 'tz') {
-            const axis = binding.channel === 'tx' ? 'x' : binding.channel === 'ty' ? 'y' : 'z';
-            const maxUnits = binding.maxUnits ?? 1;
-            const inheritedStart = channel.keyframes[0]?.inherit
-              ? this.host.getCurrentBonePositionValue?.(binding.node, axis) ?? entry.obj.position[axis]
-              : undefined;
-            const values = channel.keyframes.map((frame, index) => {
-              if (index === 0 && inheritedStart !== undefined) return inheritedStart;
-              const intensity = clampIntensity(frame.intensity * channelScale(channel));
-              return entry.basePos[axis] + intensity * maxUnits * scale;
-            });
-            tracks.push(new NumberKeyframeTrack(
-              `${entry.obj.uuid}.position[${axis}]`,
-              channel.keyframes.map((frame) => frame.time),
-              values
-            ));
-          }
-        }
-        continue;
-      }
-
-      if (target.type === 'au') {
-        const auMeshNames = this.getMeshNamesForAU(target.id, config, meshNames);
+      if (isProfileMappedTarget(target)) {
+        const controlMeshNames = this.getMeshNamesForAU(target.id, config, meshNames);
         const morphsBySide = config.auToMorphs[target.id];
         const mixWeight = this.host.isMixedAU(target.id) ? this.host.getAUMixWeight(target.id) : 1.0;
-        const curveBalance = target.balance ?? resolveCurveBalance(String(target.id), globalBalance, balanceMap);
+        const curveBalance = target.type === 'au'
+          ? target.balance ?? resolveCurveBalance(String(target.id), globalBalance, balanceMap)
+          : resolveCurveBalance(String(target.id), globalBalance, balanceMap);
 
         for (const morphKey of morphsBySide?.left ?? []) {
           let effectiveScale = channelScale(channel) * mixWeight;
           if (curveBalance > 0) effectiveScale *= (1 - curveBalance);
           if (typeof morphKey === 'number') {
-            this.addMorphIndexTracks(tracks, morphKey, channel.keyframes, effectiveScale, auMeshNames);
+            this.addMorphIndexTracks(tracks, morphKey, channel.keyframes, effectiveScale, controlMeshNames);
           } else {
-            this.addMorphTracks(tracks, morphKey, channel.keyframes, effectiveScale, auMeshNames);
+            this.addMorphTracks(tracks, morphKey, channel.keyframes, effectiveScale, controlMeshNames);
           }
         }
         for (const morphKey of morphsBySide?.right ?? []) {
           let effectiveScale = channelScale(channel) * mixWeight;
           if (curveBalance < 0) effectiveScale *= (1 + curveBalance);
           if (typeof morphKey === 'number') {
-            this.addMorphIndexTracks(tracks, morphKey, channel.keyframes, effectiveScale, auMeshNames);
+            this.addMorphIndexTracks(tracks, morphKey, channel.keyframes, effectiveScale, controlMeshNames);
           } else {
-            this.addMorphTracks(tracks, morphKey, channel.keyframes, effectiveScale, auMeshNames);
+            this.addMorphTracks(tracks, morphKey, channel.keyframes, effectiveScale, controlMeshNames);
           }
         }
         for (const morphKey of morphsBySide?.center ?? []) {
           const effectiveScale = channelScale(channel) * mixWeight;
           if (typeof morphKey === 'number') {
-            this.addMorphIndexTracks(tracks, morphKey, channel.keyframes, effectiveScale, auMeshNames);
+            this.addMorphIndexTracks(tracks, morphKey, channel.keyframes, effectiveScale, controlMeshNames);
           } else {
-            this.addMorphTracks(tracks, morphKey, channel.keyframes, effectiveScale, auMeshNames);
+            this.addMorphTracks(tracks, morphKey, channel.keyframes, effectiveScale, controlMeshNames);
           }
         }
         continue;
@@ -2449,14 +2407,13 @@ export class ThreeAnimationSystem {
       }
     }
 
-    if (keyframeTimes.length > 0 && auChannels.length > 0) {
+    if (keyframeTimes.length > 0 && profileMappedChannels.length > 0) {
       const compositeRotations = this.host.getCompositeRotations();
       const hasChannelAU = new Set<number>(
-        auChannels.map((channel) => channel.target.type === 'au' ? channel.target.id : -1)
+        profileMappedChannels.map((channel) => channel.target.id)
       );
       const channelsByAU = new Map<number, SnippetChannel[]>();
-      auChannels.forEach((channel) => {
-        if (channel.target.type !== 'au') return;
+      profileMappedChannels.forEach((channel) => {
         const existing = channelsByAU.get(channel.target.id) ?? [];
         existing.push(channel);
         channelsByAU.set(channel.target.id, existing);
@@ -2472,7 +2429,7 @@ export class ThreeAnimationSystem {
 
         let value = 0;
         for (const channel of channelsForAU) {
-          if (channel.target.type !== 'au') continue;
+          if (!isProfileMappedTarget(channel.target)) continue;
           const rawValue = sampleTypedChannel(channel, t);
           if (rawValue <= 1e-6) continue;
 
@@ -2482,7 +2439,9 @@ export class ThreeAnimationSystem {
             continue;
           }
 
-          const curveBalance = channel.target.balance ?? resolveCurveBalance(String(auId), globalBalance, balanceMap);
+          const curveBalance = channel.target.type === 'au'
+            ? channel.target.balance ?? resolveCurveBalance(String(auId), globalBalance, balanceMap)
+            : resolveCurveBalance(String(auId), globalBalance, balanceMap);
           value = Math.max(value, rawValue * getSideScale(curveBalance, binding.side));
         }
         return value;
@@ -2582,8 +2541,7 @@ export class ThreeAnimationSystem {
         tracks.push(new QuaternionKeyframeTrack(`${entry.obj.uuid}.quaternion`, keyframeTimes, values));
       }
 
-      for (const channel of auChannels) {
-        if (channel.target.type !== 'au') continue;
+      for (const channel of profileMappedChannels) {
         const auId = channel.target.id;
         const bindings = config.auToBones[auId] || [];
 
@@ -2601,7 +2559,9 @@ export class ThreeAnimationSystem {
 
           for (const t of keyframeTimes) {
             const rawValue = sampleTypedChannel(channel, t);
-            const curveBalance = channel.target.balance ?? resolveCurveBalance(String(auId), globalBalance, balanceMap);
+            const curveBalance = channel.target.type === 'au'
+              ? channel.target.balance ?? resolveCurveBalance(String(auId), globalBalance, balanceMap)
+              : resolveCurveBalance(String(auId), globalBalance, balanceMap);
             const sideScale = binding.side ? getSideScale(curveBalance, binding.side) : 1;
             const value = clampIntensity(rawValue * sideScale);
             values.push(

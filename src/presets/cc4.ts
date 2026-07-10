@@ -522,15 +522,10 @@ export const BONE_AU_TO_BINDINGS: Record<number, BoneBinding[]> = {
   40: [{ node: 'TONGUE', channel: 'ry', scale: 1, maxDegrees: 20 }],
   41: [{ node: 'TONGUE', channel: 'rx', scale: -1, maxDegrees: 20 }],
   42: [{ node: 'TONGUE', channel: 'rx', scale: 1, maxDegrees: 20 }],
-};
 
-// ============================================================================
-// LIP-SYNC TO BONES - Speech articulation controls that are not FACS AUs
-// ============================================================================
-
-export const LIP_SYNC_TO_BONES: Record<number, BoneBinding[]> = {
-  // Lip-sync control 103 is a jaw bone-open curve for speech. It intentionally
-  // stays out of AU_TO_MORPHS/AU_INFO so it cannot trigger the CC4 Jaw_Open morph.
+  // Lip-sync pseudo-control 103 uses the same mapping table as AUs, but is
+  // grouped under the Lip Sync authoring category and kept out of AU_INFO.
+  // It opens the jaw bone without activating the AU26 Jaw_Open morph.
   103: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
 };
 
@@ -778,7 +773,7 @@ export const checkBindingsForLeftRight = (bindings: BoneBinding[] | undefined): 
 export const COMPOSITE_ROTATIONS: CompositeRotation[] = [
   {
     node: 'JAW',
-    pitch: { aus: [25, 26, 27], axis: 'rz' },  // Jaw drop (opens mouth downward)
+    pitch: { aus: [25, 26, 27, 103], axis: 'rz' },  // Jaw drop plus speech jaw pseudo-control
     yaw: { aus: [30, 35], axis: 'ry', negative: 30, positive: 35 },  // Jaw lateral (left/right)
     roll: null  // Jaw doesn't have roll
   },
@@ -1190,7 +1185,6 @@ export const CC4_PRESET: Profile = {
   // No emoji for humans - uses FaTheaterMasks icon instead
   auToMorphs: AU_TO_MORPHS,
   auToBones: BONE_AU_TO_BINDINGS,
-  lipSyncToBones: LIP_SYNC_TO_BONES,
   boneNodes: CC4_BONE_NODES,
   bonePrefix: CC4_BONE_PREFIX,
   suffixPattern: CC4_SUFFIX_PATTERN,

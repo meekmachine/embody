@@ -19,7 +19,6 @@ const PROFILE_OVERRIDE_KEYS = [
   'emoji',
   'auToMorphs',
   'auToBones',
-  'lipSyncToBones',
   'boneNodes',
   'bonePrefix',
   'boneSuffix',

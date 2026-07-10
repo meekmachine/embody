@@ -105,8 +105,6 @@ export function makeTestProfile(overrides: Partial<Profile> = {}): Profile {
       26: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
       30: [{ node: 'HEAD', channel: 'ry', scale: -1, maxDegrees: 20 }],
       31: [{ node: 'HEAD', channel: 'ry', scale: 1, maxDegrees: 20 }],
-    },
-    lipSyncToBones: {
       103: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
     },
     boneNodes: {
@@ -139,7 +137,7 @@ export function makeTestProfile(overrides: Partial<Profile> = {}): Profile {
     compositeRotations: [
       {
         node: 'JAW',
-        pitch: { aus: [26], axis: 'rz' },
+        pitch: { aus: [26, 103], axis: 'rz' },
         yaw: null,
         roll: null,
       },

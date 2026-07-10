@@ -206,8 +206,7 @@ describe('AnimationController typed snippet channels', () => {
       auToMorphs: {
         26: { left: [], right: [], center: ['Jaw_Open'] },
       },
-      auToBones: {},
-      lipSyncToBones: {
+      auToBones: {
         103: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
       },
       boneNodes: { JAW: 'Jaw' },
@@ -217,7 +216,7 @@ describe('AnimationController typed snippet channels', () => {
     const compositeRotations: CompositeRotation[] = [
       {
         node: 'JAW',
-        pitch: { aus: [26], axis: 'rz' },
+        pitch: { aus: [26, 103], axis: 'rz' },
         yaw: null,
         roll: null,
       },

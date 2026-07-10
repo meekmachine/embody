@@ -157,9 +157,6 @@ export function extendPresetWithProfile(base: Profile, extension?: Partial<Profi
     ...extension,
     auToMorphs: mergeRecord(base.auToMorphs, extension.auToMorphs),
     auToBones: mergeRecord(base.auToBones, extension.auToBones),
-    lipSyncToBones: base.lipSyncToBones || extension.lipSyncToBones
-      ? mergeRecord(base.lipSyncToBones || {}, extension.lipSyncToBones || {})
-      : undefined,
     boneNodes: mergeRecord(base.boneNodes, extension.boneNodes),
     morphToMesh: mergeRecord(base.morphToMesh, extension.morphToMesh),
     auFacePartToMeshCategory: base.auFacePartToMeshCategory || extension.auFacePartToMeshCategory
