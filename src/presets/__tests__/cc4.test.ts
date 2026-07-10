@@ -8,7 +8,6 @@ import {
   CC4_MAPPING_SECTIONS,
   CC4_VISEME_SYSTEM_ID,
   CC4_VISEME_SLOTS,
-  CC4_JAW_BONE_OPEN_AU,
   VISEME_JAW_AMOUNTS,
   VISEME_KEYS,
   isMixedAU,
@@ -182,13 +181,12 @@ describe('CC4 Preset', () => {
       expect(BONE_AU_TO_BINDINGS[26][0].node).toBe('JAW');
     });
 
-    it('should expose a jaw bone-only AU without a Jaw_Open morph', () => {
-      expect(CC4_JAW_BONE_OPEN_AU).toBe(103);
-      expect(AU_TO_MORPHS[CC4_JAW_BONE_OPEN_AU]).toBeUndefined();
-      expect(BONE_AU_TO_BINDINGS[CC4_JAW_BONE_OPEN_AU]).toEqual([
+    it('should map AU103 as a normal bone-only AU without a Jaw_Open morph', () => {
+      expect(AU_TO_MORPHS[103]).toBeUndefined();
+      expect(BONE_AU_TO_BINDINGS[103]).toEqual([
         expect.objectContaining({ node: 'JAW', channel: 'rz', maxDegrees: 30 }),
       ]);
-      expect(isMixedAU(CC4_JAW_BONE_OPEN_AU)).toBe(false);
+      expect(isMixedAU(103)).toBe(false);
     });
   });
 
@@ -217,7 +215,7 @@ describe('CC4 Preset', () => {
       const jaw = COMPOSITE_ROTATIONS.find(c => c.node === 'JAW');
       expect(jaw).toBeDefined();
       expect(jaw!.pitch).toBeDefined(); // Jaw open/close
-      expect(jaw!.pitch!.aus).toContain(CC4_JAW_BONE_OPEN_AU);
+      expect(jaw!.pitch!.aus).toContain(103);
     });
 
     it('should include TONGUE composite', () => {

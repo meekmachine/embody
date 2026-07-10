@@ -344,7 +344,6 @@ export { extendPresetWithProfile } from './mappings/extendPresetWithProfile';
 export {
   AU_TO_MORPHS,
   BONE_AU_TO_BINDINGS,
-  CC4_JAW_BONE_OPEN_AU,
   AU_MIX_DEFAULTS,
   CC4_BONE_NODES,
   CC4_BONE_PREFIX,

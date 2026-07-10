@@ -9,8 +9,6 @@
 import type { Profile, MeshCategory, BlendingMode, MeshMaterialSettings, MeshInfo, MorphCategory, MorphTargetsBySide, VisemeSlot, MappingEditorSection } from '../mappings/types';
 import type { BoneBinding, AUInfo, CompositeRotation } from '../core/types';
 
-export const CC4_JAW_BONE_OPEN_AU = 103;
-
 // ============================================================================
 // AU TO MORPHS - Maps AU IDs to morph target names
 // ============================================================================
@@ -462,9 +460,10 @@ export const BONE_AU_TO_BINDINGS: Record<number, BoneBinding[]> = {
   25: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 20 }],
   26: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
   27: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 35 }],
-  // Embody extension for lip sync jaw actuation. It drives only the JAW bone,
-  // while AU26 remains the FACS jaw drop control that also maps to Jaw_Open.
-  [CC4_JAW_BONE_OPEN_AU]: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
+  // AU103 is the bone-only jaw open channel for lip sync. It behaves like any
+  // other AU in this map, but intentionally has no AU_TO_MORPHS entry so it
+  // cannot trigger the CC4 Jaw_Open morph over the active viseme mouth shapes.
+  103: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
 
   // Jaw lateral (left/right)
   30: [{ node: 'JAW', channel: 'ry', scale: -1, maxDegrees: 15 }],
@@ -773,7 +772,7 @@ export const checkBindingsForLeftRight = (bindings: BoneBinding[] | undefined): 
 export const COMPOSITE_ROTATIONS: CompositeRotation[] = [
   {
     node: 'JAW',
-    pitch: { aus: [25, 26, 27, CC4_JAW_BONE_OPEN_AU], axis: 'rz' },  // Jaw drop (opens mouth downward)
+    pitch: { aus: [25, 26, 27, 103], axis: 'rz' },  // Jaw drop (opens mouth downward)
     yaw: { aus: [30, 35], axis: 'ry', negative: 30, positive: 35 },  // Jaw lateral (left/right)
     roll: null  // Jaw doesn't have roll
   },
