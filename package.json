@@ -39,7 +39,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:exports": "npm run build && node scripts/smoke/package-exports.mjs",
-    "bench:parity": "npm run build && node scripts/bench/parity.mjs",
+    "bench:runtime": "npm run build && node scripts/bench/runtime.mjs",
     "rust:test": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo test --manifest-path rust/embody-wasm/Cargo.toml",
     "rust:wasm-build": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo build --manifest-path rust/embody-wasm/Cargo.toml --target wasm32-unknown-unknown --release",
     "prepare": "npm run build",

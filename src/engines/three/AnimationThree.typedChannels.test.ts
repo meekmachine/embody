@@ -224,7 +224,7 @@ describe('AnimationController typed snippet channels', () => {
     ];
     const controller = new AnimationController(makeHost(profile, [face], bones, compositeRotations));
 
-    const clip = controller.typedSnippetToClip('typed-jaw-bone-only-au', [
+    const clip = controller.typedSnippetToClip('typed-lipsync-jaw', [
       {
         target: { type: 'lipSync', id: 103 },
         keyframes: [{ time: 0, intensity: 0 }, { time: 0.2, intensity: 1 }],

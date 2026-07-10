@@ -8,11 +8,11 @@ import {
   makePolymerJawVocalChannels,
   makePolymerLipVocalChannels,
   makeMixedBakedClip,
-  makeParityScene,
+  makeProfileTestScene,
   snapshotBones,
   snapshotClip,
   snapshotMorphInfluences,
-} from './parityFixtures';
+} from './profileTestScene';
 
 const runtimeDelta = new Float32Array([
   0, 0.05, 0,
@@ -31,7 +31,7 @@ function seekRequired(handle: { setTime?: (time: number) => void } | null, time 
   handle!.setTime!(time);
 }
 
-function expectPolymerLipPose(viseme: ReturnType<typeof makeParityScene>['viseme']): void {
+function expectPolymerLipPose(viseme: ReturnType<typeof makeProfileTestScene>['viseme']): void {
   expect(snapshotMorphInfluences(viseme)).toEqual({
     Mouth_Aah: 0.8,
     Mouth_Wide: 0.4,
@@ -39,7 +39,7 @@ function expectPolymerLipPose(viseme: ReturnType<typeof makeParityScene>['viseme
   });
 }
 
-function expectNeutralLipPose(viseme: ReturnType<typeof makeParityScene>['viseme']): void {
+function expectNeutralLipPose(viseme: ReturnType<typeof makeProfileTestScene>['viseme']): void {
   expect(snapshotMorphInfluences(viseme)).toEqual({
     Mouth_Aah: 0,
     Mouth_Wide: 0,
@@ -47,9 +47,9 @@ function expectNeutralLipPose(viseme: ReturnType<typeof makeParityScene>['viseme
   });
 }
 
-describe('Three parity fixtures', () => {
+describe('Three profile test scene', () => {
   it('captures live AU morph writes with balance', () => {
-    const { engine, face } = makeParityScene();
+    const { engine, face } = makeProfileTestScene();
 
     engine.setAU(1, 0.8, -0.25);
 
@@ -65,7 +65,7 @@ describe('Three parity fixtures', () => {
   });
 
   it('captures weighted viseme writes and jaw output', () => {
-    const { engine, viseme } = makeParityScene();
+    const { engine, viseme } = makeProfileTestScene();
 
     engine.setVisemeById('aa', 0.75);
     engine.update(1 / 60);
@@ -82,7 +82,7 @@ describe('Three parity fixtures', () => {
   });
 
   it('captures continuum and composite bone output', () => {
-    const { engine } = makeParityScene();
+    const { engine } = makeProfileTestScene();
 
     engine.setContinuum(30, 31, -0.5);
     engine.update(1 / 60);
@@ -103,9 +103,9 @@ describe('Three parity fixtures', () => {
   });
 
   it('captures dynamic clip output in normalized host-readable form', () => {
-    const scene = makeParityScene();
+    const scene = makeProfileTestScene();
 
-    const clip = scene.engine.snippetToClip('parity-smile', {
+    const clip = scene.engine.snippetToClip('test-smile', {
       '1': [
         { time: 0, intensity: 0 },
         { time: 0.5, intensity: 1 },
@@ -120,7 +120,7 @@ describe('Three parity fixtures', () => {
     expect(snapshotClip(clip!, scene)).toMatchInlineSnapshot(`
       {
         "duration": 0.5,
-        "name": "parity-smile",
+        "name": "test-smile",
         "trackCount": 5,
         "tracks": [
           {
@@ -195,7 +195,7 @@ describe('Three parity fixtures', () => {
   });
 
   it('captures baked clip partitioning summaries', () => {
-    const scene = makeParityScene();
+    const scene = makeProfileTestScene();
     const bones: ResolvedBones = {
       HEAD: {
         obj: scene.head,
@@ -236,7 +236,7 @@ describe('Three parity fixtures', () => {
   });
 
   it('captures runtime morph authoring cache refresh', () => {
-    const { engine, face } = makeParityScene();
+    const { engine, face } = makeProfileTestScene();
 
     engine.addMorphTarget({
       meshName: 'FaceMesh',
@@ -252,7 +252,7 @@ describe('Three parity fixtures', () => {
   });
 
   it('runs a Polymer-style lip-only vocal snippet without synthesizing jaw motion', () => {
-    const { engine, viseme } = makeParityScene();
+    const { engine, viseme } = makeProfileTestScene();
 
     const handle = engine.playTypedSnippet(
       { name: 'polymer-lip-only-vocal', channels: makePolymerLipVocalChannels() },
@@ -265,7 +265,7 @@ describe('Three parity fixtures', () => {
   });
 
   it('runs a Polymer-style jaw-only vocal snippet through lip-sync control 103 where mapped', () => {
-    const { engine, viseme } = makeParityScene();
+    const { engine, viseme } = makeProfileTestScene();
 
     const handle = engine.playTypedSnippet(
       { name: 'polymer-jaw-only-vocal', channels: makePolymerJawVocalChannels() },
@@ -278,7 +278,7 @@ describe('Three parity fixtures', () => {
   });
 
   it('runs combined Polymer-style lip and lip-sync jaw channels independently', () => {
-    const { engine, viseme } = makeParityScene();
+    const { engine, viseme } = makeProfileTestScene();
 
     const handle = engine.playTypedSnippet(
       { name: 'polymer-combined-vocal', channels: makePolymerCombinedVocalChannels() },
@@ -291,7 +291,7 @@ describe('Three parity fixtures', () => {
   });
 
   it('layers a combined Polymer-style vocal snippet with another non-vocal snippet', () => {
-    const { engine, face, viseme } = makeParityScene();
+    const { engine, face, viseme } = makeProfileTestScene();
 
     const vocal = engine.playTypedSnippet(
       { name: 'polymer-layered-vocal', channels: makePolymerCombinedVocalChannels() },
@@ -320,7 +320,7 @@ describe('Three parity fixtures', () => {
   it('documents unsupported future vocal target types without dropping supported channels', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const { engine, viseme } = makeParityScene();
+      const { engine, viseme } = makeProfileTestScene();
       const channels = [
         ...makePolymerLipVocalChannels(),
         {
