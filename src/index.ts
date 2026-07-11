@@ -1,15 +1,15 @@
 /**
- * Loom3 - 3D Character Animation Engine
+ * Embody - 3D Character Animation Engine
  *
  * A lightweight, framework-agnostic library for animating 3D character models
  * using Action Units (AUs), visemes, and bone transformations.
  *
  * @example
  * ```typescript
- * import { Loom3, collectMorphMeshes, CC4_PRESET } from '@lovelace_lol/loom3';
+ * import { Embody, collectMorphMeshes, CC4_PRESET } from '@lovelace_lol/embody';
  * import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
  *
- * const loom = new Loom3({ presetType: 'cc4' });
+ * const loom = new Embody({ presetType: 'cc4' });
  *
  * const loader = new GLTFLoader();
  * loader.load('/character.glb', (gltf) => {
@@ -31,18 +31,18 @@
 // IMPLEMENTATIONS (Three.js)
 // ============================================================================
 
-export { Loom3, Loom3 as Embody, collectMorphMeshes } from './engines/three/Loom3';
+export { Embody, collectMorphMeshes } from './engines/three/Embody';
 export {
-  AnimationThree,
+  ThreeAnimationRuntime,
   ThreeAnimationSystem,
   AnimationController,
   BakedAnimationController,
-} from './engines/three/AnimationThree';
+} from './engines/three/ThreeAnimationRuntime';
 export type {
   ThreeAnimationSystemHost,
   AnimationControllerHost,
   BakedAnimationHost,
-} from './engines/three/AnimationThree';
+} from './engines/three/ThreeAnimationRuntime';
 export { ThreeModelInspector } from './engines/three/ThreeModelInspector';
 export type {
   ThreeAnimationClipDescriptor,
@@ -77,20 +77,15 @@ export type {
 } from './core/TsClipCompiler';
 export type { TsRuntimeCoreOptions } from './core/TsRuntimeCore';
 
-// Legacy aliases (deprecated - use Loom3 instead)
-export { Loom3 as Loom3Three } from './engines/three/Loom3';
-export { Loom3 as LoomLargeThree } from './engines/three/Loom3';
-
 // ============================================================================
 // INTERFACES (for implementing custom engines)
 // ============================================================================
 
 export type {
-  LoomLarge,
+  EmbodyRuntime,
   ReadyPayload,
-  LoomLargeConfig,
-  Loom3Config,
-} from './interfaces/LoomLarge';
+  EmbodyConfig,
+} from './interfaces/EmbodyRuntime';
 
 export type { Animation, MixerLoopMode } from './interfaces/Animation';
 

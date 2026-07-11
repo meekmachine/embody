@@ -6,7 +6,7 @@ import {
   MeshBasicMaterial,
   Object3D,
 } from 'three';
-import { Loom3 } from '../../dist/index.js';
+import { Embody } from '../../dist/index.js';
 
 const MORPHS = [
   'BrowUp_L',
@@ -118,7 +118,7 @@ function makeScene() {
   jaw.name = 'Jaw';
   const face = makeMesh('FaceMesh', MORPHS);
   model.add(head, jaw, face);
-  const engine = new Loom3({ profile: makeProfile() });
+  const engine = new Embody({ profile: makeProfile() });
   engine.onReady({ model, meshes: [face] });
   return engine;
 }

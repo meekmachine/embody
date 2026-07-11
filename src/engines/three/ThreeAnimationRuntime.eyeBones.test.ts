@@ -3,7 +3,7 @@ import { Object3D, Quaternion } from 'three';
 import type { Profile } from '../../mappings/types';
 import { BONE_AU_TO_BINDINGS, CC4_BONES, COMPOSITE_ROTATIONS } from '../../presets/cc4';
 import type { ResolvedBones } from './types';
-import { AnimationController, type AnimationControllerHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './ThreeAnimationRuntime';
 
 const INDEPENDENT_EYE_CASES = [
   { auId: 65, trackNode: CC4_BONES.EYE_L, otherNode: CC4_BONES.EYE_R, label: 'left-eye yaw' },

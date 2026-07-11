@@ -11,7 +11,7 @@ import {
 import type { KeyframeTrack } from 'three';
 import type { Profile } from '../../mappings/types';
 import type { SnippetChannel } from '../../core/types';
-import { Loom3 } from './Loom3';
+import { Embody } from './Embody';
 
 export const FACE_MORPHS = [
   'BrowUp_L',
@@ -42,7 +42,7 @@ export const HAIR_MORPHS = [
 export type ProfileTestScene = {
   profile: Profile;
   model: Object3D;
-  engine: Loom3;
+  engine: Embody;
   face: Mesh;
   viseme: Mesh;
   hair: Mesh;
@@ -183,7 +183,7 @@ export function makeProfileTestScene(profile: Profile = makeTestProfile()): Prof
 
   model.add(head, jaw, body, camera, face, viseme, hair);
 
-  const engine = new Loom3({ profile });
+  const engine = new Embody({ profile });
   engine.onReady({ model, meshes: [face, viseme, hair] });
   engine.registerHairObjects([hair]);
 
@@ -242,7 +242,7 @@ export function snapshotMorphInfluences(mesh: Mesh): Record<string, number> {
   );
 }
 
-export function snapshotBones(engine: Loom3): Record<string, { position: number[]; rotation: number[] }> {
+export function snapshotBones(engine: Embody): Record<string, { position: number[]; rotation: number[] }> {
   const bones = engine.getBones();
   return Object.fromEntries(
     Object.entries(bones).map(([name, value]) => [

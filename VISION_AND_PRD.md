@@ -1,14 +1,14 @@
-# loom3 Vision and PRD
+# embody Vision and PRD
 
 ## Vision
 
-**Language models gave AI words. loom3 gives AI a body language.**
+**Language models gave AI words. embody gives AI a body language.**
 
-loom3 exists to become the open expressive layer for AI avatars: the engine and profile system that lets a character emote, speak, look, gesture, and eventually move and interact in ways that read as intentional rather than mechanical.
+embody exists to become the open expressive layer for AI avatars: the engine and profile system that lets a character emote, speak, look, gesture, and eventually move and interact in ways that read as intentional rather than mechanical.
 
 Without a layer like this, AI remains disembodied. It can produce language, but it cannot easily become a character. It cannot smile with intention, sustain eye contact, shift posture, carry an expressive identity across projects, or participate in a scene as more than a voice with a mesh attached.
 
-loom3 is meant to solve that.
+embody is meant to solve that.
 
 ## Why This Is Exciting
 
@@ -21,15 +21,15 @@ The field already gave us the reasons to care:
 - **CASA** and **The Media Equation** showed that people treat responsive media socially as soon as it exhibits the right cues.
 - Lessig's writing on remix culture points to something equally important: the real cultural explosion comes when a medium becomes writable, forkable, and reusable.
 
-That is the opportunity for loom3.
+That is the opportunity for embody.
 
 Not merely better rig utilities.  
 Not merely cleaner animation code.  
 An expressive engine that helps make AI avatars **portable**, **programmable**, and **remixable**.
 
-## What Makes loom3 Valuable
+## What Makes embody Valuable
 
-loom3 is valuable because it turns rig internals into expressive semantics.
+embody is valuable because it turns rig internals into expressive semantics.
 
 Instead of forcing developers to think in terms of:
 
@@ -53,7 +53,7 @@ it lets them think in terms of:
 
 That is the heart of the value proposition:
 
-**loom3 lets developers work in the language of performance instead of the language of rig plumbing.**
+**embody lets developers work in the language of performance instead of the language of rig plumbing.**
 
 ## The Bigger Bet
 
@@ -67,7 +67,7 @@ If AI avatars are going to matter culturally, then there needs to be a layer tha
 - portable enough to move across tools and applications
 - extensible enough to grow from facial expression to full embodied behavior
 
-That is what loom3 can be:
+That is what embody can be:
 
 - a character profile standard
 - an expressive control engine
@@ -94,7 +94,7 @@ A package like this only matters if people trust it. Release discipline, version
 
 ### We plan to get the future right
 
-loom3 should begin with face, visemes, and expressive runtime control, but it should clearly point toward more:
+embody should begin with face, visemes, and expressive runtime control, but it should clearly point toward more:
 
 - gesture and posture vocabularies
 - locomotion and IK-oriented semantics
@@ -105,7 +105,7 @@ loom3 should begin with face, visemes, and expressive runtime control, but it sh
 
 ## Product Promise
 
-loom3 should let someone say:
+embody should let someone say:
 
 > I can take a 3D character, attach a profile, and immediately start directing expressive behavior instead of fighting rig internals.
 
@@ -118,7 +118,7 @@ And then, one level deeper:
 The relationship between the two projects should be very clear.
 
 LoomLarge is the studio and the product experience.  
-loom3 is the expressive engine and profile substrate.
+embody is the expressive engine and profile substrate.
 
 LoomLarge should own:
 
@@ -128,7 +128,7 @@ LoomLarge should own:
 - persistence layers
 - scene direction and product UX
 
-loom3 should own:
+embody should own:
 
 - semantic expressive control
 - profile and preset structures
@@ -213,7 +213,7 @@ It needs to be obvious from the examples and the runtime behavior that this is n
 
 ## What Success Looks Like
 
-loom3 is succeeding when:
+embody is succeeding when:
 
 - developers describe it as the layer that finally makes avatars feel programmable
 - downstream apps trust released versions and build around the profile model
@@ -223,11 +223,11 @@ loom3 is succeeding when:
 
 ## Closing Statement
 
-loom3 is exciting because it aims at the right layer.
+embody is exciting because it aims at the right layer.
 
 It is not trying to be the whole product.  
 It is trying to be the layer that makes the whole category possible.
 
-If LoomLarge is about directing characters, loom3 is about giving those characters an expressive grammar, a portable identity, and eventually a path from facial motion to full embodied social behavior.
+If LoomLarge is about directing characters, embody is about giving those characters an expressive grammar, a portable identity, and eventually a path from facial motion to full embodied social behavior.
 
 That is a serious opportunity. That is worth building well.

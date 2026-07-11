@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Object3D } from 'three';
 import { CC4_BONES } from '../../presets/cc4';
-import { Loom3 } from './Loom3';
+import { Embody } from './Embody';
 
 const INDEPENDENT_EYE_CASES = [
   { auA: 65, auB: 66, node: CC4_BONES.EYE_L, otherNode: CC4_BONES.EYE_R, axisIndex: 2, label: 'left-eye yaw' },
@@ -23,10 +23,10 @@ function makeEyeRig() {
   return { model, leftEye, rightEye };
 }
 
-describe('Loom3 independent eye bone rotations', () => {
+describe('Embody independent eye bone rotations', () => {
   it.each(INDEPENDENT_EYE_CASES)('setAU drives only the intended eye for $label', ({ auA, auB, node, otherNode, axisIndex }) => {
     const { model } = makeEyeRig();
-    const engine = new Loom3({ presetType: 'cc4' });
+    const engine = new Embody({ presetType: 'cc4' });
 
     engine.onReady({ model, meshes: [] });
 
@@ -49,7 +49,7 @@ describe('Loom3 independent eye bone rotations', () => {
 
   it.each(INDEPENDENT_EYE_CASES)('transitionAU drives only the intended eye for $label', ({ auA, auB, node, otherNode, axisIndex }) => {
     const { model } = makeEyeRig();
-    const engine = new Loom3({ presetType: 'cc4' });
+    const engine = new Embody({ presetType: 'cc4' });
 
     engine.onReady({ model, meshes: [] });
 

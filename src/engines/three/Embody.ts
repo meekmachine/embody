@@ -1,7 +1,7 @@
 /**
- * Loom3 - Three.js Implementation
+ * Embody - Three.js Implementation
  *
- * Default implementation of the LoomLarge interface for Three.js.
+ * Default implementation of the Embody runtime interface for Three.js.
  * Controls 3D character facial animation using Action Units (AUs),
  * morph targets, visemes, and bone transformations.
  */
@@ -15,10 +15,10 @@ import {
 } from 'three';
 import type { Mesh, Object3D, AnimationClip } from 'three';
 import type {
-  LoomLarge,
+  EmbodyRuntime,
   ReadyPayload,
-  LoomLargeConfig,
-} from '../../interfaces/LoomLarge';
+  EmbodyConfig,
+} from '../../interfaces/EmbodyRuntime';
 import type { MeshInfo, MorphTargetRef, Profile, HairPhysicsProfileConfig } from '../../mappings/types';
 import type {
   TransitionHandle,
@@ -41,7 +41,7 @@ import type {
   AddMorphTargetOptions,
 } from '../../core/types';
 import { getCompositeAxisBinding, getCompositeAxisValue } from '../../core/compositeAxis';
-import { AnimationThree, ThreeAnimationSystem } from './AnimationThree';
+import { ThreeAnimationRuntime, ThreeAnimationSystem } from './ThreeAnimationRuntime';
 import { getSideScale } from './balanceUtils';
 import { ThreeModelInspector } from './ThreeModelInspector';
 import { HairPhysicsController, type HairPhysicsConfig, type HairPhysicsConfigUpdate, type HairPhysicsDirectionConfig, type HairMorphTargets } from './hair/HairPhysicsController';
@@ -101,7 +101,7 @@ type ResolvedMorphTargetsBySide = {
   center: MorphTargetHandle[];
 };
 
-export class Loom3 implements LoomLarge {
+export class Embody implements EmbodyRuntime {
   // Optional hook for animation schedulers.
   onSnippetEnd?: (name: string) => void;
 
@@ -175,7 +175,7 @@ export class Loom3 implements LoomLarge {
   private isRunning = false;
 
   constructor(
-    config: LoomLargeConfig = {},
+    config: EmbodyConfig = {},
     animation?: {
       tick(dtSeconds: number): void;
       addTransition(
@@ -194,7 +194,7 @@ export class Loom3 implements LoomLarge {
     this.config = extendPresetWithProfile(basePreset, config.profile);
     this.mixWeights = { ...this.config.auMixDefaults };
     this.syncVisemeRuntimeState();
-    this.animation = animation || new AnimationThree();
+    this.animation = animation || new ThreeAnimationRuntime();
 
     // Use config's composite rotations or default to CC4
     this.compositeRotations = this.config.compositeRotations || CC4_COMPOSITE_ROTATIONS;
@@ -286,11 +286,11 @@ export class Loom3 implements LoomLarge {
         const morphKeys = faceMesh?.morphTargetDictionary
           ? Object.keys(faceMesh.morphTargetDictionary)
           : [];
-        console.log('[Loom3] Face mesh resolved:', faceName);
-        console.log('[Loom3] Face mesh morphs:', morphKeys);
+        console.log('[Embody] Face mesh resolved:', faceName);
+        console.log('[Embody] Face mesh morphs:', morphKeys);
       }
     } else {
-      console.log('[Loom3] No face mesh resolved from morph targets.');
+      console.log('[Embody] No face mesh resolved from morph targets.');
     }
 
     // Apply render order and material settings from CC4_MESHES
@@ -1297,7 +1297,7 @@ export class Loom3 implements LoomLarge {
     blending: string;
   } | null {
     if (!this.model) return null;
-    let result: ReturnType<Loom3['getMeshMaterialConfig']> = null;
+    let result: ReturnType<Embody['getMeshMaterialConfig']> = null;
 
     this.model.traverse((obj: any) => {
       if (obj.isMesh && obj.name === meshName) {
@@ -1305,7 +1305,7 @@ export class Loom3 implements LoomLarge {
         if (mat) {
           // Reverse lookup blending mode name
           let blendingName = 'Normal';
-          for (const [name, value] of Object.entries(Loom3.BLENDING_MODES)) {
+          for (const [name, value] of Object.entries(Embody.BLENDING_MODES)) {
             if (mat.blending === value) {
               blendingName = name;
               break;
@@ -1364,7 +1364,7 @@ export class Loom3 implements LoomLarge {
             mat.depthTest = config.depthTest;
           }
           if (config.blending !== undefined) {
-            const blendValue = Loom3.BLENDING_MODES[config.blending];
+            const blendValue = Embody.BLENDING_MODES[config.blending];
             if (blendValue !== undefined) {
               mat.blending = blendValue;
             }
@@ -1958,7 +1958,7 @@ export class Loom3 implements LoomLarge {
   private getVisemeJawAmount(visemeIndex: number): number {
     return getVisemeJawAmounts(this.config)?.[visemeIndex]
       ?? this.config.visemeJawAmounts?.[visemeIndex]
-      ?? Loom3.VISEME_JAW_AMOUNTS[visemeIndex]
+      ?? Embody.VISEME_JAW_AMOUNTS[visemeIndex]
       ?? 0;
   }
 
@@ -2356,7 +2356,7 @@ export class Loom3 implements LoomLarge {
           obj.material.depthTest = settings.depthTest;
         }
         if (typeof settings.blending === 'string') {
-          const blendValue = Loom3.BLENDING_MODES[settings.blending];
+          const blendValue = Embody.BLENDING_MODES[settings.blending];
           if (blendValue !== undefined) {
             obj.material.blending = blendValue;
           }

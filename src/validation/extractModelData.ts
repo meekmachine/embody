@@ -1,5 +1,5 @@
 /**
- * Loom3 - Model Data Extraction
+ * Embody - Model Data Extraction
  *
  * Extracts bones, morph targets, meshes, and animations from 3D models.
  * Works with both GLTF files and runtime Three.js models.

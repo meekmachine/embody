@@ -1,5 +1,5 @@
 /**
- * AnimationThree - Lerp-based animation driver
+ * ThreeAnimationRuntime - Lerp-based animation driver
  *
  * Internal driver for time-based interpolation with easing functions.
  */
@@ -133,7 +133,7 @@ function summarizeBindingTarget(bindingTarget: ReturnType<typeof getVisemeBindin
   };
 }
 
-export class AnimationThree {
+export class ThreeAnimationRuntime {
   private transitions = new Map<string, Transition>();
 
   /**
@@ -281,7 +281,7 @@ const makeActionId = () => `act_${Math.random().toString(36).slice(2, 8)}_${Date
 const X_AXIS = new Vector3(1, 0, 0);
 const Y_AXIS = new Vector3(0, 1, 0);
 const Z_AXIS = new Vector3(0, 0, 1);
-const CLIP_EVENT_METADATA_KEY = '__loom3ClipEvents';
+const CLIP_EVENT_METADATA_KEY = '__embodyClipEvents';
 const CLIP_EVENT_EPSILON = 1e-4;
 
 type RotationBoneBinding = BoneBinding & { channel: 'rx' | 'ry' | 'rz' };
@@ -360,7 +360,7 @@ type DynamicClipSource = {
   hasInheritedStart: boolean;
 };
 
-const ADDITIVE_BAKED_MIXER_CLIP_SUFFIX = '__loom3_additive_delta';
+const ADDITIVE_BAKED_MIXER_CLIP_SUFFIX = '__embody_additive_delta';
 
 export class ThreeAnimationSystem {
   private host: ThreeAnimationSystemHost;
@@ -678,7 +678,7 @@ export class ThreeAnimationSystem {
       try {
         listener(event);
       } catch (error) {
-        console.error('[Loom3] clip event listener failed', error);
+        console.error('[Embody] clip event listener failed', error);
       }
     }
   }
@@ -1211,7 +1211,7 @@ export class ThreeAnimationSystem {
   loadAnimationClips(clips: unknown[]): void {
     const model = this.host.getModel();
     if (!model) {
-      console.warn('Loom3: Cannot load animation clips before calling onReady()');
+      console.warn('Embody: Cannot load animation clips before calling onReady()');
       return;
     }
 
@@ -1316,7 +1316,7 @@ export class ThreeAnimationSystem {
   playAnimation(clipName: string, options: AnimationPlayOptions = {}): AnimationActionHandle | null {
     const bakedClip = this.getBakedSourceClip(clipName);
     if (!bakedClip) {
-      console.warn(`Loom3: Animation clip "${clipName}" not found`);
+      console.warn(`Embody: Animation clip "${clipName}" not found`);
       return null;
     }
 
@@ -1327,7 +1327,7 @@ export class ThreeAnimationSystem {
     playbackState.blendMode = this.getBakedAggregateBlendMode(clipName, playbackState);
     const actionGroup = this.createBakedActionGroup(clipName, playbackState);
     if (!actionGroup) {
-      console.warn(`Loom3: Animation clip "${clipName}" has no character mixer channels to play`);
+      console.warn(`Embody: Animation clip "${clipName}" has no character mixer channels to play`);
       return null;
     }
 
@@ -1818,11 +1818,11 @@ export class ThreeAnimationSystem {
   ): AnimationClip | null {
     const config = this.host.getConfig();
     if (!this.host.getModel()) {
-      console.warn(`[Loom3] snippetToClip: No model loaded for "${clipName}"`);
+      console.warn(`[Embody] snippetToClip: No model loaded for "${clipName}"`);
       return null;
     }
     if (Object.keys(curves).length === 0) {
-      console.warn(`[Loom3] snippetToClip: Empty curves for "${clipName}"`);
+      console.warn(`[Embody] snippetToClip: Empty curves for "${clipName}"`);
       return null;
     }
 
@@ -2155,7 +2155,7 @@ export class ThreeAnimationSystem {
     }
 
     if (tracks.length === 0) {
-      console.warn(`[Loom3] snippetToClip: No tracks created for "${clipName}"`);
+      console.warn(`[Embody] snippetToClip: No tracks created for "${clipName}"`);
       return null;
     }
 
@@ -2167,7 +2167,7 @@ export class ThreeAnimationSystem {
       options,
       hasInheritedStart: this.curvesHaveInheritedStart(curves),
     });
-    console.log(`[Loom3] snippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);
+    console.log(`[Embody] snippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);
 
     return clip;
   }
@@ -2179,11 +2179,11 @@ export class ThreeAnimationSystem {
   ): AnimationClip | null {
     const config = this.host.getConfig();
     if (!this.host.getModel()) {
-      console.warn(`[Loom3] typedSnippetToClip: No model loaded for "${clipName}"`);
+      console.warn(`[Embody] typedSnippetToClip: No model loaded for "${clipName}"`);
       return null;
     }
     if (channels.length === 0) {
-      console.warn(`[Loom3] typedSnippetToClip: Empty channels for "${clipName}"`);
+      console.warn(`[Embody] typedSnippetToClip: Empty channels for "${clipName}"`);
       return null;
     }
 
@@ -2387,7 +2387,7 @@ export class ThreeAnimationSystem {
       }
 
       const unsupportedType = String((target as { type?: unknown }).type ?? 'unknown');
-      console.warn(`[Loom3] typedSnippetToClip: Unsupported typed snippet target "${unsupportedType}" in "${clipName}"`);
+      console.warn(`[Embody] typedSnippetToClip: Unsupported typed snippet target "${unsupportedType}" in "${clipName}"`);
     }
 
     const autoVisemeJaw = options?.autoVisemeJaw === true;
@@ -2595,7 +2595,7 @@ export class ThreeAnimationSystem {
     }
 
     if (tracks.length === 0) {
-      console.warn(`[Loom3] typedSnippetToClip: No tracks created for "${clipName}"`);
+      console.warn(`[Embody] typedSnippetToClip: No tracks created for "${clipName}"`);
       return null;
     }
 
@@ -2615,7 +2615,7 @@ export class ThreeAnimationSystem {
       lipSyncIds: lipSyncChannels.map((channel) => channel.target.type === 'lipSync' ? channel.target.id : null),
       auIds: auChannels.map((channel) => channel.target.type === 'au' ? channel.target.id : null),
     });
-    console.log(`[Loom3] typedSnippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);
+    console.log(`[Embody] typedSnippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);
 
     return clip;
   }
@@ -2624,7 +2624,7 @@ export class ThreeAnimationSystem {
     const mixer = this.ensureClipMixer();
 
     if (!mixer) {
-      console.warn('[Loom3] playClip: No model loaded, cannot create mixer');
+      console.warn('[Embody] playClip: No model loaded, cannot create mixer');
       return null;
     }
     const hasInheritedStart = !!this.dynamicClipSources.get(clip)?.hasInheritedStart;
@@ -2709,7 +2709,7 @@ export class ThreeAnimationSystem {
     this.clipActions.set(clip.name, action);
     this.animationActions.set(clip.name, action);
     this.setPlaybackState(clip.name, playbackState);
-    console.log(`[Loom3] playClip: Playing "${clip.name}" (rate: ${playbackState.playbackRate}, loop: ${playbackState.loop}, actionId: ${actionId})`);
+    console.log(`[Embody] playClip: Playing "${clip.name}" (rate: ${playbackState.playbackRate}, loop: ${playbackState.loop}, actionId: ${actionId})`);
 
     const handle: ClipHandle = {
       clipName: clip.name,
@@ -2926,7 +2926,7 @@ export class ThreeAnimationSystem {
       ].map((a: AnimationAction) => ({ name: a?.getClip?.()?.name || '', actionId: this.getActionId(a) })),
     });
 
-    console.log('[Loom3] updateClipParams start', debugSnapshot());
+    console.log('[Embody] updateClipParams start', debugSnapshot());
 
     const apply = (action: AnimationAction | null | undefined) => {
       if (!action) return;
@@ -2984,7 +2984,7 @@ export class ThreeAnimationSystem {
       }
     }
 
-    console.log('[Loom3] updateClipParams end', debugSnapshot());
+    console.log('[Embody] updateClipParams end', debugSnapshot());
     return updated;
   }
 

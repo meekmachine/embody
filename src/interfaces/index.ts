@@ -1,17 +1,15 @@
 /**
- * Loom3 Interfaces
+ * Embody Interfaces
  *
  * Framework-agnostic interfaces for 3D character animation.
  * Implement these interfaces to add support for different 3D engines.
  */
 
 export type {
-  LoomLarge,
+  EmbodyRuntime,
   ReadyPayload,
-  LoomLargeConfig,
-  Loom3,
-  Loom3Config,
-} from './LoomLarge';
+  EmbodyConfig,
+} from './EmbodyRuntime';
 
 export type { MeshInfo } from '../mappings/types';
 

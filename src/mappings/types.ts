@@ -1,5 +1,5 @@
 /**
- * Loom3 - Profile Types
+ * Embody - Profile Types
  *
  * Type definitions for character profiles.
  * Profiles define how Action Units map to morphs/bones for a specific rig.

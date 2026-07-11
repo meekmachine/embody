@@ -11,10 +11,10 @@ const coreCjs = require('@lovelace_lol/embody/core');
 const threeCjs = require('@lovelace_lol/embody/three');
 
 const checks = [
-  ['root Loom3 ESM', typeof root.Loom3 === 'function'],
-  ['root Loom3 CJS', typeof rootCjs.Loom3 === 'function'],
-  ['three Loom3 ESM', typeof three.Loom3 === 'function'],
-  ['three Loom3 CJS', typeof threeCjs.Loom3 === 'function'],
+  ['root Embody ESM', typeof root.Embody === 'function'],
+  ['root Embody CJS', typeof rootCjs.Embody === 'function'],
+  ['three Embody ESM', typeof three.Embody === 'function'],
+  ['three Embody CJS', typeof threeCjs.Embody === 'function'],
   ['three inspector ESM', typeof three.ThreeModelInspector === 'function'],
   ['three clip adapter ESM', typeof three.ThreeClipAdapter === 'function'],
   ['three applier CJS', typeof threeCjs.ThreeFrameApplier === 'function'],

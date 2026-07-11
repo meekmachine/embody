@@ -11,7 +11,7 @@ import {
   Vector3,
 } from 'three';
 import type { Profile } from '../../mappings/types';
-import { AnimationController, type AnimationControllerHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './ThreeAnimationRuntime';
 
 function makeHost(options: { includeHeadBone?: boolean; includeCamera?: boolean } = {}): {
   controller: AnimationController;
@@ -251,7 +251,7 @@ describe('AnimationController playback state normalization', () => {
     expect(head!.quaternion.angleTo(new Quaternion())).toBeLessThan(1e-5);
   });
 
-  it('surfaces scene-only partitions without creating a Loom3-playable action', () => {
+  it('surfaces scene-only partitions without creating a Embody-playable action', () => {
     const { controller, camera } = makeHost({ includeCamera: true });
     expect(camera).toBeTruthy();
     controller.loadAnimationClips([makeSceneClip(camera!, 'SceneOnly')]);

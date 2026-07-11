@@ -3,7 +3,7 @@ import { Object3D, Quaternion } from 'three';
 import type { Profile } from '../../mappings/types';
 import { BONE_AU_TO_BINDINGS, CC4_BONES, COMPOSITE_ROTATIONS } from '../../presets/cc4';
 import type { ResolvedBones } from './types';
-import { AnimationController, type AnimationControllerHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './ThreeAnimationRuntime';
 
 function snapshot(obj: Object3D) {
   return {

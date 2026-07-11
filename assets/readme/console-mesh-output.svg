@@ -28,12 +28,12 @@
     </style>
   </defs>
   <rect width="1600" height="900" fill="url(#bgGrad)"/>
-  <text x="72" y="88" class="title">Use Loom3 to inspect meshes, morphs, and bones quickly</text>
+  <text x="72" y="88" class="title">Use Embody to inspect meshes, morphs, and bones quickly</text>
   
       <text x="72" y="122" class="subtitle">The mesh and morph APIs are designed to answer “what is actually in this character?” before you start editing profiles.</text>
       <rect x="72" y="180" width="1450" height="650" rx="26" fill="#09111d" stroke="#22314f" stroke-width="2" filter="url(#shadow)"/>
       <circle cx="112" cy="220" r="8" fill="#ff6b6b"/><circle cx="140" cy="220" r="8" fill="#ffd166"/><circle cx="168" cy="220" r="8" fill="#7bd88f"/>
-      <text x="210" y="228" class="mono-small">loom3-inspect.ts</text>
+      <text x="210" y="228" class="mono-small">embody-inspect.ts</text>
       <text x="108" y="284" class="mono-small" fill="#6dd3ce">&gt; loom.getMeshList()</text>
       <text x="108" y="318" class="mono-small">[</text>
       <text x="144" y="350" class="mono-small">{ name: 'CC_Base_Body', visible: true, morphCount: 142 },</text>
