@@ -2,12 +2,14 @@ import { describe, it, expect } from 'vitest';
 import {
   AU_TO_MORPHS,
   BONE_AU_TO_BINDINGS,
+  CC4_PROFILE_BONE_BINDINGS,
   CC4_PRESET,
   COMPOSITE_ROTATIONS,
   CONTINUUM_PAIRS_MAP,
   CC4_MAPPING_SECTIONS,
   CC4_VISEME_SYSTEM_ID,
   CC4_VISEME_SLOTS,
+  LIP_SYNC_CONTROL_TO_BINDINGS,
   VISEME_JAW_AMOUNTS,
   VISEME_KEYS,
   isMixedAU,
@@ -180,6 +182,18 @@ describe('CC4 Preset', () => {
       expect(BONE_AU_TO_BINDINGS[26]).toBeDefined();
       expect(BONE_AU_TO_BINDINGS[26][0].node).toBe('JAW');
     });
+
+    it('should keep lip-sync control 103 separate from AU bindings and fold it into the legacy profile map', () => {
+      expect(AU_TO_MORPHS[103]).toBeUndefined();
+      expect(CC4_PRESET.auInfo?.['103']).toBeUndefined();
+      expect(BONE_AU_TO_BINDINGS[103]).toBeUndefined();
+      expect(LIP_SYNC_CONTROL_TO_BINDINGS[103]).toEqual([
+        expect.objectContaining({ node: 'JAW', channel: 'rz', maxDegrees: 30 }),
+      ]);
+      expect(CC4_PROFILE_BONE_BINDINGS[103]).toEqual(LIP_SYNC_CONTROL_TO_BINDINGS[103]);
+      expect(CC4_PRESET.auToBones[103]).toEqual(LIP_SYNC_CONTROL_TO_BINDINGS[103]);
+      expect(COMPOSITE_ROTATIONS.find(c => c.node === 'JAW')?.pitch?.aus).toContain(103);
+    });
   });
 
   describe('COMPOSITE_ROTATIONS', () => {
@@ -207,6 +221,7 @@ describe('CC4 Preset', () => {
       const jaw = COMPOSITE_ROTATIONS.find(c => c.node === 'JAW');
       expect(jaw).toBeDefined();
       expect(jaw!.pitch).toBeDefined(); // Jaw open/close
+      expect(jaw!.pitch!.aus).toEqual(expect.arrayContaining([25, 26, 27, 103]));
     });
 
     it('should include TONGUE composite', () => {
