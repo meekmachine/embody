@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { AnimationClip, NumberKeyframeTrack, Object3D } from 'three';
-import { makeMorphMesh, makeParityProfile, makeParityScene } from './parityFixtures';
+import { makeMorphMesh, makeProfileTestScene, makeTestProfile } from './profileTestScene';
 import { ThreeModelInspector } from './ThreeModelInspector';
 
 describe('ThreeModelInspector', () => {
   it('describes meshes, morph targets, bones, and adapter lookups', () => {
-    const { model, face, viseme, profile } = makeParityScene();
+    const { model, face, viseme, profile } = makeProfileTestScene();
     const inspector = new ThreeModelInspector();
 
     const inspection = inspector.inspectModel(model, {
@@ -54,7 +54,7 @@ describe('ThreeModelInspector', () => {
 
     const inspection = new ThreeModelInspector().inspectModel(model, {
       meshes: [],
-      profile: makeParityProfile({
+      profile: makeTestProfile({
         morphToMesh: { face: ['FaceMesh'] },
       }),
     });
@@ -64,7 +64,7 @@ describe('ThreeModelInspector', () => {
   });
 
   it('describes animation tracks without exposing Three clips in the core descriptor shape', () => {
-    const { model, face, profile } = makeParityScene();
+    const { model, face, profile } = makeProfileTestScene();
     const clip = new AnimationClip('Blink', 1, [
       new NumberKeyframeTrack(`${face.uuid}.morphTargetInfluences[0]`, [0, 1], [0, 1]),
     ]);

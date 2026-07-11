@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { ThreeModelInspector } from '../engines/three/ThreeModelInspector';
-import { makeParityScene } from '../engines/three/parityFixtures';
+import { makeProfileTestScene } from '../engines/three/profileTestScene';
 import { TsRuntimeCore } from './TsRuntimeCore';
 import type { FrameDelta, ModelDescriptor } from './contracts';
 
 function makeCore() {
-  const scene = makeParityScene();
+  const scene = makeProfileTestScene();
   const descriptor = new ThreeModelInspector().inspectModel(scene.model, {
     meshes: [scene.face, scene.viseme, scene.hair],
     profile: scene.profile,

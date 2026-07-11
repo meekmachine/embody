@@ -522,6 +522,32 @@ export const BONE_AU_TO_BINDINGS: Record<number, BoneBinding[]> = {
   40: [{ node: 'TONGUE', channel: 'ry', scale: 1, maxDegrees: 20 }],
   41: [{ node: 'TONGUE', channel: 'rx', scale: -1, maxDegrees: 20 }],
   42: [{ node: 'TONGUE', channel: 'rx', scale: 1, maxDegrees: 20 }],
+
+};
+
+// ============================================================================
+// LIP-SYNC SUPPORT CONTROL BINDINGS
+// ============================================================================
+
+/**
+ * Lip-sync support controls are not FACS AUs. They are semantic controls emitted
+ * by speech planning when the runtime needs articulation support that should not
+ * activate a visible FACS morph. Control 103 opens the jaw bone for speech while
+ * leaving AU 26's Jaw_Open morph untouched.
+ *
+ * This is kept as a separate preset object so the data model does not pretend
+ * lip-sync support controls are ordinary AUs. `CC4_PROFILE_BONE_BINDINGS` folds
+ * it into the legacy `Profile.auToBones` field until Embody has the canonical
+ * control/binding model tracked in meekmachine/embody#30.
+ */
+export const LIP_SYNC_CONTROL_TO_BINDINGS: Record<number, BoneBinding[]> = {
+  103: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
+};
+
+/** Legacy compatibility map consumed by the current runtime profile shape. */
+export const CC4_PROFILE_BONE_BINDINGS: Record<number, BoneBinding[]> = {
+  ...BONE_AU_TO_BINDINGS,
+  ...LIP_SYNC_CONTROL_TO_BINDINGS,
 };
 
 // ============================================================================
@@ -768,7 +794,7 @@ export const checkBindingsForLeftRight = (bindings: BoneBinding[] | undefined): 
 export const COMPOSITE_ROTATIONS: CompositeRotation[] = [
   {
     node: 'JAW',
-    pitch: { aus: [25, 26, 27], axis: 'rz' },  // Jaw drop (opens mouth downward)
+    pitch: { aus: [25, 26, 27, 103], axis: 'rz' },  // Jaw drop plus speech jaw pseudo-control
     yaw: { aus: [30, 35], axis: 'ry', negative: 30, positive: 35 },  // Jaw lateral (left/right)
     roll: null  // Jaw doesn't have roll
   },
@@ -1126,7 +1152,8 @@ export const CC4_MAPPING_SECTIONS: MappingEditorSection[] = [
   { id: 'Eye', label: 'Eye', kind: 'au', order: 11, meshCategory: 'eye', facePart: 'Eye' },
   { id: 'Hair', label: 'Hair', kind: 'hair', order: 12, meshCategory: 'hair' },
   { id: 'Visemes', label: 'Visemes', kind: 'viseme', order: 13, meshCategory: 'viseme' },
-  { id: 'Unmapped', label: 'Unmapped', kind: 'unmapped', order: 14, meshCategory: 'face' },
+  { id: 'LipSync', label: 'Lip Sync', kind: 'lipSync', order: 14, meshCategory: 'face' },
+  { id: 'Unmapped', label: 'Unmapped', kind: 'unmapped', order: 15, meshCategory: 'face' },
 ];
 
 // ============================================================================
@@ -1178,7 +1205,7 @@ export const CC4_PRESET: Profile = {
   animalType: 'human',
   // No emoji for humans - uses FaTheaterMasks icon instead
   auToMorphs: AU_TO_MORPHS,
-  auToBones: BONE_AU_TO_BINDINGS,
+  auToBones: CC4_PROFILE_BONE_BINDINGS,
   boneNodes: CC4_BONE_NODES,
   bonePrefix: CC4_BONE_PREFIX,
   suffixPattern: CC4_SUFFIX_PATTERN,

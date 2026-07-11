@@ -381,7 +381,7 @@ export interface Animation {
   /**
    * Build and play an AnimationClip from typed channel data.
    * This is the preferred dynamic path when numeric IDs could mean different
-   * namespaces, such as AU 1 versus viseme slot 1.
+   * namespaces, such as AU 1, viseme slot 1, or lip-sync control 103.
    */
   buildTypedClip(
     clipName: string,

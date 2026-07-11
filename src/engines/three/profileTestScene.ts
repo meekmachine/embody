@@ -10,6 +10,7 @@ import {
 } from 'three';
 import type { KeyframeTrack } from 'three';
 import type { Profile } from '../../mappings/types';
+import type { SnippetChannel } from '../../core/types';
 import { Loom3 } from './Loom3';
 
 export const FACE_MORPHS = [
@@ -38,7 +39,7 @@ export const HAIR_MORPHS = [
   'Length_Short',
 ] as const;
 
-export type ParityScene = {
+export type ProfileTestScene = {
   profile: Profile;
   model: Object3D;
   engine: Loom3;
@@ -91,9 +92,9 @@ export function makeMorphMesh(name: string, morphKeys: readonly string[] = []): 
   return mesh;
 }
 
-export function makeParityProfile(overrides: Partial<Profile> = {}): Profile {
+export function makeTestProfile(overrides: Partial<Profile> = {}): Profile {
   return {
-    name: 'Three parity fixture',
+    name: 'Three profile test scene',
     auToMorphs: {
       1: { left: ['BrowUp_L'], right: ['BrowUp_R'], center: ['BrowCenter'] },
       2: { left: [], right: [], center: ['Smile'] },
@@ -104,6 +105,7 @@ export function makeParityProfile(overrides: Partial<Profile> = {}): Profile {
       26: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
       30: [{ node: 'HEAD', channel: 'ry', scale: -1, maxDegrees: 20 }],
       31: [{ node: 'HEAD', channel: 'ry', scale: 1, maxDegrees: 20 }],
+      103: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
     },
     boneNodes: {
       HEAD: 'Head',
@@ -135,7 +137,7 @@ export function makeParityProfile(overrides: Partial<Profile> = {}): Profile {
     compositeRotations: [
       {
         node: 'JAW',
-        pitch: { aus: [26], axis: 'rz' },
+        pitch: { aus: [26, 103], axis: 'rz' },
         yaw: null,
         roll: null,
       },
@@ -161,9 +163,9 @@ export function makeParityProfile(overrides: Partial<Profile> = {}): Profile {
   };
 }
 
-export function makeParityScene(profile: Profile = makeParityProfile()): ParityScene {
+export function makeProfileTestScene(profile: Profile = makeTestProfile()): ProfileTestScene {
   const model = new Object3D();
-  model.name = 'ParityModel';
+  model.name = 'ProfileTestModel';
 
   const head = new Object3D();
   head.name = 'Head';
@@ -186,6 +188,44 @@ export function makeParityScene(profile: Profile = makeParityProfile()): ParityS
   engine.registerHairObjects([hair]);
 
   return { profile, model, engine, face, viseme, hair, head, jaw, body, camera };
+}
+
+export function makePolymerLipVocalChannels(): SnippetChannel[] {
+  return [
+    {
+      target: { type: 'viseme', id: 0 },
+      keyframes: [
+        { time: 0, intensity: 0 },
+        { time: 0.5, intensity: 0.8 },
+      ],
+    },
+    {
+      target: { type: 'viseme', id: 1 },
+      keyframes: [
+        { time: 0, intensity: 0 },
+        { time: 0.5, intensity: 0.5 },
+      ],
+    },
+  ];
+}
+
+export function makePolymerJawVocalChannels(): SnippetChannel[] {
+  return [
+    {
+      target: { type: 'lipSync', id: 103 },
+      keyframes: [
+        { time: 0, intensity: 0 },
+        { time: 0.5, intensity: 0.75 },
+      ],
+    },
+  ];
+}
+
+export function makePolymerCombinedVocalChannels(): SnippetChannel[] {
+  return [
+    ...makePolymerLipVocalChannels(),
+    ...makePolymerJawVocalChannels(),
+  ];
 }
 
 export function round(value: number, digits = 6): number {
@@ -215,7 +255,7 @@ export function snapshotBones(engine: Loom3): Record<string, { position: number[
   );
 }
 
-export function normalizeTrackName(trackName: string, scene: Pick<ParityScene, 'face' | 'viseme' | 'hair' | 'head' | 'jaw' | 'body' | 'camera'>): string {
+export function normalizeTrackName(trackName: string, scene: Pick<ProfileTestScene, 'face' | 'viseme' | 'hair' | 'head' | 'jaw' | 'body' | 'camera'>): string {
   const replacements = new Map([
     [scene.face.uuid, scene.face.name],
     [scene.viseme.uuid, scene.viseme.name],
@@ -233,7 +273,7 @@ export function normalizeTrackName(trackName: string, scene: Pick<ParityScene, '
   return normalized;
 }
 
-export function snapshotTrack(track: KeyframeTrack, scene: Pick<ParityScene, 'face' | 'viseme' | 'hair' | 'head' | 'jaw' | 'body' | 'camera'>) {
+export function snapshotTrack(track: KeyframeTrack, scene: Pick<ProfileTestScene, 'face' | 'viseme' | 'hair' | 'head' | 'jaw' | 'body' | 'camera'>) {
   return {
     name: normalizeTrackName(track.name, scene),
     type: track.ValueTypeName,
@@ -242,7 +282,7 @@ export function snapshotTrack(track: KeyframeTrack, scene: Pick<ParityScene, 'fa
   };
 }
 
-export function snapshotClip(clip: AnimationClip, scene: Pick<ParityScene, 'face' | 'viseme' | 'hair' | 'head' | 'jaw' | 'body' | 'camera'>) {
+export function snapshotClip(clip: AnimationClip, scene: Pick<ProfileTestScene, 'face' | 'viseme' | 'hair' | 'head' | 'jaw' | 'body' | 'camera'>) {
   return {
     name: clip.name,
     duration: round(clip.duration),
@@ -251,8 +291,8 @@ export function snapshotClip(clip: AnimationClip, scene: Pick<ParityScene, 'face
   };
 }
 
-export function makeMixedBakedClip(scene: Pick<ParityScene, 'face' | 'head' | 'body' | 'camera'>): AnimationClip {
-  return new AnimationClip('MixedParityBaked', 1, [
+export function makeMixedBakedClip(scene: Pick<ProfileTestScene, 'face' | 'head' | 'body' | 'camera'>): AnimationClip {
+  return new AnimationClip('MixedProfileTestBaked', 1, [
     new NumberKeyframeTrack(`${scene.face.uuid}.morphTargetInfluences[0]`, [0, 1], [0, 1]),
     new QuaternionKeyframeTrack(`${scene.head.uuid}.quaternion`, [0, 1], [0, 0, 0, 1, 0, 0, 0, 1]),
     new NumberKeyframeTrack(`${scene.body.uuid}.position[x]`, [0, 1], [0, 1]),

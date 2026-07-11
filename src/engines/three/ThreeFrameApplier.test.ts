@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MeshBasicMaterial, MeshStandardMaterial, Object3D, Quaternion, Vector3 } from 'three';
 import type { BoneId, MeshId, MorphTargetId } from '../../core/contracts';
-import { makeMorphMesh } from './parityFixtures';
+import { makeMorphMesh } from './profileTestScene';
 import { ThreeFrameApplier } from './ThreeFrameApplier';
 
 const meshId = (value: number) => value as MeshId;

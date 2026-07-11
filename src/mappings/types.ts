@@ -281,7 +281,7 @@ export interface VisemeBinding {
   sharedWith?: string[];
 }
 
-export type MappingSectionKind = 'au' | 'viseme' | 'hair' | 'unmapped' | 'custom';
+export type MappingSectionKind = 'au' | 'viseme' | 'lipSync' | 'hair' | 'unmapped' | 'custom';
 
 export interface MappingEditorSection {
   id: string;
