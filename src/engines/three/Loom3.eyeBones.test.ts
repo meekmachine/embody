@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { Object3D } from 'three';
+import { CC4_BONES } from '../../presets/cc4';
 import { Loom3 } from './Loom3';
 
 const INDEPENDENT_EYE_CASES = [
-  { auA: 65, auB: 66, node: 'EYE_L', otherNode: 'EYE_R', axisIndex: 2, label: 'left-eye yaw' },
-  { auA: 67, auB: 68, node: 'EYE_L', otherNode: 'EYE_R', axisIndex: 0, label: 'left-eye pitch' },
-  { auA: 69, auB: 70, node: 'EYE_R', otherNode: 'EYE_L', axisIndex: 2, label: 'right-eye yaw' },
-  { auA: 71, auB: 72, node: 'EYE_R', otherNode: 'EYE_L', axisIndex: 0, label: 'right-eye pitch' },
+  { auA: 65, auB: 66, node: CC4_BONES.EYE_L, otherNode: CC4_BONES.EYE_R, axisIndex: 2, label: 'left-eye yaw' },
+  { auA: 67, auB: 68, node: CC4_BONES.EYE_L, otherNode: CC4_BONES.EYE_R, axisIndex: 0, label: 'left-eye pitch' },
+  { auA: 69, auB: 70, node: CC4_BONES.EYE_R, otherNode: CC4_BONES.EYE_L, axisIndex: 2, label: 'right-eye yaw' },
+  { auA: 71, auB: 72, node: CC4_BONES.EYE_R, otherNode: CC4_BONES.EYE_L, axisIndex: 0, label: 'right-eye pitch' },
 ] as const;
 
 function makeEyeRig() {

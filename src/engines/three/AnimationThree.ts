@@ -44,6 +44,7 @@ import type {
   CurvePoint,
   SnippetChannel,
   TypedSnippet,
+  BoneBinding,
 } from '../../core/types';
 import { getCompositeAxisBinding, getCompositeAxisValue } from '../../core/compositeAxis';
 import type { Profile } from '../../mappings/types';
@@ -282,6 +283,27 @@ const Y_AXIS = new Vector3(0, 1, 0);
 const Z_AXIS = new Vector3(0, 0, 1);
 const CLIP_EVENT_METADATA_KEY = '__loom3ClipEvents';
 const CLIP_EVENT_EPSILON = 1e-4;
+
+type RotationBoneBinding = BoneBinding & { channel: 'rx' | 'ry' | 'rz' };
+
+function isRotationBoneBinding(binding: BoneBinding | undefined): binding is RotationBoneBinding {
+  return binding?.channel === 'rx' || binding?.channel === 'ry' || binding?.channel === 'rz';
+}
+
+function getAutoVisemeJawBinding(config: Profile, bones?: ResolvedBones): RotationBoneBinding | null {
+  const candidates = [
+    config.auToBones[103]?.find(isRotationBoneBinding),
+    config.auToBones[26]?.find(isRotationBoneBinding),
+  ].filter((binding): binding is RotationBoneBinding => !!binding);
+  if (bones) {
+    return candidates.find((binding) => !!bones[binding.node]) ?? candidates[0] ?? null;
+  }
+  return candidates[0] ?? null;
+}
+
+function axisVectorForRotationChannel(channel: 'rx' | 'ry' | 'rz'): Vector3 {
+  return channel === 'rx' ? X_AXIS : channel === 'ry' ? Y_AXIS : Z_AXIS;
+}
 
 type ClipEventMetadata = {
   keyframeTimes: number[];
@@ -1917,25 +1939,30 @@ export class ThreeAnimationSystem {
     const autoVisemeJaw = options?.autoVisemeJaw !== false; // Default true
     const jawScale = options?.jawScale ?? 1.0;
     const visemeJawAmounts = getVisemeJawAmounts(config);
+    const bones = this.host.getBones();
+    const autoVisemeJawBinding = getAutoVisemeJawBinding(config, bones);
+    const autoVisemeJawNodeKey = autoVisemeJawBinding?.node as BoneKey | undefined;
+    let autoVisemeJawHandledJaw = false;
 
     if (
       autoVisemeJaw &&
       jawScale > 0 &&
       visemeJawAmounts &&
+      autoVisemeJawBinding &&
       options?.snippetCategory === 'visemeSnippet' &&
       keyframeTimes.length > 0
     ) {
-      const bones = this.host.getBones();
-      const jawEntry = bones['JAW'];
+      const jawEntry = bones[autoVisemeJawBinding.node] ?? bones.JAW;
 
       if (jawEntry) {
+        autoVisemeJawHandledJaw = true;
         // Sample all viseme curves at each keyframe time and compute weighted jaw amount
         const jawValues: number[] = [];
         const inheritedJawStart = keyframeTimes.length > 0
           && Array.from({ length: visemeSlotCount }, (_, index) => curves[String(index)])
             .some((curve) => hasInheritedStart(curve));
         const currentJawQ = inheritedJawStart
-          ? this.host.getCurrentBoneQuaternion?.('JAW') ?? null
+          ? this.host.getCurrentBoneQuaternion?.(autoVisemeJawBinding.node) ?? null
           : null;
 
         for (let timeIndex = 0; timeIndex < keyframeTimes.length; timeIndex += 1) {
@@ -1961,13 +1988,13 @@ export class ThreeAnimationSystem {
             }
           }
 
-          // Convert jaw amount to quaternion rotation
-          // JAW pitch uses rz axis with maxDegrees from AU 26 binding
-          const jawBinding = config.auToBones[26]?.[0];
-          const maxDegrees = jawBinding?.maxDegrees ?? 30;
+          const maxDegrees = autoVisemeJawBinding.maxDegrees ?? 30;
           const radians = (maxDegrees * Math.PI / 180) * jawAmount;
           const jawQ = new Quaternion().copy(jawEntry.baseQuat);
-          jawQ.multiply(new Quaternion().setFromAxisAngle(Z_AXIS, radians));
+          jawQ.multiply(new Quaternion().setFromAxisAngle(
+            axisVectorForRotationChannel(autoVisemeJawBinding.channel),
+            radians * autoVisemeJawBinding.scale
+          ));
 
           jawValues.push(jawQ.x, jawQ.y, jawQ.z, jawQ.w);
         }
@@ -1978,7 +2005,6 @@ export class ThreeAnimationSystem {
     }
 
     if (keyframeTimes.length > 0) {
-      const bones = this.host.getBones();
       const compositeRotations = this.host.getCompositeRotations();
       const hasCurveAU = new Set<number>(
         Object.keys(curves)
@@ -2023,18 +2049,10 @@ export class ThreeAnimationSystem {
       ) =>
         getCompositeAxisValue(axisConfig, (auId: number) => getAxisSampleForNode(auId, nodeKey, t));
 
-      // Track if autoVisemeJaw already added a JAW track
-      const autoVisemeJawHandledJaw =
-        autoVisemeJaw &&
-        jawScale > 0 &&
-        visemeJawAmounts &&
-        options?.snippetCategory === 'visemeSnippet';
-
       for (const composite of compositeRotations) {
         const nodeKey = composite.node as BoneKey;
 
-        // Skip JAW composite if autoVisemeJaw already handled it
-        if (nodeKey === 'JAW' && autoVisemeJawHandledJaw) {
+        if (autoVisemeJawHandledJaw && (nodeKey === autoVisemeJawNodeKey || nodeKey === 'JAW')) {
           continue;
         }
 
@@ -2375,12 +2393,16 @@ export class ThreeAnimationSystem {
     const autoVisemeJaw = options?.autoVisemeJaw === true;
     const jawScale = options?.jawScale ?? 1.0;
     const visemeJawAmounts = getVisemeJawAmounts(config);
-    if (autoVisemeJaw && jawScale > 0 && visemeJawAmounts && visemeChannels.length > 0 && keyframeTimes.length > 0) {
-      const jawEntry = bones['JAW'];
+    const autoVisemeJawBinding = getAutoVisemeJawBinding(config, bones);
+    const autoVisemeJawNodeKey = autoVisemeJawBinding?.node as BoneKey | undefined;
+    let autoVisemeJawHandledJaw = false;
+    if (autoVisemeJaw && jawScale > 0 && visemeJawAmounts && autoVisemeJawBinding && visemeChannels.length > 0 && keyframeTimes.length > 0) {
+      const jawEntry = bones[autoVisemeJawBinding.node] ?? bones.JAW;
       if (jawEntry) {
+        autoVisemeJawHandledJaw = true;
         const jawValues: number[] = [];
         const inheritedJawStart = visemeChannels.some((channel) => hasInheritedStart(channel.keyframes));
-        const currentJawQ = inheritedJawStart ? this.host.getCurrentBoneQuaternion?.('JAW') ?? null : null;
+        const currentJawQ = inheritedJawStart ? this.host.getCurrentBoneQuaternion?.(autoVisemeJawBinding.node) ?? null : null;
         for (let timeIndex = 0; timeIndex < keyframeTimes.length; timeIndex += 1) {
           const t = keyframeTimes[timeIndex];
           if (timeIndex === 0 && currentJawQ) {
@@ -2396,11 +2418,13 @@ export class ThreeAnimationSystem {
             const visemeJaw = visemeJawAmounts[target.id] * visemeValue * jawScale;
             if (visemeJaw > jawAmount) jawAmount = visemeJaw;
           }
-          const jawBinding = config.auToBones[26]?.[0];
-          const maxDegrees = jawBinding?.maxDegrees ?? 30;
+          const maxDegrees = autoVisemeJawBinding.maxDegrees ?? 30;
           const radians = (maxDegrees * Math.PI / 180) * jawAmount;
           const jawQ = new Quaternion().copy(jawEntry.baseQuat);
-          jawQ.multiply(new Quaternion().setFromAxisAngle(Z_AXIS, radians));
+          jawQ.multiply(new Quaternion().setFromAxisAngle(
+            axisVectorForRotationChannel(autoVisemeJawBinding.channel),
+            radians * autoVisemeJawBinding.scale
+          ));
           jawValues.push(jawQ.x, jawQ.y, jawQ.z, jawQ.w);
         }
         tracks.push(new QuaternionKeyframeTrack(`${jawEntry.obj.uuid}.quaternion`, keyframeTimes, jawValues));
@@ -2467,16 +2491,10 @@ export class ThreeAnimationSystem {
         config.auToBones
       );
 
-      const autoVisemeJawHandledJaw =
-        autoVisemeJaw &&
-        jawScale > 0 &&
-        visemeJawAmounts &&
-        visemeChannels.length > 0;
-
       for (const composite of compositeRotations) {
         const nodeKey = composite.node as BoneKey;
 
-        if (nodeKey === 'JAW' && autoVisemeJawHandledJaw) {
+        if (autoVisemeJawHandledJaw && (nodeKey === autoVisemeJawNodeKey || nodeKey === 'JAW')) {
           continue;
         }
 

@@ -240,6 +240,55 @@ export type {
   ResolvedVisemeBindingTarget,
 } from './mappings/visemeSystem';
 
+export {
+  applyAUBoneBindingUpdate,
+  applyBilateralAxisBindingUpdate,
+  applyBoneAxisBindingUpdate,
+  buildBoneAuOptions,
+  classifyAuAsJointControl,
+  createBilateralBoneAxisAu,
+  createBoneAxisAu,
+  DEFAULT_AXIS_TO_CHANNEL,
+  DEFAULT_BONE_MAX_DEGREES,
+  ensureBilateralBoneNodeKeys,
+  ensureBoneNodeKey,
+  findNodeKeyForBone,
+  formatAxisDirectionLabel,
+  formatAxisLabel,
+  getAUBoneBindingState,
+  getAxisFromChannel,
+  getBilateralAxisBindingState,
+  getBoneAxisBindingState,
+  inferChiralBoneNamePair,
+  inferEyeControlFamily,
+  inferEyeControlScope,
+  isJointControlAuInfo,
+  isMaxDegreesOnlyAxisBindingUpdate,
+  JOINT_CONTROL_SECTION,
+  resolveBoneAxisChannel,
+  resolveBoneNameForNodeKey,
+  resolveContinuumDisplayLabel,
+  stripConfiguredBoneAffixes,
+} from './authoring/boneAuthoring';
+
+export type {
+  AUBoneBindingState,
+  BilateralAxisBindingState,
+  BilateralAxisDirectionScaleState,
+  BilateralAxisScopeBindingState,
+  BilateralBoneAxisScope,
+  BoneAxisBindingState,
+  BoneAxisBindingUpdate,
+  BoneAxisDirection,
+  BoneAxisDirectionScale,
+  BoneAxisKey,
+  BoneControlFamily,
+  BoneControlScope,
+  ChiralBoneNamePair,
+  CreatedBoneAxisAu,
+  RotationChannel,
+} from './authoring/boneAuthoring';
+
 // ============================================================================
 // PROFILES
 // ============================================================================
@@ -347,6 +396,7 @@ export {
   LIP_SYNC_CONTROL_TO_BINDINGS,
   CC4_PROFILE_BONE_BINDINGS,
   AU_MIX_DEFAULTS,
+  CC4_BONES,
   CC4_BONE_NODES,
   CC4_BONE_PREFIX,
   CC4_SUFFIX_PATTERN,

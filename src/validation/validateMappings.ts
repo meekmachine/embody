@@ -96,13 +96,21 @@ function fuzzyMatch(
   suffix: string,
   suffixPattern: RegExp | null
 ): boolean {
-  const fullTarget = prefix + targetName + suffix;
+  const prefixedTarget = prefix && !targetName.startsWith(prefix)
+    ? `${prefix}${targetName}`
+    : targetName;
+  const fullTarget = suffix && !prefixedTarget.endsWith(suffix)
+    ? `${prefixedTarget}${suffix}`
+    : prefixedTarget;
 
   // Exact match
-  if (candidateName === fullTarget) {
+  if (candidateName === targetName || candidateName === fullTarget) {
     return true;
   }
-  if (normalizeLooseName(candidateName) === normalizeLooseName(fullTarget)) {
+  if (
+    normalizeLooseName(candidateName) === normalizeLooseName(targetName)
+    || normalizeLooseName(candidateName) === normalizeLooseName(fullTarget)
+  ) {
     return true;
   }
 
@@ -172,10 +180,12 @@ export function validateMappingConfig(config: Profile): MappingConsistencyResult
   };
 
   const boneNodeKeys = new Set(Object.keys(config.boneNodes || {}));
+  const boneNodeValues = new Set(Object.values(config.boneNodes || {}));
   const hasEyeMeshNodes = !!config.eyeMeshNodes;
 
   const isNodeResolvable = (nodeKey: string) => {
     if (boneNodeKeys.has(nodeKey)) return true;
+    if (boneNodeValues.has(nodeKey)) return true;
     if (isEyeNodeKey(nodeKey) && hasEyeMeshNodes) return true;
     return false;
   };
@@ -549,8 +559,28 @@ export function validateMappings(
     }
   }
 
-  // Get all unique bone names referenced in preset
-  const presetBones = new Set<string>(Object.values(config.boneNodes));
+  // Get all unique resolved bone names referenced in preset.
+  const presetBones = new Set<string>(Object.values(config.boneNodes || {}));
+  const addResolvedBoneName = (nodeKey: string | null | undefined) => {
+    if (!nodeKey) return;
+    presetBones.add(config.boneNodes?.[nodeKey] ?? nodeKey);
+  };
+  for (const bindings of Object.values(config.auToBones || {})) {
+    for (const binding of bindings) {
+      addResolvedBoneName(binding.node);
+    }
+  }
+  for (const composite of config.compositeRotations || []) {
+    addResolvedBoneName(composite.node);
+  }
+  for (const info of Object.values(config.continuumPairs || {})) {
+    addResolvedBoneName(info.node);
+  }
+  for (const region of config.annotationRegions || []) {
+    for (const boneName of region.bones || []) {
+      addResolvedBoneName(boneName);
+    }
+  }
 
   // Validate morphs
   const morphResult = findMatches(

@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { Object3D, Quaternion } from 'three';
 import type { Profile } from '../../mappings/types';
-import { BONE_AU_TO_BINDINGS, COMPOSITE_ROTATIONS } from '../../presets/cc4';
+import { BONE_AU_TO_BINDINGS, CC4_BONES, COMPOSITE_ROTATIONS } from '../../presets/cc4';
 import type { ResolvedBones } from './types';
 import { AnimationController, type AnimationControllerHost } from './AnimationThree';
 
 const INDEPENDENT_EYE_CASES = [
-  { auId: 65, trackNode: 'EYE_L', otherNode: 'EYE_R', label: 'left-eye yaw' },
-  { auId: 67, trackNode: 'EYE_L', otherNode: 'EYE_R', label: 'left-eye pitch' },
-  { auId: 70, trackNode: 'EYE_R', otherNode: 'EYE_L', label: 'right-eye yaw' },
-  { auId: 72, trackNode: 'EYE_R', otherNode: 'EYE_L', label: 'right-eye pitch' },
+  { auId: 65, trackNode: CC4_BONES.EYE_L, otherNode: CC4_BONES.EYE_R, label: 'left-eye yaw' },
+  { auId: 67, trackNode: CC4_BONES.EYE_L, otherNode: CC4_BONES.EYE_R, label: 'left-eye pitch' },
+  { auId: 70, trackNode: CC4_BONES.EYE_R, otherNode: CC4_BONES.EYE_L, label: 'right-eye yaw' },
+  { auId: 72, trackNode: CC4_BONES.EYE_R, otherNode: CC4_BONES.EYE_L, label: 'right-eye pitch' },
 ] as const;
 
 function snapshot(obj: Object3D) {
@@ -31,14 +31,14 @@ function makeHost(): { host: AnimationControllerHost; bones: ResolvedBones } {
   model.add(leftEye, rightEye);
 
   const bones: ResolvedBones = {
-    EYE_L: snapshot(leftEye),
-    EYE_R: snapshot(rightEye),
+    [CC4_BONES.EYE_L]: snapshot(leftEye),
+    [CC4_BONES.EYE_R]: snapshot(rightEye),
   };
 
   const profile: Profile = {
     auToMorphs: {},
     auToBones: BONE_AU_TO_BINDINGS,
-    boneNodes: { EYE_L: 'L_Eye', EYE_R: 'R_Eye' },
+    boneNodes: { [CC4_BONES.EYE_L]: CC4_BONES.EYE_L, [CC4_BONES.EYE_R]: CC4_BONES.EYE_R },
     morphToMesh: {},
     visemeKeys: [],
   };
@@ -101,8 +101,8 @@ describe('AnimationController independent eye bone rotations', () => {
       throw new Error('Expected snippetToClip to return a clip');
     }
 
-    const leftTrackName = `${(bones.EYE_L!.obj as any).uuid}.quaternion`;
-    const rightTrackName = `${(bones.EYE_R!.obj as any).uuid}.quaternion`;
+    const leftTrackName = `${(bones[CC4_BONES.EYE_L]!.obj as any).uuid}.quaternion`;
+    const rightTrackName = `${(bones[CC4_BONES.EYE_R]!.obj as any).uuid}.quaternion`;
 
     expect(clip.tracks.some((track) => track.name === leftTrackName)).toBe(true);
     expect(clip.tracks.some((track) => track.name === rightTrackName)).toBe(true);

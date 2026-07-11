@@ -452,46 +452,110 @@ export const AU_TO_MORPHS: Record<number, MorphTargetsBySide> = {
 };
 
 // ============================================================================
+// BONE NODE NAMES - CC4-specific skeleton hierarchy
+// ============================================================================
+
+/**
+ * Bone name prefix kept for custom/legacy profiles that still store base bone
+ * names. The stock CC4 preset below uses the actual model bone names directly
+ * so AU bindings, composites, and annotations all speak the same node language.
+ */
+export const CC4_BONE_PREFIX = 'CC_Base_';
+
+/**
+ * Suffix pattern regex for fuzzy bone matching.
+ * Matches numbered suffixes like _01, _038 (common in Sketchfab exports)
+ * and .001, .002 (common in Blender exports).
+ */
+export const CC4_SUFFIX_PATTERN = '_\\d+$|\\.\\d+$';
+
+/** Actual CC4 skeleton node names used by the stock preset. */
+export const CC4_BONES = {
+  EYE_L: 'CC_Base_L_Eye',
+  EYE_R: 'CC_Base_R_Eye',
+  HEAD: 'CC_Base_Head',
+  NECK: 'CC_Base_NeckTwist01',
+  NECK_TWIST: 'CC_Base_NeckTwist02',
+  JAW: 'CC_Base_JawRoot',
+  TONGUE: 'CC_Base_Tongue01',
+  SPINE_01: 'CC_Base_Spine01',
+  SPINE_02: 'CC_Base_Spine02',
+  CLAVICLE_L: 'CC_Base_L_Clavicle',
+  CLAVICLE_R: 'CC_Base_R_Clavicle',
+  HAND_L: 'CC_Base_L_Hand',
+  HAND_R: 'CC_Base_R_Hand',
+  FOOT_L: 'CC_Base_L_Foot',
+  FOOT_R: 'CC_Base_R_Foot',
+  TOEBASE_L: 'CC_Base_L_ToeBase',
+  TOEBASE_R: 'CC_Base_R_ToeBase',
+} as const;
+
+/**
+ * Profile bone node lookup for the stock CC4 preset. It is intentionally an
+ * identity map: the preset's higher-level abstractions live in AU/composite
+ * bindings, not in a second semantic-to-base-bone translation table.
+ */
+export const CC4_BONE_NODES = {
+  [CC4_BONES.EYE_L]: CC4_BONES.EYE_L,
+  [CC4_BONES.EYE_R]: CC4_BONES.EYE_R,
+  [CC4_BONES.HEAD]: CC4_BONES.HEAD,
+  [CC4_BONES.NECK]: CC4_BONES.NECK,
+  [CC4_BONES.NECK_TWIST]: CC4_BONES.NECK_TWIST,
+  [CC4_BONES.JAW]: CC4_BONES.JAW,
+  [CC4_BONES.TONGUE]: CC4_BONES.TONGUE,
+  [CC4_BONES.SPINE_01]: CC4_BONES.SPINE_01,
+  [CC4_BONES.SPINE_02]: CC4_BONES.SPINE_02,
+  [CC4_BONES.CLAVICLE_L]: CC4_BONES.CLAVICLE_L,
+  [CC4_BONES.CLAVICLE_R]: CC4_BONES.CLAVICLE_R,
+  [CC4_BONES.HAND_L]: CC4_BONES.HAND_L,
+  [CC4_BONES.HAND_R]: CC4_BONES.HAND_R,
+  [CC4_BONES.FOOT_L]: CC4_BONES.FOOT_L,
+  [CC4_BONES.FOOT_R]: CC4_BONES.FOOT_R,
+  [CC4_BONES.TOEBASE_L]: CC4_BONES.TOEBASE_L,
+  [CC4_BONES.TOEBASE_R]: CC4_BONES.TOEBASE_R,
+} as const;
+
+// ============================================================================
 // AU TO BONES - Maps AU IDs to bone bindings (CC4 head/eye/jaw/tongue)
 // ============================================================================
 
 export const BONE_AU_TO_BINDINGS: Record<number, BoneBinding[]> = {
   // Jaw open/close (jaw drop)
-  25: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 20 }],
-  26: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
-  27: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 35 }],
+  25: [{ node: CC4_BONES.JAW, channel: 'rz', scale: 1, maxDegrees: 20 }],
+  26: [{ node: CC4_BONES.JAW, channel: 'rz', scale: 1, maxDegrees: 30 }],
+  27: [{ node: CC4_BONES.JAW, channel: 'rz', scale: 1, maxDegrees: 35 }],
 
   // Jaw lateral (left/right)
-  30: [{ node: 'JAW', channel: 'ry', scale: -1, maxDegrees: 15 }],
-  35: [{ node: 'JAW', channel: 'ry', scale: 1, maxDegrees: 15 }],
+  30: [{ node: CC4_BONES.JAW, channel: 'ry', scale: -1, maxDegrees: 15 }],
+  35: [{ node: CC4_BONES.JAW, channel: 'ry', scale: 1, maxDegrees: 15 }],
 
   // Head yaw (turn left/right)
   // AU 51 = Turn Left: positive ry rotation (scale: 1)
   // AU 52 = Turn Right: negative ry rotation (scale: -1)
-  51: [{ node: 'HEAD', channel: 'ry', scale: 1, maxDegrees: 60 }],
-  52: [{ node: 'HEAD', channel: 'ry', scale: -1, maxDegrees: 60 }],
+  51: [{ node: CC4_BONES.HEAD, channel: 'ry', scale: 1, maxDegrees: 60 }],
+  52: [{ node: CC4_BONES.HEAD, channel: 'ry', scale: -1, maxDegrees: 60 }],
 
   // Head pitch (up/down)
   // AU 53 = Head Up: negative rx rotation (scale: -1)
   // AU 54 = Head Down: positive rx rotation (scale: 1)
-  53: [{ node: 'HEAD', channel: 'rx', scale: -1, maxDegrees: 30 }],
-  54: [{ node: 'HEAD', channel: 'rx', scale: 1, maxDegrees: 30 }],
+  53: [{ node: CC4_BONES.HEAD, channel: 'rx', scale: -1, maxDegrees: 30 }],
+  54: [{ node: CC4_BONES.HEAD, channel: 'rx', scale: 1, maxDegrees: 30 }],
 
   // Head roll (tilt)
-  55: [{ node: 'HEAD', channel: 'rz', scale: -1, maxDegrees: 25 }],
-  56: [{ node: 'HEAD', channel: 'rz', scale: 1, maxDegrees: 25 }],
+  55: [{ node: CC4_BONES.HEAD, channel: 'rz', scale: -1, maxDegrees: 25 }],
+  56: [{ node: CC4_BONES.HEAD, channel: 'rz', scale: 1, maxDegrees: 25 }],
 
   // Eyes horizontal (left/right) - CC4 uses rz for yaw
   // AU 61 = Eyes Turn Left = character looks toward THEIR left = viewer's RIGHT
   // AU 62 = Eyes Turn Right = character looks toward THEIR right = viewer's LEFT
   // For CC4 rigs: positive rz = eyes rotate left (look right), negative rz = eyes rotate right (look left)
   61: [
-    { node: 'EYE_L', channel: 'rz', scale: 1, maxDegrees: 25, side: 'left' },
-    { node: 'EYE_R', channel: 'rz', scale: 1, maxDegrees: 25, side: 'right' },
+    { node: CC4_BONES.EYE_L, channel: 'rz', scale: 1, maxDegrees: 25, side: 'left' },
+    { node: CC4_BONES.EYE_R, channel: 'rz', scale: 1, maxDegrees: 25, side: 'right' },
   ],
   62: [
-    { node: 'EYE_L', channel: 'rz', scale: -1, maxDegrees: 25, side: 'left' },
-    { node: 'EYE_R', channel: 'rz', scale: -1, maxDegrees: 25, side: 'right' },
+    { node: CC4_BONES.EYE_L, channel: 'rz', scale: -1, maxDegrees: 25, side: 'left' },
+    { node: CC4_BONES.EYE_R, channel: 'rz', scale: -1, maxDegrees: 25, side: 'right' },
   ],
 
   // Eyes vertical (up/down) - rx
@@ -499,29 +563,29 @@ export const BONE_AU_TO_BINDINGS: Record<number, BoneBinding[]> = {
   // AU 64 = Eyes Down = character looks down
   // For CC4 rigs: negative rx = eyes rotate up, positive rx = eyes rotate down
   63: [
-    { node: 'EYE_L', channel: 'rx', scale: -1, maxDegrees: 20, side: 'left' },
-    { node: 'EYE_R', channel: 'rx', scale: -1, maxDegrees: 20, side: 'right' },
+    { node: CC4_BONES.EYE_L, channel: 'rx', scale: -1, maxDegrees: 20, side: 'left' },
+    { node: CC4_BONES.EYE_R, channel: 'rx', scale: -1, maxDegrees: 20, side: 'right' },
   ],
   64: [
-    { node: 'EYE_L', channel: 'rx', scale: 1, maxDegrees: 20, side: 'left' },
-    { node: 'EYE_R', channel: 'rx', scale: 1, maxDegrees: 20, side: 'right' },
+    { node: CC4_BONES.EYE_L, channel: 'rx', scale: 1, maxDegrees: 20, side: 'left' },
+    { node: CC4_BONES.EYE_R, channel: 'rx', scale: 1, maxDegrees: 20, side: 'right' },
   ],
-  65: [{ node: 'EYE_L', channel: 'rz', scale: 1, maxDegrees: 25, side: 'left' }],
-  66: [{ node: 'EYE_L', channel: 'rz', scale: -1, maxDegrees: 25, side: 'left' }],
-  67: [{ node: 'EYE_L', channel: 'rx', scale: -1, maxDegrees: 20, side: 'left' }],
-  68: [{ node: 'EYE_L', channel: 'rx', scale: 1, maxDegrees: 20, side: 'left' }],
-  69: [{ node: 'EYE_R', channel: 'rz', scale: 1, maxDegrees: 25, side: 'right' }],
-  70: [{ node: 'EYE_R', channel: 'rz', scale: -1, maxDegrees: 25, side: 'right' }],
-  71: [{ node: 'EYE_R', channel: 'rx', scale: -1, maxDegrees: 20, side: 'right' }],
-  72: [{ node: 'EYE_R', channel: 'rx', scale: 1, maxDegrees: 20, side: 'right' }],
+  65: [{ node: CC4_BONES.EYE_L, channel: 'rz', scale: 1, maxDegrees: 25, side: 'left' }],
+  66: [{ node: CC4_BONES.EYE_L, channel: 'rz', scale: -1, maxDegrees: 25, side: 'left' }],
+  67: [{ node: CC4_BONES.EYE_L, channel: 'rx', scale: -1, maxDegrees: 20, side: 'left' }],
+  68: [{ node: CC4_BONES.EYE_L, channel: 'rx', scale: 1, maxDegrees: 20, side: 'left' }],
+  69: [{ node: CC4_BONES.EYE_R, channel: 'rz', scale: 1, maxDegrees: 25, side: 'right' }],
+  70: [{ node: CC4_BONES.EYE_R, channel: 'rz', scale: -1, maxDegrees: 25, side: 'right' }],
+  71: [{ node: CC4_BONES.EYE_R, channel: 'rx', scale: -1, maxDegrees: 20, side: 'right' }],
+  72: [{ node: CC4_BONES.EYE_R, channel: 'rx', scale: 1, maxDegrees: 20, side: 'right' }],
 
   // Tongue controls (optional, for rigs that expose them)
-  37: [{ node: 'TONGUE', channel: 'rz', scale: 1, maxDegrees: 20 }],
-  38: [{ node: 'TONGUE', channel: 'rz', scale: -1, maxDegrees: 20 }],
-  39: [{ node: 'TONGUE', channel: 'ry', scale: -1, maxDegrees: 20 }],
-  40: [{ node: 'TONGUE', channel: 'ry', scale: 1, maxDegrees: 20 }],
-  41: [{ node: 'TONGUE', channel: 'rx', scale: -1, maxDegrees: 20 }],
-  42: [{ node: 'TONGUE', channel: 'rx', scale: 1, maxDegrees: 20 }],
+  37: [{ node: CC4_BONES.TONGUE, channel: 'rz', scale: 1, maxDegrees: 20 }],
+  38: [{ node: CC4_BONES.TONGUE, channel: 'rz', scale: -1, maxDegrees: 20 }],
+  39: [{ node: CC4_BONES.TONGUE, channel: 'ry', scale: -1, maxDegrees: 20 }],
+  40: [{ node: CC4_BONES.TONGUE, channel: 'ry', scale: 1, maxDegrees: 20 }],
+  41: [{ node: CC4_BONES.TONGUE, channel: 'rx', scale: -1, maxDegrees: 20 }],
+  42: [{ node: CC4_BONES.TONGUE, channel: 'rx', scale: 1, maxDegrees: 20 }],
 
 };
 
@@ -541,7 +605,7 @@ export const BONE_AU_TO_BINDINGS: Record<number, BoneBinding[]> = {
  * control/binding model tracked in meekmachine/embody#30.
  */
 export const LIP_SYNC_CONTROL_TO_BINDINGS: Record<number, BoneBinding[]> = {
-  103: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
+  103: [{ node: CC4_BONES.JAW, channel: 'rz', scale: 1, maxDegrees: 30 }],
 };
 
 /** Legacy compatibility map consumed by the current runtime profile shape. */
@@ -793,31 +857,31 @@ export const checkBindingsForLeftRight = (bindings: BoneBinding[] | undefined): 
 
 export const COMPOSITE_ROTATIONS: CompositeRotation[] = [
   {
-    node: 'JAW',
+    node: CC4_BONES.JAW,
     pitch: { aus: [25, 26, 27, 103], axis: 'rz' },  // Jaw drop plus speech jaw pseudo-control
     yaw: { aus: [30, 35], axis: 'ry', negative: 30, positive: 35 },  // Jaw lateral (left/right)
     roll: null  // Jaw doesn't have roll
   },
   {
-    node: 'HEAD',
+    node: CC4_BONES.HEAD,
     pitch: { aus: [54, 53], axis: 'rx', negative: 54, positive: 53 },  // Head down/up
     yaw: { aus: [51, 52], axis: 'ry', negative: 51, positive: 52 },  // Head turn left/right
     roll: { aus: [55, 56], axis: 'rz', negative: 55, positive: 56 }   // Head tilt left/right
   },
   {
-    node: 'EYE_L',
+    node: CC4_BONES.EYE_L,
     pitch: { aus: [64, 63, 68, 67], axis: 'rx', negative: [64, 68], positive: [63, 67] },  // Eyes down/up
     yaw: { aus: [61, 62, 65, 66], axis: 'rz', negative: [61, 65], positive: [62, 66] },    // Eyes left/right (rz for CC4)
     roll: null  // Eyes don't have roll
   },
   {
-    node: 'EYE_R',
+    node: CC4_BONES.EYE_R,
     pitch: { aus: [64, 63, 72, 71], axis: 'rx', negative: [64, 72], positive: [63, 71] },  // Eyes down/up
     yaw: { aus: [61, 62, 69, 70], axis: 'rz', negative: [61, 69], positive: [62, 70] },    // Eyes left/right (rz for CC4)
     roll: null  // Eyes don't have roll
   },
   {
-    node: 'TONGUE',
+    node: CC4_BONES.TONGUE,
     pitch: { aus: [38, 37], axis: 'rz', negative: 38, positive: 37 },  // Tongue down/up
     yaw: { aus: [39, 40], axis: 'ry', negative: 39, positive: 40 },    // Tongue left/right
     roll: { aus: [41, 42], axis: 'rx', negative: 41, positive: 42 }    // Tongue tilt left/right
@@ -837,48 +901,48 @@ export const CONTINUUM_PAIRS_MAP: Record<number, {
   pairId: number;
   isNegative: boolean;
   axis: 'pitch' | 'yaw' | 'roll';
-  node: 'JAW' | 'HEAD' | 'EYE_L' | 'EYE_R' | 'TONGUE';
+  node: string;
 }> = {
   // Eyes horizontal - both eyes share same AUs (yaw maps to rz via COMPOSITE_ROTATIONS)
-  61: { pairId: 62, isNegative: true, axis: 'yaw', node: 'EYE_L' },
-  62: { pairId: 61, isNegative: false, axis: 'yaw', node: 'EYE_L' },
-  65: { pairId: 66, isNegative: true, axis: 'yaw', node: 'EYE_L' },
-  66: { pairId: 65, isNegative: false, axis: 'yaw', node: 'EYE_L' },
-  69: { pairId: 70, isNegative: true, axis: 'yaw', node: 'EYE_R' },
-  70: { pairId: 69, isNegative: false, axis: 'yaw', node: 'EYE_R' },
+  61: { pairId: 62, isNegative: true, axis: 'yaw', node: CC4_BONES.EYE_L },
+  62: { pairId: 61, isNegative: false, axis: 'yaw', node: CC4_BONES.EYE_L },
+  65: { pairId: 66, isNegative: true, axis: 'yaw', node: CC4_BONES.EYE_L },
+  66: { pairId: 65, isNegative: false, axis: 'yaw', node: CC4_BONES.EYE_L },
+  69: { pairId: 70, isNegative: true, axis: 'yaw', node: CC4_BONES.EYE_R },
+  70: { pairId: 69, isNegative: false, axis: 'yaw', node: CC4_BONES.EYE_R },
   // Eyes vertical (pitch)
-  64: { pairId: 63, isNegative: true, axis: 'pitch', node: 'EYE_L' },
-  63: { pairId: 64, isNegative: false, axis: 'pitch', node: 'EYE_L' },
-  68: { pairId: 67, isNegative: true, axis: 'pitch', node: 'EYE_L' },
-  67: { pairId: 68, isNegative: false, axis: 'pitch', node: 'EYE_L' },
-  72: { pairId: 71, isNegative: true, axis: 'pitch', node: 'EYE_R' },
-  71: { pairId: 72, isNegative: false, axis: 'pitch', node: 'EYE_R' },
+  64: { pairId: 63, isNegative: true, axis: 'pitch', node: CC4_BONES.EYE_L },
+  63: { pairId: 64, isNegative: false, axis: 'pitch', node: CC4_BONES.EYE_L },
+  68: { pairId: 67, isNegative: true, axis: 'pitch', node: CC4_BONES.EYE_L },
+  67: { pairId: 68, isNegative: false, axis: 'pitch', node: CC4_BONES.EYE_L },
+  72: { pairId: 71, isNegative: true, axis: 'pitch', node: CC4_BONES.EYE_R },
+  71: { pairId: 72, isNegative: false, axis: 'pitch', node: CC4_BONES.EYE_R },
   // Head yaw (turn left/right)
-  51: { pairId: 52, isNegative: true, axis: 'yaw', node: 'HEAD' },
-  52: { pairId: 51, isNegative: false, axis: 'yaw', node: 'HEAD' },
+  51: { pairId: 52, isNegative: true, axis: 'yaw', node: CC4_BONES.HEAD },
+  52: { pairId: 51, isNegative: false, axis: 'yaw', node: CC4_BONES.HEAD },
   // Head pitch (up/down)
-  54: { pairId: 53, isNegative: true, axis: 'pitch', node: 'HEAD' },
-  53: { pairId: 54, isNegative: false, axis: 'pitch', node: 'HEAD' },
+  54: { pairId: 53, isNegative: true, axis: 'pitch', node: CC4_BONES.HEAD },
+  53: { pairId: 54, isNegative: false, axis: 'pitch', node: CC4_BONES.HEAD },
   // Head roll (tilt left/right)
-  55: { pairId: 56, isNegative: true, axis: 'roll', node: 'HEAD' },
-  56: { pairId: 55, isNegative: false, axis: 'roll', node: 'HEAD' },
+  55: { pairId: 56, isNegative: true, axis: 'roll', node: CC4_BONES.HEAD },
+  56: { pairId: 55, isNegative: false, axis: 'roll', node: CC4_BONES.HEAD },
   // Jaw yaw (left/right)
-  30: { pairId: 35, isNegative: true, axis: 'yaw', node: 'JAW' },
-  35: { pairId: 30, isNegative: false, axis: 'yaw', node: 'JAW' },
+  30: { pairId: 35, isNegative: true, axis: 'yaw', node: CC4_BONES.JAW },
+  35: { pairId: 30, isNegative: false, axis: 'yaw', node: CC4_BONES.JAW },
   // Tongue yaw (left/right)
-  39: { pairId: 40, isNegative: true, axis: 'yaw', node: 'TONGUE' },
-  40: { pairId: 39, isNegative: false, axis: 'yaw', node: 'TONGUE' },
+  39: { pairId: 40, isNegative: true, axis: 'yaw', node: CC4_BONES.TONGUE },
+  40: { pairId: 39, isNegative: false, axis: 'yaw', node: CC4_BONES.TONGUE },
   // Tongue pitch (up/down)
-  38: { pairId: 37, isNegative: true, axis: 'pitch', node: 'TONGUE' },
-  37: { pairId: 38, isNegative: false, axis: 'pitch', node: 'TONGUE' },
+  38: { pairId: 37, isNegative: true, axis: 'pitch', node: CC4_BONES.TONGUE },
+  37: { pairId: 38, isNegative: false, axis: 'pitch', node: CC4_BONES.TONGUE },
   // Tongue roll (tilt left/right)
-  41: { pairId: 42, isNegative: true, axis: 'roll', node: 'TONGUE' },
-  42: { pairId: 41, isNegative: false, axis: 'roll', node: 'TONGUE' },
+  41: { pairId: 42, isNegative: true, axis: 'roll', node: CC4_BONES.TONGUE },
+  42: { pairId: 41, isNegative: false, axis: 'roll', node: CC4_BONES.TONGUE },
   // Extended tongue morphs (continuum pairs)
-  73: { pairId: 74, isNegative: true, axis: 'yaw', node: 'TONGUE' },  // Tongue Narrow/Wide
-  74: { pairId: 73, isNegative: false, axis: 'yaw', node: 'TONGUE' },
-  76: { pairId: 77, isNegative: false, axis: 'pitch', node: 'TONGUE' }, // Tongue Tip Up/Down
-  77: { pairId: 76, isNegative: true, axis: 'pitch', node: 'TONGUE' },
+  73: { pairId: 74, isNegative: true, axis: 'yaw', node: CC4_BONES.TONGUE },  // Tongue Narrow/Wide
+  74: { pairId: 73, isNegative: false, axis: 'yaw', node: CC4_BONES.TONGUE },
+  76: { pairId: 77, isNegative: false, axis: 'pitch', node: CC4_BONES.TONGUE }, // Tongue Tip Up/Down
+  77: { pairId: 76, isNegative: true, axis: 'pitch', node: CC4_BONES.TONGUE },
 };
 
 /**
@@ -903,46 +967,6 @@ export const CONTINUUM_LABELS: Record<string, string> = {
   '73-74': 'Tongue — Width',
   '76-77': 'Tongue Tip — Vertical',
 };
-
-// ============================================================================
-// BONE NODE NAMES - CC4-specific skeleton hierarchy
-// ============================================================================
-
-/**
- * Bone name prefix for CC4 rigs.
- * Base bone names are stored without this prefix in CC4_BONE_NODES.
- * The engine will prepend this when resolving bones.
- */
-export const CC4_BONE_PREFIX = 'CC_Base_';
-
-/**
- * Suffix pattern regex for fuzzy bone matching.
- * Matches numbered suffixes like _01, _038 (common in Sketchfab exports)
- * and .001, .002 (common in Blender exports).
- */
-export const CC4_SUFFIX_PATTERN = '_\\d+$|\\.\\d+$';
-
-// Canonical CC4 bone names WITHOUT prefix (engine will prepend CC4_BONE_PREFIX).
-// This allows fuzzy matching for models with suffixed bone names.
-export const CC4_BONE_NODES = {
-  EYE_L: 'L_Eye',
-  EYE_R: 'R_Eye',
-  HEAD: 'Head',
-  NECK: 'NeckTwist01',
-  NECK_TWIST: 'NeckTwist02',
-  JAW: 'JawRoot',
-  TONGUE: 'Tongue01',
-  SPINE_01: 'Spine01',
-  SPINE_02: 'Spine02',
-  CLAVICLE_L: 'L_Clavicle',
-  CLAVICLE_R: 'R_Clavicle',
-  HAND_L: 'L_Hand',
-  HAND_R: 'R_Hand',
-  FOOT_L: 'L_Foot',
-  FOOT_R: 'R_Foot',
-  TOEBASE_L: 'L_ToeBase',
-  TOEBASE_R: 'R_ToeBase',
-} as const;
 
 export const CC4_EYE_MESH_NODES = {
   LEFT: 'CC_Base_Eye',
@@ -1207,7 +1231,6 @@ export const CC4_PRESET: Profile = {
   auToMorphs: AU_TO_MORPHS,
   auToBones: CC4_PROFILE_BONE_BINDINGS,
   boneNodes: CC4_BONE_NODES,
-  bonePrefix: CC4_BONE_PREFIX,
   suffixPattern: CC4_SUFFIX_PATTERN,
   morphToMesh: MORPH_TO_MESH,
   auFacePartToMeshCategory: AU_FACEPART_TO_MESH_CATEGORY,
@@ -1231,73 +1254,73 @@ export const CC4_PRESET: Profile = {
     },
     {
       name: 'head',
-      bones: ['HEAD', 'JAW'],
+      bones: [CC4_BONES.HEAD, CC4_BONES.JAW],
       paddingFactor: 1.5,
       children: ['face', 'left_eye', 'right_eye', 'mouth'],
       expandAnimation: 'staggered',
     },
     {
       name: 'face',
-      bones: ['HEAD'],
+      bones: [CC4_BONES.HEAD],
       // meshes: populated by user selection in wizard - varies per character
       paddingFactor: 1.3,
       parent: 'head',
     },
     {
       name: 'left_eye',
-      bones: ['EYE_L'],
+      bones: [CC4_BONES.EYE_L],
       paddingFactor: 0.9,
       parent: 'head',
     },
     {
       name: 'right_eye',
-      bones: ['EYE_R'],
+      bones: [CC4_BONES.EYE_R],
       paddingFactor: 0.9,
       parent: 'head',
     },
     {
       name: 'mouth',
-      bones: ['JAW'],
+      bones: [CC4_BONES.JAW],
       paddingFactor: 1.5,
       parent: 'head',
     },
     {
       name: 'upper_body',
       bones: [
-        'SPINE_02',
-        'HEAD',
-        'CLAVICLE_L',
-        'CLAVICLE_R',
+        CC4_BONES.SPINE_02,
+        CC4_BONES.HEAD,
+        CC4_BONES.CLAVICLE_L,
+        CC4_BONES.CLAVICLE_R,
       ],
       paddingFactor: 1.6,
     },
     {
       name: 'back',
-      bones: ['SPINE_01', 'SPINE_02'],
+      bones: [CC4_BONES.SPINE_01, CC4_BONES.SPINE_02],
       paddingFactor: 1.8,
       cameraAngle: 180,
     },
     {
       name: 'left_hand',
-      bones: ['HAND_L'],
+      bones: [CC4_BONES.HAND_L],
       paddingFactor: 1.3,
       cameraAngle: 270,
     },
     {
       name: 'right_hand',
-      bones: ['HAND_R'],
+      bones: [CC4_BONES.HAND_R],
       paddingFactor: 1.3,
       cameraAngle: 90,
     },
     {
       name: 'left_foot',
-      bones: ['FOOT_L', 'TOEBASE_L'],
+      bones: [CC4_BONES.FOOT_L, CC4_BONES.TOEBASE_L],
       paddingFactor: 2.5,
       cameraAngle: 270,
     },
     {
       name: 'right_foot',
-      bones: ['FOOT_R', 'TOEBASE_R'],
+      bones: [CC4_BONES.FOOT_R, CC4_BONES.TOEBASE_R],
       paddingFactor: 2.5,
       cameraAngle: 90,
     },
