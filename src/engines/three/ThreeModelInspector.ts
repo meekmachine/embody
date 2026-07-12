@@ -135,7 +135,15 @@ export class ThreeModelInspector implements HostModelInspector<Object3D> {
     const findNode = (baseName?: string | null): Object3D | undefined => {
       if (!baseName) return undefined;
 
-      const fullName = prefix + baseName + suffix;
+      const directMatch = root.getObjectByName(baseName);
+      if (directMatch) return directMatch;
+
+      const prefixedBase = prefix && !baseName.startsWith(prefix)
+        ? `${prefix}${baseName}`
+        : baseName;
+      const fullName = suffix && !prefixedBase.endsWith(suffix)
+        ? `${prefixedBase}${suffix}`
+        : prefixedBase;
       const exactMatch = root.getObjectByName(fullName);
       if (exactMatch) return exactMatch;
 
@@ -153,33 +161,63 @@ export class ThreeModelInspector implements HostModelInspector<Object3D> {
         if (found) return found;
       }
 
-      if (prefix) {
-        const noPrefix = root.getObjectByName(baseName);
-        if (noPrefix) return noPrefix;
-      }
-
       return undefined;
+    };
+
+    const addResolvedBone = (key: string, node: Object3D) => {
+      const entry = snapshotPreservingBasePose(node);
+      resolved[key] = entry;
+      if (node.name) {
+        resolved[node.name] = entry;
+      }
     };
 
     for (const [key, nodeName] of Object.entries(profile.boneNodes || {})) {
       const node = findNode(nodeName);
       if (node) {
-        resolved[key] = snapshotPreservingBasePose(node);
+        addResolvedBone(key, node);
+        if (nodeName) {
+          resolved[nodeName] = resolved[key]!;
+        }
       }
     }
 
     if (!resolved.EYE_L && profile.eyeMeshNodes) {
       const node = findNode(profile.eyeMeshNodes.LEFT);
       if (node) {
-        resolved.EYE_L = snapshotPreservingBasePose(node);
+        addResolvedBone('EYE_L', node);
       }
     }
     if (!resolved.EYE_R && profile.eyeMeshNodes) {
       const node = findNode(profile.eyeMeshNodes.RIGHT);
       if (node) {
-        resolved.EYE_R = snapshotPreservingBasePose(node);
+        addResolvedBone('EYE_R', node);
       }
     }
+
+    const referencedNodes = new Set<string>();
+    Object.values(profile.auToBones ?? {}).forEach((bindings) => {
+      bindings.forEach((binding) => referencedNodes.add(binding.node));
+    });
+    profile.compositeRotations?.forEach((composite) => referencedNodes.add(composite.node));
+    Object.values(profile.continuumPairs ?? {}).forEach((pair) => {
+      if (pair?.node) referencedNodes.add(pair.node);
+    });
+    profile.annotationRegions?.forEach((region) => {
+      region.bones?.forEach((boneName) => referencedNodes.add(boneName));
+    });
+
+    referencedNodes.forEach((nodeKey) => {
+      if (resolved[nodeKey]) return;
+      const configuredName = profile.boneNodes?.[nodeKey] ?? nodeKey;
+      const node = findNode(configuredName);
+      if (node) {
+        addResolvedBone(nodeKey, node);
+        if (configuredName) {
+          resolved[configuredName] = resolved[nodeKey]!;
+        }
+      }
+    });
 
     return resolved;
   }
@@ -205,7 +243,18 @@ export class ThreeModelInspector implements HostModelInspector<Object3D> {
       return [candidateByMorph.name];
     }
 
-    const head = bones.HEAD?.obj;
+    const headNodeKey = profile.auToBones?.[51]?.[0]?.node
+      ?? profile.auToBones?.[52]?.[0]?.node
+      ?? profile.compositeRotations?.find((composite) => (
+        composite.yaw?.aus.includes(51)
+        || composite.yaw?.aus.includes(52)
+        || composite.pitch?.aus.includes(53)
+        || composite.pitch?.aus.includes(54)
+        || composite.roll?.aus.includes(55)
+        || composite.roll?.aus.includes(56)
+      ))?.node
+      ?? 'HEAD';
+    const head = bones[headNodeKey]?.obj ?? bones.HEAD?.obj;
     if (head && availableMorphMeshes.length > 0) {
       const headPos = new Vector3();
       (head as any).getWorldPosition?.(headPos);

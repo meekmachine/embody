@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Euler, Object3D, Quaternion } from 'three';
 import type { Profile } from '../../mappings/types';
-import { AnimationController, type AnimationControllerHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './ThreeAnimationRuntime';
 
 function makeEyeBoneHost(): {
   controller: AnimationController;

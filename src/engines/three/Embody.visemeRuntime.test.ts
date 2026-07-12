@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Mesh, MeshBasicMaterial, Object3D } from 'three';
 import type { Profile } from '../../mappings/types';
-import { Loom3 } from './Loom3';
+import { Embody } from './Embody';
 
 function makeMorphMesh(name: string, dictionary: Record<string, number>): Mesh {
   const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
@@ -39,22 +39,22 @@ function makeProfile(overrides: Partial<Profile> = {}): Profile {
   };
 }
 
-function makeEngine(profile: Profile, mesh: Mesh): Loom3 {
+function makeEngine(profile: Profile, mesh: Mesh): Embody {
   const model = new Object3D();
   const jaw = new Object3D();
   jaw.name = 'Jaw';
   model.add(jaw, mesh);
-  const engine = new Loom3({ profile });
+  const engine = new Embody({ profile });
   engine.onReady({ model, meshes: [mesh] });
   return engine;
 }
 
-function jawRoll(engine: Loom3): number {
+function jawRoll(engine: Embody): number {
   engine.update(1 / 60);
   return Math.abs(engine.getBones().JAW.rotation[2]);
 }
 
-describe('Loom3 live viseme runtime', () => {
+describe('Embody live viseme runtime', () => {
   it('closes the jaw when a live viseme is set back to zero', () => {
     const mesh = makeMorphMesh('VisemeMesh', { Viseme_AA: 0 });
     const engine = makeEngine(makeProfile({ visemeKeys: ['Viseme_AA'], visemeJawAmounts: [0.8] }), mesh);

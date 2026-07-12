@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Mesh, MeshBasicMaterial, Object3D } from 'three';
 import type { Profile } from '../../mappings/types';
-import { AnimationController, type AnimationControllerHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './ThreeAnimationRuntime';
 
 function makeHost(): { host: AnimationControllerHost; mesh: Mesh } {
   const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());

@@ -1,5 +1,5 @@
 /**
- * Loom3 - Mapping Corrections
+ * Embody - Mapping Corrections
  *
  * Attempts to generate a corrected mapping configuration using fuzzy matching.
  * This is a best-effort helper that can be layered on top of validation.

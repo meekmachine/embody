@@ -1,5 +1,5 @@
 /**
- * AnimationThree - Lerp-based animation driver
+ * ThreeAnimationRuntime - Lerp-based animation driver
  *
  * Internal driver for time-based interpolation with easing functions.
  */
@@ -44,6 +44,7 @@ import type {
   CurvePoint,
   SnippetChannel,
   TypedSnippet,
+  BoneBinding,
 } from '../../core/types';
 import { getCompositeAxisBinding, getCompositeAxisValue } from '../../core/compositeAxis';
 import type { Profile } from '../../mappings/types';
@@ -83,7 +84,56 @@ const easeInOutCubic = (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 
 // Export easing functions for external use
 export { easeInOutQuad, easeInOutCubic };
 
-export class AnimationThree {
+function debugFlagEnabled(name: string): boolean {
+  try {
+    const locationLike = (globalThis as { location?: { search?: string } }).location;
+    const search = typeof locationLike?.search === 'string' ? locationLike.search : '';
+    if (!search) return false;
+    const value = new URLSearchParams(search).get(name);
+    return value === '1' || value === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function typedLipSyncDebugEnabled(): boolean {
+  return debugFlagEnabled('polymerVocalDebug') || debugFlagEnabled('polymerLipSyncDebug');
+}
+
+function logTypedLipSyncDebug(label: string, payload: unknown): void {
+  if (!typedLipSyncDebugEnabled()) return;
+  try {
+    console.info(`${label} ${JSON.stringify(payload)}`);
+  } catch {
+    console.info(label, payload);
+  }
+}
+
+function summarizeKeyframes(keyframes: ScalarKeyframe[]) {
+  return {
+    frames: keyframes.length,
+    firstSec: keyframes[0]?.time ?? null,
+    lastSec: keyframes[keyframes.length - 1]?.time ?? null,
+    peak: keyframes.reduce((max, frame) => Math.max(max, Number.isFinite(frame.intensity) ? frame.intensity : 0), 0),
+  };
+}
+
+function summarizeTypedChannel(channel: SnippetChannel) {
+  return {
+    target: channel.target,
+    intensityScale: channel.intensityScale ?? 1,
+    ...summarizeKeyframes(channel.keyframes ?? []),
+  };
+}
+
+function summarizeBindingTarget(bindingTarget: ReturnType<typeof getVisemeBindingTargets>[number]) {
+  return {
+    morph: bindingTarget.morph,
+    weight: bindingTarget.weight,
+  };
+}
+
+export class ThreeAnimationRuntime {
   private transitions = new Map<string, Transition>();
 
   /**
@@ -231,8 +281,29 @@ const makeActionId = () => `act_${Math.random().toString(36).slice(2, 8)}_${Date
 const X_AXIS = new Vector3(1, 0, 0);
 const Y_AXIS = new Vector3(0, 1, 0);
 const Z_AXIS = new Vector3(0, 0, 1);
-const CLIP_EVENT_METADATA_KEY = '__loom3ClipEvents';
+const CLIP_EVENT_METADATA_KEY = '__embodyClipEvents';
 const CLIP_EVENT_EPSILON = 1e-4;
+
+type RotationBoneBinding = BoneBinding & { channel: 'rx' | 'ry' | 'rz' };
+
+function isRotationBoneBinding(binding: BoneBinding | undefined): binding is RotationBoneBinding {
+  return binding?.channel === 'rx' || binding?.channel === 'ry' || binding?.channel === 'rz';
+}
+
+function getAutoVisemeJawBinding(config: Profile, bones?: ResolvedBones): RotationBoneBinding | null {
+  const candidates = [
+    config.auToBones[103]?.find(isRotationBoneBinding),
+    config.auToBones[26]?.find(isRotationBoneBinding),
+  ].filter((binding): binding is RotationBoneBinding => !!binding);
+  if (bones) {
+    return candidates.find((binding) => !!bones[binding.node]) ?? candidates[0] ?? null;
+  }
+  return candidates[0] ?? null;
+}
+
+function axisVectorForRotationChannel(channel: 'rx' | 'ry' | 'rz'): Vector3 {
+  return channel === 'rx' ? X_AXIS : channel === 'ry' ? Y_AXIS : Z_AXIS;
+}
 
 type ClipEventMetadata = {
   keyframeTimes: number[];
@@ -289,7 +360,7 @@ type DynamicClipSource = {
   hasInheritedStart: boolean;
 };
 
-const ADDITIVE_BAKED_MIXER_CLIP_SUFFIX = '__loom3_additive_delta';
+const ADDITIVE_BAKED_MIXER_CLIP_SUFFIX = '__embody_additive_delta';
 
 export class ThreeAnimationSystem {
   private host: ThreeAnimationSystemHost;
@@ -607,7 +678,7 @@ export class ThreeAnimationSystem {
       try {
         listener(event);
       } catch (error) {
-        console.error('[Loom3] clip event listener failed', error);
+        console.error('[Embody] clip event listener failed', error);
       }
     }
   }
@@ -1140,7 +1211,7 @@ export class ThreeAnimationSystem {
   loadAnimationClips(clips: unknown[]): void {
     const model = this.host.getModel();
     if (!model) {
-      console.warn('Loom3: Cannot load animation clips before calling onReady()');
+      console.warn('Embody: Cannot load animation clips before calling onReady()');
       return;
     }
 
@@ -1245,7 +1316,7 @@ export class ThreeAnimationSystem {
   playAnimation(clipName: string, options: AnimationPlayOptions = {}): AnimationActionHandle | null {
     const bakedClip = this.getBakedSourceClip(clipName);
     if (!bakedClip) {
-      console.warn(`Loom3: Animation clip "${clipName}" not found`);
+      console.warn(`Embody: Animation clip "${clipName}" not found`);
       return null;
     }
 
@@ -1256,7 +1327,7 @@ export class ThreeAnimationSystem {
     playbackState.blendMode = this.getBakedAggregateBlendMode(clipName, playbackState);
     const actionGroup = this.createBakedActionGroup(clipName, playbackState);
     if (!actionGroup) {
-      console.warn(`Loom3: Animation clip "${clipName}" has no character mixer channels to play`);
+      console.warn(`Embody: Animation clip "${clipName}" has no character mixer channels to play`);
       return null;
     }
 
@@ -1747,11 +1818,11 @@ export class ThreeAnimationSystem {
   ): AnimationClip | null {
     const config = this.host.getConfig();
     if (!this.host.getModel()) {
-      console.warn(`[Loom3] snippetToClip: No model loaded for "${clipName}"`);
+      console.warn(`[Embody] snippetToClip: No model loaded for "${clipName}"`);
       return null;
     }
     if (Object.keys(curves).length === 0) {
-      console.warn(`[Loom3] snippetToClip: Empty curves for "${clipName}"`);
+      console.warn(`[Embody] snippetToClip: Empty curves for "${clipName}"`);
       return null;
     }
 
@@ -1868,25 +1939,30 @@ export class ThreeAnimationSystem {
     const autoVisemeJaw = options?.autoVisemeJaw !== false; // Default true
     const jawScale = options?.jawScale ?? 1.0;
     const visemeJawAmounts = getVisemeJawAmounts(config);
+    const bones = this.host.getBones();
+    const autoVisemeJawBinding = getAutoVisemeJawBinding(config, bones);
+    const autoVisemeJawNodeKey = autoVisemeJawBinding?.node as BoneKey | undefined;
+    let autoVisemeJawHandledJaw = false;
 
     if (
       autoVisemeJaw &&
       jawScale > 0 &&
       visemeJawAmounts &&
+      autoVisemeJawBinding &&
       options?.snippetCategory === 'visemeSnippet' &&
       keyframeTimes.length > 0
     ) {
-      const bones = this.host.getBones();
-      const jawEntry = bones['JAW'];
+      const jawEntry = bones[autoVisemeJawBinding.node] ?? bones.JAW;
 
       if (jawEntry) {
+        autoVisemeJawHandledJaw = true;
         // Sample all viseme curves at each keyframe time and compute weighted jaw amount
         const jawValues: number[] = [];
         const inheritedJawStart = keyframeTimes.length > 0
           && Array.from({ length: visemeSlotCount }, (_, index) => curves[String(index)])
             .some((curve) => hasInheritedStart(curve));
         const currentJawQ = inheritedJawStart
-          ? this.host.getCurrentBoneQuaternion?.('JAW') ?? null
+          ? this.host.getCurrentBoneQuaternion?.(autoVisemeJawBinding.node) ?? null
           : null;
 
         for (let timeIndex = 0; timeIndex < keyframeTimes.length; timeIndex += 1) {
@@ -1912,13 +1988,13 @@ export class ThreeAnimationSystem {
             }
           }
 
-          // Convert jaw amount to quaternion rotation
-          // JAW pitch uses rz axis with maxDegrees from AU 26 binding
-          const jawBinding = config.auToBones[26]?.[0];
-          const maxDegrees = jawBinding?.maxDegrees ?? 30;
+          const maxDegrees = autoVisemeJawBinding.maxDegrees ?? 30;
           const radians = (maxDegrees * Math.PI / 180) * jawAmount;
           const jawQ = new Quaternion().copy(jawEntry.baseQuat);
-          jawQ.multiply(new Quaternion().setFromAxisAngle(Z_AXIS, radians));
+          jawQ.multiply(new Quaternion().setFromAxisAngle(
+            axisVectorForRotationChannel(autoVisemeJawBinding.channel),
+            radians * autoVisemeJawBinding.scale
+          ));
 
           jawValues.push(jawQ.x, jawQ.y, jawQ.z, jawQ.w);
         }
@@ -1929,7 +2005,6 @@ export class ThreeAnimationSystem {
     }
 
     if (keyframeTimes.length > 0) {
-      const bones = this.host.getBones();
       const compositeRotations = this.host.getCompositeRotations();
       const hasCurveAU = new Set<number>(
         Object.keys(curves)
@@ -1974,18 +2049,10 @@ export class ThreeAnimationSystem {
       ) =>
         getCompositeAxisValue(axisConfig, (auId: number) => getAxisSampleForNode(auId, nodeKey, t));
 
-      // Track if autoVisemeJaw already added a JAW track
-      const autoVisemeJawHandledJaw =
-        autoVisemeJaw &&
-        jawScale > 0 &&
-        visemeJawAmounts &&
-        options?.snippetCategory === 'visemeSnippet';
-
       for (const composite of compositeRotations) {
         const nodeKey = composite.node as BoneKey;
 
-        // Skip JAW composite if autoVisemeJaw already handled it
-        if (nodeKey === 'JAW' && autoVisemeJawHandledJaw) {
+        if (autoVisemeJawHandledJaw && (nodeKey === autoVisemeJawNodeKey || nodeKey === 'JAW')) {
           continue;
         }
 
@@ -2088,7 +2155,7 @@ export class ThreeAnimationSystem {
     }
 
     if (tracks.length === 0) {
-      console.warn(`[Loom3] snippetToClip: No tracks created for "${clipName}"`);
+      console.warn(`[Embody] snippetToClip: No tracks created for "${clipName}"`);
       return null;
     }
 
@@ -2100,7 +2167,7 @@ export class ThreeAnimationSystem {
       options,
       hasInheritedStart: this.curvesHaveInheritedStart(curves),
     });
-    console.log(`[Loom3] snippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);
+    console.log(`[Embody] snippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);
 
     return clip;
   }
@@ -2112,11 +2179,11 @@ export class ThreeAnimationSystem {
   ): AnimationClip | null {
     const config = this.host.getConfig();
     if (!this.host.getModel()) {
-      console.warn(`[Loom3] typedSnippetToClip: No model loaded for "${clipName}"`);
+      console.warn(`[Embody] typedSnippetToClip: No model loaded for "${clipName}"`);
       return null;
     }
     if (channels.length === 0) {
-      console.warn(`[Loom3] typedSnippetToClip: Empty channels for "${clipName}"`);
+      console.warn(`[Embody] typedSnippetToClip: Empty channels for "${clipName}"`);
       return null;
     }
 
@@ -2126,8 +2193,33 @@ export class ThreeAnimationSystem {
     const balanceMap = options?.balanceMap;
     const meshNames = options?.meshNames;
     const bones = this.host.getBones();
+    type ProfileMappedTarget =
+      | Extract<SnippetChannel['target'], { type: 'au' }>
+      | Extract<SnippetChannel['target'], { type: 'lipSync' }>;
+    const isProfileMappedTarget = (target: SnippetChannel['target']): target is ProfileMappedTarget =>
+      target.type === 'au' || target.type === 'lipSync';
+    const isProfileMappedChannel = (channel: SnippetChannel): channel is SnippetChannel & { target: ProfileMappedTarget } =>
+      isProfileMappedTarget(channel.target);
     const visemeChannels = channels.filter((channel) => channel.target.type === 'viseme');
+    const lipSyncChannels = channels.filter((channel) => channel.target.type === 'lipSync');
+    const auChannels = channels.filter((channel) => channel.target.type === 'au');
+    const profileMappedChannels = channels.filter(isProfileMappedChannel);
     let maxTime = 0;
+
+    logTypedLipSyncDebug('[Embody Typed LipSync] typedSnippetToClip input', {
+      clipName,
+      channelCount: channels.length,
+      visemeChannels: visemeChannels.map(summarizeTypedChannel),
+      lipSyncChannels: lipSyncChannels.map(summarizeTypedChannel),
+      auChannels: auChannels.map(summarizeTypedChannel),
+      options: {
+        source: options?.source,
+        autoVisemeJaw: options?.autoVisemeJaw,
+        jawScale: options?.jawScale,
+        intensityScale: options?.intensityScale,
+        snippetCategory: options?.snippetCategory,
+      },
+    });
 
     const hasInheritedStart = (arr: ScalarKeyframe[] | undefined) => !!arr?.[0]?.inherit;
     const clampIntensity = (v: number) => Math.max(0, Math.min(2, v));
@@ -2156,7 +2248,7 @@ export class ThreeAnimationSystem {
           inheritedStartValue = typeof target.id === 'number'
             ? this.host.getCurrentMorphIndexValue?.(target.id, target.meshNames ?? meshNames)
             : this.host.getCurrentMorphValue?.(target.id, target.meshNames ?? meshNames);
-        } else if (target.channel === 'tx' || target.channel === 'ty' || target.channel === 'tz') {
+        } else if (target.type === 'bone' && (target.channel === 'tx' || target.channel === 'ty' || target.channel === 'tz')) {
           const axis = target.channel === 'tx' ? 'x' : target.channel === 'ty' ? 'y' : 'z';
           inheritedStartValue = this.host.getCurrentBonePositionValue?.(target.id, axis) ?? undefined;
         }
@@ -2180,7 +2272,9 @@ export class ThreeAnimationSystem {
 
       if (target.type === 'viseme') {
         const visemeMeshNames = this.getMeshNamesForViseme(config, target.meshNames ?? meshNames);
-        for (const bindingTarget of getVisemeBindingTargets(config, target.id)) {
+        const bindingTargets = getVisemeBindingTargets(config, target.id);
+        const tracksBefore = tracks.length;
+        for (const bindingTarget of bindingTargets) {
           const effectiveScale = channelScale(channel) * bindingTarget.weight;
           if (typeof bindingTarget.morph === 'number') {
             this.addMorphIndexTracks(tracks, bindingTarget.morph, channel.keyframes, effectiveScale, visemeMeshNames);
@@ -2188,39 +2282,51 @@ export class ThreeAnimationSystem {
             this.addMorphTracks(tracks, bindingTarget.morph, channel.keyframes, effectiveScale, visemeMeshNames);
           }
         }
+        logTypedLipSyncDebug('[Embody Typed LipSync] viseme binding', {
+          clipName,
+          visemeId: target.id,
+          meshNames: visemeMeshNames,
+          bindingCount: bindingTargets.length,
+          bindings: bindingTargets.map(summarizeBindingTarget),
+          keyframes: summarizeKeyframes(channel.keyframes),
+          tracksBefore,
+          tracksAfter: tracks.length,
+        });
         continue;
       }
 
-      if (target.type === 'au') {
-        const auMeshNames = this.getMeshNamesForAU(target.id, config, meshNames);
+      if (isProfileMappedTarget(target)) {
+        const controlMeshNames = this.getMeshNamesForAU(target.id, config, meshNames);
         const morphsBySide = config.auToMorphs[target.id];
         const mixWeight = this.host.isMixedAU(target.id) ? this.host.getAUMixWeight(target.id) : 1.0;
-        const curveBalance = target.balance ?? resolveCurveBalance(String(target.id), globalBalance, balanceMap);
+        const curveBalance = target.type === 'au'
+          ? target.balance ?? resolveCurveBalance(String(target.id), globalBalance, balanceMap)
+          : resolveCurveBalance(String(target.id), globalBalance, balanceMap);
 
         for (const morphKey of morphsBySide?.left ?? []) {
           let effectiveScale = channelScale(channel) * mixWeight;
           if (curveBalance > 0) effectiveScale *= (1 - curveBalance);
           if (typeof morphKey === 'number') {
-            this.addMorphIndexTracks(tracks, morphKey, channel.keyframes, effectiveScale, auMeshNames);
+            this.addMorphIndexTracks(tracks, morphKey, channel.keyframes, effectiveScale, controlMeshNames);
           } else {
-            this.addMorphTracks(tracks, morphKey, channel.keyframes, effectiveScale, auMeshNames);
+            this.addMorphTracks(tracks, morphKey, channel.keyframes, effectiveScale, controlMeshNames);
           }
         }
         for (const morphKey of morphsBySide?.right ?? []) {
           let effectiveScale = channelScale(channel) * mixWeight;
           if (curveBalance < 0) effectiveScale *= (1 + curveBalance);
           if (typeof morphKey === 'number') {
-            this.addMorphIndexTracks(tracks, morphKey, channel.keyframes, effectiveScale, auMeshNames);
+            this.addMorphIndexTracks(tracks, morphKey, channel.keyframes, effectiveScale, controlMeshNames);
           } else {
-            this.addMorphTracks(tracks, morphKey, channel.keyframes, effectiveScale, auMeshNames);
+            this.addMorphTracks(tracks, morphKey, channel.keyframes, effectiveScale, controlMeshNames);
           }
         }
         for (const morphKey of morphsBySide?.center ?? []) {
           const effectiveScale = channelScale(channel) * mixWeight;
           if (typeof morphKey === 'number') {
-            this.addMorphIndexTracks(tracks, morphKey, channel.keyframes, effectiveScale, auMeshNames);
+            this.addMorphIndexTracks(tracks, morphKey, channel.keyframes, effectiveScale, controlMeshNames);
           } else {
-            this.addMorphTracks(tracks, morphKey, channel.keyframes, effectiveScale, auMeshNames);
+            this.addMorphTracks(tracks, morphKey, channel.keyframes, effectiveScale, controlMeshNames);
           }
         }
         continue;
@@ -2277,18 +2383,26 @@ export class ThreeAnimationSystem {
             values
           ));
         }
+        continue;
       }
+
+      const unsupportedType = String((target as { type?: unknown }).type ?? 'unknown');
+      console.warn(`[Embody] typedSnippetToClip: Unsupported typed snippet target "${unsupportedType}" in "${clipName}"`);
     }
 
     const autoVisemeJaw = options?.autoVisemeJaw === true;
     const jawScale = options?.jawScale ?? 1.0;
     const visemeJawAmounts = getVisemeJawAmounts(config);
-    if (autoVisemeJaw && jawScale > 0 && visemeJawAmounts && visemeChannels.length > 0 && keyframeTimes.length > 0) {
-      const jawEntry = bones['JAW'];
+    const autoVisemeJawBinding = getAutoVisemeJawBinding(config, bones);
+    const autoVisemeJawNodeKey = autoVisemeJawBinding?.node as BoneKey | undefined;
+    let autoVisemeJawHandledJaw = false;
+    if (autoVisemeJaw && jawScale > 0 && visemeJawAmounts && autoVisemeJawBinding && visemeChannels.length > 0 && keyframeTimes.length > 0) {
+      const jawEntry = bones[autoVisemeJawBinding.node] ?? bones.JAW;
       if (jawEntry) {
+        autoVisemeJawHandledJaw = true;
         const jawValues: number[] = [];
         const inheritedJawStart = visemeChannels.some((channel) => hasInheritedStart(channel.keyframes));
-        const currentJawQ = inheritedJawStart ? this.host.getCurrentBoneQuaternion?.('JAW') ?? null : null;
+        const currentJawQ = inheritedJawStart ? this.host.getCurrentBoneQuaternion?.(autoVisemeJawBinding.node) ?? null : null;
         for (let timeIndex = 0; timeIndex < keyframeTimes.length; timeIndex += 1) {
           const t = keyframeTimes[timeIndex];
           if (timeIndex === 0 && currentJawQ) {
@@ -2304,19 +2418,184 @@ export class ThreeAnimationSystem {
             const visemeJaw = visemeJawAmounts[target.id] * visemeValue * jawScale;
             if (visemeJaw > jawAmount) jawAmount = visemeJaw;
           }
-          const jawBinding = config.auToBones[26]?.[0];
-          const maxDegrees = jawBinding?.maxDegrees ?? 30;
+          const maxDegrees = autoVisemeJawBinding.maxDegrees ?? 30;
           const radians = (maxDegrees * Math.PI / 180) * jawAmount;
           const jawQ = new Quaternion().copy(jawEntry.baseQuat);
-          jawQ.multiply(new Quaternion().setFromAxisAngle(Z_AXIS, radians));
+          jawQ.multiply(new Quaternion().setFromAxisAngle(
+            axisVectorForRotationChannel(autoVisemeJawBinding.channel),
+            radians * autoVisemeJawBinding.scale
+          ));
           jawValues.push(jawQ.x, jawQ.y, jawQ.z, jawQ.w);
         }
         tracks.push(new QuaternionKeyframeTrack(`${jawEntry.obj.uuid}.quaternion`, keyframeTimes, jawValues));
       }
     }
 
+    if (keyframeTimes.length > 0 && profileMappedChannels.length > 0) {
+      const compositeRotations = this.host.getCompositeRotations();
+      const hasChannelAU = new Set<number>(
+        profileMappedChannels.map((channel) => channel.target.id)
+      );
+      const channelsByAU = new Map<number, SnippetChannel[]>();
+      profileMappedChannels.forEach((channel) => {
+        const existing = channelsByAU.get(channel.target.id) ?? [];
+        existing.push(channel);
+        channelsByAU.set(channel.target.id, existing);
+      });
+
+      const getAxisSampleForNode = (
+        auId: number,
+        nodeKey: BoneKey,
+        t: number
+      ) => {
+        const channelsForAU = channelsByAU.get(auId);
+        if (!channelsForAU) return 0;
+
+        let value = 0;
+        for (const channel of channelsForAU) {
+          if (!isProfileMappedTarget(channel.target)) continue;
+          const rawValue = sampleTypedChannel(channel, t);
+          if (rawValue <= 1e-6) continue;
+
+          const binding = config.auToBones[auId]?.find((b) => b.node === nodeKey) ?? null;
+          if (!binding?.side) {
+            value = Math.max(value, rawValue);
+            continue;
+          }
+
+          const curveBalance = channel.target.type === 'au'
+            ? channel.target.balance ?? resolveCurveBalance(String(auId), globalBalance, balanceMap)
+            : resolveCurveBalance(String(auId), globalBalance, balanceMap);
+          value = Math.max(value, rawValue * getSideScale(curveBalance, binding.side));
+        }
+        return value;
+      };
+
+      const getAxisValue = (
+        nodeKey: BoneKey,
+        axisConfig: RotationAxis | null | undefined,
+        t: number
+      ) =>
+        getCompositeAxisValue(axisConfig, (auId: number) => getAxisSampleForNode(auId, nodeKey, t));
+
+      const getAxisBinding = (
+        nodeKey: BoneKey,
+        axisConfig: RotationAxis | null | undefined,
+        axisValue: number,
+        t: number
+      ) => getCompositeAxisBinding(
+        nodeKey,
+        axisConfig,
+        axisValue,
+        (auId: number) => getAxisSampleForNode(auId, nodeKey, t),
+        config.auToBones
+      );
+
+      for (const composite of compositeRotations) {
+        const nodeKey = composite.node as BoneKey;
+
+        if (autoVisemeJawHandledJaw && (nodeKey === autoVisemeJawNodeKey || nodeKey === 'JAW')) {
+          continue;
+        }
+
+        const entry = bones[nodeKey];
+        if (!entry) {
+          console.log(`[typedSnippetToClip] Skipping composite for "${nodeKey}" - bone not resolved`);
+          continue;
+        }
+
+        const relevantAUs = new Set<number>();
+        [composite.pitch, composite.yaw, composite.roll]
+          .filter(Boolean)
+          .forEach((axisConfig) => {
+            axisConfig!.aus.forEach((auId) => {
+              if (hasChannelAU.has(auId)) relevantAUs.add(auId);
+            });
+          });
+
+        if (relevantAUs.size === 0) {
+          continue;
+        }
+
+        const values: number[] = [];
+        const currentBoneQ = Array.from(relevantAUs).some((auId) =>
+          channelsByAU.get(auId)?.some((channel) => hasInheritedStart(channel.keyframes))
+        )
+          ? this.host.getCurrentBoneQuaternion?.(nodeKey) ?? null
+          : null;
+
+        for (let timeIndex = 0; timeIndex < keyframeTimes.length; timeIndex += 1) {
+          const t = keyframeTimes[timeIndex];
+          if (timeIndex === 0 && currentBoneQ) {
+            values.push(currentBoneQ.x, currentBoneQ.y, currentBoneQ.z, currentBoneQ.w);
+            continue;
+          }
+
+          const compositeQ = new Quaternion().copy(entry.baseQuat);
+
+          const applyAxis = (
+            axisConfig: RotationAxis | null | undefined
+          ) => {
+            if (!axisConfig) return;
+            const axisValue = getAxisValue(nodeKey, axisConfig, t);
+            if (Math.abs(axisValue) <= 1e-6) return;
+
+            const binding = getAxisBinding(nodeKey, axisConfig, axisValue, t);
+            if (!binding?.maxDegrees || !binding.channel) return;
+
+            const radians = (binding.maxDegrees * Math.PI / 180) * Math.abs(axisValue) * binding.scale;
+            const axis = binding.channel === 'rx' ? X_AXIS : binding.channel === 'ry' ? Y_AXIS : Z_AXIS;
+            const deltaQ = new Quaternion().setFromAxisAngle(axis, radians);
+            compositeQ.multiply(deltaQ);
+          };
+
+          applyAxis(composite.yaw);
+          applyAxis(composite.pitch);
+          applyAxis(composite.roll);
+
+          values.push(compositeQ.x, compositeQ.y, compositeQ.z, compositeQ.w);
+        }
+
+        tracks.push(new QuaternionKeyframeTrack(`${entry.obj.uuid}.quaternion`, keyframeTimes, values));
+      }
+
+      for (const channel of profileMappedChannels) {
+        const auId = channel.target.id;
+        const bindings = config.auToBones[auId] || [];
+
+        for (const binding of bindings) {
+          if (binding.channel !== 'tx' && binding.channel !== 'ty' && binding.channel !== 'tz') continue;
+          const entry = bones[binding.node as BoneKey];
+          if (!entry || binding.maxUnits === undefined) continue;
+
+          const axisIndex: 'x' | 'y' | 'z' = binding.channel === 'tx' ? 'x' : binding.channel === 'ty' ? 'y' : 'z';
+          const basePos = entry.basePos[axisIndex];
+          const inheritedStartValue = channel.keyframes[0]?.inherit
+            ? this.host.getCurrentBonePositionValue?.(binding.node, axisIndex) ?? entry.obj.position[axisIndex]
+            : undefined;
+          const values: number[] = [];
+
+          for (const t of keyframeTimes) {
+            const rawValue = sampleTypedChannel(channel, t);
+            const curveBalance = channel.target.type === 'au'
+              ? channel.target.balance ?? resolveCurveBalance(String(auId), globalBalance, balanceMap)
+              : resolveCurveBalance(String(auId), globalBalance, balanceMap);
+            const sideScale = binding.side ? getSideScale(curveBalance, binding.side) : 1;
+            const value = clampIntensity(rawValue * sideScale);
+            values.push(
+              inheritedStartValue !== undefined && t === keyframeTimes[0]
+                ? inheritedStartValue
+                : basePos + (value * binding.maxUnits * binding.scale)
+            );
+          }
+
+          tracks.push(new NumberKeyframeTrack(`${entry.obj.uuid}.position[${axisIndex}]`, keyframeTimes, values));
+        }
+      }
+    }
+
     if (tracks.length === 0) {
-      console.warn(`[Loom3] typedSnippetToClip: No tracks created for "${clipName}"`);
+      console.warn(`[Embody] typedSnippetToClip: No tracks created for "${clipName}"`);
       return null;
     }
 
@@ -2328,7 +2607,15 @@ export class ThreeAnimationSystem {
       options,
       hasInheritedStart: this.channelsHaveInheritedStart(channels),
     });
-    console.log(`[Loom3] typedSnippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);
+    logTypedLipSyncDebug('[Embody Typed LipSync] clip created', {
+      clipName,
+      trackCount: tracks.length,
+      durationSec: maxTime,
+      visemeIds: visemeChannels.map((channel) => channel.target.type === 'viseme' ? channel.target.id : null),
+      lipSyncIds: lipSyncChannels.map((channel) => channel.target.type === 'lipSync' ? channel.target.id : null),
+      auIds: auChannels.map((channel) => channel.target.type === 'au' ? channel.target.id : null),
+    });
+    console.log(`[Embody] typedSnippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);
 
     return clip;
   }
@@ -2337,7 +2624,7 @@ export class ThreeAnimationSystem {
     const mixer = this.ensureClipMixer();
 
     if (!mixer) {
-      console.warn('[Loom3] playClip: No model loaded, cannot create mixer');
+      console.warn('[Embody] playClip: No model loaded, cannot create mixer');
       return null;
     }
     const hasInheritedStart = !!this.dynamicClipSources.get(clip)?.hasInheritedStart;
@@ -2422,7 +2709,7 @@ export class ThreeAnimationSystem {
     this.clipActions.set(clip.name, action);
     this.animationActions.set(clip.name, action);
     this.setPlaybackState(clip.name, playbackState);
-    console.log(`[Loom3] playClip: Playing "${clip.name}" (rate: ${playbackState.playbackRate}, loop: ${playbackState.loop}, actionId: ${actionId})`);
+    console.log(`[Embody] playClip: Playing "${clip.name}" (rate: ${playbackState.playbackRate}, loop: ${playbackState.loop}, actionId: ${actionId})`);
 
     const handle: ClipHandle = {
       clipName: clip.name,
@@ -2551,6 +2838,17 @@ export class ThreeAnimationSystem {
     snippet: TypedSnippet | { name: string; channels: SnippetChannel[] },
     options?: ClipOptions
   ): ClipHandle | null {
+    logTypedLipSyncDebug('[Embody Typed LipSync] playTypedSnippet', {
+      name: snippet.name,
+      channelCount: snippet.channels.length,
+      channels: snippet.channels.map(summarizeTypedChannel),
+      options: {
+        source: options?.source,
+        autoVisemeJaw: options?.autoVisemeJaw,
+        jawScale: options?.jawScale,
+        intensityScale: options?.intensityScale,
+      },
+    });
     const clip = this.typedSnippetToClip(snippet.name, snippet.channels, options);
     if (!clip) {
       return null;
@@ -2628,7 +2926,7 @@ export class ThreeAnimationSystem {
       ].map((a: AnimationAction) => ({ name: a?.getClip?.()?.name || '', actionId: this.getActionId(a) })),
     });
 
-    console.log('[Loom3] updateClipParams start', debugSnapshot());
+    console.log('[Embody] updateClipParams start', debugSnapshot());
 
     const apply = (action: AnimationAction | null | undefined) => {
       if (!action) return;
@@ -2686,7 +2984,7 @@ export class ThreeAnimationSystem {
       }
     }
 
-    console.log('[Loom3] updateClipParams end', debugSnapshot());
+    console.log('[Embody] updateClipParams end', debugSnapshot());
     return updated;
   }
 

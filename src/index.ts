@@ -1,15 +1,15 @@
 /**
- * Loom3 - 3D Character Animation Engine
+ * Embody - 3D Character Animation Engine
  *
  * A lightweight, framework-agnostic library for animating 3D character models
  * using Action Units (AUs), visemes, and bone transformations.
  *
  * @example
  * ```typescript
- * import { Loom3, collectMorphMeshes, CC4_PRESET } from '@lovelace_lol/loom3';
+ * import { Embody, collectMorphMeshes, CC4_PRESET } from '@lovelace_lol/embody';
  * import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
  *
- * const loom = new Loom3({ presetType: 'cc4' });
+ * const loom = new Embody({ presetType: 'cc4' });
  *
  * const loader = new GLTFLoader();
  * loader.load('/character.glb', (gltf) => {
@@ -31,18 +31,18 @@
 // IMPLEMENTATIONS (Three.js)
 // ============================================================================
 
-export { Loom3, collectMorphMeshes } from './engines/three/Loom3';
+export { Embody, collectMorphMeshes } from './engines/three/Embody';
 export {
-  AnimationThree,
+  ThreeAnimationRuntime,
   ThreeAnimationSystem,
   AnimationController,
   BakedAnimationController,
-} from './engines/three/AnimationThree';
+} from './engines/three/ThreeAnimationRuntime';
 export type {
   ThreeAnimationSystemHost,
   AnimationControllerHost,
   BakedAnimationHost,
-} from './engines/three/AnimationThree';
+} from './engines/three/ThreeAnimationRuntime';
 export { ThreeModelInspector } from './engines/three/ThreeModelInspector';
 export type {
   ThreeAnimationClipDescriptor,
@@ -77,20 +77,15 @@ export type {
 } from './core/TsClipCompiler';
 export type { TsRuntimeCoreOptions } from './core/TsRuntimeCore';
 
-// Legacy aliases (deprecated - use Loom3 instead)
-export { Loom3 as Loom3Three } from './engines/three/Loom3';
-export { Loom3 as LoomLargeThree } from './engines/three/Loom3';
-
 // ============================================================================
 // INTERFACES (for implementing custom engines)
 // ============================================================================
 
 export type {
-  LoomLarge,
+  EmbodyRuntime,
   ReadyPayload,
-  LoomLargeConfig,
-  Loom3Config,
-} from './interfaces/LoomLarge';
+  EmbodyConfig,
+} from './interfaces/EmbodyRuntime';
 
 export type { Animation, MixerLoopMode } from './interfaces/Animation';
 
@@ -240,6 +235,55 @@ export type {
   ResolvedVisemeBindingTarget,
 } from './mappings/visemeSystem';
 
+export {
+  applyAUBoneBindingUpdate,
+  applyBilateralAxisBindingUpdate,
+  applyBoneAxisBindingUpdate,
+  buildBoneAuOptions,
+  classifyAuAsJointControl,
+  createBilateralBoneAxisAu,
+  createBoneAxisAu,
+  DEFAULT_AXIS_TO_CHANNEL,
+  DEFAULT_BONE_MAX_DEGREES,
+  ensureBilateralBoneNodeKeys,
+  ensureBoneNodeKey,
+  findNodeKeyForBone,
+  formatAxisDirectionLabel,
+  formatAxisLabel,
+  getAUBoneBindingState,
+  getAxisFromChannel,
+  getBilateralAxisBindingState,
+  getBoneAxisBindingState,
+  inferChiralBoneNamePair,
+  inferEyeControlFamily,
+  inferEyeControlScope,
+  isJointControlAuInfo,
+  isMaxDegreesOnlyAxisBindingUpdate,
+  JOINT_CONTROL_SECTION,
+  resolveBoneAxisChannel,
+  resolveBoneNameForNodeKey,
+  resolveContinuumDisplayLabel,
+  stripConfiguredBoneAffixes,
+} from './authoring/boneAuthoring';
+
+export type {
+  AUBoneBindingState,
+  BilateralAxisBindingState,
+  BilateralAxisDirectionScaleState,
+  BilateralAxisScopeBindingState,
+  BilateralBoneAxisScope,
+  BoneAxisBindingState,
+  BoneAxisBindingUpdate,
+  BoneAxisDirection,
+  BoneAxisDirectionScale,
+  BoneAxisKey,
+  BoneControlFamily,
+  BoneControlScope,
+  ChiralBoneNamePair,
+  CreatedBoneAxisAu,
+  RotationChannel,
+} from './authoring/boneAuthoring';
+
 // ============================================================================
 // PROFILES
 // ============================================================================
@@ -344,7 +388,10 @@ export { extendPresetWithProfile } from './mappings/extendPresetWithProfile';
 export {
   AU_TO_MORPHS,
   BONE_AU_TO_BINDINGS,
+  LIP_SYNC_CONTROL_TO_BINDINGS,
+  CC4_PROFILE_BONE_BINDINGS,
   AU_MIX_DEFAULTS,
+  CC4_BONES,
   CC4_BONE_NODES,
   CC4_BONE_PREFIX,
   CC4_SUFFIX_PATTERN,

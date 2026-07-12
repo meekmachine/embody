@@ -1,3 +1,3 @@
 # Authors
 
-loom3 is authored by Jonathan Sutton Fields.
+embody is authored by Jonathan Sutton Fields.

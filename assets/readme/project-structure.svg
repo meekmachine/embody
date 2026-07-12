@@ -28,7 +28,7 @@
     </style>
   </defs>
   <rect width="1600" height="900" fill="url(#bgGrad)"/>
-  <text x="72" y="88" class="title">Install Loom3 into a standard Three.js project</text>
+  <text x="72" y="88" class="title">Install Embody into a standard Three.js project</text>
   
       <text x="72" y="122" class="subtitle">A minimal project layout plus the one dependency line that matters.</text>
       <rect x="72" y="170" width="690" height="650" rx="28" fill="url(#panelGrad)" stroke="#2a395f" stroke-width="2" filter="url(#shadow)"/>
@@ -43,18 +43,18 @@
       <text x="148" y="512" class="mono-small">public/</text>
       <text x="188" y="542" class="mono-small">thumbnails/</text>
       <text x="148" y="592" class="mono-small">node_modules/</text>
-      <text x="108" y="648" class="body">Loom3 stays in your app code, not in a framework-specific wrapper.</text>
+      <text x="108" y="648" class="body">Embody stays in your app code, not in a framework-specific wrapper.</text>
       <rect x="814" y="170" width="714" height="650" rx="28" fill="url(#panelGrad)" stroke="#2a395f" stroke-width="2" filter="url(#shadow)"/>
       <text x="850" y="222" class="label">package.json</text>
       <rect x="850" y="258" width="642" height="230" rx="18" fill="#0a0f1d" stroke="#243351" stroke-width="1.5"/>
       <text x="884" y="308" class="mono-small">{</text>
       <text x="916" y="344" class="mono-small">&quot;dependencies&quot;: {</text>
-      <text x="952" y="380" class="mono-small" fill="#78d49a">&quot;@lovelace_lol/loom3&quot;: &quot;^1.0.5&quot;,</text>
+      <text x="952" y="380" class="mono-small" fill="#78d49a">&quot;@lovelace_lol/embody&quot;: &quot;^1.0.5&quot;,</text>
       <text x="952" y="416" class="mono-small">&quot;three&quot;: &quot;^0.170.0&quot;</text>
       <text x="916" y="452" class="mono-small">}</text>
       <text x="884" y="488" class="mono-small">}</text>
       <rect x="850" y="536" width="642" height="160" rx="18" fill="#10203a" stroke="#24426e" stroke-width="1.5"/>
-      <text x="884" y="588" class="mono-small">npm install @lovelace_lol/loom3</text>
+      <text x="884" y="588" class="mono-small">npm install @lovelace_lol/embody</text>
       <text x="884" y="624" class="mono-small">npm install three</text>
       <text x="884" y="674" class="body">Then load your GLTF, collect morph meshes, and call <tspan fill="#e8edf7">loom.onReady()</tspan>.</text>
     

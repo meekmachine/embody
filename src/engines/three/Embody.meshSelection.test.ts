@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Mesh, MeshBasicMaterial, Object3D } from 'three';
-import { Loom3 } from './Loom3';
+import { Embody } from './Embody';
 
 function makeMorphMesh(name: string, morphKeys: string[]): Mesh {
   const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
@@ -10,7 +10,7 @@ function makeMorphMesh(name: string, morphKeys: string[]): Mesh {
   return mesh;
 }
 
-describe('Loom3 face mesh fallback selection', () => {
+describe('Embody face mesh fallback selection', () => {
   it('seeds morphToMesh.face from resolved face meshes (not all morph meshes)', () => {
     const face = makeMorphMesh('FaceMesh', ['Brow_Drop_L']);
     const hair = makeMorphMesh('HairMesh', ['Brow_Drop_L']);
@@ -18,7 +18,7 @@ describe('Loom3 face mesh fallback selection', () => {
     const model = new Object3D();
     model.add(face, hair);
 
-    const engine = new Loom3({
+    const engine = new Embody({
       presetType: 'cc4',
       profile: {
         morphToMesh: { face: [] },
@@ -39,7 +39,7 @@ describe('Loom3 face mesh fallback selection', () => {
     const model = new Object3D();
     model.add(face, hair);
 
-    const engine = new Loom3({
+    const engine = new Embody({
       presetType: 'cc4',
       profile: {
         morphToMesh: { face: [] },
@@ -66,7 +66,7 @@ describe('Loom3 face mesh fallback selection', () => {
     const model = new Object3D();
     model.add(face, eye);
 
-    const engine = new Loom3({
+    const engine = new Embody({
       presetType: 'cc4',
       profile: {
         morphToMesh: { face: ['FaceMesh'], eye: ['EyeMesh'] },

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Mesh, MeshBasicMaterial, Object3D, Quaternion } from 'three';
 import type { Profile } from '../../mappings/types';
-import type { SnippetChannel } from '../../core/types';
+import type { CompositeRotation, SnippetChannel } from '../../core/types';
 import type { ResolvedBones } from './types';
-import { AnimationController, type AnimationControllerHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './ThreeAnimationRuntime';
 
 function makeMorphMesh(name: string, dictionary: Record<string, number>): Mesh {
   const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
@@ -25,7 +25,12 @@ function makeBone(name = 'Head') {
   };
 }
 
-function makeHost(profile: Profile, meshes: Mesh[], bones: ResolvedBones = {}): AnimationControllerHost {
+function makeHost(
+  profile: Profile,
+  meshes: Mesh[],
+  bones: ResolvedBones = {},
+  compositeRotations: CompositeRotation[] = []
+): AnimationControllerHost {
   const model = new Object3D();
   meshes.forEach((mesh) => model.add(mesh));
   Object.values(bones).forEach((bone) => {
@@ -66,7 +71,7 @@ function makeHost(profile: Profile, meshes: Mesh[], bones: ResolvedBones = {}): 
     getCurrentBonePositionValue: (nodeKey: string, axis: 'x' | 'y' | 'z') => bones[nodeKey]?.obj.position[axis] ?? null,
     getBones: () => bones,
     getConfig: () => profile,
-    getCompositeRotations: () => [],
+    getCompositeRotations: () => compositeRotations,
     computeSideValues: (base: number) => ({ left: base, right: base }),
     getAUMixWeight: () => 1,
     isMixedAU: () => false,
@@ -154,5 +159,83 @@ describe('AnimationController typed snippet channels', () => {
     const quaternionTrack = clip!.tracks.find((track) => track.name === `${(head.obj as any).uuid}.quaternion`);
     expect(quaternionTrack).toBeTruthy();
     expect(Array.from(quaternionTrack!.values as ArrayLike<number>).slice(4)).not.toEqual([0, 0, 0, 1]);
+  });
+
+  it('routes typed AU channels through profile composite bone rotations', () => {
+    const jaw = makeBone('Jaw');
+    const bones: ResolvedBones = { JAW: jaw };
+    const profile: Profile = {
+      auToMorphs: {},
+      auToBones: {
+        26: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
+      },
+      boneNodes: { JAW: 'Jaw' },
+      morphToMesh: {},
+      visemeKeys: [],
+    };
+    const compositeRotations: CompositeRotation[] = [
+      {
+        node: 'JAW',
+        pitch: { aus: [26], axis: 'rz' },
+        yaw: null,
+        roll: null,
+      },
+    ];
+    const controller = new AnimationController(makeHost(profile, [], bones, compositeRotations));
+
+    const clip = controller.typedSnippetToClip('typed-au-jaw', [
+      {
+        target: { type: 'au', id: 26 },
+        keyframes: [{ time: 0, intensity: 0 }, { time: 0.2, intensity: 1 }],
+      },
+    ], { autoVisemeJaw: false });
+
+    expect(clip).toBeTruthy();
+    const quaternionTrack = clip!.tracks.find((track) => track.name === `${(jaw.obj as any).uuid}.quaternion`);
+    expect(quaternionTrack).toBeTruthy();
+    const values = Array.from(quaternionTrack!.values as ArrayLike<number>);
+    expect(values.slice(0, 4)).toEqual([0, 0, 0, 1]);
+    expect(Math.abs(values[6])).toBeGreaterThan(0.1);
+  });
+
+  it('routes lip-sync control 103 to the jaw bone without creating Jaw_Open morph tracks', () => {
+    const face = makeMorphMesh('Face', { Jaw_Open: 0 });
+    const jaw = makeBone('Jaw');
+    const bones: ResolvedBones = { JAW: jaw };
+    const profile: Profile = {
+      auToMorphs: {
+        26: { left: [], right: [], center: ['Jaw_Open'] },
+      },
+      auToBones: {
+        103: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
+      },
+      boneNodes: { JAW: 'Jaw' },
+      morphToMesh: { face: ['Face'] },
+      visemeKeys: [],
+    };
+    const compositeRotations: CompositeRotation[] = [
+      {
+        node: 'JAW',
+        pitch: { aus: [26, 103], axis: 'rz' },
+        yaw: null,
+        roll: null,
+      },
+    ];
+    const controller = new AnimationController(makeHost(profile, [face], bones, compositeRotations));
+
+    const clip = controller.typedSnippetToClip('typed-lipsync-jaw', [
+      {
+        target: { type: 'lipSync', id: 103 },
+        keyframes: [{ time: 0, intensity: 0 }, { time: 0.2, intensity: 1 }],
+      },
+    ], { autoVisemeJaw: false });
+
+    expect(clip).toBeTruthy();
+    expect(clip!.tracks.some((track) => track.name.includes('morphTargetInfluences'))).toBe(false);
+    const quaternionTrack = clip!.tracks.find((track) => track.name === `${(jaw.obj as any).uuid}.quaternion`);
+    expect(quaternionTrack).toBeTruthy();
+    const values = Array.from(quaternionTrack!.values as ArrayLike<number>);
+    expect(values.slice(0, 4)).toEqual([0, 0, 0, 1]);
+    expect(Math.abs(values[6])).toBeGreaterThan(0.1);
   });
 });

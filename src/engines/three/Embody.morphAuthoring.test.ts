@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BufferAttribute, BufferGeometry, Mesh, MeshBasicMaterial, Object3D } from 'three';
-import { Loom3, collectMorphMeshes } from './Loom3';
+import { Embody, collectMorphMeshes } from './Embody';
 import { analyzeModel } from '../../validation/analyzeModel';
 
 function makeGeometry(): BufferGeometry {
@@ -50,13 +50,13 @@ const bodyDelta = new Float32Array([
   0.1, 0, 0,
 ]);
 
-describe('Loom3 runtime morph target authoring', () => {
+describe('Embody runtime morph target authoring', () => {
   it('adds a named morph target and drives it by key and influence index', () => {
     const face = makeMesh('FaceMesh', { ExistingSmile: smileDelta });
     const model = new Object3D();
     model.add(face);
 
-    const engine = new Loom3({
+    const engine = new Embody({
       presetType: 'cc4',
       profile: { morphToMesh: { face: ['FaceMesh'] } },
     });
@@ -86,7 +86,7 @@ describe('Loom3 runtime morph target authoring', () => {
     const model = new Object3D();
     model.add(face);
 
-    const engine = new Loom3({
+    const engine = new Embody({
       presetType: 'cc4',
       profile: { morphToMesh: { face: ['FaceMesh'] } },
     });
@@ -116,7 +116,7 @@ describe('Loom3 runtime morph target authoring', () => {
     const model = new Object3D();
     model.add(face);
 
-    const engine = new Loom3({
+    const engine = new Embody({
       presetType: 'cc4',
       profile: { morphToMesh: { face: ['FaceMesh'] } },
     });
@@ -138,7 +138,7 @@ describe('Loom3 runtime morph target authoring', () => {
     const model = new Object3D();
     model.add(face);
 
-    const engine = new Loom3({
+    const engine = new Embody({
       presetType: 'cc4',
       profile: { morphToMesh: { face: ['FaceMesh'] } },
     });
@@ -159,7 +159,7 @@ describe('Loom3 runtime morph target authoring', () => {
     const model = new Object3D();
     model.add(face);
 
-    const engine = new Loom3({
+    const engine = new Embody({
       presetType: 'cc4',
       profile: { morphToMesh: { face: ['FaceMesh'] } },
     });
@@ -186,7 +186,7 @@ describe('Loom3 runtime morph target authoring', () => {
     const model = new Object3D();
     model.add(body);
 
-    const engine = new Loom3({
+    const engine = new Embody({
       presetType: 'cc4',
       profile: { morphToMesh: { face: ['BodyMesh'] } },
     });
@@ -210,7 +210,7 @@ describe('Loom3 runtime morph target authoring', () => {
     const model = new Object3D();
     model.add(face);
 
-    const engine = new Loom3({
+    const engine = new Embody({
       presetType: 'cc4',
       profile: {
         morphToMesh: { face: ['FaceMesh'] },
@@ -234,7 +234,7 @@ describe('Loom3 runtime morph target authoring', () => {
     const model = new Object3D();
     model.add(face);
 
-    const engine = new Loom3({
+    const engine = new Embody({
       presetType: 'cc4',
       profile: { morphToMesh: { face: ['FaceMesh'] } },
     });

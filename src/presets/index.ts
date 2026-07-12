@@ -1,8 +1,8 @@
 /**
- * Loom3 - Preset Exports
+ * Embody - Preset Exports
  *
  * All AU presets are exported from here.
- * Frontend passes a presetType string and Loom3 looks up or extends the preset internally.
+ * Frontend passes a presetType string and Embody looks up or extends the preset internally.
  */
 
 // CC4 preset (default for humanoid characters)
@@ -26,7 +26,7 @@ export {
 } from './bettaFish';
 
 /**
- * Preset types that can be passed to Loom3
+ * Preset types that can be passed to Embody
  */
 export type PresetType = 'cc4' | 'skeletal' | 'fish' | 'custom';
 

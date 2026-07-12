@@ -1,5 +1,5 @@
 /**
- * Loom3 - Core Type Definitions
+ * Embody - Core Type Definitions
  *
  * Type definitions for the 3D character animation engine.
  * These are framework-agnostic interfaces that work with any 3D engine.
@@ -81,9 +81,9 @@ export interface CompositeRotationState {
 export type RotationsState = Record<string, CompositeRotationState>;
 
 /**
- * Loom3Config - Configuration options for the Loom3 engine
+ * EmbodyConfig - Configuration options for the Embody engine
  */
-export interface Loom3Config {
+export interface EmbodyConfig {
   /** AU to morph target mappings (defaults to CC4_PRESET) */
   profile?: import('../mappings/types').Profile;
   /** Preset type to resolve if profile is not provided. */
@@ -143,7 +143,7 @@ export interface BakedClipChannelInfo {
   channel: BakedClipChannel;
   /** Number of tracks routed into this channel. */
   trackCount: number;
-  /** Whether Loom3 can play this channel directly. */
+  /** Whether Embody can play this channel directly. */
   playable: boolean;
   /** Effective/default blend mode for this channel when playable. */
   blendMode?: AnimationBlendMode;
@@ -338,6 +338,7 @@ export type CurvesMap = Record<string, CurvePoint[]>;
 export type SnippetChannelTarget =
   | { type: 'au'; id: number; balance?: number }
   | { type: 'viseme'; id: number; meshNames?: string[] }
+  | { type: 'lipSync'; id: number }
   | { type: 'morph'; id: string | number; meshNames?: string[] }
   | {
       type: 'bone';
@@ -351,7 +352,8 @@ export type SnippetChannelTarget =
 /**
  * A typed snippet channel names the target namespace explicitly. This avoids
  * the legacy curve-map ambiguity where numeric key "1" can mean AU 1 or
- * viseme slot 1 depending on snippetCategory.
+ * viseme slot 1 depending on snippetCategory, and it keeps speech-only
+ * lip-sync controls out of FACS AU space.
  */
 export interface SnippetChannel {
   target: SnippetChannelTarget;

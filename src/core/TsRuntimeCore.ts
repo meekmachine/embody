@@ -37,6 +37,10 @@ type RotationState = Record<string, { pitch: number; yaw: number; roll: number }
 
 const identityQuat: Quat = { x: 0, y: 0, z: 0, w: 1 };
 
+function isRotationBoneBinding(binding: BoneBinding | undefined): binding is BoneBinding & { channel: 'rx' | 'ry' | 'rz' } {
+  return binding?.channel === 'rx' || binding?.channel === 'ry' || binding?.channel === 'rz';
+}
+
 export class TsRuntimeCore {
   private profile: Profile;
   private model: ModelDescriptor;
@@ -207,8 +211,8 @@ export class TsRuntimeCore {
 
     const jawAmount = this.getActiveVisemeJawAmount();
     if (jawAmount > 1e-6) {
-      const jawBone = this.findBoneDescriptor('JAW');
-      const jawBinding = this.profile.auToBones[26]?.[0];
+      const jawBinding = this.findAutoVisemeJawBinding();
+      const jawBone = jawBinding ? this.findBoneDescriptor(jawBinding.node) : undefined;
       if (jawBone && jawBinding?.maxDegrees && jawBinding.channel) {
         const rotation = multiplyQuat(
           jawBone.restTransform?.rotation ?? identityQuat,
@@ -322,7 +326,26 @@ export class TsRuntimeCore {
 
   private findBoneDescriptor(nodeKey: string): BoneDescriptor | undefined {
     const configuredName = this.profile.boneNodes[nodeKey] || nodeKey;
-    return this.model.bones.find((bone) => bone.name === configuredName || bone.name === nodeKey);
+    const prefix = this.profile.bonePrefix ?? '';
+    const suffix = this.profile.boneSuffix ?? '';
+    const prefixedName = prefix && !configuredName.startsWith(prefix)
+      ? `${prefix}${configuredName}`
+      : configuredName;
+    const fullName = suffix && !prefixedName.endsWith(suffix)
+      ? `${prefixedName}${suffix}`
+      : prefixedName;
+    const candidates = new Set([nodeKey, configuredName, fullName]);
+    return this.model.bones.find((bone) => candidates.has(bone.name));
+  }
+
+  private findAutoVisemeJawBinding(): (BoneBinding & { channel: 'rx' | 'ry' | 'rz' }) | null {
+    const candidates = [
+      this.profile.auToBones[103]?.find(isRotationBoneBinding),
+      this.profile.auToBones[26]?.find(isRotationBoneBinding),
+    ].filter((binding): binding is BoneBinding & { channel: 'rx' | 'ry' | 'rz' } => !!binding);
+    return candidates.find((binding) => !!this.findBoneDescriptor(binding.node))
+      ?? candidates[0]
+      ?? null;
   }
 
   private getActiveVisemeJawAmount(): number {

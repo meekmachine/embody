@@ -1,10 +1,10 @@
 # Annotation Configuration
 
-Loom3 exposes annotation configuration through `annotationRegions` on `Profile`. Use `extendProfileConfigWithPreset(...)` when an app has a saved model/profile record and needs one preset-expanded runtime shape for camera and marker tooling.
+Embody exposes annotation configuration through `annotationRegions` on `Profile`. Use `extendProfileConfigWithPreset(...)` when an app has a saved model/profile record and needs one preset-expanded runtime shape for camera and marker tooling.
 
 There are three related shapes to know about:
 
-1. The canonical Loom3 preset/profile shape: `annotationRegions`
+1. The canonical Embody preset/profile shape: `annotationRegions`
 2. The saved model/profile input shape: `ProfileRuntimeConfig` or `CharacterProfile`, selected with `profilePresetId`
 3. The runtime/legacy mirror for older camera and marker consumers: `config.regions`
 
@@ -13,7 +13,7 @@ There are three related shapes to know about:
 New stored records should select the base profile with `profilePresetId` and put reusable overrides on `Profile` fields such as `annotationRegions`:
 
 ```ts
-import { extendProfileConfigWithPreset, type CharacterProfile } from '@lovelace_lol/loom3';
+import { extendProfileConfigWithPreset, type CharacterProfile } from '@lovelace_lol/embody';
 
 const savedProfile: CharacterProfile = {
   characterId: 'jonathan',
@@ -37,9 +37,9 @@ const savedProfile: CharacterProfile = {
 const runtimeConfig = extendProfileConfigWithPreset(savedProfile);
 ```
 
-`runtimeConfig.annotationRegions` and `runtimeConfig.regions` contain the preset regions plus saved overrides. The `regions` mirror exists so older camera and marker tooling can keep consuming top-level region entries while new Loom3 data stays profile-first.
+`runtimeConfig.annotationRegions` and `runtimeConfig.regions` contain the preset regions plus saved overrides. The `regions` mirror exists so older camera and marker tooling can keep consuming top-level region entries while new Embody data stays profile-first.
 
-When you call `extendProfileConfigWithPreset(...)`, Loom3 extends these shapes with this precedence:
+When you call `extendProfileConfigWithPreset(...)`, Embody extends these shapes with this precedence:
 
 1. preset `annotationRegions`
 2. top-level profile fields and `annotationRegions` overrides by region name
@@ -50,12 +50,12 @@ If canonical annotation overrides exist, legacy `config.regions` entries are onl
 
 `CharacterConfig`, `auPresetType`, and `extendCharacterConfigWithPreset(...)` remain exported as deprecated compatibility names for downstream apps that still persist older LoomLarge-style character records. New code should use `CharacterProfile` or `ProfileRuntimeConfig`, `profilePresetId`, and `extendProfileConfigWithPreset(...)`.
 
-## Loom3 Profile Shape
+## Embody Profile Shape
 
-Loom3 itself supports preset-level annotation defaults through `annotationRegions` on `Profile`:
+Embody itself supports preset-level annotation defaults through `annotationRegions` on `Profile`:
 
 ```ts
-import type { Profile } from '@lovelace_lol/loom3';
+import type { Profile } from '@lovelace_lol/embody';
 
 export const HUMAN_ANNOTATION_OVERRIDES: Partial<Profile> = {
   annotationRegions: [
@@ -195,7 +195,7 @@ General object targets. `['*']` means the whole model.
 
 For common behavior shared by a preset:
 
-1. Put the default region behavior in the Loom3 preset under `annotationRegions`.
+1. Put the default region behavior in the Embody preset under `annotationRegions`.
 2. Override only the fields that truly differ for a specific character.
 
 For runtime compatibility:

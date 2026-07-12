@@ -12,9 +12,9 @@ export type ProfileOverrides = Partial<Profile>;
 export type ProfilePresetId = PresetType | string;
 
 /**
- * Profile-derived runtime config accepted by Loom3 compatibility helpers.
+ * Profile-derived runtime config accepted by Embody compatibility helpers.
  *
- * Loom3's canonical model is `Profile`; these fields describe how apps select
+ * Embody's canonical model is `Profile`; these fields describe how apps select
  * and extend a base profile preset before handing the resolved profile to
  * runtime tools.
  */
@@ -62,7 +62,7 @@ export interface ProfileRuntimeConfig extends Partial<Profile> {
 /**
  * Optional downstream app metadata carried next to a profile.
  *
- * Loom3 does not treat these as a separate character configuration model; they
+ * Embody does not treat these as a separate character configuration model; they
  * are preserved only for apps that store model records beside profile fields.
  */
 export interface CharacterProfile extends ProfileRuntimeConfig {

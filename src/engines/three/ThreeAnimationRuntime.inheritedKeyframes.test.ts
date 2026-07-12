@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Mesh, MeshBasicMaterial, Object3D, Quaternion, Vector3 } from 'three';
 import type { Profile } from '../../mappings/types';
 import type { ResolvedBones } from './types';
-import { AnimationController, type AnimationControllerHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './ThreeAnimationRuntime';
 
 function makeMorphMesh(name: string, dictionary: Record<string, number>): Mesh {
   const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());

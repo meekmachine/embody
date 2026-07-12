@@ -11,7 +11,7 @@ import type {
 } from '../../core/types';
 import type { ResolvedBones } from './types';
 
-const MIXER_CLIP_PREFIX = '__loom3_baked_partition__/';
+const MIXER_CLIP_PREFIX = '__embody_baked_partition__/';
 const FACE_SAFE_TARGET_RE = /(head|neck|jaw|eye|brow|lid|mouth|lip|face|cheek|nose|tongue|teeth)/i;
 const BODY_LIKE_TARGET_RE = /(root|armature|hips?|pelvis|spine|waist|chest|torso|shoulder|arm|forearm|hand|finger|leg|thigh|calf|knee|foot|toe|tail|wing|fin|body|abdomen|clavicle)/i;
 const SCENE_LIKE_TARGET_RE = /(camera|cam|scene|world|global|origin|pivot|cube)/i;

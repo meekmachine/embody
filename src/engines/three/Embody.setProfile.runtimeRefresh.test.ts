@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BufferGeometry, Mesh, MeshBasicMaterial, Object3D } from 'three';
 import type { Profile } from '../../mappings/types';
-import { Loom3 } from './Loom3';
+import { Embody } from './Embody';
 
 function makeProfile(overrides: Partial<Profile>): Profile {
   return {
@@ -33,10 +33,10 @@ function makeMorphMesh(name: string, dictionary: Record<string, number>): Mesh {
   return mesh;
 }
 
-describe('Loom3 setProfile runtime refresh', () => {
+describe('Embody setProfile runtime refresh', () => {
   it('registers newly added composite bone mappings after a profile hot-swap', () => {
     const { model } = makeHeadJawRig();
-    const engine = new Loom3({
+    const engine = new Embody({
       profile: makeProfile({
         auToBones: {
           1: [{ node: 'HEAD', channel: 'ry', scale: 1, maxDegrees: 30 }],
@@ -90,7 +90,7 @@ describe('Loom3 setProfile runtime refresh', () => {
 
   it('reapplies active AU state when the profile remaps a composite axis', () => {
     const { model } = makeHeadJawRig();
-    const engine = new Loom3({
+    const engine = new Embody({
       profile: makeProfile({
         auToBones: {
           1: [{ node: 'HEAD', channel: 'ry', scale: 1, maxDegrees: 30 }],
@@ -142,7 +142,7 @@ describe('Loom3 setProfile runtime refresh', () => {
     const altMesh = makeMorphMesh('AltMesh', { Smile: 0 });
     model.add(faceMesh, altMesh);
 
-    const engine = new Loom3({
+    const engine = new Embody({
       profile: makeProfile({
         auToMorphs: {
           1: { left: [], right: [], center: ['Smile'] },
@@ -174,7 +174,7 @@ describe('Loom3 setProfile runtime refresh', () => {
     const visemeMesh = makeMorphMesh('VisemeMesh', { Viseme_AA: 0 });
     model.add(faceMesh, visemeMesh);
 
-    const engine = new Loom3({
+    const engine = new Embody({
       profile: makeProfile({
         auToBones: {
           26: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
@@ -233,7 +233,7 @@ describe('Loom3 setProfile runtime refresh', () => {
     const visemeMesh = makeMorphMesh('VisemeMesh', { Mouth_Aah: 0 });
     model.add(visemeMesh);
 
-    const engine = new Loom3({
+    const engine = new Embody({
       profile: makeProfile({
         auToBones: {
           26: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],

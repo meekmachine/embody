@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { Object3D } from 'three';
 import type { Profile } from '../../mappings/types';
-import { Loom3 } from './Loom3';
+import { Embody } from './Embody';
 
 function makeEyeEngine(): {
-  engine: Loom3;
+  engine: Embody;
   leftEye: Object3D;
   rightEye: Object3D;
 } {
@@ -55,13 +55,13 @@ function makeEyeEngine(): {
     ],
   };
 
-  const engine = new Loom3({ profile });
+  const engine = new Embody({ profile });
   engine.onReady({ model, meshes: [] });
 
   return { engine, leftEye, rightEye };
 }
 
-describe('Loom3 eye balance', () => {
+describe('Embody eye balance', () => {
   it('applies stored balance when transitioning bilateral eye bones', () => {
     const { engine, leftEye, rightEye } = makeEyeEngine();
 
