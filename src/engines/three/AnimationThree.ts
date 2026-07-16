@@ -342,6 +342,20 @@ export class ThreeAnimationSystem {
     }
   }
 
+  private shouldDebugClipLogs(): boolean {
+    const globalLocation = typeof window !== 'undefined' ? window.location : undefined;
+    const search = globalLocation?.search ?? '';
+    return search.includes('polymerVocalDebug=1')
+      || search.includes('embodyDebug=1')
+      || search.includes('loom3Debug=1');
+  }
+
+  private debugClipLog(...args: unknown[]): void {
+    if (this.shouldDebugClipLogs()) {
+      console.log(...args);
+    }
+  }
+
   private createRuntimeConnector(): EmbodyAnimationRuntimeConnector {
     return {
       buildClip: (clipName, curves, options) => {
@@ -2048,7 +2062,7 @@ export class ThreeAnimationSystem {
 
         const entry = bones[nodeKey];
         if (!entry) {
-          console.log(`[snippetToClip] Skipping composite for "${nodeKey}" - bone not resolved`);
+          this.debugClipLog(`[snippetToClip] Skipping composite for "${nodeKey}" - bone not resolved`);
           continue;
         }
 
@@ -2157,7 +2171,7 @@ export class ThreeAnimationSystem {
       options,
       hasInheritedStart: this.curvesHaveInheritedStart(curves),
     });
-    console.log(`[Loom3] snippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);
+    this.debugClipLog(`[Loom3] snippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);
 
     return clip;
   }
@@ -2251,7 +2265,7 @@ export class ThreeAnimationSystem {
     this.clipActions.set(clip.name, action);
     this.animationActions.set(clip.name, action);
     this.setPlaybackState(clip.name, playbackState);
-    console.log(`[Loom3] playClip: Playing "${clip.name}" (rate: ${playbackState.playbackRate}, loop: ${playbackState.loop}, actionId: ${actionId})`);
+    this.debugClipLog(`[Loom3] playClip: Playing "${clip.name}" (rate: ${playbackState.playbackRate}, loop: ${playbackState.loop}, actionId: ${actionId})`);
 
     const handle: ClipHandle = {
       clipName: clip.name,
@@ -2509,7 +2523,7 @@ export class ThreeAnimationSystem {
       ].map((a: AnimationAction) => ({ name: a?.getClip?.()?.name || '', actionId: this.getActionId(a) })),
     });
 
-    console.log('[Loom3] updateClipParams start', debugSnapshot());
+    this.debugClipLog('[Loom3] updateClipParams start', debugSnapshot());
 
     const apply = (action: AnimationAction | null | undefined) => {
       if (!action) return;
@@ -2567,7 +2581,7 @@ export class ThreeAnimationSystem {
       }
     }
 
-    console.log('[Loom3] updateClipParams end', debugSnapshot());
+    this.debugClipLog('[Loom3] updateClipParams end', debugSnapshot());
     return updated;
   }
 
@@ -2644,7 +2658,7 @@ export class ThreeAnimationSystem {
       options: legacyOptions,
       hasInheritedStart: this.curvesHaveInheritedStart(legacyCurves),
     });
-    console.log(`[Embody] typedSnippetToClip: Created typed clip "${clipName}" with ${tracks.length} tracks, duration ${duration.toFixed(2)}s`);
+    this.debugClipLog(`[Embody] typedSnippetToClip: Created typed clip "${clipName}" with ${tracks.length} tracks, duration ${duration.toFixed(2)}s`);
 
     return clip;
   }
@@ -2716,7 +2730,7 @@ export class ThreeAnimationSystem {
     for (const [nodeKey, entries] of rotationChannels.entries()) {
       const entry = bones[nodeKey];
       if (!entry) {
-        console.log(`[Embody] typedSnippetToClip: Skipping typed bone rotation for "${nodeKey}" - bone not resolved`);
+        this.debugClipLog(`[Embody] typedSnippetToClip: Skipping typed bone rotation for "${nodeKey}" - bone not resolved`);
         continue;
       }
 
@@ -2757,7 +2771,7 @@ export class ThreeAnimationSystem {
     for (const [nodeKey, entries] of positionChannels.entries()) {
       const entry = bones[nodeKey];
       if (!entry) {
-        console.log(`[Embody] typedSnippetToClip: Skipping typed bone translation for "${nodeKey}" - bone not resolved`);
+        this.debugClipLog(`[Embody] typedSnippetToClip: Skipping typed bone translation for "${nodeKey}" - bone not resolved`);
         continue;
       }
 
