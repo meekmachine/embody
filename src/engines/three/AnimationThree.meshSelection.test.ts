@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { BufferGeometry, Mesh, MeshBasicMaterial, Object3D } from 'three';
+import { BufferGeometry, Mesh, MeshBasicMaterial, Object3D, Quaternion } from 'three';
 import type { Profile } from '../../mappings/types';
 import { getMeshNamesForAUProfile, getMeshNamesForVisemeProfile } from '../../mappings/visemeSystem';
+import type { ResolvedBones } from './types';
 import { AnimationController, type AnimationControllerHost } from './AnimationThree';
 
 function makeMorphMesh(name: string, dictionary: Record<string, number>): Mesh {
@@ -35,6 +36,15 @@ function makeHost(profile: Profile, meshes: Mesh[]): AnimationControllerHost {
     computeSideValues: (base: number) => ({ left: base, right: base }),
     getAUMixWeight: () => 1,
     isMixedAU: () => false,
+  };
+}
+
+function makeBoneSnapshot(obj: Object3D) {
+  return {
+    obj,
+    basePos: { x: obj.position.x, y: obj.position.y, z: obj.position.z },
+    baseQuat: new Quaternion().copy(obj.quaternion),
+    baseEuler: { x: obj.rotation.x, y: obj.rotation.y, z: obj.rotation.z, order: obj.rotation.order },
   };
 }
 
@@ -180,5 +190,49 @@ describe('AnimationController mesh selection', () => {
     );
 
     expect(clip).toBeNull();
+  });
+
+  it('routes typed lip-sync jaw channels to the jaw bone without firing AU26 morphs', () => {
+    const faceMesh = makeMorphMesh('VisemeMesh', { Ah: 0, Jaw_Open: 1 });
+    const jaw = new Object3D();
+    const bones: ResolvedBones = { JAW: makeBoneSnapshot(jaw) };
+
+    const profile: Profile = {
+      auToMorphs: {
+        26: { left: [], right: [], center: ['Jaw_Open'] },
+      },
+      auToBones: {
+        26: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
+      },
+      boneNodes: { JAW: 'JawRoot' },
+      morphToMesh: { face: ['VisemeMesh'], viseme: ['VisemeMesh'] },
+      visemeKeys: ['Ah'],
+      visemeMeshCategory: 'viseme',
+    };
+
+    const host: AnimationControllerHost = {
+      ...makeHost(profile, [faceMesh]),
+      getBones: () => bones,
+      getCurrentBoneQuaternion: (nodeKey: string) => bones[nodeKey]?.obj.quaternion.clone() ?? null,
+      getCurrentBonePositionValue: (nodeKey: string, axis: 'x' | 'y' | 'z') => bones[nodeKey]?.obj.position[axis] ?? null,
+    };
+    const controller = new AnimationController(host);
+
+    const clip = controller.typedSnippetToClip('typed-lipsync', [
+      {
+        target: { type: 'viseme', id: 0 },
+        keyframes: [{ time: 0, intensity: 0 }, { time: 0.12, intensity: 1 }, { time: 0.24, intensity: 0 }],
+      },
+      {
+        target: { type: 'bone', id: 'JAW', channel: 'rz', maxDegrees: 30 },
+        keyframes: [{ time: 0, intensity: 0 }, { time: 0.12, intensity: 0.5 }, { time: 0.24, intensity: 0 }],
+      },
+    ], { autoVisemeJaw: false });
+
+    expect(clip).toBeTruthy();
+    const trackNames = clip!.tracks.map((track) => track.name);
+    expect(trackNames.some((name) => name === `${(faceMesh as any).uuid}.morphTargetInfluences[0]`)).toBe(true);
+    expect(trackNames.some((name) => name === `${(faceMesh as any).uuid}.morphTargetInfluences[1]`)).toBe(false);
+    expect(trackNames.some((name) => name === `${jaw.uuid}.quaternion`)).toBe(true);
   });
 });

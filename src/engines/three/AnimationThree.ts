@@ -245,6 +245,25 @@ type ClipEventMetadata = {
 
 type ScalarKeyframe = Pick<CurvePoint, 'time' | 'intensity' | 'inherit'>;
 
+type TypedSnippetTarget = {
+  type?: 'viseme' | 'au' | 'morph' | 'bone' | string;
+  id?: string | number;
+  channel?: 'rx' | 'ry' | 'rz' | 'tx' | 'ty' | 'tz' | string;
+  maxDegrees?: number;
+  maxUnits?: number;
+  scale?: number;
+};
+
+type TypedSnippetChannel = {
+  target?: TypedSnippetTarget;
+  keyframes?: ScalarKeyframe[];
+};
+
+type TypedSnippet = {
+  name: string;
+  channels?: TypedSnippetChannel[];
+};
+
 type ClipMonitor = {
   action: AnimationAction;
   actionId: string;
@@ -2367,6 +2386,29 @@ export class ThreeAnimationSystem {
     return this.playClipDirect(clip, options);
   }
 
+  playTypedSnippet(
+    snippet: TypedSnippet,
+    options?: ClipOptions
+  ): ClipHandle | null {
+    const clip = this.typedSnippetToClip(snippet.name, snippet.channels ?? [], options);
+    if (!clip) {
+      return null;
+    }
+    return this.playClipDirect(clip, { ...options, source: options?.source ?? 'snippet' });
+  }
+
+  buildTypedClip(
+    clipName: string,
+    channels: TypedSnippetChannel[],
+    options?: ClipOptions
+  ): ClipHandle | null {
+    const clip = this.typedSnippetToClip(clipName, channels, options);
+    if (!clip) {
+      return null;
+    }
+    return this.playClipDirect(clip, { ...options, source: options?.source ?? 'clip' });
+  }
+
   playSnippet(
     snippet: Snippet | { name: string; curves: CurvesMap },
     options?: ClipOptions
@@ -2545,6 +2587,215 @@ export class ThreeAnimationSystem {
 
     console.log('[Loom3] updateClipParams end', debugSnapshot());
     return updated;
+  }
+
+  typedSnippetToClip(
+    clipName: string,
+    channels: TypedSnippetChannel[],
+    options?: ClipOptions
+  ): AnimationClip | null {
+    const typedChannels = Array.isArray(channels) ? channels : [];
+    if (typedChannels.length === 0) {
+      console.warn(`[Embody] typedSnippetToClip: No channels for "${clipName}"`);
+      return null;
+    }
+
+    const legacyCurves: CurvesMap = {};
+    let hasVisemeChannel = false;
+    let hasExplicitJawBone = false;
+
+    for (const channel of typedChannels) {
+      const target = channel.target;
+      const keyframes = this.normalizeTypedKeyframes(channel.keyframes);
+      if (!target || keyframes.length === 0) continue;
+
+      if (target.type === 'viseme' && target.id !== undefined) {
+        legacyCurves[String(target.id)] = keyframes;
+        hasVisemeChannel = true;
+        continue;
+      }
+
+      if (target.type === 'au' && target.id !== undefined) {
+        legacyCurves[String(target.id)] = keyframes;
+        continue;
+      }
+
+      if (target.type === 'morph' && target.id !== undefined) {
+        legacyCurves[String(target.id)] = keyframes;
+        continue;
+      }
+
+      if (target.type === 'bone' && String(target.id) === 'JAW') {
+        hasExplicitJawBone = true;
+      }
+    }
+
+    const legacyOptions: ClipOptions = {
+      ...options,
+      ...(hasVisemeChannel && !options?.snippetCategory ? { snippetCategory: 'visemeSnippet' as const } : {}),
+      ...(hasExplicitJawBone ? { autoVisemeJaw: false } : {}),
+    };
+    const legacyClip = Object.keys(legacyCurves).length > 0
+      ? this.snippetToClip(clipName, legacyCurves, legacyOptions)
+      : null;
+    const tracks: Array<NumberKeyframeTrack | QuaternionKeyframeTrack> = legacyClip
+      ? Array.from(legacyClip.tracks) as Array<NumberKeyframeTrack | QuaternionKeyframeTrack>
+      : [];
+
+    this.addTypedBoneTracks(tracks, typedChannels, options);
+
+    if (tracks.length === 0) {
+      console.warn(`[Embody] typedSnippetToClip: No tracks created for "${clipName}"`);
+      return null;
+    }
+
+    const keyframeTimes = this.collectTypedKeyframeTimes(typedChannels);
+    const duration = Math.max(
+      legacyClip?.duration ?? 0,
+      keyframeTimes[keyframeTimes.length - 1] ?? 0
+    );
+    const clip = new AnimationClip(clipName, duration, tracks);
+    this.setClipEventMetadata(clip, { keyframeTimes });
+    this.dynamicClipSources.set(clip, {
+      clipName,
+      curves: legacyCurves,
+      options: legacyOptions,
+      hasInheritedStart: this.curvesHaveInheritedStart(legacyCurves),
+    });
+    console.log(`[Embody] typedSnippetToClip: Created typed clip "${clipName}" with ${tracks.length} tracks, duration ${duration.toFixed(2)}s`);
+
+    return clip;
+  }
+
+  private normalizeTypedKeyframes(keyframes: ScalarKeyframe[] | undefined): ScalarKeyframe[] {
+    if (!Array.isArray(keyframes)) return [];
+    return keyframes
+      .filter((keyframe) => (
+        Number.isFinite(keyframe?.time)
+        && Number.isFinite(keyframe?.intensity)
+      ))
+      .map((keyframe) => ({
+        time: Math.max(0, keyframe.time),
+        intensity: keyframe.intensity,
+        ...(keyframe.inherit ? { inherit: true } : {}),
+      }))
+      .sort((a, b) => a.time - b.time);
+  }
+
+  private collectTypedKeyframeTimes(channels: TypedSnippetChannel[]): number[] {
+    const times = new Set<number>();
+    for (const channel of channels) {
+      for (const keyframe of this.normalizeTypedKeyframes(channel.keyframes)) {
+        times.add(keyframe.time);
+      }
+    }
+    return Array.from(times).sort((a, b) => a - b);
+  }
+
+  private addTypedBoneTracks(
+    tracks: Array<NumberKeyframeTrack | QuaternionKeyframeTrack>,
+    channels: TypedSnippetChannel[],
+    options?: ClipOptions
+  ): void {
+    const rotationChannels = new Map<string, Array<{ channel: 'rx' | 'ry' | 'rz'; keyframes: ScalarKeyframe[]; maxDegrees: number; scale: number }>>();
+    const positionChannels = new Map<string, Array<{ channel: 'tx' | 'ty' | 'tz'; keyframes: ScalarKeyframe[]; maxUnits: number; scale: number }>>();
+
+    for (const channel of channels) {
+      const target = channel.target;
+      if (target?.type !== 'bone' || target.id === undefined) continue;
+      const keyframes = this.normalizeTypedKeyframes(channel.keyframes);
+      if (keyframes.length === 0) continue;
+
+      const nodeKey = String(target.id);
+      const scale = typeof target.scale === 'number' && Number.isFinite(target.scale) ? target.scale : 1;
+      if (target.channel === 'rx' || target.channel === 'ry' || target.channel === 'rz') {
+        const maxDegrees = typeof target.maxDegrees === 'number' && Number.isFinite(target.maxDegrees)
+          ? target.maxDegrees
+          : 1;
+        const entries = rotationChannels.get(nodeKey) ?? [];
+        entries.push({ channel: target.channel, keyframes, maxDegrees, scale });
+        rotationChannels.set(nodeKey, entries);
+      } else if (target.channel === 'tx' || target.channel === 'ty' || target.channel === 'tz') {
+        const maxUnits = typeof target.maxUnits === 'number' && Number.isFinite(target.maxUnits)
+          ? target.maxUnits
+          : 1;
+        const entries = positionChannels.get(nodeKey) ?? [];
+        entries.push({ channel: target.channel, keyframes, maxUnits, scale });
+        positionChannels.set(nodeKey, entries);
+      }
+    }
+
+    const bones = this.host.getBones();
+    const intensityScale = options?.intensityScale ?? 1.0;
+    const axisFor = (channel: 'rx' | 'ry' | 'rz') => (
+      channel === 'rx' ? X_AXIS : channel === 'ry' ? Y_AXIS : Z_AXIS
+    );
+
+    for (const [nodeKey, entries] of rotationChannels.entries()) {
+      const entry = bones[nodeKey];
+      if (!entry) {
+        console.log(`[Embody] typedSnippetToClip: Skipping typed bone rotation for "${nodeKey}" - bone not resolved`);
+        continue;
+      }
+
+      const times = Array.from(
+        new Set(entries.flatMap((item) => item.keyframes.map((keyframe) => keyframe.time)))
+      ).sort((a, b) => a - b);
+      if (times.length === 0) continue;
+
+      const currentBoneQ = entries.some((item) => item.keyframes[0]?.inherit)
+        ? this.host.getCurrentBoneQuaternion?.(nodeKey) ?? null
+        : null;
+      const values: number[] = [];
+
+      for (let timeIndex = 0; timeIndex < times.length; timeIndex += 1) {
+        const t = times[timeIndex];
+        if (timeIndex === 0 && currentBoneQ) {
+          values.push(currentBoneQ.x, currentBoneQ.y, currentBoneQ.z, currentBoneQ.w);
+          continue;
+        }
+
+        const q = new Quaternion().copy(entry.baseQuat);
+        for (const item of entries) {
+          const amount = this.sampleFinalKeyframeValue(
+            item.keyframes,
+            t,
+            (intensity) => intensity * intensityScale
+          );
+          if (Math.abs(amount) <= 1e-6) continue;
+          const radians = (item.maxDegrees * Math.PI / 180) * amount * item.scale;
+          q.multiply(new Quaternion().setFromAxisAngle(axisFor(item.channel), radians));
+        }
+        values.push(q.x, q.y, q.z, q.w);
+      }
+
+      tracks.push(new QuaternionKeyframeTrack(`${entry.obj.uuid}.quaternion`, times, values));
+    }
+
+    for (const [nodeKey, entries] of positionChannels.entries()) {
+      const entry = bones[nodeKey];
+      if (!entry) {
+        console.log(`[Embody] typedSnippetToClip: Skipping typed bone translation for "${nodeKey}" - bone not resolved`);
+        continue;
+      }
+
+      for (const item of entries) {
+        const axis = item.channel === 'tx' ? 'x' : item.channel === 'ty' ? 'y' : 'z';
+        const basePos = entry.basePos[axis];
+        const inheritedStartValue = item.keyframes[0]?.inherit
+          ? this.host.getCurrentBonePositionValue?.(nodeKey, axis) ?? entry.obj.position[axis]
+          : undefined;
+        const times = item.keyframes.map((keyframe) => keyframe.time);
+        const values = item.keyframes.map((keyframe) => this.sampleFinalKeyframeValue(
+          item.keyframes,
+          keyframe.time,
+          (intensity) => basePos + (intensity * intensityScale * item.maxUnits * item.scale),
+          inheritedStartValue
+        ));
+
+        tracks.push(new NumberKeyframeTrack(`${entry.obj.uuid}.position[${axis}]`, times, values));
+      }
+    }
   }
 
   private addMorphTracks(
