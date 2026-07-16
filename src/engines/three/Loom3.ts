@@ -32,6 +32,8 @@ import type {
   ClipOptions,
   ClipHandle,
   Snippet,
+  TypedSnippetChannel,
+  TypedSnippet,
   CompositeRotation,
   RotationAxis,
   AnimationBlendMode,
@@ -2271,6 +2273,29 @@ export class Loom3 implements LoomLarge {
     options?: ClipOptions
   ): ClipHandle | null {
     return this.animationController.buildClip(clipName, curves, options);
+  }
+
+  playTypedSnippet(
+    snippet: TypedSnippet,
+    options?: ClipOptions
+  ): ClipHandle | null {
+    return this.animationController.playTypedSnippet(snippet, options);
+  }
+
+  buildTypedClip(
+    clipName: string,
+    channels: TypedSnippetChannel[],
+    options?: ClipOptions
+  ): ClipHandle | null {
+    return this.animationController.buildTypedClip(clipName, channels, options);
+  }
+
+  typedSnippetToClip(
+    clipName: string,
+    channels: TypedSnippetChannel[],
+    options?: ClipOptions
+  ): AnimationClip | null {
+    return this.animationController.typedSnippetToClip(clipName, channels, options);
   }
 
   cleanupSnippet(name: string) {

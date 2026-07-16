@@ -138,6 +138,10 @@ export type {
   AnimationActionHandle,
   // Dynamic clip types
   CurvePoint,
+  TypedSnippetKeyframe,
+  TypedSnippetTarget,
+  TypedSnippetChannel,
+  TypedSnippet,
   CurvesMap,
   ClipOptions,
   ClipEvent,

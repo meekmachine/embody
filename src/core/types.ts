@@ -317,6 +317,8 @@ export type ClipEventListener = (event: ClipEvent) => void;
 export interface EmbodyAnimationRuntimeConnector {
   buildClip?: (clipName: string, curves: CurvesMap, options?: ClipOptions) => unknown;
   playClip?: (clipName: string, curves?: CurvesMap, options?: ClipOptions) => unknown;
+  buildTypedClip?: (clipName: string, channels: TypedSnippetChannel[], options?: ClipOptions) => unknown;
+  playTypedSnippet?: (snippet: TypedSnippet, options?: ClipOptions) => unknown;
   stopClip?: (clipName: string) => void;
   pauseClip?: (clipName: string) => void;
   resumeClip?: (clipName: string) => void;
@@ -336,6 +338,8 @@ export interface EmbodyAnimationRuntime {
   snapshot(): Record<string, unknown>;
   buildClip(clipName: string, curves: CurvesMap, options?: ClipOptions): ClipHandle | null;
   playSnippet(clipName: string, curves: CurvesMap, options?: ClipOptions): ClipHandle | null;
+  buildTypedClip?: (clipName: string, channels: TypedSnippetChannel[], options?: ClipOptions) => ClipHandle | null;
+  playTypedSnippet?: (snippet: TypedSnippet, options?: ClipOptions) => ClipHandle | null;
   acceptClipEvent(event: ClipEvent | Record<string, unknown>): boolean;
   cleanupSnippet(clipName: string): boolean;
   updateClipParams(clipName: string, params: Record<string, unknown>): boolean;
@@ -360,6 +364,43 @@ export interface CurvePoint {
    * into the following authored keyframes.
    */
   inherit?: boolean;
+}
+
+/**
+ * A scalar keyframe for typed snippets. Typed snippets keep the same timing
+ * envelope as legacy curves while making the destination explicit.
+ */
+export type TypedSnippetKeyframe = Pick<CurvePoint, 'time' | 'intensity' | 'inherit'>;
+
+/**
+ * Explicit destination for one typed snippet channel. This lets upstream
+ * planners say "viseme 3", "AU 37", "morph Smile", or "jaw bone pitch"
+ * without relying on overloaded numeric curve names.
+ */
+export interface TypedSnippetTarget {
+  type?: 'viseme' | 'au' | 'morph' | 'bone' | string;
+  id?: string | number;
+  channel?: 'rx' | 'ry' | 'rz' | 'tx' | 'ty' | 'tz' | string;
+  maxDegrees?: number;
+  maxUnits?: number;
+  scale?: number;
+}
+
+/**
+ * One typed animation channel: an explicit destination plus scalar keyframes.
+ */
+export interface TypedSnippetChannel {
+  target?: TypedSnippetTarget;
+  keyframes?: TypedSnippetKeyframe[];
+}
+
+/**
+ * Public snippet shape used by ClojureScript agencies and other runtimes that
+ * want Embody to route visemes, AUs, morphs, and direct bones through one API.
+ */
+export interface TypedSnippet {
+  name: string;
+  channels?: TypedSnippetChannel[];
 }
 
 /**

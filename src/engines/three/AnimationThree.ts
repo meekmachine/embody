@@ -42,6 +42,9 @@ import type {
   BakedClipChannelInfo,
   AnimationEasing,
   CurvePoint,
+  TypedSnippetKeyframe,
+  TypedSnippetChannel,
+  TypedSnippet,
   EmbodyAnimationRuntime,
   EmbodyAnimationRuntimeConnector,
   EmbodyAnimationRuntimeFactory,
@@ -241,27 +244,6 @@ const CLIP_EVENT_EPSILON = 1e-4;
 
 type ClipEventMetadata = {
   keyframeTimes: number[];
-};
-
-type ScalarKeyframe = Pick<CurvePoint, 'time' | 'intensity' | 'inherit'>;
-
-type TypedSnippetTarget = {
-  type?: 'viseme' | 'au' | 'morph' | 'bone' | string;
-  id?: string | number;
-  channel?: 'rx' | 'ry' | 'rz' | 'tx' | 'ty' | 'tz' | string;
-  maxDegrees?: number;
-  maxUnits?: number;
-  scale?: number;
-};
-
-type TypedSnippetChannel = {
-  target?: TypedSnippetTarget;
-  keyframes?: ScalarKeyframe[];
-};
-
-type TypedSnippet = {
-  name: string;
-  channels?: TypedSnippetChannel[];
 };
 
 type ClipMonitor = {
@@ -1845,7 +1827,7 @@ export class ThreeAnimationSystem {
       return !Number.isNaN(num) && num >= 0 && num < visemeSlotCount;
     };
 
-    const hasInheritedStart = (arr: ScalarKeyframe[] | undefined) => !!arr?.[0]?.inherit;
+    const hasInheritedStart = (arr: TypedSnippetKeyframe[] | undefined) => !!arr?.[0]?.inherit;
     const clampIntensity = (v: number) => Math.max(0, Math.min(2, v));
     const sampleCurve = (curveId: string, t: number) => {
       const arr = curves[curveId];
@@ -2667,7 +2649,7 @@ export class ThreeAnimationSystem {
     return clip;
   }
 
-  private normalizeTypedKeyframes(keyframes: ScalarKeyframe[] | undefined): ScalarKeyframe[] {
+  private normalizeTypedKeyframes(keyframes: TypedSnippetKeyframe[] | undefined): TypedSnippetKeyframe[] {
     if (!Array.isArray(keyframes)) return [];
     return keyframes
       .filter((keyframe) => (
@@ -2697,8 +2679,8 @@ export class ThreeAnimationSystem {
     channels: TypedSnippetChannel[],
     options?: ClipOptions
   ): void {
-    const rotationChannels = new Map<string, Array<{ channel: 'rx' | 'ry' | 'rz'; keyframes: ScalarKeyframe[]; maxDegrees: number; scale: number }>>();
-    const positionChannels = new Map<string, Array<{ channel: 'tx' | 'ty' | 'tz'; keyframes: ScalarKeyframe[]; maxUnits: number; scale: number }>>();
+    const rotationChannels = new Map<string, Array<{ channel: 'rx' | 'ry' | 'rz'; keyframes: TypedSnippetKeyframe[]; maxDegrees: number; scale: number }>>();
+    const positionChannels = new Map<string, Array<{ channel: 'tx' | 'ty' | 'tz'; keyframes: TypedSnippetKeyframe[]; maxUnits: number; scale: number }>>();
 
     for (const channel of channels) {
       const target = channel.target;
@@ -2801,7 +2783,7 @@ export class ThreeAnimationSystem {
   private addMorphTracks(
     tracks: Array<NumberKeyframeTrack | QuaternionKeyframeTrack>,
     morphKey: string,
-    keyframes: ScalarKeyframe[],
+    keyframes: TypedSnippetKeyframe[],
     intensityScale: number,
     meshNames?: string[]
   ): void {
@@ -2855,7 +2837,7 @@ export class ThreeAnimationSystem {
   private addMorphIndexTracks(
     tracks: Array<NumberKeyframeTrack | QuaternionKeyframeTrack>,
     morphIndex: number,
-    keyframes: ScalarKeyframe[],
+    keyframes: TypedSnippetKeyframe[],
     intensityScale: number,
     meshNames?: string[]
   ): void {
@@ -2905,7 +2887,7 @@ export class ThreeAnimationSystem {
   }
 
   private sampleFinalKeyframeValue(
-    keyframes: ScalarKeyframe[],
+    keyframes: TypedSnippetKeyframe[],
     t: number,
     toFinalValue: (intensity: number) => number,
     inheritedStartValue?: number
