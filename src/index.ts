@@ -31,7 +31,12 @@
 // IMPLEMENTATIONS (Three.js)
 // ============================================================================
 
-export { Embody, collectMorphMeshes } from './engines/three/Embody';
+export {
+  Embody,
+  Embody as Loom3,
+  Embody as LoomLargeThree,
+  collectMorphMeshes,
+} from './engines/three/Embody';
 export {
   ThreeAnimationRuntime,
   ThreeAnimationSystem,
