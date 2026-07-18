@@ -30,7 +30,7 @@
   <rect width="1600" height="900" fill="url(#bgGrad)"/>
   <text x="72" y="88" class="title">Composite rotations keep head motion readable across axes</text>
   
-      <text x="72" y="122" class="subtitle">Yaw, pitch, and roll are accumulated together before Loom3 writes the final transform.</text>
+      <text x="72" y="122" class="subtitle">Yaw, pitch, and roll are accumulated together before Embody writes the final transform.</text>
       <circle cx="800" cy="470" r="180" fill="#182947" stroke="#36537f" stroke-width="2"/>
       <circle cx="744" cy="430" r="18" fill="#0b1020"/><circle cx="856" cy="430" r="18" fill="#0b1020"/>
       <path d="M726 540 C770 592 830 592 874 540" stroke="#0b1020" stroke-width="14" stroke-linecap="round" fill="none"/>

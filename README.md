@@ -1,19 +1,19 @@
-# Loom3
+# Embody
 
 
-The missing character controller for Three.js! Loom3 allows you to bring humanoid and animal characters to life. Loom3 is based on the Facial Action Coding System (FACS) as the basis of its mappings, providing a morph and bone mapping library for controlling high-definition 3D characters in Three.js.
+The missing character controller for Three.js! Embody allows you to bring humanoid and animal characters to life. Embody is based on the Facial Action Coding System (FACS) as the basis of its mappings, providing a morph and bone mapping library for controlling high-definition 3D characters in Three.js.
 
-Loom3 provides mappings that connect [Facial Action Coding System (FACS)](https://en.wikipedia.org/wiki/Facial_Action_Coding_System) Action Units to the morph targets and bone transforms found in 3d character assets. Instead of manually figuring out which blend shapes correspond to which facial movements, you can simply say `setAU(12, 0.8)` and the library handles the rest.
+Embody provides mappings that connect [Facial Action Coding System (FACS)](https://en.wikipedia.org/wiki/Facial_Action_Coding_System) Action Units to the morph targets and bone transforms found in 3d character assets. Instead of manually figuring out which blend shapes correspond to which facial movements, you can simply say `setAU(12, 0.8)` and the library handles the rest.
 
-> **Note:** If you previously used the `loomlarge` npm package, it has been renamed to `@lovelace_lol/loom3`.
+> **Note:** If you previously used the `loomlarge` npm package, it has been renamed to `@lovelace_lol/embody`.
 
-![Hero image showing Loom3 controlling a facial expression](./assets/readme/hero-expressions.webp)
+![Hero image showing Embody controlling a facial expression](./assets/readme/hero-expressions.webp)
 
 ---
 
-## What Loom3 Covers
+## What Embody Covers
 
-Loom3 is broader than a face-controller wrapper. The library spans four practical areas:
+Embody is broader than a face-controller wrapper. The library spans four practical areas:
 - Runtime control: Action Units, visemes, direct morphs, continuum pairs, composite rotations, transitions, and mixer playback.
 - Rig configuration: built-in presets, profile overrides, preset lookup and extension, name resolution, viseme routing, mix weights, and skeletal-only preset support.
 - Inspection and validation: mesh, morph, and bone discovery; preset-fit checks; correction suggestions; and full model analysis.
@@ -86,17 +86,17 @@ Additional:
 
 Open in LoomLarge: [Animation tab](https://www.characterloom.com/?drawer=open&tab=animation)
 
-![Project structure with Loom3 installed](./assets/readme/project-structure.svg)
+![Project structure with Embody installed](./assets/readme/project-structure.svg)
 
 ### Install the package
 
 ```bash
-npm install @lovelace_lol/loom3
+npm install @lovelace_lol/embody
 ```
 
 ### Peer dependency
 
-Loom3 requires Three.js as a peer dependency:
+Embody requires Three.js as a peer dependency:
 
 ```bash
 npm install three
@@ -107,10 +107,10 @@ npm install three
 ```typescript
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { Loom3, collectMorphMeshes, CC4_PRESET } from '@lovelace_lol/loom3';
+import { Embody, collectMorphMeshes, CC4_PRESET } from '@lovelace_lol/embody';
 
-// 1. Create the Loom3 controller with a preset
-const loom = new Loom3({ profile: CC4_PRESET });
+// 1. Create the Embody controller with a preset
+const loom = new Embody({ profile: CC4_PRESET });
 
 // 2. Set up your Three.js scene
 const scene = new THREE.Scene();
@@ -127,7 +127,7 @@ loader.load('/character.glb', (gltf) => {
   // 4. Collect all meshes that have morph targets
   const meshes = collectMorphMeshes(gltf.scene);
 
-  // 5. Initialize Loom3 with the meshes and model
+  // 5. Initialize Embody with the meshes and model
   loom.onReady({ meshes, model: gltf.scene });
 });
 
@@ -135,13 +135,13 @@ loader.load('/character.glb', (gltf) => {
 // This drives all transitions and animations
 ```
 
-If you’re implementing a custom renderer, target the `Loom3` interface exported from `@lovelace_lol/loom3` (legacy alias: `LoomLarge`).
+If you’re implementing a custom renderer, target the `Embody` interface exported from `@lovelace_lol/embody` (legacy alias: `LoomLarge`).
 
 ### Lifecycle and update ownership
 
 You have two valid integration patterns:
 - External render loop: call `loom.update(deltaSeconds)` from your app’s main loop.
-- Internal render loop: call `loom.start()` after `onReady()` and let Loom3 drive its own RAF-based updates.
+- Internal render loop: call `loom.start()` after `onReady()` and let Embody drive its own RAF-based updates.
 
 The main lifecycle methods are:
 - `onReady({ meshes, model })`: bind the loaded model to the engine
@@ -186,16 +186,16 @@ await loom.transitionAU(12, 0, 300).promise;
 
 ### The `collectMorphMeshes` helper
 
-This utility function traverses a Three.js scene and returns all meshes that have `morphTargetInfluences` (i.e., blend shapes). It's the recommended way to gather meshes for Loom3:
+This utility function traverses a Three.js scene and returns all meshes that have `morphTargetInfluences` (i.e., blend shapes). It's the recommended way to gather meshes for Embody:
 
 ```typescript
-import { collectMorphMeshes } from '@lovelace_lol/loom3';
+import { collectMorphMeshes } from '@lovelace_lol/embody';
 
 const meshes = collectMorphMeshes(gltf.scene);
 // Returns: Array of THREE.Mesh objects with morph targets
 ```
 
-![Loaded character in a Three.js scene powered by Loom3](./assets/readme/loaded-character-scene.webp)
+![Loaded character in a Three.js scene powered by Embody](./assets/readme/loaded-character-scene.webp)
 
 ---
 
@@ -203,14 +203,14 @@ const meshes = collectMorphMeshes(gltf.scene);
 
 Open in LoomLarge: [Properties tab](https://www.characterloom.com/?drawer=open&tab=properties) | [Mappings tab](https://www.characterloom.com/?drawer=open&tab=mappings)
 
-![Diagram showing how Loom3 presets connect AUs to morphs and bones](./assets/readme/preset-au-flow.svg)
+![Diagram showing how Embody presets connect AUs to morphs and bones](./assets/readme/preset-au-flow.svg)
 
-Presets define how FACS Action Units map to your character's morph targets and bones. Loom3 ships with `CC4_PRESET` for Character Creator 4 characters.
+Presets define how FACS Action Units map to your character's morph targets and bones. Embody ships with `CC4_PRESET` for Character Creator 4 characters.
 
 ### What's in a preset?
 
 ```typescript
-import { CC4_PRESET } from '@lovelace_lol/loom3';
+import { CC4_PRESET } from '@lovelace_lol/embody';
 
 // CC4_PRESET contains:
 {
@@ -300,20 +300,20 @@ For `annotationRegions`, `paddingFactor` is the camera framing multiplier for th
 - values above `1` pull back to show more surrounding context
 - profile overrides can replace it per region by name without copying the whole preset
 
-### Passing a preset to Loom3
+### Passing a preset to Embody
 
 ```typescript
-import { Loom3, CC4_PRESET } from '@lovelace_lol/loom3';
+import { Embody, CC4_PRESET } from '@lovelace_lol/embody';
 
-const loom = new Loom3({ profile: CC4_PRESET });
+const loom = new Embody({ profile: CC4_PRESET });
 ```
 
 You can also look up presets by name and extend them without cloning the full preset:
 
 ```typescript
-import { Loom3 } from '@lovelace_lol/loom3';
+import { Embody } from '@lovelace_lol/embody';
 
-const loom = new Loom3({
+const loom = new Embody({
   presetType: 'cc4',
   profile: {
     auToMorphs: {
@@ -328,8 +328,8 @@ const loom = new Loom3({
 A **profile** is a partial override object that extends a base preset. Use it to customize a single character without copying the full preset:
 
 ```typescript
-import type { Profile } from '@lovelace_lol/loom3';
-import { Loom3 } from '@lovelace_lol/loom3';
+import type { Profile } from '@lovelace_lol/embody';
+import { Embody } from '@lovelace_lol/embody';
 
 const DAISY_PROFILE: Profile = {
   morphToMesh: { face: ['Object_9'] },
@@ -340,7 +340,7 @@ const DAISY_PROFILE: Profile = {
   ],
 };
 
-const loom = new Loom3({
+const loom = new Embody({
   presetType: 'cc4',
   profile: DAISY_PROFILE,
 });
@@ -348,12 +348,12 @@ const loom = new Loom3({
 
 ### Annotation configuration
 
-`annotationRegions` is the Loom3 field for camera/marker region defaults and profile overrides.
+`annotationRegions` is the Embody field for camera/marker region defaults and profile overrides.
 
 If your app fetches a saved model/profile record from Firestore or another backend, use `extendProfileConfigWithPreset(...)` to build the runtime shape before handing that profile config to camera/marker tooling:
 
 ```typescript
-import { extendProfileConfigWithPreset } from '@lovelace_lol/loom3';
+import { extendProfileConfigWithPreset } from '@lovelace_lol/embody';
 
 const savedConfig = await fetchProfileConfig();
 const runtimeConfig = extendProfileConfigWithPreset({
@@ -362,7 +362,7 @@ const runtimeConfig = extendProfileConfigWithPreset({
 });
 ```
 
-`CharacterConfig`, `auPresetType`, and `extendCharacterConfigWithPreset(...)` are still exported as deprecated compatibility aliases for apps migrating from older LoomLarge-style character records. New Loom3 integrations should model presets as base profiles, pass profile overrides through `profile`, `annotationRegions`, or other `Profile` fields, and use `profilePresetId` for preset selection.
+`CharacterConfig`, `auPresetType`, and `extendCharacterConfigWithPreset(...)` are still exported as deprecated compatibility aliases for apps migrating from older LoomLarge-style character records. New Embody integrations should model presets as base profiles, pass profile overrides through `profile`, `annotationRegions`, or other `Profile` fields, and use `profilePresetId` for preset selection.
 
 For the current runtime-oriented documentation, including:
 
@@ -375,7 +375,7 @@ For the current runtime-oriented documentation, including:
 
 see [ANNOTATION_CONFIGURATION.md](./ANNOTATION_CONFIGURATION.md).
 
-![Character properties UI showing a Loom3 preset applied to a live character](./assets/readme/preset-applied-ui.webp)
+![Character properties UI showing a Embody preset applied to a live character](./assets/readme/preset-applied-ui.webp)
 
 ---
 
@@ -383,7 +383,7 @@ see [ANNOTATION_CONFIGURATION.md](./ANNOTATION_CONFIGURATION.md).
 
 Open in LoomLarge: [Properties tab](https://www.characterloom.com/?drawer=open&tab=properties) | [Mappings tab](https://www.characterloom.com/?drawer=open&tab=mappings) | [Bones tab](https://www.characterloom.com/?drawer=open&tab=bones)
 
-Before you tune AUs or hand-edit a profile, confirm that you picked the right preset and that the model actually matches it. Loom3 exposes a full preset-selection and validation workflow, not just low-level control APIs.
+Before you tune AUs or hand-edit a profile, confirm that you picked the right preset and that the model actually matches it. Embody exposes a full preset-selection and validation workflow, not just low-level control APIs.
 
 ### Looking Up and Extending Presets by Type
 
@@ -393,7 +393,7 @@ Use preset helpers when you want a stable entry point by model class instead of 
 import {
   getPreset,
   getPresetWithProfile,
-} from '@lovelace_lol/loom3';
+} from '@lovelace_lol/embody';
 
 const preset = getPreset('cc4');
 
@@ -407,7 +407,7 @@ const extended = getPresetWithProfile('cc4', {
 `validateMappingConfig()` checks the profile for internal consistency before you even compare it to a model:
 
 ```typescript
-import { validateMappingConfig } from '@lovelace_lol/loom3';
+import { validateMappingConfig } from '@lovelace_lol/embody';
 
 const consistency = validateMappingConfig(resolved);
 console.log(consistency.errors, consistency.warnings);
@@ -421,7 +421,7 @@ import {
   validateMappings,
   isPresetCompatible,
   generateMappingCorrections,
-} from '@lovelace_lol/loom3';
+} from '@lovelace_lol/embody';
 
 const skinnedMesh = gltf.scene.getObjectByProperty('type', 'SkinnedMesh') as THREE.SkinnedMesh | undefined;
 const skeleton = skinnedMesh?.skeleton ?? null;
@@ -443,7 +443,7 @@ import {
   CC4_PRESET,
   BETTA_FISH_PRESET,
   suggestBestPreset,
-} from '@lovelace_lol/loom3';
+} from '@lovelace_lol/embody';
 
 const best = suggestBestPreset(meshes, skeleton, [
   CC4_PRESET,
@@ -458,7 +458,7 @@ import {
   analyzeModel,
   extractFromGLTF,
   extractModelData,
-} from '@lovelace_lol/loom3';
+} from '@lovelace_lol/embody';
 
 const extracted = extractFromGLTF(gltf);
 const runtimeData = extractModelData(gltf.scene, meshes, gltf.animations);
@@ -484,9 +484,9 @@ Use this section when you need to:
 
 Open in LoomLarge: [Meshes tab](https://www.characterloom.com/?drawer=open&tab=meshes) | [Bones tab](https://www.characterloom.com/?drawer=open&tab=bones) | [Mappings tab](https://www.characterloom.com/?drawer=open&tab=mappings)
 
-![Console-style diagram showing Loom3 mesh and morph target inspection output](./assets/readme/console-mesh-output.svg)
+![Console-style diagram showing Embody mesh and morph target inspection output](./assets/readme/console-mesh-output.svg)
 
-Before customizing presets or extending mappings, it's helpful to understand what's actually in your character model. Loom3 provides several methods to inspect meshes, morph targets, and bones.
+Before customizing presets or extending mappings, it's helpful to understand what's actually in your character model. Embody provides several methods to inspect meshes, morph targets, and bones.
 
 ### Listing meshes
 
@@ -572,7 +572,7 @@ import {
   validateMappings,
   generateMappingCorrections,
   getPreset,
-} from '@lovelace_lol/loom3';
+} from '@lovelace_lol/embody';
 
 const preset = getPreset('cc4');
 const modelData = extractModelData(model, meshes, animations);
@@ -681,7 +681,7 @@ Open in LoomLarge: [Properties tab](https://www.characterloom.com/?drawer=open&t
 Use `extendPresetWithProfile` to override specific mappings while keeping the rest:
 
 ```typescript
-import { CC4_PRESET, extendPresetWithProfile } from '@lovelace_lol/loom3';
+import { CC4_PRESET, extendPresetWithProfile } from '@lovelace_lol/embody';
 
 const MY_PRESET = extendPresetWithProfile(CC4_PRESET, {
 
@@ -701,13 +701,13 @@ const MY_PRESET = extendPresetWithProfile(CC4_PRESET, {
   },
 });
 
-const loom = new Loom3({ profile: MY_PRESET });
+const loom = new Embody({ profile: MY_PRESET });
 ```
 
 ### Creating a preset from scratch
 
 ```typescript
-import type { Profile } from '@lovelace_lol/loom3';
+import type { Profile } from '@lovelace_lol/embody';
 
 const CUSTOM_PRESET: Profile = {
   auToMorphs: {
@@ -745,7 +745,7 @@ loom.setProfile(ANOTHER_PRESET);
 const current = loom.getProfile();
 ```
 
-![Comparison showing a custom Loom3 preset override in action](./assets/readme/custom-preset-in-action.webp)
+![Comparison showing a custom Embody preset override in action](./assets/readme/custom-preset-in-action.webp)
 
 ---
 
@@ -755,7 +755,7 @@ Open in LoomLarge: [Bones tab](https://www.characterloom.com/?drawer=open&tab=bo
 
 ![Betta fish model with bones panel visible](./assets/readme/fish-bones-ui.webp)
 
-Loom3 isn't limited to humanoid characters with morph targets. You can create presets for any 3D model that uses skeletal animation, such as fish, animals, or fantasy creatures. This section explains how to create a preset for a betta fish model that has no morph targets—only bone-driven animation.
+Embody isn't limited to humanoid characters with morph targets. You can create presets for any 3D model that uses skeletal animation, such as fish, animals, or fantasy creatures. This section explains how to create a preset for a betta fish model that has no morph targets—only bone-driven animation.
 
 ### Understanding skeletal-only models
 
@@ -769,7 +769,7 @@ Some models (like fish) rely entirely on bone rotations for animation:
 Here's a complete example of a preset for a betta fish:
 
 ```typescript
-import type { BoneBinding, AUInfo, CompositeRotation } from '@lovelace_lol/loom3';
+import type { BoneBinding, AUInfo, CompositeRotation } from '@lovelace_lol/embody';
 
 // Define semantic bone mappings
 export const FISH_BONE_NODES = {
@@ -974,10 +974,10 @@ export const FISH_AU_MAPPING_CONFIG = {
 ### Using the fish preset
 
 ```typescript
-import { Loom3 } from '@lovelace_lol/loom3';
+import { Embody } from '@lovelace_lol/embody';
 import { FISH_AU_MAPPING_CONFIG, FishAction } from './presets/bettaFish';
 
-const fishController = new Loom3({
+const fishController = new Embody({
   profile: FISH_AU_MAPPING_CONFIG
 });
 
@@ -1028,7 +1028,7 @@ async function swimCycle() {
 }
 ```
 
-![Animated GIF of a Loom3-driven betta fish swimming](./assets/readme/fish-swimming.gif)
+![Animated GIF of a Embody-driven betta fish swimming](./assets/readme/fish-swimming.gif)
 
 ---
 
@@ -1036,7 +1036,7 @@ async function swimCycle() {
 
 Open in LoomLarge: [Action Units tab](https://www.characterloom.com/?drawer=open&tab=action-units)
 
-![Grid of Loom3 Action Unit examples on a character](./assets/readme/au-values-grid.webp)
+![Grid of Embody Action Unit examples on a character](./assets/readme/au-values-grid.webp)
 
 Action Units are the core of FACS. Each AU represents a specific muscular movement of the face.
 
@@ -1150,7 +1150,7 @@ Only AUs that have both `auToMorphs` AND `auToBones` entries support mixing. Com
 - AU61-72 (Shared + independent eye movements)
 
 ```typescript
-import { isMixedAU } from '@lovelace_lol/loom3';
+import { isMixedAU } from '@lovelace_lol/embody';
 
 if (isMixedAU(26)) {
   console.log('AU26 supports morph/bone mixing');
@@ -1169,7 +1169,7 @@ Bones like the head and eyes need multi-axis rotation (pitch, yaw, roll). The co
 
 ### How it works
 
-When you set an AU that affects a bone rotation, Loom3:
+When you set an AU that affects a bone rotation, Embody:
 1. Queues the rotation update in `pendingCompositeNodes`
 2. At the end of `update()`, calls `flushPendingComposites()`
 3. Applies all three axes (pitch, yaw, roll) together to prevent gimbal issues
@@ -1225,7 +1225,7 @@ loom.setAU(64, 0.4);
 
 Open in LoomLarge: [Action Units tab](https://www.characterloom.com/?drawer=open&tab=action-units)
 
-![Continuum slider UI for paired Loom3 AUs](./assets/readme/continuum-slider-ui.webp)
+![Continuum slider UI for paired Embody AUs](./assets/readme/continuum-slider-ui.webp)
 
 Continuum pairs are bidirectional AU pairs that represent opposite directions on the same axis. They're linked so that activating one should deactivate the other.
 
@@ -1315,7 +1315,7 @@ loom.setAU(52, 0.7);
 You can access pair information programmatically:
 
 ```typescript
-import { CONTINUUM_PAIRS_MAP } from '@lovelace_lol/loom3';
+import { CONTINUUM_PAIRS_MAP } from '@lovelace_lol/embody';
 
 const pair = CONTINUUM_PAIRS_MAP[51];
 // { pairId: 52, isNegative: true, axis: 'yaw', node: 'HEAD' }
@@ -1376,13 +1376,13 @@ loom.setMorphInfluence(index, 0.6, ['CC_Base_Body']);
 loom.setMorph('BodyType_Muscular', 0.6, ['CC_Base_Body']);
 ```
 
-By default, Loom3 replaces and disposes the mesh `BufferGeometry` before appending morph attributes. This is intentional: Three.js does not support mutating `geometry.morphAttributes` in place after a geometry has rendered. For pre-render authoring paths, pass `{ forceGeometryReplacement: false }`.
+By default, Embody replaces and disposes the mesh `BufferGeometry` before appending morph attributes. This is intentional: Three.js does not support mutating `geometry.morphAttributes` in place after a geometry has rendered. For pre-render authoring paths, pass `{ forceGeometryReplacement: false }`.
 
 If you need a named slot before real deltas are available, use `ensureMorphInfluence(meshName, morphName)`. It creates a zero-delta target and returns the assigned `morphTargetInfluences` index. After external code changes morph dictionaries or geometry, call `refreshMorphTargets()` so AU, viseme, hair, and clip-building caches see the updated targets.
 
 ### Morph caching
 
-Loom3 caches morph target lookups for performance. The first time you access a morph, it searches all meshes and caches the index. Subsequent accesses are O(1).
+Embody caches morph target lookups for performance. The first time you access a morph, it searches all meshes and caches the index. Subsequent accesses are O(1).
 
 ---
 
@@ -1390,11 +1390,11 @@ Loom3 caches morph target lookups for performance. The first time you access a m
 
 Open in LoomLarge: [Visemes tab](https://www.characterloom.com/?drawer=open&tab=visemes) | [Speech tab](https://www.characterloom.com/?drawer=open&tab=speech)
 
-![Grid of all 15 Loom3 viseme mouth shapes](./assets/readme/viseme-grid.webp)
+![Grid of all 15 Embody viseme mouth shapes](./assets/readme/viseme-grid.webp)
 
 This screenshot was captured before the viseme label refresh, so some cards still show legacy names such as `Er`, `IH`, and `W_OO`. Treat the table below as the source of truth for the current exported `VISEME_KEYS` order.
 
-Visemes are mouth shapes used for lip-sync. Loom3 includes 15 visemes with automatic jaw coupling.
+Visemes are mouth shapes used for lip-sync. Embody includes 15 visemes with automatic jaw coupling.
 
 ### The 15 visemes
 
@@ -1476,9 +1476,9 @@ speak([5, 0, 10, 4]);
 
 Open in LoomLarge: [Animation tab](https://www.characterloom.com/?drawer=open&tab=animation)
 
-![Diagram showing a Loom3 transition timeline with easing and handle methods](./assets/readme/transition-timeline-easing.svg)
+![Diagram showing a Embody transition timeline with easing and handle methods](./assets/readme/transition-timeline-easing.svg)
 
-All animated changes in Loom3 go through the transition system, which provides smooth interpolation with easing.
+All animated changes in Embody go through the transition system, which provides smooth interpolation with easing.
 
 ### TransitionHandle
 
@@ -1529,7 +1529,7 @@ handle.pause();
 The default easing is `easeInOutQuad`. Custom easing can be provided when using the Animation system directly:
 
 ```typescript
-// The AnimationThree class supports custom easing
+// The ThreeAnimationRuntime class supports custom easing
 animation.addTransition(
   'custom',
   0,
@@ -1560,7 +1560,7 @@ loom.clearTransitions();
 
 Open in LoomLarge: [Animation tab](https://www.characterloom.com/?drawer=open&tab=animation)
 
-![Playback controls UI showing Loom3 pause and resume controls](./assets/readme/pause-resume-controls.webp)
+![Playback controls UI showing Embody pause and resume controls](./assets/readme/pause-resume-controls.webp)
 
 ### Pausing and resuming
 
@@ -1619,9 +1619,9 @@ loom.dispose();
 
 Open in LoomLarge: [Hair tab](https://www.characterloom.com/?drawer=open&tab=hair)
 
-![Animated GIF showing Loom3 hair physics reacting to head motion](./assets/readme/hair-physics.gif)
+![Animated GIF showing Embody hair physics reacting to head motion](./assets/readme/hair-physics.gif)
 
-Loom3 includes a built-in hair physics system that drives morph targets through the AnimationMixer.
+Embody includes a built-in hair physics system that drives morph targets through the AnimationMixer.
 It is **mixer-only** (no per-frame morph LERP), and it reacts to **head rotation** coming from AUs.
 
 ### How it works
@@ -1638,7 +1638,7 @@ When you update head AUs (e.g. `setAU`, `setContinuum`, `transitionAU`), hair up
 ### Basic setup
 
 ```typescript
-const loom = new Loom3({ presetType: 'cc4' });
+const loom = new Embody({ presetType: 'cc4' });
 
 loader.load('/character.glb', (gltf) => {
   const meshes = collectMorphMeshes(gltf.scene);
@@ -1666,7 +1666,7 @@ console.log(hairObjects.map((mesh) => mesh.name));
 Hair physics defaults live in the preset/profile and are applied automatically at init:
 
 ```typescript
-import type { Profile } from '@lovelace_lol/loom3';
+import type { Profile } from '@lovelace_lol/embody';
 
 const profile: Profile = {
   // ...all your usual AU mappings...
@@ -1761,7 +1761,7 @@ if (missing.length > 0) {
 }
 ```
 
-Loom3 also logs a warning the first time it encounters a missing hair morph key.
+Embody also logs a warning the first time it encounters a missing hair morph key.
 
 ### Applying styling state
 
@@ -1809,11 +1809,11 @@ loom.setMorphOnMeshes(
 
 Open in LoomLarge: [Animation tab](https://www.characterloom.com/?drawer=open&tab=animation)
 
-Loom3 can play baked skeletal animations from your GLB/GLTF files using Three.js AnimationMixer. This allows you to combine pre-made animations (idle, walk, gestures) with real-time facial control.
+Embody can play baked skeletal animations from your GLB/GLTF files using Three.js AnimationMixer. This allows you to combine pre-made animations (idle, walk, gestures) with real-time facial control.
 
 ### Loading animations
 
-After loading your model, pass the animations array to Loom3:
+After loading your model, pass the animations array to Embody:
 
 ```typescript
 const loader = new GLTFLoader();
@@ -1865,7 +1865,7 @@ await handle.finished;
 
 ### Mixer clip playback for curves
 
-Loom3 can convert AU/morph curves into AnimationMixer clips for smooth, mixer-only playback. This is the preferred path for high-frequency animation agencies (eye/head tracking, visemes, prosody) because it avoids per-keyframe transitions.
+Embody can convert AU/morph curves into AnimationMixer clips for smooth, mixer-only playback. This is the preferred path for high-frequency animation agencies (eye/head tracking, visemes, prosody) because it avoids per-keyframe transitions.
 
 Key APIs:
 - `snippetToClip(name, curves, options)` builds an AnimationClip from curves.
@@ -1892,7 +1892,7 @@ if (clip) {
 }
 ```
 
-When the first keyframe has `inherit: true`, Loom3 anchors that first mixer
+When the first keyframe has `inherit: true`, Embody anchors that first mixer
 track value to the character's current live target value instead of treating the
 placeholder intensity as a real reset. The following keyframes remain authored
 targets:
@@ -2095,7 +2095,7 @@ These helpers are for applications that need semantic face regions, marker ancho
 ### Finding a face center directly from the model
 
 ```typescript
-import { findFaceCenter } from '@lovelace_lol/loom3';
+import { findFaceCenter } from '@lovelace_lol/embody';
 
 const result = findFaceCenter(gltf.scene, {
   headBoneNames: ['CC_Base_Head'],
@@ -2108,8 +2108,8 @@ console.log(result.center, result.method, result.debugInfo);
 ### Resolving region-driven centers
 
 ```typescript
-import type { BoneResolutionProfile, Region } from '@lovelace_lol/loom3';
-import { resolveBoneName, resolveBoneNames, resolveFaceCenter } from '@lovelace_lol/loom3';
+import type { BoneResolutionProfile, Region } from '@lovelace_lol/embody';
+import { resolveBoneName, resolveBoneNames, resolveFaceCenter } from '@lovelace_lol/embody';
 
 const region: Region = {
   name: 'face',
@@ -2133,7 +2133,7 @@ const faceCenter = resolveFaceCenter(gltf.scene, region, profile);
 import {
   getModelForwardDirection,
   detectFacingDirection,
-} from '@lovelace_lol/loom3';
+} from '@lovelace_lol/embody';
 
 const forward = getModelForwardDirection(gltf.scene);
 const facing = detectFacingDirection(gltf.scene);
@@ -2151,11 +2151,11 @@ Use these helpers when you need to:
 
 Open in LoomLarge: [Animation tab](https://www.characterloom.com/?drawer=open&tab=animation)
 
-This is a compact reference for the public surface exported by `@lovelace_lol/loom3`.
+This is a compact reference for the public surface exported by `@lovelace_lol/embody`.
 
 ### Core runtime
 
-- `Loom3` is the main Three.js implementation.
+- `Embody` is the main Three.js implementation.
 - `collectMorphMeshes()` gathers meshes that already expose morph targets.
 - Lifecycle: `onReady()`, `update()`, `start()`, `stop()`, `dispose()`.
 - Preset state: `setProfile()`, `getProfile()`.
@@ -2187,7 +2187,7 @@ This is a compact reference for the public surface exported by `@lovelace_lol/lo
 ### Types and lower-level exports
 
 - Configuration/types: `Profile`, `MeshInfo`, `BlendingMode`, `TransitionHandle`, `ClipEvent`, `ClipEventListener`, `ClipHandle`, `Snippet`, `AnimationState`, `AnimationClipInfo`.
-- Standalone implementations: `AnimationThree`, `HairPhysics`, `BLENDING_MODES`.
+- Standalone implementations: `ThreeAnimationRuntime`, `HairPhysics`, `BLENDING_MODES`.
 - Region and geometry helpers: `resolveBoneName()`, `resolveBoneNames()`, `resolveFaceCenter()`, `findFaceCenter()`, `getModelForwardDirection()`, `detectFacingDirection()`.
 
 ---
@@ -2203,4 +2203,4 @@ This is a compact reference for the public surface exported by `@lovelace_lol/lo
 
 ## License
 
-MIT License. Loom3 is authored by Jonathan Sutton Fields; see [LICENSE](LICENSE) and [AUTHORS.md](AUTHORS.md) for details.
+MIT License. Embody is authored by Jonathan Sutton Fields; see [LICENSE](LICENSE) and [AUTHORS.md](AUTHORS.md) for details.

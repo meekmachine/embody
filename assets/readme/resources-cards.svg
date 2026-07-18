@@ -28,7 +28,7 @@
     </style>
   </defs>
   <rect width="1600" height="900" fill="url(#bgGrad)"/>
-  <text x="72" y="88" class="title">Reference material that pairs well with Loom3</text>
+  <text x="72" y="88" class="title">Reference material that pairs well with Embody</text>
   
       <text x="72" y="122" class="subtitle">These are the concepts and tools the README builds on: FACS theory, rig authoring, and rendering primitives.</text>
       
@@ -46,7 +46,7 @@
       
   <rect x="1162" y="190" width="330" height="500" rx="24" fill="url(#panelGrad)" stroke="#2a395f" stroke-width="2" filter="url(#shadow)"/>
   <text x="1190" y="236" class="label">Three.js Docs</text>
-  <text x="1190" y="270" class="body">Scene graph, GLTFLoader, and materials</text><text x="1190" y="298" class="body">Renderer behavior and animation loops</text><text x="1190" y="326" class="body">Where Loom3 plugs into your runtime</text>
+  <text x="1190" y="270" class="body">Scene graph, GLTFLoader, and materials</text><text x="1190" y="298" class="body">Renderer behavior and animation loops</text><text x="1190" y="326" class="body">Where Embody plugs into your runtime</text>
       <rect x="120" y="260" width="64" height="64" rx="18" fill="#12314f"/><text x="139" y="302" class="label">AU</text>
       <circle cx="520" cy="292" r="34" fill="#2a1b36"/><text x="496" y="302" class="label">PE</text>
       <rect x="878" y="256" width="88" height="72" rx="18" fill="#332314"/><text x="896" y="302" class="label">CC4</text>

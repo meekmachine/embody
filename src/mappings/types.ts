@@ -1,5 +1,5 @@
 /**
- * Loom3 - Profile Types
+ * Embody - Profile Types
  *
  * Type definitions for character profiles.
  * Profiles define how Action Units map to morphs/bones for a specific rig.
@@ -281,7 +281,7 @@ export interface VisemeBinding {
   sharedWith?: string[];
 }
 
-export type MappingSectionKind = 'au' | 'viseme' | 'hair' | 'unmapped' | 'custom';
+export type MappingSectionKind = 'au' | 'viseme' | 'lipSync' | 'hair' | 'unmapped' | 'custom';
 
 export interface MappingEditorSection {
   id: string;

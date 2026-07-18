@@ -1,5 +1,5 @@
 /**
- * LoomLarge Engine Interface
+ * Embody Runtime Interface
  *
  * Defines the contract for 3D character animation engines.
  * Uses Three.js types directly - no framework abstraction overhead.
@@ -21,9 +21,9 @@ export interface ReadyPayload {
 }
 
 /**
- * Configuration options for the Loom3 engine
+ * Configuration options for the Embody engine
  */
-export interface LoomLargeConfig {
+export interface EmbodyConfig {
   /** AU to morph target mappings (partial extensions merged into the preset). */
   profile?: Partial<Profile>;
   /** Preset type to resolve if profile is not provided. */
@@ -40,12 +40,12 @@ export interface LoomLargeConfig {
 export type { MeshInfo } from '../mappings/types';
 
 /**
- * Loom3 Engine Interface
+ * Embody Engine Interface
  *
  * The main interface for controlling 3D character facial animation.
  * Supports Action Units (AUs), morph targets, visemes, and bone control.
  */
-export interface LoomLarge extends Animation, Hair {
+export interface EmbodyRuntime extends Animation, Hair {
   // ============================================================================
   // INITIALIZATION & LIFECYCLE
   // ============================================================================
@@ -116,7 +116,3 @@ export interface LoomLarge extends Animation, Hair {
   getProfile(): Profile;
 
 }
-
-// Backward-compatible aliases (deprecated).
-export type Loom3 = LoomLarge;
-export type Loom3Config = LoomLargeConfig;

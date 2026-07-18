@@ -1,5 +1,5 @@
 /**
- * Loom3 - Geometry Helpers
+ * Embody - Geometry Helpers
  *
  * Helper functions for finding face positions, annotation centers,
  * and other geometry-related calculations for character models.

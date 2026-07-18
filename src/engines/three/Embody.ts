@@ -1,7 +1,7 @@
 /**
- * Loom3 - Three.js Implementation
+ * Embody - Three.js Implementation
  *
- * Default implementation of the LoomLarge interface for Three.js.
+ * Default implementation of the Embody runtime interface for Three.js.
  * Controls 3D character facial animation using Action Units (AUs),
  * morph targets, visemes, and bone transformations.
  */
@@ -15,10 +15,10 @@ import {
 } from 'three';
 import type { Mesh, Object3D, AnimationClip } from 'three';
 import type {
-  LoomLarge,
+  EmbodyRuntime,
   ReadyPayload,
-  LoomLargeConfig,
-} from '../../interfaces/LoomLarge';
+  EmbodyConfig,
+} from '../../interfaces/EmbodyRuntime';
 import type { MeshInfo, MorphTargetRef, Profile, HairPhysicsProfileConfig } from '../../mappings/types';
 import type {
   TransitionHandle,
@@ -32,7 +32,7 @@ import type {
   ClipOptions,
   ClipHandle,
   Snippet,
-  TypedSnippetChannel,
+  SnippetChannel,
   TypedSnippet,
   CompositeRotation,
   RotationAxis,
@@ -41,7 +41,7 @@ import type {
   AddMorphTargetOptions,
 } from '../../core/types';
 import { getCompositeAxisBinding, getCompositeAxisValue } from '../../core/compositeAxis';
-import { AnimationThree, ThreeAnimationSystem } from './AnimationThree';
+import { ThreeAnimationRuntime, ThreeAnimationSystem } from './ThreeAnimationRuntime';
 import { getSideScale } from './balanceUtils';
 import { ThreeModelInspector } from './ThreeModelInspector';
 import { ThreeFrameApplier, type ThreeMaterialConfig, type ThreeResolvedMaterialConfig } from './ThreeFrameApplier';
@@ -102,7 +102,7 @@ type ResolvedMorphTargetsBySide = {
   center: MorphTargetHandle[];
 };
 
-export class Loom3 implements LoomLarge {
+export class Embody implements EmbodyRuntime {
   // Optional hook for animation schedulers.
   onSnippetEnd?: (name: string) => void;
 
@@ -177,7 +177,7 @@ export class Loom3 implements LoomLarge {
   private isRunning = false;
 
   constructor(
-    config: LoomLargeConfig = {},
+    config: EmbodyConfig = {},
     animation?: {
       tick(dtSeconds: number): void;
       addTransition(
@@ -196,7 +196,7 @@ export class Loom3 implements LoomLarge {
     this.config = extendPresetWithProfile(basePreset, config.profile);
     this.mixWeights = { ...this.config.auMixDefaults };
     this.syncVisemeRuntimeState();
-    this.animation = animation || new AnimationThree();
+    this.animation = animation || new ThreeAnimationRuntime();
 
     // Use config's composite rotations or default to CC4
     this.compositeRotations = this.config.compositeRotations || CC4_COMPOSITE_ROTATIONS;
@@ -290,11 +290,11 @@ export class Loom3 implements LoomLarge {
         const morphKeys = faceMesh?.morphTargetDictionary
           ? Object.keys(faceMesh.morphTargetDictionary)
           : [];
-        console.log('[Loom3] Face mesh resolved:', faceName);
-        console.log('[Loom3] Face mesh morphs:', morphKeys);
+        console.log('[Embody] Face mesh resolved:', faceName);
+        console.log('[Embody] Face mesh morphs:', morphKeys);
       }
     } else {
-      console.log('[Loom3] No face mesh resolved from morph targets.');
+      console.log('[Embody] No face mesh resolved from morph targets.');
     }
 
     // Apply render order and material settings from CC4_MESHES
@@ -370,7 +370,7 @@ export class Loom3 implements LoomLarge {
       return [candidateByMorph.name];
     }
 
-    const head = this.bones['HEAD']?.obj;
+    const head = this.bones[this.getHeadBoneNodeKey()]?.obj ?? this.bones.HEAD?.obj;
     if (head && availableMorphMeshes.length > 0) {
       const headPos = new Vector3();
       (head as any).getWorldPosition?.(headPos);
@@ -1410,10 +1410,12 @@ export class Loom3 implements LoomLarge {
 
   /** Get head rotation values for hair physics (range -1 to 1) */
   getHeadRotation(): { yaw: number; pitch: number; roll: number } {
+    const headNodeKey = this.getHeadBoneNodeKey();
+    const headRotation = this.rotations[headNodeKey] ?? this.rotations.HEAD;
     return {
-      yaw: this.rotations.HEAD?.yaw ?? 0,
-      pitch: this.rotations.HEAD?.pitch ?? 0,
-      roll: this.rotations.HEAD?.roll ?? 0,
+      yaw: headRotation?.yaw ?? 0,
+      pitch: headRotation?.pitch ?? 0,
+      roll: headRotation?.roll ?? 0,
     };
   }
 
@@ -1485,7 +1487,38 @@ export class Loom3 implements LoomLarge {
       }
     }
 
-    this.updateBoneRotation('JAW', 'pitch', this.getActiveVisemeJawAmount());
+    this.updateBoneRotation(this.getJawBoneNodeKey(), 'pitch', this.getActiveVisemeJawAmount());
+  }
+
+  private getJawBoneNodeKey(): BoneKey {
+    const candidates = [
+      this.config.auToBones[103]?.[0]?.node,
+      this.config.auToBones[26]?.[0]?.node,
+      'JAW',
+    ].filter((node): node is BoneKey => !!node);
+    return candidates.find((node) => !!this.bones[node])
+      ?? candidates[0]
+      ?? 'JAW';
+  }
+
+  private getHeadBoneNodeKey(): BoneKey {
+    const candidates = [
+      this.config.auToBones[51]?.[0]?.node,
+      this.config.auToBones[52]?.[0]?.node,
+      this.compositeRotations.find((composite) => (
+        composite.yaw?.aus.includes(51)
+        || composite.yaw?.aus.includes(52)
+        || composite.pitch?.aus.includes(53)
+        || composite.pitch?.aus.includes(54)
+        || composite.roll?.aus.includes(55)
+        || composite.roll?.aus.includes(56)
+      ))?.node
+      ?? null,
+      'HEAD',
+    ].filter((node): node is BoneKey => !!node);
+    return candidates.find((node) => !!this.bones[node])
+      ?? candidates[0]
+      ?? 'HEAD';
   }
 
   private getActiveVisemeJawAmount(): number {
@@ -1813,7 +1846,7 @@ export class Loom3 implements LoomLarge {
   private getVisemeJawAmount(visemeIndex: number): number {
     return getVisemeJawAmounts(this.config)?.[visemeIndex]
       ?? this.config.visemeJawAmounts?.[visemeIndex]
-      ?? Loom3.VISEME_JAW_AMOUNTS[visemeIndex]
+      ?? Embody.VISEME_JAW_AMOUNTS[visemeIndex]
       ?? 0;
   }
 
@@ -1924,8 +1957,8 @@ export class Loom3 implements LoomLarge {
   private flushPendingComposites(): void {
     if (this.pendingCompositeNodes.size === 0) return;
 
-    // Check if HEAD changed - triggers hair physics update
-    const headChanged = this.pendingCompositeNodes.has('HEAD');
+    const headNodeKey = this.getHeadBoneNodeKey();
+    const headChanged = this.pendingCompositeNodes.has(headNodeKey) || this.pendingCompositeNodes.has('HEAD');
 
     for (const nodeKey of this.pendingCompositeNodes) {
       this.applyCompositeRotation(nodeKey as BoneKey);
@@ -1934,9 +1967,10 @@ export class Loom3 implements LoomLarge {
 
     // Update hair when head rotation changes
     if (headChanged && this.hairPhysics.isHairPhysicsEnabled()) {
+      const headRotation = this.rotations[headNodeKey] ?? this.rotations.HEAD;
       this.hairPhysics.onHeadRotationChanged(
-        this.rotations.HEAD?.yaw ?? 0,
-        this.rotations.HEAD?.pitch ?? 0
+        headRotation?.yaw ?? 0,
+        headRotation?.pitch ?? 0
       );
     }
   }
@@ -2055,14 +2089,19 @@ export class Loom3 implements LoomLarge {
       ? new RegExp(this.config.suffixPattern)
       : null;
 
-    // Find node with exact match first, then fuzzy match with suffix pattern
     const findNode = (baseName?: string | null): Object3D | undefined => {
       if (!baseName) return undefined;
 
-      // Build full name with prefix and suffix
-      const fullName = prefix + baseName + suffix;
+      const directMatch = root.getObjectByName(baseName);
+      if (directMatch) return directMatch;
 
-      // Try exact match first
+      const prefixedBase = prefix && !baseName.startsWith(prefix)
+        ? `${prefix}${baseName}`
+        : baseName;
+      const fullName = suffix && !prefixedBase.endsWith(suffix)
+        ? `${prefixedBase}${suffix}`
+        : prefixedBase;
+
       const exactMatch = root.getObjectByName(fullName);
       if (exactMatch) return exactMatch;
 
@@ -2082,37 +2121,63 @@ export class Loom3 implements LoomLarge {
         if (found) return found;
       }
 
-      // Last-resort fallback: try the bare base name.
-      // This keeps older presets working when a model exposes unprefixed bones,
-      // but it is intentionally last because bare-name matches can be ambiguous
-      // if the model contains both prefixed and non-prefixed variants.
-      if (prefix) {
-        const noPrefix = root.getObjectByName(baseName);
-        if (noPrefix) return noPrefix;
-      }
-
       return undefined;
+    };
+
+    const addResolvedBone = (key: string, node: Object3D) => {
+      const entry = snapshotPreservingBasePose(node);
+      resolved[key] = entry;
+      if (node.name) {
+        resolved[node.name] = entry;
+      }
     };
 
     for (const [key, nodeName] of Object.entries(this.config.boneNodes)) {
       const node = findNode(nodeName);
       if (node) {
-        resolved[key] = snapshotPreservingBasePose(node);
+        addResolvedBone(key, node);
+        if (nodeName) {
+          resolved[nodeName] = resolved[key]!;
+        }
       }
     }
 
     if (!resolved.EYE_L && this.config.eyeMeshNodes) {
       const node = findNode(this.config.eyeMeshNodes.LEFT);
       if (node) {
-        resolved.EYE_L = snapshotPreservingBasePose(node);
+        addResolvedBone('EYE_L', node);
       }
     }
     if (!resolved.EYE_R && this.config.eyeMeshNodes) {
       const node = findNode(this.config.eyeMeshNodes.RIGHT);
       if (node) {
-        resolved.EYE_R = snapshotPreservingBasePose(node);
+        addResolvedBone('EYE_R', node);
       }
     }
+
+    const referencedNodes = new Set<string>();
+    Object.values(this.config.auToBones ?? {}).forEach((bindings) => {
+      bindings.forEach((binding) => referencedNodes.add(binding.node));
+    });
+    this.compositeRotations.forEach((composite) => referencedNodes.add(composite.node));
+    Object.values(this.config.continuumPairs ?? {}).forEach((pair) => {
+      if (pair?.node) referencedNodes.add(pair.node);
+    });
+    this.config.annotationRegions?.forEach((region) => {
+      region.bones?.forEach((boneName) => referencedNodes.add(boneName));
+    });
+
+    referencedNodes.forEach((nodeKey) => {
+      if (resolved[nodeKey]) return;
+      const configuredName = this.config.boneNodes?.[nodeKey] ?? nodeKey;
+      const node = findNode(configuredName);
+      if (node) {
+        addResolvedBone(nodeKey, node);
+        if (configuredName) {
+          resolved[configuredName] = resolved[nodeKey]!;
+        }
+      }
+    });
 
     return resolved;
   }
@@ -2261,10 +2326,17 @@ export class Loom3 implements LoomLarge {
   }
 
   playSnippet(
-    snippet: Snippet | { name: string; curves: CurvesMap },
+    snippet: Snippet | { name: string; curves: CurvesMap } | TypedSnippet | { name: string; channels: SnippetChannel[] },
     options?: ClipOptions
   ): ClipHandle | null {
     return this.animationController.playSnippet(snippet, options);
+  }
+
+  playTypedSnippet(
+    snippet: TypedSnippet | { name: string; channels: SnippetChannel[] },
+    options?: ClipOptions
+  ): ClipHandle | null {
+    return this.animationController.playTypedSnippet(snippet, options);
   }
 
   buildClip(
@@ -2275,16 +2347,9 @@ export class Loom3 implements LoomLarge {
     return this.animationController.buildClip(clipName, curves, options);
   }
 
-  playTypedSnippet(
-    snippet: TypedSnippet,
-    options?: ClipOptions
-  ): ClipHandle | null {
-    return this.animationController.playTypedSnippet(snippet, options);
-  }
-
   buildTypedClip(
     clipName: string,
-    channels: TypedSnippetChannel[],
+    channels: SnippetChannel[],
     options?: ClipOptions
   ): ClipHandle | null {
     return this.animationController.buildTypedClip(clipName, channels, options);
@@ -2292,7 +2357,7 @@ export class Loom3 implements LoomLarge {
 
   typedSnippetToClip(
     clipName: string,
-    channels: TypedSnippetChannel[],
+    channels: SnippetChannel[],
     options?: ClipOptions
   ): AnimationClip | null {
     return this.animationController.typedSnippetToClip(clipName, channels, options);

@@ -2,19 +2,19 @@
  * Three.js Engine Implementation
  */
 
-export { Loom3, collectMorphMeshes } from './Loom3';
+export { Embody, collectMorphMeshes } from './Embody';
 export {
-  AnimationThree,
+  ThreeAnimationRuntime,
   ThreeAnimationSystem,
   AnimationController,
   BakedAnimationController,
-} from './AnimationThree';
+} from './ThreeAnimationRuntime';
 export type {
   ThreeAnimationSystemHost,
   ThreeAnimationSystemOptions,
   AnimationControllerHost,
   BakedAnimationHost,
-} from './AnimationThree';
+} from './ThreeAnimationRuntime';
 export { ThreeModelInspector } from './ThreeModelInspector';
 export type {
   ThreeAnimationClipDescriptor,

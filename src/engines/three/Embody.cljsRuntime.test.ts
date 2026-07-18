@@ -2,16 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { Object3D } from 'three';
 import { createAnimationRuntime } from '../../cljs';
 import { BONE_AU_TO_BINDINGS, COMPOSITE_ROTATIONS } from '../../presets/cc4';
-import { Loom3 } from './Loom3';
+import { Embody } from './Embody';
 
-describe('Loom3 animation runtime factory', () => {
+describe('Embody animation runtime factory', () => {
   it('routes dynamic clip handles through the runtime while Three applies the clip', async () => {
     const model = new Object3D();
     const leftEye = new Object3D();
     leftEye.name = 'CC_Base_L_Eye';
     model.add(leftEye);
 
-    const loom = new Loom3({
+    const engine = new Embody({
       animationRuntimeFactory: createAnimationRuntime,
       profile: {
         auToMorphs: {},
@@ -23,9 +23,9 @@ describe('Loom3 animation runtime factory', () => {
       },
     });
 
-    loom.onReady({ meshes: [], model });
+    engine.onReady({ meshes: [], model });
 
-    const handle = loom.buildClip(
+    const handle = engine.buildClip(
       'runtime-eye-clip',
       {
         65: [
@@ -38,16 +38,16 @@ describe('Loom3 animation runtime factory', () => {
     );
 
     expect(handle).toBeTruthy();
-    if (!handle) throw new Error('Expected Loom3.buildClip to return a runtime handle');
+    if (!handle) throw new Error('Expected Embody.buildClip to return a runtime handle');
     expect(handle.actionId).toBeTruthy();
 
     const events: unknown[] = [];
-    handle.subscribe?.((event) => events.push(event));
+    handle.subscribe?.((event: unknown) => events.push(event));
 
-    loom.update(0.5);
+    engine.update(0.5);
     expect(leftEye.quaternion.w).not.toBe(1);
 
-    loom.update(0.5);
+    engine.update(0.5);
     await handle.finished;
 
     expect(events).toEqual(expect.arrayContaining([

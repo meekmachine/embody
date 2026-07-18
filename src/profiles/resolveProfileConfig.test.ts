@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CharacterConfig } from './types';
 import type { Profile } from '../mappings/types';
 import { getPresetWithProfile } from '../presets';
+import { CC4_BONES } from '../presets/cc4';
 import { resolveBoneNames } from '../regions/regionMapping';
 import type { Region } from '../regions/types';
 import {
@@ -166,7 +167,7 @@ describe('extendProfileConfigWithPreset', () => {
     ]);
     expect(extended.regions.find((region) => region.name === 'left_eye')).toMatchObject({
       name: 'left_eye',
-      bones: ['EYE_L'],
+      bones: [CC4_BONES.EYE_L],
       cameraAngle: 45,
       paddingFactor: 0.5,
       parent: 'head',
@@ -194,14 +195,14 @@ describe('extendProfileConfigWithPreset', () => {
     expect(head).toBeTruthy();
     expect(leftEye).toMatchObject({
       name: 'left_eye',
-      bones: ['EYE_L'],
+      bones: [CC4_BONES.EYE_L],
       paddingFactor: 0.5,
       parent: 'head',
     });
     expect(leftEye?.cameraAngle).toBe(45);
     expect(rightEye).toMatchObject({
       name: 'right_eye',
-      bones: ['EYE_R'],
+      bones: [CC4_BONES.EYE_R],
       paddingFactor: presetRightEye?.paddingFactor,
       parent: 'head',
     });
@@ -259,7 +260,7 @@ describe('extendProfileConfigWithPreset', () => {
 
     expect(leftEye).toMatchObject({
       name: 'left_eye',
-      bones: ['EYE_L'],
+      bones: [CC4_BONES.EYE_L],
       paddingFactor: 1.1,
       cameraAngle: 30,
       parent: 'head',
@@ -308,7 +309,16 @@ describe('extendProfileConfigWithPreset', () => {
           JAW: 'Jaw',
           EYE_L: 'eye_L',
           EYE_R: 'eye_R',
+          HAND_L: 'L_Hand',
+          FOOT_L: 'L_Foot',
+          TOEBASE_L: 'L_ToeBase',
         },
+        annotationRegions: [
+          { name: 'head', bones: ['HEAD', 'JAW'] },
+          { name: 'left_eye', bones: ['EYE_L'] },
+          { name: 'left_hand', bones: ['HAND_L'] },
+          { name: 'left_foot', bones: ['FOOT_L', 'TOEBASE_L'] },
+        ],
       })
     );
 

@@ -1,5 +1,5 @@
 /**
- * Loom3 - Core Type Definitions
+ * Embody - Core Type Definitions
  *
  * Type definitions for the 3D character animation engine.
  * These are framework-agnostic interfaces that work with any 3D engine.
@@ -81,9 +81,9 @@ export interface CompositeRotationState {
 export type RotationsState = Record<string, CompositeRotationState>;
 
 /**
- * Loom3Config - Configuration options for the Loom3 engine
+ * EmbodyConfig - Configuration options for the Embody engine
  */
-export interface Loom3Config {
+export interface EmbodyConfig {
   /** AU to morph target mappings (defaults to CC4_PRESET) */
   profile?: import('../mappings/types').Profile;
   /** Preset type to resolve if profile is not provided. */
@@ -143,7 +143,7 @@ export interface BakedClipChannelInfo {
   channel: BakedClipChannel;
   /** Number of tracks routed into this channel. */
   trackCount: number;
-  /** Whether Loom3 can play this channel directly. */
+  /** Whether Embody can play this channel directly. */
   playable: boolean;
   /** Effective/default blend mode for this channel when playable. */
   blendMode?: AnimationBlendMode;
@@ -317,7 +317,7 @@ export type ClipEventListener = (event: ClipEvent) => void;
 export interface EmbodyAnimationRuntimeConnector {
   buildClip?: (clipName: string, curves: CurvesMap, options?: ClipOptions) => unknown;
   playClip?: (clipName: string, curves?: CurvesMap, options?: ClipOptions) => unknown;
-  buildTypedClip?: (clipName: string, channels: TypedSnippetChannel[], options?: ClipOptions) => unknown;
+  buildTypedClip?: (clipName: string, channels: SnippetChannel[], options?: ClipOptions) => unknown;
   playTypedSnippet?: (snippet: TypedSnippet, options?: ClipOptions) => unknown;
   stopClip?: (clipName: string) => void;
   pauseClip?: (clipName: string) => void;
@@ -338,7 +338,7 @@ export interface EmbodyAnimationRuntime {
   snapshot(): Record<string, unknown>;
   buildClip(clipName: string, curves: CurvesMap, options?: ClipOptions): ClipHandle | null;
   playSnippet(clipName: string, curves: CurvesMap, options?: ClipOptions): ClipHandle | null;
-  buildTypedClip?: (clipName: string, channels: TypedSnippetChannel[], options?: ClipOptions) => ClipHandle | null;
+  buildTypedClip?: (clipName: string, channels: SnippetChannel[], options?: ClipOptions) => ClipHandle | null;
   playTypedSnippet?: (snippet: TypedSnippet, options?: ClipOptions) => ClipHandle | null;
   acceptClipEvent(event: ClipEvent | Record<string, unknown>): boolean;
   cleanupSnippet(clipName: string): boolean;
@@ -367,46 +367,43 @@ export interface CurvePoint {
 }
 
 /**
- * A scalar keyframe for typed snippets. Typed snippets keep the same timing
- * envelope as legacy curves while making the destination explicit.
- */
-export type TypedSnippetKeyframe = Pick<CurvePoint, 'time' | 'intensity' | 'inherit'>;
-
-/**
- * Explicit destination for one typed snippet channel. This lets upstream
- * planners say "viseme 3", "AU 37", "morph Smile", or "jaw bone pitch"
- * without relying on overloaded numeric curve names.
- */
-export interface TypedSnippetTarget {
-  type?: 'viseme' | 'au' | 'morph' | 'bone' | string;
-  id?: string | number;
-  channel?: 'rx' | 'ry' | 'rz' | 'tx' | 'ty' | 'tz' | string;
-  maxDegrees?: number;
-  maxUnits?: number;
-  scale?: number;
-}
-
-/**
- * One typed animation channel: an explicit destination plus scalar keyframes.
- */
-export interface TypedSnippetChannel {
-  target?: TypedSnippetTarget;
-  keyframes?: TypedSnippetKeyframe[];
-}
-
-/**
- * Public snippet shape used by ClojureScript agencies and other runtimes that
- * want Embody to route visemes, AUs, morphs, and direct bones through one API.
- */
-export interface TypedSnippet {
-  name: string;
-  channels?: TypedSnippetChannel[];
-}
-
-/**
  * Map of curve IDs (AU numbers or morph names) to keyframe arrays.
  */
 export type CurvesMap = Record<string, CurvePoint[]>;
+
+export type SnippetChannelTarget =
+  | { type: 'au'; id: number; balance?: number }
+  | { type: 'viseme'; id: number; meshNames?: string[] }
+  | { type: 'lipSync'; id: number }
+  | { type: 'morph'; id: string | number; meshNames?: string[] }
+  | {
+      type: 'bone';
+      id: BoneKey;
+      channel: 'rx' | 'ry' | 'rz' | 'tx' | 'ty' | 'tz';
+      scale?: number;
+      maxDegrees?: number;
+      maxUnits?: number;
+    };
+
+/**
+ * A typed snippet channel names the target namespace explicitly. This avoids
+ * the legacy curve-map ambiguity where numeric key "1" can mean AU 1 or
+ * viseme slot 1 depending on snippetCategory, and it keeps speech-only
+ * lip-sync controls out of FACS AU space.
+ */
+export interface SnippetChannel {
+  target: SnippetChannelTarget;
+  keyframes: CurvePoint[];
+  /** Per-channel intensity multiplier applied in addition to ClipOptions.intensityScale. */
+  intensityScale?: number;
+}
+
+export interface TypedSnippet {
+  name: string;
+  channels: SnippetChannel[];
+  maxTime?: number;
+  loop?: boolean;
+}
 
 /**
  * Options for building and playing a clip from curves.

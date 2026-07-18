@@ -11,7 +11,7 @@ The shared package now has three layers:
   `TsRuntimeCore`, and `TsClipCompiler`.
 - `@lovelace_lol/embody/three`: Three-specific inspection, frame application,
   ClipIR conversion, and mixer lifecycle.
-- `@lovelace_lol/embody`: compatibility root that keeps existing Loom3 imports.
+- `@lovelace_lol/embody`: compatibility root that keeps existing Embody imports.
 
 The adapter contract is intentionally numeric:
 
@@ -54,7 +54,7 @@ for the existing Three adapter.
 
 Expected adapter pieces:
 
-- React hooks for creating/disposal of `Loom3`, `ThreeModelInspector`,
+- React hooks for creating/disposal of `Embody`, `ThreeModelInspector`,
   `ThreeFrameApplier`, and `ThreeAnimationSystem`.
 - Lifecycle helpers that bind loaded GLTF scenes to `onReady`.
 - Optional suspense-friendly model descriptor extraction.

@@ -2,12 +2,15 @@ import { describe, it, expect } from 'vitest';
 import {
   AU_TO_MORPHS,
   BONE_AU_TO_BINDINGS,
+  CC4_PROFILE_BONE_BINDINGS,
   CC4_PRESET,
   COMPOSITE_ROTATIONS,
   CONTINUUM_PAIRS_MAP,
-  CC4_MAPPING_SECTIONS,
-  CC4_VISEME_SYSTEM_ID,
+	  CC4_MAPPING_SECTIONS,
+	  CC4_BONES,
+	  CC4_VISEME_SYSTEM_ID,
   CC4_VISEME_SLOTS,
+  LIP_SYNC_CONTROL_TO_BINDINGS,
   VISEME_JAW_AMOUNTS,
   VISEME_KEYS,
   isMixedAU,
@@ -104,12 +107,12 @@ describe('CC4 Preset', () => {
     it('should have bone bindings for head AUs (51-56)', () => {
       // Head turn left
       expect(BONE_AU_TO_BINDINGS[51]).toBeDefined();
-      expect(BONE_AU_TO_BINDINGS[51][0].node).toBe('HEAD');
+      expect(BONE_AU_TO_BINDINGS[51][0].node).toBe(CC4_BONES.HEAD);
       expect(BONE_AU_TO_BINDINGS[51][0].channel).toBe('ry');
 
       // Head turn right
       expect(BONE_AU_TO_BINDINGS[52]).toBeDefined();
-      expect(BONE_AU_TO_BINDINGS[52][0].node).toBe('HEAD');
+      expect(BONE_AU_TO_BINDINGS[52][0].node).toBe(CC4_BONES.HEAD);
 
       // Head up/down
       expect(BONE_AU_TO_BINDINGS[53]).toBeDefined();
@@ -126,8 +129,8 @@ describe('CC4 Preset', () => {
       // Eyes look left/right (horizontal)
       expect(BONE_AU_TO_BINDINGS[61]).toBeDefined();
       expect(BONE_AU_TO_BINDINGS[61].length).toBe(2); // EYE_L and EYE_R
-      expect(BONE_AU_TO_BINDINGS[61][0].node).toBe('EYE_L');
-      expect(BONE_AU_TO_BINDINGS[61][1].node).toBe('EYE_R');
+      expect(BONE_AU_TO_BINDINGS[61][0].node).toBe(CC4_BONES.EYE_L);
+      expect(BONE_AU_TO_BINDINGS[61][1].node).toBe(CC4_BONES.EYE_R);
       expect(BONE_AU_TO_BINDINGS[61][0].channel).toBe('rz'); // CC4 uses rz for horizontal
 
       expect(BONE_AU_TO_BINDINGS[62]).toBeDefined();
@@ -141,28 +144,28 @@ describe('CC4 Preset', () => {
 
     it('should have single-eye bone bindings for independent eye AUs (65-72)', () => {
       expect(BONE_AU_TO_BINDINGS[65]).toEqual([
-        expect.objectContaining({ node: 'EYE_L', channel: 'rz', side: 'left' }),
+        expect.objectContaining({ node: CC4_BONES.EYE_L, channel: 'rz', side: 'left' }),
       ]);
       expect(BONE_AU_TO_BINDINGS[66]).toEqual([
-        expect.objectContaining({ node: 'EYE_L', channel: 'rz', side: 'left' }),
+        expect.objectContaining({ node: CC4_BONES.EYE_L, channel: 'rz', side: 'left' }),
       ]);
       expect(BONE_AU_TO_BINDINGS[67]).toEqual([
-        expect.objectContaining({ node: 'EYE_L', channel: 'rx', side: 'left' }),
+        expect.objectContaining({ node: CC4_BONES.EYE_L, channel: 'rx', side: 'left' }),
       ]);
       expect(BONE_AU_TO_BINDINGS[68]).toEqual([
-        expect.objectContaining({ node: 'EYE_L', channel: 'rx', side: 'left' }),
+        expect.objectContaining({ node: CC4_BONES.EYE_L, channel: 'rx', side: 'left' }),
       ]);
       expect(BONE_AU_TO_BINDINGS[69]).toEqual([
-        expect.objectContaining({ node: 'EYE_R', channel: 'rz', side: 'right' }),
+        expect.objectContaining({ node: CC4_BONES.EYE_R, channel: 'rz', side: 'right' }),
       ]);
       expect(BONE_AU_TO_BINDINGS[70]).toEqual([
-        expect.objectContaining({ node: 'EYE_R', channel: 'rz', side: 'right' }),
+        expect.objectContaining({ node: CC4_BONES.EYE_R, channel: 'rz', side: 'right' }),
       ]);
       expect(BONE_AU_TO_BINDINGS[71]).toEqual([
-        expect.objectContaining({ node: 'EYE_R', channel: 'rx', side: 'right' }),
+        expect.objectContaining({ node: CC4_BONES.EYE_R, channel: 'rx', side: 'right' }),
       ]);
       expect(BONE_AU_TO_BINDINGS[72]).toEqual([
-        expect.objectContaining({ node: 'EYE_R', channel: 'rx', side: 'right' }),
+        expect.objectContaining({ node: CC4_BONES.EYE_R, channel: 'rx', side: 'right' }),
       ]);
     });
 
@@ -178,13 +181,25 @@ describe('CC4 Preset', () => {
 
     it('should have jaw bone binding for AU 26', () => {
       expect(BONE_AU_TO_BINDINGS[26]).toBeDefined();
-      expect(BONE_AU_TO_BINDINGS[26][0].node).toBe('JAW');
+      expect(BONE_AU_TO_BINDINGS[26][0].node).toBe(CC4_BONES.JAW);
+    });
+
+    it('should keep lip-sync control 103 separate from AU bindings and fold it into the legacy profile map', () => {
+      expect(AU_TO_MORPHS[103]).toBeUndefined();
+      expect(CC4_PRESET.auInfo?.['103']).toBeUndefined();
+      expect(BONE_AU_TO_BINDINGS[103]).toBeUndefined();
+      expect(LIP_SYNC_CONTROL_TO_BINDINGS[103]).toEqual([
+        expect.objectContaining({ node: CC4_BONES.JAW, channel: 'rz', maxDegrees: 30 }),
+      ]);
+      expect(CC4_PROFILE_BONE_BINDINGS[103]).toEqual(LIP_SYNC_CONTROL_TO_BINDINGS[103]);
+      expect(CC4_PRESET.auToBones[103]).toEqual(LIP_SYNC_CONTROL_TO_BINDINGS[103]);
+      expect(COMPOSITE_ROTATIONS.find(c => c.node === CC4_BONES.JAW)?.pitch?.aus).toContain(103);
     });
   });
 
   describe('COMPOSITE_ROTATIONS', () => {
     it('should include HEAD composite', () => {
-      const head = COMPOSITE_ROTATIONS.find(c => c.node === 'HEAD');
+      const head = COMPOSITE_ROTATIONS.find(c => c.node === CC4_BONES.HEAD);
       expect(head).toBeDefined();
       expect(head!.pitch).toBeDefined();
       expect(head!.yaw).toBeDefined();
@@ -192,8 +207,8 @@ describe('CC4 Preset', () => {
     });
 
     it('should include EYE_L and EYE_R composites', () => {
-      const eyeL = COMPOSITE_ROTATIONS.find(c => c.node === 'EYE_L');
-      const eyeR = COMPOSITE_ROTATIONS.find(c => c.node === 'EYE_R');
+      const eyeL = COMPOSITE_ROTATIONS.find(c => c.node === CC4_BONES.EYE_L);
+      const eyeR = COMPOSITE_ROTATIONS.find(c => c.node === CC4_BONES.EYE_R);
       expect(eyeL).toBeDefined();
       expect(eyeR).toBeDefined();
 
@@ -204,18 +219,19 @@ describe('CC4 Preset', () => {
     });
 
     it('should include JAW composite', () => {
-      const jaw = COMPOSITE_ROTATIONS.find(c => c.node === 'JAW');
+      const jaw = COMPOSITE_ROTATIONS.find(c => c.node === CC4_BONES.JAW);
       expect(jaw).toBeDefined();
       expect(jaw!.pitch).toBeDefined(); // Jaw open/close
+      expect(jaw!.pitch!.aus).toEqual(expect.arrayContaining([25, 26, 27, 103]));
     });
 
     it('should include TONGUE composite', () => {
-      const tongue = COMPOSITE_ROTATIONS.find(c => c.node === 'TONGUE');
+      const tongue = COMPOSITE_ROTATIONS.find(c => c.node === CC4_BONES.TONGUE);
       expect(tongue).toBeDefined();
     });
 
     it('should have correct AU mappings in HEAD composite', () => {
-      const head = COMPOSITE_ROTATIONS.find(c => c.node === 'HEAD')!;
+      const head = COMPOSITE_ROTATIONS.find(c => c.node === CC4_BONES.HEAD)!;
 
       // Yaw: AU 51 (left) and 52 (right)
       expect(head.yaw!.aus).toContain(51);
@@ -233,8 +249,8 @@ describe('CC4 Preset', () => {
     });
 
     it('should have correct AU mappings in eye composites', () => {
-      const eyeL = COMPOSITE_ROTATIONS.find(c => c.node === 'EYE_L')!;
-      const eyeR = COMPOSITE_ROTATIONS.find(c => c.node === 'EYE_R')!;
+      const eyeL = COMPOSITE_ROTATIONS.find(c => c.node === CC4_BONES.EYE_L)!;
+      const eyeR = COMPOSITE_ROTATIONS.find(c => c.node === CC4_BONES.EYE_R)!;
 
       // Yaw: AU 61 (left) and 62 (right)
       expect(eyeL.yaw!.aus).toContain(61);
@@ -418,11 +434,11 @@ describe('CC4 Preset', () => {
 
       expect(leftEye?.paddingFactor).toBe(0.9);
       expect(rightEye?.paddingFactor).toBe(0.9);
-      expect(leftEye?.bones).toEqual(['EYE_L']);
-      expect(rightEye?.bones).toEqual(['EYE_R']);
-      expect(leftFoot?.bones).toEqual(['FOOT_L', 'TOEBASE_L']);
-      expect(CC4_PRESET.boneNodes.HAND_L).toBe('L_Hand');
-      expect(CC4_PRESET.boneNodes.FOOT_L).toBe('L_Foot');
+      expect(leftEye?.bones).toEqual([CC4_BONES.EYE_L]);
+      expect(rightEye?.bones).toEqual([CC4_BONES.EYE_R]);
+      expect(leftFoot?.bones).toEqual([CC4_BONES.FOOT_L, CC4_BONES.TOEBASE_L]);
+      expect(CC4_PRESET.boneNodes[CC4_BONES.HAND_L]).toBe(CC4_BONES.HAND_L);
+      expect(CC4_PRESET.boneNodes[CC4_BONES.FOOT_L]).toBe(CC4_BONES.FOOT_L);
     });
   });
 });

@@ -14,6 +14,7 @@ import type {
   ClipHandle,
   CompositeRotation,
   CurvePoint,
+  SnippetChannel,
   AnimationBlendMode,
   MorphTargetDelta,
   AddMorphTargetOptions,
@@ -374,6 +375,17 @@ export interface Animation {
   buildClip(
     clipName: string,
     curves: Record<string, Array<CurvePoint>>,
+    options?: ClipOptions
+  ): ClipHandle | null;
+
+  /**
+   * Build and play an AnimationClip from typed channel data.
+   * This is the preferred dynamic path when numeric IDs could mean different
+   * namespaces, such as AU 1, viseme slot 1, or lip-sync control 103.
+   */
+  buildTypedClip(
+    clipName: string,
+    channels: SnippetChannel[],
     options?: ClipOptions
   ): ClipHandle | null;
 

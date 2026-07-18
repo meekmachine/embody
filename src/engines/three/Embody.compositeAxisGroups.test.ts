@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { Object3D } from 'three';
 import type { Profile } from '../../mappings/types';
-import { Loom3 } from './Loom3';
+import { Embody } from './Embody';
 
-function makeEngine(): Loom3 {
+function makeEngine(): Embody {
   const profile: Profile = {
     auToMorphs: {},
     auToBones: {
@@ -30,12 +30,12 @@ function makeEngine(): Loom3 {
   head.name = 'Head';
   model.add(head);
 
-  const engine = new Loom3({ profile });
+  const engine = new Embody({ profile });
   engine.onReady({ model, meshes: [] });
   return engine;
 }
 
-describe('Loom3 grouped composite rotation axes', () => {
+describe('Embody grouped composite rotation axes', () => {
   it('treats grouped negative/positive AUs as one semantic axis', () => {
     const engine = makeEngine();
 

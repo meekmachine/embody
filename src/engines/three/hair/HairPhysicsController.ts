@@ -350,7 +350,7 @@ export class HairPhysicsController {
     for (const key of missing) {
       if (this.warnedMissingMorphTargets.has(key)) continue;
       this.warnedMissingMorphTargets.add(key);
-      console.warn(`[Loom3] Hair physics morph "${key}" not found on registered hair meshes.`);
+      console.warn(`[Embody] Hair physics morph "${key}" not found on registered hair meshes.`);
     }
   }
 

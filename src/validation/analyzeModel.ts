@@ -1,5 +1,5 @@
 /**
- * Loom3 - Unified Model Analysis API
+ * Embody - Unified Model Analysis API
  *
  * Combines model extraction, validation, and correction suggestions
  * into a single comprehensive analysis report.

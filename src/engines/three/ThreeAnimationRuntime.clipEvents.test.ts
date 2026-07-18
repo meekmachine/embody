@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { Object3D, Quaternion } from 'three';
 import type { Profile } from '../../mappings/types';
-import { BONE_AU_TO_BINDINGS, COMPOSITE_ROTATIONS } from '../../presets/cc4';
+import { BONE_AU_TO_BINDINGS, CC4_BONES, COMPOSITE_ROTATIONS } from '../../presets/cc4';
 import type { ResolvedBones } from './types';
-import { AnimationController, type AnimationControllerHost } from './AnimationThree';
+import { AnimationController, type AnimationControllerHost } from './ThreeAnimationRuntime';
 
 function snapshot(obj: Object3D) {
   return {
@@ -21,13 +21,13 @@ function makeHost(): AnimationControllerHost {
   model.add(leftEye);
 
   const bones: ResolvedBones = {
-    EYE_L: snapshot(leftEye),
+    [CC4_BONES.EYE_L]: snapshot(leftEye),
   };
 
   const profile: Profile = {
     auToMorphs: {},
     auToBones: BONE_AU_TO_BINDINGS,
-    boneNodes: { EYE_L: 'L_Eye' },
+    boneNodes: { [CC4_BONES.EYE_L]: CC4_BONES.EYE_L },
     morphToMesh: {},
     visemeKeys: [],
   };
