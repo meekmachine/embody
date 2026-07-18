@@ -44,6 +44,7 @@ import { getCompositeAxisBinding, getCompositeAxisValue } from '../../core/compo
 import { ThreeAnimationRuntime, ThreeAnimationSystem } from './ThreeAnimationRuntime';
 import { getSideScale } from './balanceUtils';
 import { ThreeModelInspector } from './ThreeModelInspector';
+import { ThreeFrameApplier, type ThreeMaterialConfig, type ThreeResolvedMaterialConfig } from './ThreeFrameApplier';
 import { HairPhysicsController, type HairPhysicsConfig, type HairPhysicsConfigUpdate, type HairPhysicsDirectionConfig, type HairMorphTargets } from './hair/HairPhysicsController';
 import { CC4_PRESET, CC4_MESHES, COMPOSITE_ROTATIONS as CC4_COMPOSITE_ROTATIONS } from '../../presets/cc4';
 import { getPreset } from '../../presets';
@@ -168,6 +169,7 @@ export class Embody implements EmbodyRuntime {
   private animationController: ThreeAnimationSystem;
   private hairPhysics: HairPhysicsController;
   private modelInspector = new ThreeModelInspector();
+  private frameApplier = new ThreeFrameApplier();
 
   // Internal animation loop
   private clock = new Clock(false); // Don't auto-start
@@ -219,6 +221,8 @@ export class Embody implements EmbodyRuntime {
       getAUMixWeight: (auId) => this.getAUMixWeight(auId),
       isMixedAU: (auId) => this.isMixedAU(auId),
       reapplyProceduralState: () => this.reapplyProceduralStateAfterBakedUpdate(),
+    }, {
+      animationRuntimeFactory: config.animationRuntimeFactory,
     });
 
     this.hairPhysics = new HairPhysicsController({
@@ -511,17 +515,11 @@ export class Embody implements EmbodyRuntime {
       const { left: leftVal, right: rightVal } = this.computeSideValues(base, balance);
 
       if (resolvedMorphTargets.left.length || resolvedMorphTargets.right.length) {
-        for (const t of resolvedMorphTargets.left) {
-          t.infl[t.idx] = leftVal;
-        }
-        for (const t of resolvedMorphTargets.right) {
-          t.infl[t.idx] = rightVal;
-        }
+        this.applyMorphTargets(resolvedMorphTargets.left, leftVal);
+        this.applyMorphTargets(resolvedMorphTargets.right, rightVal);
       }
 
-      for (const t of resolvedMorphTargets.center) {
-        t.infl[t.idx] = base;
-      }
+      this.applyMorphTargets(resolvedMorphTargets.center, base);
     } else if (leftKeys.length || rightKeys.length || centerKeys.length) {
       const mixWeight = this.isMixedAU(id) ? this.getAUMixWeight(id) : 1.0;
       const base = clamp01(v) * mixWeight;
@@ -1085,18 +1083,27 @@ export class Embody implements EmbodyRuntime {
     this.initBoneRotations();
     this.clearTransitions();
 
+    const morphTargetsToReset: MorphTargetHandle[] = [];
     for (const m of this.meshes) {
       const infl = m.morphTargetInfluences;
       if (!infl) continue;
       for (let i = 0; i < infl.length; i++) {
-        infl[i] = 0;
+        morphTargetsToReset.push({ infl, idx: i });
       }
     }
+    this.frameApplier.resetMorphTargets(morphTargetsToReset);
 
     Object.values(this.bones).forEach((entry) => {
       if (!entry) return;
-      entry.obj.position.copy(entry.basePos as any);
-      entry.obj.quaternion.copy(entry.baseQuat);
+      this.frameApplier.applyObjectTransform(entry.obj, {
+        position: { x: entry.basePos.x, y: entry.basePos.y, z: entry.basePos.z },
+        rotation: {
+          x: entry.baseQuat.x,
+          y: entry.baseQuat.y,
+          z: entry.baseQuat.z,
+          w: entry.baseQuat.w,
+        },
+      });
     });
   }
 
@@ -1108,9 +1115,15 @@ export class Embody implements EmbodyRuntime {
 
     Object.values(this.bones).forEach((entry) => {
       if (!entry) return;
-      entry.obj.position.copy(entry.basePos as any);
-      entry.obj.quaternion.copy(entry.baseQuat);
-      entry.obj.updateMatrixWorld(false);
+      this.frameApplier.applyObjectTransform(entry.obj, {
+        position: { x: entry.basePos.x, y: entry.basePos.y, z: entry.basePos.z },
+        rotation: {
+          x: entry.baseQuat.x,
+          y: entry.baseQuat.y,
+          z: entry.baseQuat.z,
+          w: entry.baseQuat.w,
+        },
+      });
     });
 
     for (const [auIdStr, value] of Object.entries(this.auValues)) {
@@ -1228,15 +1241,8 @@ export class Embody implements EmbodyRuntime {
 
   setMeshVisible(meshName: string, visible: boolean): void {
     if (!this.model) return;
-    this.model.traverse((obj: any) => {
-      if (obj.isMesh && obj.name === meshName) {
-        obj.visible = visible;
-      }
-    });
+    this.frameApplier.setMeshVisible(this.model, meshName, visible);
   }
-
-  /** Store original emissive colors for highlight reset */
-  private originalEmissive = new Map<string, { color: number; intensity: number }>();
 
   /**
    * Highlight a mesh with an emissive glow effect
@@ -1246,134 +1252,19 @@ export class Embody implements EmbodyRuntime {
    */
   highlightMesh(meshName: string | null, color: number = 0x00ffff, intensity: number = 0.5): void {
     if (!this.model) return;
-
-    this.model.traverse((obj: any) => {
-      if (!obj.isMesh) return;
-
-      const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
-
-      for (const mat of materials) {
-        if (!mat || !('emissive' in mat)) continue;
-
-        if (meshName === null || obj.name !== meshName) {
-          // Reset to original emissive
-          const original = this.originalEmissive.get(obj.name);
-          if (original) {
-            mat.emissive.setHex(original.color);
-            mat.emissiveIntensity = original.intensity;
-          }
-        } else if (obj.name === meshName) {
-          // Store original if not already stored
-          if (!this.originalEmissive.has(obj.name)) {
-            this.originalEmissive.set(obj.name, {
-              color: mat.emissive.getHex(),
-              intensity: mat.emissiveIntensity || 0,
-            });
-          }
-          // Apply highlight
-          mat.emissive.setHex(color);
-          mat.emissiveIntensity = intensity;
-        }
-      }
-    });
+    this.frameApplier.highlightMesh(this.model, meshName, color, intensity);
   }
 
-  /** Blending mode options for Three.js materials */
-  private static readonly BLENDING_MODES: Record<string, number> = {
-    'Normal': 1,      // THREE.NormalBlending
-    'Additive': 2,    // THREE.AdditiveBlending
-    'Subtractive': 3, // THREE.SubtractiveBlending
-    'Multiply': 4,    // THREE.MultiplyBlending
-    'None': 0,        // THREE.NoBlending
-  };
-
   /** Get material config for a mesh */
-  getMeshMaterialConfig(meshName: string): {
-    renderOrder: number;
-    transparent: boolean;
-    opacity: number;
-    depthWrite: boolean;
-    depthTest: boolean;
-    blending: string;
-  } | null {
+  getMeshMaterialConfig(meshName: string): ThreeResolvedMaterialConfig | null {
     if (!this.model) return null;
-    let result: ReturnType<Embody['getMeshMaterialConfig']> = null;
-
-    this.model.traverse((obj: any) => {
-      if (obj.isMesh && obj.name === meshName) {
-        const mat = obj.material;
-        if (mat) {
-          // Reverse lookup blending mode name
-          let blendingName = 'Normal';
-          for (const [name, value] of Object.entries(Embody.BLENDING_MODES)) {
-            if (mat.blending === value) {
-              blendingName = name;
-              break;
-            }
-          }
-          result = {
-            renderOrder: obj.renderOrder,
-            transparent: mat.transparent,
-            opacity: mat.opacity,
-            depthWrite: mat.depthWrite,
-            depthTest: mat.depthTest,
-            blending: blendingName,
-          };
-        }
-      }
-    });
-
-    return result;
+    return this.frameApplier.getMeshMaterialConfig(this.model, meshName);
   }
 
   /** Set material config for a mesh */
-  setMeshMaterialConfig(meshName: string, config: {
-    renderOrder?: number;
-    transparent?: boolean;
-    opacity?: number;
-    depthWrite?: boolean;
-    depthTest?: boolean;
-    blending?: string;
-  }): void {
+  setMeshMaterialConfig(meshName: string, config: ThreeMaterialConfig): void {
     if (!this.model) return;
-
-    this.model.traverse((obj: any) => {
-      if (obj.isMesh && obj.name === meshName) {
-        const mat = obj.material;
-
-        if (config.renderOrder !== undefined) {
-          obj.renderOrder = config.renderOrder;
-        }
-
-        if (mat) {
-          // Handle transparency - auto-enable when opacity < 1
-          if (config.opacity !== undefined) {
-            mat.opacity = config.opacity;
-            // Auto-enable transparency when opacity is reduced
-            if (config.opacity < 1 && config.transparent === undefined) {
-              mat.transparent = true;
-            }
-          }
-          if (config.transparent !== undefined) {
-            mat.transparent = config.transparent;
-          }
-          if (config.depthWrite !== undefined) {
-            mat.depthWrite = config.depthWrite;
-          }
-          if (config.depthTest !== undefined) {
-            mat.depthTest = config.depthTest;
-          }
-          if (config.blending !== undefined) {
-            const blendValue = Embody.BLENDING_MODES[config.blending];
-            if (blendValue !== undefined) {
-              mat.blending = blendValue;
-            }
-          }
-          // Always mark material as needing update after any change
-          mat.needsUpdate = true;
-        }
-      }
-    });
+    this.frameApplier.setMeshMaterialConfig(this.model, meshName, config);
   }
 
   // ============================================================================
@@ -1574,18 +1465,12 @@ export class Embody implements EmbodyRuntime {
   }
 
   private applyMorphTargets(targets: MorphTargetHandle[], val: number): void {
-    for (const target of targets) {
-      target.infl[target.idx] = val;
-    }
+    this.frameApplier.applyMorphTargets(targets, val);
   }
 
   private applyVisemeRuntimeState(): void {
     for (const targets of this.resolvedVisemeTargets) {
-      for (const target of targets || []) {
-        if (target.idx < target.infl.length) {
-          target.infl[target.idx] = 0;
-        }
-      }
+      this.frameApplier.resetMorphTargets(targets || []);
     }
 
     for (let index = 0; index < this.visemeValues.length; index += 1) {
@@ -1595,7 +1480,10 @@ export class Embody implements EmbodyRuntime {
       for (const target of targets) {
         if (target.idx >= target.infl.length) continue;
         const weighted = clamp01(value * target.weight);
-        target.infl[target.idx] = Math.max(target.infl[target.idx] ?? 0, weighted);
+        this.frameApplier.applyMorphTargets(
+          [target],
+          Math.max(target.infl[target.idx] ?? 0, weighted)
+        );
       }
     }
 
@@ -1979,11 +1867,7 @@ export class Embody implements EmbodyRuntime {
   }
 
   private resetMorphTargetHandles(targets: MorphTargetHandle[]): void {
-    for (const { infl, idx } of targets) {
-      if (idx < infl.length) {
-        infl[idx] = 0;
-      }
-    }
+    this.frameApplier.resetMorphTargets(targets);
   }
 
   private isMixedAU(id: number): boolean {
@@ -2156,18 +2040,20 @@ export class Embody implements EmbodyRuntime {
       }
     }
 
-    // Apply position
-    obj.position.copy(basePos as any);
     const t = this.translations[nodeKey];
-    if (t) {
-      obj.position.x += t.x;
-      obj.position.y += t.y;
-      obj.position.z += t.z;
-    }
-
-    // Apply composite quaternion rotation
-    (obj.quaternion as any).copy(compositeQ);
-    obj.updateMatrixWorld(false);
+    this.frameApplier.applyObjectTransform(obj, {
+      position: {
+        x: basePos.x + (t?.x ?? 0),
+        y: basePos.y + (t?.y ?? 0),
+        z: basePos.z + (t?.z ?? 0),
+      },
+      rotation: {
+        x: compositeQ.x,
+        y: compositeQ.y,
+        z: compositeQ.z,
+        w: compositeQ.w,
+      },
+    });
     this.model.updateMatrixWorld(true);
   }
 
@@ -2334,35 +2220,7 @@ export class Embody implements EmbodyRuntime {
 
       if (!meshInfo?.material) return;
 
-      const settings = meshInfo.material;
-
-      // Apply renderOrder to the mesh itself
-      if (typeof settings.renderOrder === 'number') {
-        obj.renderOrder = settings.renderOrder;
-      }
-
-      // Apply material settings if the mesh has a material
-      if (obj.material) {
-        if (typeof settings.transparent === 'boolean') {
-          obj.material.transparent = settings.transparent;
-        }
-        if (typeof settings.opacity === 'number') {
-          obj.material.opacity = settings.opacity;
-        }
-        if (typeof settings.depthWrite === 'boolean') {
-          obj.material.depthWrite = settings.depthWrite;
-        }
-        if (typeof settings.depthTest === 'boolean') {
-          obj.material.depthTest = settings.depthTest;
-        }
-        if (typeof settings.blending === 'string') {
-          const blendValue = Embody.BLENDING_MODES[settings.blending];
-          if (blendValue !== undefined) {
-            obj.material.blending = blendValue;
-          }
-        }
-        obj.material.needsUpdate = true;
-      }
+      this.frameApplier.setMeshMaterialConfig(root, obj.name, meshInfo.material as ThreeMaterialConfig);
     });
 
   }
@@ -2495,6 +2353,14 @@ export class Embody implements EmbodyRuntime {
     options?: ClipOptions
   ): ClipHandle | null {
     return this.animationController.buildTypedClip(clipName, channels, options);
+  }
+
+  typedSnippetToClip(
+    clipName: string,
+    channels: SnippetChannel[],
+    options?: ClipOptions
+  ): AnimationClip | null {
+    return this.animationController.typedSnippetToClip(clipName, channels, options);
   }
 
   cleanupSnippet(name: string) {

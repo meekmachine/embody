@@ -167,11 +167,15 @@ describe('extendProfileConfigWithPreset', () => {
     ]);
     expect(extended.regions.find((region) => region.name === 'left_eye')).toMatchObject({
       name: 'left_eye',
-      bones: [CC4_BONES.EYE_L],
+      bones: ['EYE_L'],
       cameraAngle: 45,
       paddingFactor: 0.5,
       parent: 'head',
     });
+    expect(resolveBoneNames(extended.regions.find((region) => region.name === 'left_eye')?.bones, extended)).toEqual([
+      CC4_BONES.EYE_L,
+      'L_Eye',
+    ]);
   });
 
   it('treats saved top-level regions as a legacy fallback when annotationRegions are absent', () => {
@@ -195,14 +199,14 @@ describe('extendProfileConfigWithPreset', () => {
     expect(head).toBeTruthy();
     expect(leftEye).toMatchObject({
       name: 'left_eye',
-      bones: [CC4_BONES.EYE_L],
+      bones: ['EYE_L'],
       paddingFactor: 0.5,
       parent: 'head',
     });
     expect(leftEye?.cameraAngle).toBe(45);
     expect(rightEye).toMatchObject({
       name: 'right_eye',
-      bones: [CC4_BONES.EYE_R],
+      bones: ['EYE_R'],
       paddingFactor: presetRightEye?.paddingFactor,
       parent: 'head',
     });
@@ -260,7 +264,7 @@ describe('extendProfileConfigWithPreset', () => {
 
     expect(leftEye).toMatchObject({
       name: 'left_eye',
-      bones: [CC4_BONES.EYE_L],
+      bones: ['EYE_L'],
       paddingFactor: 1.1,
       cameraAngle: 30,
       parent: 'head',

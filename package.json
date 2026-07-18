@@ -21,6 +21,11 @@
       "types": "./dist/three.d.ts",
       "import": "./dist/three.js",
       "require": "./dist/three.cjs"
+    },
+    "./cljs": {
+      "types": "./dist/cljs.d.ts",
+      "import": "./dist/cljs.js",
+      "require": "./dist/cljs.cjs"
     }
   },
   "files": [

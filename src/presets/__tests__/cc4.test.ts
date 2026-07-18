@@ -17,6 +17,7 @@ import {
   hasLeftRightMorphs,
   hasLeftRightBones,
 } from '../cc4';
+import { resolveBoneNames } from '../../regions/regionMapping';
 
 const EXPECTED_CC4_VISEME_KEYS = [
   'AE',
@@ -434,11 +435,19 @@ describe('CC4 Preset', () => {
 
       expect(leftEye?.paddingFactor).toBe(0.9);
       expect(rightEye?.paddingFactor).toBe(0.9);
-      expect(leftEye?.bones).toEqual([CC4_BONES.EYE_L]);
-      expect(rightEye?.bones).toEqual([CC4_BONES.EYE_R]);
-      expect(leftFoot?.bones).toEqual([CC4_BONES.FOOT_L, CC4_BONES.TOEBASE_L]);
+      expect(leftEye?.bones).toEqual(['EYE_L']);
+      expect(rightEye?.bones).toEqual(['EYE_R']);
+      expect(leftFoot?.bones).toEqual(['FOOT_L', 'TOEBASE_L']);
+      expect(resolveBoneNames(leftEye?.bones, CC4_PRESET)).toEqual([CC4_BONES.EYE_L, 'L_Eye']);
+      expect(resolveBoneNames(leftFoot?.bones, CC4_PRESET)).toEqual([
+        CC4_BONES.FOOT_L,
+        'L_Foot',
+        CC4_BONES.TOEBASE_L,
+        'L_ToeBase',
+      ]);
+      expect(CC4_PRESET.boneNodes.HAND_L).toBe('L_Hand');
       expect(CC4_PRESET.boneNodes[CC4_BONES.HAND_L]).toBe(CC4_BONES.HAND_L);
-      expect(CC4_PRESET.boneNodes[CC4_BONES.FOOT_L]).toBe(CC4_BONES.FOOT_L);
+      expect(CC4_PRESET.bonePrefix).toBe('CC_Base_');
     });
   });
 });

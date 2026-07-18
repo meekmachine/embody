@@ -45,6 +45,9 @@ import type {
   SnippetChannel,
   TypedSnippet,
   BoneBinding,
+  EmbodyAnimationRuntime,
+  EmbodyAnimationRuntimeConnector,
+  EmbodyAnimationRuntimeFactory,
 } from '../../core/types';
 import { getCompositeAxisBinding, getCompositeAxisValue } from '../../core/compositeAxis';
 import type { Profile } from '../../mappings/types';
@@ -276,6 +279,10 @@ export type AnimationControllerHost = ThreeAnimationSystemHost;
 /** @deprecated Use ThreeAnimationSystemHost. */
 export type BakedAnimationHost = ThreeAnimationSystemHost;
 
+export type ThreeAnimationSystemOptions = {
+  animationRuntimeFactory?: EmbodyAnimationRuntimeFactory;
+};
+
 // Lightweight unique id for mixer actions/handles
 const makeActionId = () => `act_${Math.random().toString(36).slice(2, 8)}_${Date.now().toString(36)}`;
 const X_AXIS = new Vector3(1, 0, 0);
@@ -360,6 +367,16 @@ type DynamicClipSource = {
   hasInheritedStart: boolean;
 };
 
+type ClipParamsUpdate = {
+  weight?: number;
+  rate?: number;
+  loop?: boolean;
+  loopMode?: 'once' | 'repeat' | 'pingpong';
+  repeatCount?: number;
+  reverse?: boolean;
+  actionId?: string;
+};
+
 const ADDITIVE_BAKED_MIXER_CLIP_SUFFIX = '__embody_additive_delta';
 
 export class ThreeAnimationSystem {
@@ -379,15 +396,85 @@ export class ThreeAnimationSystem {
   private animationFinishedCallbacks = new Map<string, () => void>();
   private clipActions = new Map<string, AnimationAction>();
   private clipHandles = new Map<string, ClipHandle>();
+  private rendererClipHandles = new Map<string, ClipHandle>();
   private clipSources = new Map<string, AnimationSource>();
   private playbackState = new Map<string, NormalizedPlaybackState>();
   private actionIds = new WeakMap<AnimationAction, string>();
   private actionIdToClip = new Map<string, string>();
   private clipMonitors = new Map<string, ClipMonitor>();
   private dynamicClipSources = new WeakMap<AnimationClip, DynamicClipSource>();
+  private cljsAnimationRuntime: EmbodyAnimationRuntime | null = null;
 
-  constructor(host: ThreeAnimationSystemHost) {
+  constructor(host: ThreeAnimationSystemHost, options: ThreeAnimationSystemOptions = {}) {
     this.host = host;
+    if (options.animationRuntimeFactory) {
+      this.cljsAnimationRuntime = options.animationRuntimeFactory(
+        { owner: 'ThreeAnimationSystem' },
+        this.createRuntimeConnector()
+      );
+    }
+  }
+
+  private shouldDebugClipLogs(): boolean {
+    const globalLocation = typeof window !== 'undefined' ? window.location : undefined;
+    const search = globalLocation?.search ?? '';
+    return search.includes('polymerVocalDebug=1')
+      || search.includes('embodyDebug=1')
+      || search.includes('loom3Debug=1');
+  }
+
+  private debugClipLog(...args: unknown[]): void {
+    if (this.shouldDebugClipLogs()) {
+      console.log(...args);
+    }
+  }
+
+  private createRuntimeConnector(): EmbodyAnimationRuntimeConnector {
+    return {
+      buildClip: (clipName, curves, options) => {
+        const handle = this.buildClipDirect(clipName, curves, options);
+        if (!handle) return null;
+        this.rendererClipHandles.set(clipName, handle);
+        handle.subscribe?.((event) => {
+          this.cljsAnimationRuntime?.acceptClipEvent(event);
+        });
+        return {
+          actionId: handle.actionId,
+          duration: handle.getDuration(),
+          time: handle.getTime(),
+        };
+      },
+      stopClip: (clipName) => {
+        this.rendererClipHandles.get(clipName)?.stop();
+        this.rendererClipHandles.delete(clipName);
+      },
+      pauseClip: (clipName) => {
+        this.rendererClipHandles.get(clipName)?.pause();
+      },
+      resumeClip: (clipName) => {
+        this.rendererClipHandles.get(clipName)?.resume();
+      },
+      setClipWeight: (clipName, weight) => {
+        this.rendererClipHandles.get(clipName)?.setWeight?.(weight);
+      },
+      setClipPlaybackRate: (clipName, rate) => {
+        this.rendererClipHandles.get(clipName)?.setPlaybackRate?.(rate);
+      },
+      setClipLoop: (clipName, mode, repeatCount) => {
+        this.rendererClipHandles.get(clipName)?.setLoop?.(mode, repeatCount);
+      },
+      setClipTime: (clipName, time) => {
+        this.rendererClipHandles.get(clipName)?.setTime?.(time);
+      },
+      getClipTime: (clipName) => this.rendererClipHandles.get(clipName)?.getTime() ?? 0,
+      getClipDuration: (clipName) => this.rendererClipHandles.get(clipName)?.getDuration() ?? 0,
+      updateClipParams: (clipName, params) => this.updateClipParamsDirect(clipName, params as ClipParamsUpdate),
+      cleanupSnippet: (clipName) => this.cleanupSnippetDirect(clipName),
+    };
+  }
+
+  getRuntimeSnapshot(): Record<string, unknown> | null {
+    return this.cljsAnimationRuntime?.snapshot() ?? null;
   }
 
   private getActionId(action?: AnimationAction | null): string | undefined {
@@ -2167,7 +2254,7 @@ export class ThreeAnimationSystem {
       options,
       hasInheritedStart: this.curvesHaveInheritedStart(curves),
     });
-    console.log(`[Embody] snippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);
+    this.debugClipLog(`[Embody] snippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);
 
     return clip;
   }
@@ -2500,7 +2587,7 @@ export class ThreeAnimationSystem {
 
         const entry = bones[nodeKey];
         if (!entry) {
-          console.log(`[typedSnippetToClip] Skipping composite for "${nodeKey}" - bone not resolved`);
+          this.debugClipLog(`[typedSnippetToClip] Skipping composite for "${nodeKey}" - bone not resolved`);
           continue;
         }
 
@@ -2615,12 +2702,12 @@ export class ThreeAnimationSystem {
       lipSyncIds: lipSyncChannels.map((channel) => channel.target.type === 'lipSync' ? channel.target.id : null),
       auIds: auChannels.map((channel) => channel.target.type === 'au' ? channel.target.id : null),
     });
-    console.log(`[Embody] typedSnippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);
+    this.debugClipLog(`[Embody] typedSnippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);
 
     return clip;
   }
 
-  playClip(clip: AnimationClip, options?: ClipOptions): ClipHandle | null {
+  private playClipDirect(clip: AnimationClip, options?: ClipOptions): ClipHandle | null {
     const mixer = this.ensureClipMixer();
 
     if (!mixer) {
@@ -2709,7 +2796,7 @@ export class ThreeAnimationSystem {
     this.clipActions.set(clip.name, action);
     this.animationActions.set(clip.name, action);
     this.setPlaybackState(clip.name, playbackState);
-    console.log(`[Embody] playClip: Playing "${clip.name}" (rate: ${playbackState.playbackRate}, loop: ${playbackState.loop}, actionId: ${actionId})`);
+    this.debugClipLog(`[Embody] playClip: Playing "${clip.name}" (rate: ${playbackState.playbackRate}, loop: ${playbackState.loop}, actionId: ${actionId})`);
 
     const handle: ClipHandle = {
       clipName: clip.name,
@@ -2758,6 +2845,7 @@ export class ThreeAnimationSystem {
         this.animationActions.delete(clip.name);
         this.animationFinishedCallbacks.delete(clip.name);
         this.playbackState.delete(clip.name);
+        this.rendererClipHandles.delete(clip.name);
         this.cleanupClipMonitor(actionId);
       },
 
@@ -2816,8 +2904,13 @@ export class ThreeAnimationSystem {
       finished: finishedPromise,
     };
     this.clipHandles.set(clip.name, handle);
+    this.rendererClipHandles.set(clip.name, handle);
 
     return handle;
+  }
+
+  playClip(clip: AnimationClip, options?: ClipOptions): ClipHandle | null {
+    return this.playClipDirect(clip, options);
   }
 
   playSnippet(
@@ -2827,11 +2920,21 @@ export class ThreeAnimationSystem {
     if ('channels' in snippet) {
       return this.playTypedSnippet(snippet, options);
     }
+    if (this.cljsAnimationRuntime) {
+      const handle = this.cljsAnimationRuntime.playSnippet(
+        snippet.name,
+        snippet.curves,
+        { ...options, source: options?.source ?? 'snippet' }
+      );
+      if (!handle) return null;
+      this.clipHandles.set(snippet.name, handle);
+      return handle;
+    }
     const clip = this.snippetToClip(snippet.name, snippet.curves, options);
     if (!clip) {
       return null;
     }
-    return this.playClip(clip, { ...options, source: options?.source ?? 'snippet' });
+    return this.playClipDirect(clip, { ...options, source: options?.source ?? 'snippet' });
   }
 
   playTypedSnippet(
@@ -2853,10 +2956,29 @@ export class ThreeAnimationSystem {
     if (!clip) {
       return null;
     }
-    return this.playClip(clip, { ...options, source: options?.source ?? 'snippet' });
+    return this.playClipDirect(clip, { ...options, source: options?.source ?? 'snippet' });
   }
 
   buildClip(
+    clipName: string,
+    curves: CurvesMap,
+    options?: ClipOptions
+  ): ClipHandle | null {
+    if (this.cljsAnimationRuntime) {
+      const handle = this.cljsAnimationRuntime.buildClip(
+        clipName,
+        curves,
+        { ...options, source: options?.source ?? 'clip' }
+      );
+      if (!handle) return null;
+      this.clipHandles.set(clipName, handle);
+      return handle;
+    }
+
+    return this.buildClipDirect(clipName, curves, options);
+  }
+
+  private buildClipDirect(
     clipName: string,
     curves: CurvesMap,
     options?: ClipOptions
@@ -2865,7 +2987,7 @@ export class ThreeAnimationSystem {
     if (!clip) {
       return null;
     }
-    return this.playClip(clip, { ...options, source: options?.source ?? 'clip' });
+    return this.playClipDirect(clip, { ...options, source: options?.source ?? 'clip' });
   }
 
   buildTypedClip(
@@ -2877,10 +2999,17 @@ export class ThreeAnimationSystem {
     if (!clip) {
       return null;
     }
-    return this.playClip(clip, { ...options, source: options?.source ?? 'clip' });
+    return this.playClipDirect(clip, { ...options, source: options?.source ?? 'clip' });
   }
 
   cleanupSnippet(name: string) {
+    if (this.cljsAnimationRuntime) {
+      this.cljsAnimationRuntime.cleanupSnippet(name);
+    }
+    this.cleanupSnippetDirect(name);
+  }
+
+  private cleanupSnippetDirect(name: string) {
     if (!this.host.getModel()) return;
     for (const [clipName, action] of Array.from(this.clipActions.entries())) {
       if (clipName === name || clipName.startsWith(`${name}_`)) {
@@ -2897,6 +3026,7 @@ export class ThreeAnimationSystem {
         this.clipActions.delete(clipName);
         this.animationActions.delete(clipName);
         this.clipHandles.delete(clipName);
+        this.rendererClipHandles.delete(clipName);
         this.animationFinishedCallbacks.delete(clipName);
         this.playbackState.delete(clipName);
         if (actionId) this.cleanupClipMonitor(actionId);
@@ -2904,7 +3034,15 @@ export class ThreeAnimationSystem {
     }
   }
 
-  updateClipParams(name: string, params: { weight?: number; rate?: number; loop?: boolean; loopMode?: 'once' | 'repeat' | 'pingpong'; repeatCount?: number; reverse?: boolean; actionId?: string }): boolean {
+  updateClipParams(name: string, params: ClipParamsUpdate): boolean {
+    if (this.cljsAnimationRuntime) {
+      this.cljsAnimationRuntime.updateClipParams(name, params);
+    }
+
+    return this.updateClipParamsDirect(name, params);
+  }
+
+  private updateClipParamsDirect(name: string, params: ClipParamsUpdate): boolean {
     let updated = false;
     const matches = (clipName: string, action?: AnimationAction | null) => {
       if (params.actionId) {
@@ -2926,7 +3064,7 @@ export class ThreeAnimationSystem {
       ].map((a: AnimationAction) => ({ name: a?.getClip?.()?.name || '', actionId: this.getActionId(a) })),
     });
 
-    console.log('[Embody] updateClipParams start', debugSnapshot());
+    this.debugClipLog('[Embody] updateClipParams start', debugSnapshot());
 
     const apply = (action: AnimationAction | null | undefined) => {
       if (!action) return;
@@ -2984,7 +3122,7 @@ export class ThreeAnimationSystem {
       }
     }
 
-    console.log('[Embody] updateClipParams end', debugSnapshot());
+    this.debugClipLog('[Embody] updateClipParams end', debugSnapshot());
     return updated;
   }
 

@@ -455,11 +455,7 @@ export const AU_TO_MORPHS: Record<number, MorphTargetsBySide> = {
 // BONE NODE NAMES - CC4-specific skeleton hierarchy
 // ============================================================================
 
-/**
- * Bone name prefix kept for custom/legacy profiles that still store base bone
- * names. The stock CC4 preset below uses the actual model bone names directly
- * so AU bindings, composites, and annotations all speak the same node language.
- */
+/** Bone name prefix used by semantic CC4 profile metadata. */
 export const CC4_BONE_PREFIX = 'CC_Base_';
 
 /**
@@ -491,11 +487,28 @@ export const CC4_BONES = {
 } as const;
 
 /**
- * Profile bone node lookup for the stock CC4 preset. It is intentionally an
- * identity map: the preset's higher-level abstractions live in AU/composite
- * bindings, not in a second semantic-to-base-bone translation table.
+ * Semantic bone keys used by profile metadata and annotation regions. Runtime
+ * AU/composite bindings may still use concrete CC4 node names directly.
  */
 export const CC4_BONE_NODES = {
+  EYE_L: 'L_Eye',
+  EYE_R: 'R_Eye',
+  HEAD: 'Head',
+  NECK: 'NeckTwist01',
+  NECK_TWIST: 'NeckTwist02',
+  JAW: 'JawRoot',
+  TONGUE: 'Tongue01',
+  SPINE_01: 'Spine01',
+  SPINE_02: 'Spine02',
+  CLAVICLE_L: 'L_Clavicle',
+  CLAVICLE_R: 'R_Clavicle',
+  HAND_L: 'L_Hand',
+  HAND_R: 'R_Hand',
+  FOOT_L: 'L_Foot',
+  FOOT_R: 'R_Foot',
+  TOEBASE_L: 'L_ToeBase',
+  TOEBASE_R: 'R_ToeBase',
+  // Concrete-name aliases keep existing runtime callers compatible.
   [CC4_BONES.EYE_L]: CC4_BONES.EYE_L,
   [CC4_BONES.EYE_R]: CC4_BONES.EYE_R,
   [CC4_BONES.HEAD]: CC4_BONES.HEAD,
@@ -1231,6 +1244,7 @@ export const CC4_PRESET: Profile = {
   auToMorphs: AU_TO_MORPHS,
   auToBones: CC4_PROFILE_BONE_BINDINGS,
   boneNodes: CC4_BONE_NODES,
+  bonePrefix: CC4_BONE_PREFIX,
   suffixPattern: CC4_SUFFIX_PATTERN,
   morphToMesh: MORPH_TO_MESH,
   auFacePartToMeshCategory: AU_FACEPART_TO_MESH_CATEGORY,
@@ -1254,73 +1268,73 @@ export const CC4_PRESET: Profile = {
     },
     {
       name: 'head',
-      bones: [CC4_BONES.HEAD, CC4_BONES.JAW],
+      bones: ['HEAD', 'JAW'],
       paddingFactor: 1.5,
       children: ['face', 'left_eye', 'right_eye', 'mouth'],
       expandAnimation: 'staggered',
     },
     {
       name: 'face',
-      bones: [CC4_BONES.HEAD],
+      bones: ['HEAD'],
       // meshes: populated by user selection in wizard - varies per character
       paddingFactor: 1.3,
       parent: 'head',
     },
     {
       name: 'left_eye',
-      bones: [CC4_BONES.EYE_L],
+      bones: ['EYE_L'],
       paddingFactor: 0.9,
       parent: 'head',
     },
     {
       name: 'right_eye',
-      bones: [CC4_BONES.EYE_R],
+      bones: ['EYE_R'],
       paddingFactor: 0.9,
       parent: 'head',
     },
     {
       name: 'mouth',
-      bones: [CC4_BONES.JAW],
+      bones: ['JAW'],
       paddingFactor: 1.5,
       parent: 'head',
     },
     {
       name: 'upper_body',
       bones: [
-        CC4_BONES.SPINE_02,
-        CC4_BONES.HEAD,
-        CC4_BONES.CLAVICLE_L,
-        CC4_BONES.CLAVICLE_R,
+        'SPINE_02',
+        'HEAD',
+        'CLAVICLE_L',
+        'CLAVICLE_R',
       ],
       paddingFactor: 1.6,
     },
     {
       name: 'back',
-      bones: [CC4_BONES.SPINE_01, CC4_BONES.SPINE_02],
+      bones: ['SPINE_01', 'SPINE_02'],
       paddingFactor: 1.8,
       cameraAngle: 180,
     },
     {
       name: 'left_hand',
-      bones: [CC4_BONES.HAND_L],
+      bones: ['HAND_L'],
       paddingFactor: 1.3,
       cameraAngle: 270,
     },
     {
       name: 'right_hand',
-      bones: [CC4_BONES.HAND_R],
+      bones: ['HAND_R'],
       paddingFactor: 1.3,
       cameraAngle: 90,
     },
     {
       name: 'left_foot',
-      bones: [CC4_BONES.FOOT_L, CC4_BONES.TOEBASE_L],
+      bones: ['FOOT_L', 'TOEBASE_L'],
       paddingFactor: 2.5,
       cameraAngle: 270,
     },
     {
       name: 'right_foot',
-      bones: [CC4_BONES.FOOT_R, CC4_BONES.TOEBASE_R],
+      bones: ['FOOT_R', 'TOEBASE_R'],
       paddingFactor: 2.5,
       cameraAngle: 90,
     },

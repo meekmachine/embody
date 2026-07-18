@@ -2,7 +2,12 @@
  * Three.js Engine Implementation
  */
 
-export { Embody, collectMorphMeshes } from './Embody';
+export {
+  Embody,
+  Embody as Loom3,
+  Embody as LoomLargeThree,
+  collectMorphMeshes,
+} from './Embody';
 export {
   ThreeAnimationRuntime,
   ThreeAnimationSystem,
@@ -11,6 +16,7 @@ export {
 } from './ThreeAnimationRuntime';
 export type {
   ThreeAnimationSystemHost,
+  ThreeAnimationSystemOptions,
   AnimationControllerHost,
   BakedAnimationHost,
 } from './ThreeAnimationRuntime';

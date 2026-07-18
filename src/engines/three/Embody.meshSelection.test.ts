@@ -87,4 +87,48 @@ describe('Embody face mesh fallback selection', () => {
     expect(face.morphTargetInfluences?.[faceIndex as number]).toBe(0);
     expect(eye.morphTargetInfluences?.[eyeIndex as number]).toBe(1);
   });
+
+  it('exposes typed lip-sync playback on the top-level engine wrapper', () => {
+    const face = makeMorphMesh('VisemeMesh', ['Ah', 'Jaw_Open']);
+    const jaw = new Object3D();
+    jaw.name = 'JawRoot';
+
+    const model = new Object3D();
+    model.add(face, jaw);
+
+    const engine = new Embody({
+      presetType: 'cc4',
+      profile: {
+        auToMorphs: {
+          26: { left: [], right: [], center: ['Jaw_Open'] },
+        },
+        auToBones: {
+          26: [{ node: 'JAW', channel: 'rz', scale: 1, maxDegrees: 30 }],
+        },
+        boneNodes: { JAW: 'JawRoot' },
+        morphToMesh: { face: ['VisemeMesh'], viseme: ['VisemeMesh'] },
+        visemeKeys: ['Ah'],
+        visemeMeshCategory: 'viseme',
+      },
+    });
+
+    engine.onReady({ model, meshes: [face] });
+
+    const clip = engine.typedSnippetToClip('typed-wrapper-lipsync', [
+      {
+        target: { type: 'viseme', id: 0 },
+        keyframes: [{ time: 0, intensity: 0 }, { time: 0.12, intensity: 1 }, { time: 0.24, intensity: 0 }],
+      },
+      {
+        target: { type: 'bone', id: 'JAW', channel: 'rz', maxDegrees: 30 },
+        keyframes: [{ time: 0, intensity: 0 }, { time: 0.12, intensity: 0.5 }, { time: 0.24, intensity: 0 }],
+      },
+    ], { autoVisemeJaw: false });
+
+    expect(clip).toBeTruthy();
+    const trackNames = clip!.tracks.map((track) => track.name);
+    expect(trackNames).toContain(`${face.uuid}.morphTargetInfluences[0]`);
+    expect(trackNames).not.toContain(`${face.uuid}.morphTargetInfluences[1]`);
+    expect(trackNames).toContain(`${jaw.uuid}.quaternion`);
+  });
 });
