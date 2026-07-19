@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, delimiter, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -53,6 +53,7 @@ if (result.status !== 0) {
 // Remove files that would make dist/wasm look like a nested npm package.
 await rm(resolve(outDir, 'package.json'), { force: true });
 await rm(resolve(outDir, '.gitignore'), { force: true });
+await writeWasmEntryDeclarations();
 
 const requiredArtifacts = ['embody_wasm.js', 'embody_wasm_bg.wasm', 'embody_wasm.d.ts'];
 for (const artifact of requiredArtifacts) {
@@ -60,4 +61,33 @@ for (const artifact of requiredArtifacts) {
   if (!existsSync(artifactPath)) {
     throw new Error(`Missing required Wasm artifact: ${artifactPath}`);
   }
+}
+
+async function writeWasmEntryDeclarations() {
+  const wasmTypes = await readFile(resolve(repoRoot, 'src', 'wasmTypes.ts'), 'utf8');
+  const declaration = `export declare const EMBODY_CORE_ABI_VERSION = 1;
+export declare const PACKED_MORPH_FRAME_DELTA_STRIDE = 4;
+export declare const PACKED_MORPH_FRAME_DELTA_FIELDS: readonly ["meshId", "morphTargetId", "value", "mode"];
+export declare const HAIR_CONFIG_STRIDE = 11;
+export declare const HAIR_CONFIG_FIELDS: readonly ["mass", "stiffness", "damping", "gravity", "headInfluence", "windEnabled", "windStrength", "windDirectionX", "windDirectionZ", "windTurbulence", "windFrequency"];
+export declare const HAIR_STATE_STRIDE = 4;
+export declare const HAIR_STATE_FIELDS: readonly ["x", "z", "vx", "vz"];
+export declare const HAIR_HEAD_STATE_STRIDE = 5;
+export declare const HAIR_HEAD_STATE_FIELDS: readonly ["yaw", "pitch", "roll", "yawVelocity", "pitchVelocity"];
+export declare const HAIR_MORPH_OUTPUT_STRIDE = 6;
+export declare const HAIR_MORPH_OUTPUT_FIELDS: readonly ["L_Hair_Left", "L_Hair_Right", "L_Hair_Front", "R_Hair_Left", "R_Hair_Right", "R_Hair_Front"];
+export declare const TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE = 4;
+export declare const TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS: readonly ["scale", "translationX", "translationY", "translationZ"];
+
+${wasmTypes}
+
+export declare function initEmbodyCore(): Promise<EmbodyCoreWasmModule>;
+export declare function getEmbodyCore(): Promise<EmbodyCoreWasmModule>;
+export declare function resetEmbodyCoreForTests(): void;
+`;
+
+  await Promise.all([
+    writeFile(resolve(repoRoot, 'dist', 'wasm.d.ts'), declaration),
+    writeFile(resolve(repoRoot, 'dist', 'wasm.d.cts'), declaration),
+  ]);
 }

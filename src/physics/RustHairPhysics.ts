@@ -9,8 +9,8 @@ import {
   HAIR_MORPH_OUTPUT_STRIDE,
   HAIR_STATE_STRIDE,
   initEmbodyCore,
-  type WasmHairPhysicsSolver,
 } from '../wasm';
+import type { WasmHairPhysicsSolver } from '../wasmTypes';
 
 export class RustHairPhysics {
   private solver: WasmHairPhysicsSolver;

@@ -104,7 +104,7 @@ export type {
   EmbodyCoreWasmModule,
   WasmHairPhysicsSolver,
   WasmHairPhysicsSolverConstructor,
-} from './wasm';
+} from './wasmTypes';
 export type {
   HairConfigField,
   HairHeadStateField,
