@@ -6,11 +6,25 @@ const root = await import('@lovelace_lol/embody');
 const core = await import('@lovelace_lol/embody/core');
 const three = await import('@lovelace_lol/embody/three');
 const cljs = await import('@lovelace_lol/embody/cljs');
+const wasm = await import('@lovelace_lol/embody/wasm');
 
 const rootCjs = require('@lovelace_lol/embody');
 const coreCjs = require('@lovelace_lol/embody/core');
 const threeCjs = require('@lovelace_lol/embody/three');
 const cljsCjs = require('@lovelace_lol/embody/cljs');
+const wasmCjs = require('@lovelace_lol/embody/wasm');
+
+const wasmCore = await wasm.initEmbodyCore();
+const wasmCoreFromCjs = await wasmCjs.initEmbodyCore();
+const rustHair = await root.createRustHairPhysics();
+const rustHairOutput = rustHair.update(0.016, {
+  yaw: 0,
+  pitch: 0,
+  roll: 0,
+  yawVelocity: 1,
+  pitchVelocity: 0,
+});
+rustHair.dispose();
 
 const checks = [
   ['root Embody ESM', typeof root.Embody === 'function'],
@@ -30,6 +44,13 @@ const checks = [
   ['three applier CJS', typeof threeCjs.ThreeFrameApplier === 'function'],
   ['cljs runtime ESM', typeof cljs.createAnimationRuntime === 'function'],
   ['cljs runtime CJS', typeof cljsCjs.createAnimationRuntime === 'function'],
+  ['wasm init ESM', typeof wasm.initEmbodyCore === 'function'],
+  ['wasm init CJS', typeof wasmCjs.initEmbodyCore === 'function'],
+  ['wasm core ABI ESM', wasmCore.core_abi_version() === wasm.EMBODY_CORE_ABI_VERSION],
+  ['wasm core ABI CJS', wasmCoreFromCjs.core_abi_version() === wasmCjs.EMBODY_CORE_ABI_VERSION],
+  ['wasm bilateral helper', Array.from(wasmCore.solve_bilateral_values(0.8, 0.25)).join(',') === '0.6000000238418579,0.800000011920929'],
+  ['root Rust hair factory', typeof root.createRustHairPhysics === 'function'],
+  ['root Rust hair output', rustHairOutput.L_Hair_Left > 0 && rustHairOutput.R_Hair_Left > 0],
   ['core compiler ESM', typeof core.TsClipCompiler === 'function'],
   ['core runtime ESM', typeof core.TsRuntimeCore === 'function'],
   ['root compiler CJS', typeof rootCjs.TsClipCompiler === 'function'],

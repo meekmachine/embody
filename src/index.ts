@@ -74,6 +74,22 @@ export {
   numericArrayToNumbers,
 } from './core/TsClipCompiler';
 export { TsRuntimeCore } from './core/TsRuntimeCore';
+export {
+  EMBODY_CORE_ABI_VERSION,
+  HAIR_CONFIG_FIELDS,
+  HAIR_CONFIG_STRIDE,
+  HAIR_HEAD_STATE_FIELDS,
+  HAIR_HEAD_STATE_STRIDE,
+  HAIR_MORPH_OUTPUT_FIELDS,
+  HAIR_MORPH_OUTPUT_STRIDE,
+  HAIR_STATE_FIELDS,
+  HAIR_STATE_STRIDE,
+  PACKED_MORPH_FRAME_DELTA_FIELDS,
+  PACKED_MORPH_FRAME_DELTA_STRIDE,
+  getEmbodyCore,
+  initEmbodyCore,
+  resetEmbodyCoreForTests,
+} from './wasm';
 export type {
   TsClipCompilerInput,
   TsClipCompilerKeyframe,
@@ -82,6 +98,19 @@ export type {
   TsClipCurvesInput,
 } from './core/TsClipCompiler';
 export type { TsRuntimeCoreOptions } from './core/TsRuntimeCore';
+export type {
+  EmbodyCoreWasmModule,
+  HairConfigField,
+  HairHeadStateField,
+  HairMorphOutputField,
+  HairStateField,
+  PackedHairMorphOutput,
+  PackedHairPhysicsState,
+  PackedMorphFrameDelta,
+  PackedMorphFrameDeltaField,
+  WasmHairPhysicsSolver,
+  WasmHairPhysicsSolverConstructor,
+} from './wasm';
 
 // ============================================================================
 // INTERFACES (for implementing custom engines)
@@ -437,6 +466,15 @@ export {
   HairPhysics,
   DEFAULT_HAIR_PHYSICS_CONFIG,
 } from './physics/HairPhysics';
+export {
+  RustHairPhysics,
+  createRustHairPhysics,
+  packHairConfig,
+  packHeadState,
+  unpackHairConfig,
+  unpackHairMorphOutput,
+  unpackHairState,
+} from './physics/RustHairPhysics';
 
 export type { HairPhysicsState, HairMorphOutput as HairPhysicsMorphOutput } from './physics/HairPhysics';
 

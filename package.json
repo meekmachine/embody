@@ -26,6 +26,11 @@
       "types": "./dist/cljs.d.ts",
       "import": "./dist/cljs.js",
       "require": "./dist/cljs.cjs"
+    },
+    "./wasm": {
+      "types": "./dist/wasm.d.ts",
+      "import": "./dist/wasm.js",
+      "require": "./dist/wasm.cjs"
     }
   },
   "files": [
@@ -37,18 +42,20 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && npm run wasm:build",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:exports": "npm run build && node scripts/smoke/package-exports.mjs",
+    "test:pack": "npm run build && npm pack --dry-run",
     "bench:runtime": "npm run build && node scripts/bench/runtime.mjs",
     "rust:test": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo test --manifest-path rust/embody-wasm/Cargo.toml",
     "rust:wasm-build": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo build --manifest-path rust/embody-wasm/Cargo.toml --target wasm32-unknown-unknown --release",
+    "wasm:build": "node scripts/build-wasm.mjs",
     "prepare": "npm run build",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build && npm run typecheck && npm test && node scripts/smoke/package-exports.mjs && npm pack --dry-run"
   },
   "peerDependencies": {
     "three": ">=0.150.0"
@@ -59,7 +66,8 @@
     "three": "^0.170.0",
     "tsup": "^8.0.0",
     "typescript": "^5.9.0",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wasm-pack": "^0.15.0"
   },
   "keywords": [
     "3d",

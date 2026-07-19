@@ -102,6 +102,19 @@ Embody requires Three.js as a peer dependency:
 npm install three
 ```
 
+### Rust/Wasm core
+
+Embody ships a generated Rust/Wasm core artifact in the npm package. The Three.js
+controller initializes the parts it needs through the package facade, and direct
+core consumers can explicitly initialize the Wasm entrypoint:
+
+```typescript
+import { initEmbodyCore } from '@lovelace_lol/embody/wasm';
+
+const core = await initEmbodyCore();
+const [left, right] = core.solve_bilateral_values(0.8, 0.25);
+```
+
 ### Basic setup
 
 ```typescript

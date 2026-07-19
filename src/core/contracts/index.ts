@@ -1,4 +1,28 @@
 export type {
+  HairConfigField,
+  HairHeadStateField,
+  HairMorphOutputField,
+  HairStateField,
+  PackedHairMorphOutput,
+  PackedHairPhysicsState,
+  PackedMorphFrameDelta,
+  PackedMorphFrameDeltaField,
+} from './abi';
+export {
+  EMBODY_CORE_ABI_VERSION,
+  HAIR_CONFIG_FIELDS,
+  HAIR_CONFIG_STRIDE,
+  HAIR_HEAD_STATE_FIELDS,
+  HAIR_HEAD_STATE_STRIDE,
+  HAIR_MORPH_OUTPUT_FIELDS,
+  HAIR_MORPH_OUTPUT_STRIDE,
+  HAIR_STATE_FIELDS,
+  HAIR_STATE_STRIDE,
+  PACKED_MORPH_FRAME_DELTA_FIELDS,
+  PACKED_MORPH_FRAME_DELTA_STRIDE,
+} from './abi';
+
+export type {
   BoneId,
   ChannelId,
   HostTargetId,
