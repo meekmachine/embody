@@ -58,6 +58,20 @@ describe('template skeleton fit contracts', () => {
     });
   });
 
+  it('rejects unknown schema versions and empty identity fields', () => {
+    const result = validateTemplateSkeletonFitMetadata({
+      ...validMetadata,
+      version: TEMPLATE_SKELETON_FIT_METADATA_VERSION + 1,
+      templateId: '   ',
+      sourceCharacterId: '',
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(`version must be ${TEMPLATE_SKELETON_FIT_METADATA_VERSION}`);
+    expect(result.errors).toContain('templateId must be a non-empty string');
+    expect(result.errors).toContain('sourceCharacterId must be a non-empty string');
+  });
+
   it('composes solved fit transforms with manual adjustments', () => {
     expect(composeTemplateSkeletonFitTransform(validMetadata.fit, validMetadata.manualAdjustment)).toEqual({
       scale: 1.26,
