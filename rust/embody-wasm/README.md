@@ -11,6 +11,19 @@ core JS/Wasm boundary shape:
 - outputs are packed numeric buffers
 - no Three.js, Babylon, Unity, or host objects cross the boundary
 
+Skeleton fitting, fit metadata, and automatic skin binding should follow the
+same descriptor boundary. Rust can own host-neutral math over mesh descriptors,
+template skeleton descriptors, rest-pose transforms, bone envelopes, topology,
+inverse bind data, normals, scale, and manual fit adjustments. Host adapters
+must still own real mesh, material, GLB, skinning, and engine-object mutation.
+
+Automatic skin binding is not a per-frame Wasm target by default. It should be
+treated as research/offline-capable work until fixtures prove acceptable
+deformation quality for clothing, hands, face, hair, non-standard poses, and
+other hard cases. The runtime package should expose stable metadata and helper
+math first, then only move weight generation into Rust/Wasm if benchmarks and
+visual tests justify doing it in the browser.
+
 Build locally:
 
 ```sh

@@ -100,6 +100,10 @@ export type {
 export type { TsRuntimeCoreOptions } from './core/TsRuntimeCore';
 export type {
   EmbodyCoreWasmModule,
+  WasmHairPhysicsSolver,
+  WasmHairPhysicsSolverConstructor,
+} from './wasm';
+export type {
   HairConfigField,
   HairHeadStateField,
   HairMorphOutputField,
@@ -108,9 +112,7 @@ export type {
   PackedHairPhysicsState,
   PackedMorphFrameDelta,
   PackedMorphFrameDeltaField,
-  WasmHairPhysicsSolver,
-  WasmHairPhysicsSolverConstructor,
-} from './wasm';
+} from './core/contracts';
 
 // ============================================================================
 // INTERFACES (for implementing custom engines)

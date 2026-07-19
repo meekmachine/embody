@@ -20,16 +20,6 @@ export {
   PACKED_MORPH_FRAME_DELTA_FIELDS,
   PACKED_MORPH_FRAME_DELTA_STRIDE,
 } from './core/contracts';
-export type {
-  HairConfigField,
-  HairHeadStateField,
-  HairMorphOutputField,
-  HairStateField,
-  PackedHairMorphOutput,
-  PackedHairPhysicsState,
-  PackedMorphFrameDelta,
-  PackedMorphFrameDeltaField,
-} from './core/contracts';
 
 export interface WasmHairPhysicsSolver {
   update(dtSeconds: number, headValues: Float32Array): Float32Array;
