@@ -16,6 +16,12 @@ const wasmCjs = require('@lovelace_lol/embody/wasm');
 
 const wasmCore = await wasm.initEmbodyCore();
 const wasmCoreFromCjs = await wasmCjs.initEmbodyCore();
+const skeletonFitTransform = wasmCore.compose_template_skeleton_fit_transform(
+  1.2,
+  new Float32Array([0.1, 0.2, -0.1]),
+  1.05,
+  new Float32Array([0.01, -0.02, 0.03]),
+);
 const rustHair = await root.createRustHairPhysics();
 const rustHairOutput = rustHair.update(0.016, {
   yaw: 0,
@@ -49,6 +55,7 @@ const checks = [
   ['wasm core ABI ESM', wasmCore.core_abi_version() === wasm.EMBODY_CORE_ABI_VERSION],
   ['wasm core ABI CJS', wasmCoreFromCjs.core_abi_version() === wasmCjs.EMBODY_CORE_ABI_VERSION],
   ['wasm bilateral helper', Array.from(wasmCore.solve_bilateral_values(0.8, 0.25)).join(',') === '0.6000000238418579,0.800000011920929'],
+  ['wasm skeleton fit helper', Math.abs(skeletonFitTransform[0] - 1.26) < 1e-6 && Math.abs(skeletonFitTransform[3] - -0.07) < 1e-6],
   ['root Rust hair factory', typeof root.createRustHairPhysics === 'function'],
   ['root Rust hair output', rustHairOutput.L_Hair_Left > 0 && rustHairOutput.R_Hair_Left > 0],
   ['core compiler ESM', typeof core.TsClipCompiler === 'function'],

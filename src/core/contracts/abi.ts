@@ -14,6 +14,7 @@ export const HAIR_CONFIG_STRIDE = 11;
 export const HAIR_STATE_STRIDE = 4;
 export const HAIR_HEAD_STATE_STRIDE = 5;
 export const HAIR_MORPH_OUTPUT_STRIDE = 6;
+export const TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE = 4;
 
 export const HAIR_CONFIG_FIELDS = [
   'mass',
@@ -39,12 +40,19 @@ export const HAIR_MORPH_OUTPUT_FIELDS = [
   'R_Hair_Right',
   'R_Hair_Front',
 ] as const;
+export const TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS = [
+  'scale',
+  'translationX',
+  'translationY',
+  'translationZ',
+] as const;
 
 export type PackedMorphFrameDeltaField = (typeof PACKED_MORPH_FRAME_DELTA_FIELDS)[number];
 export type HairConfigField = (typeof HAIR_CONFIG_FIELDS)[number];
 export type HairStateField = (typeof HAIR_STATE_FIELDS)[number];
 export type HairHeadStateField = (typeof HAIR_HEAD_STATE_FIELDS)[number];
 export type HairMorphOutputField = (typeof HAIR_MORPH_OUTPUT_FIELDS)[number];
+export type TemplateSkeletonFitTransformField = (typeof TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS)[number];
 
 export interface PackedMorphFrameDelta {
   readonly abiVersion: typeof EMBODY_CORE_ABI_VERSION;
@@ -62,5 +70,11 @@ export interface PackedHairPhysicsState {
 export interface PackedHairMorphOutput {
   readonly stride: typeof HAIR_MORPH_OUTPUT_STRIDE;
   readonly fields: typeof HAIR_MORPH_OUTPUT_FIELDS;
+  readonly values: NumericArray;
+}
+
+export interface PackedTemplateSkeletonFitTransform {
+  readonly stride: typeof TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE;
+  readonly fields: typeof TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS;
   readonly values: NumericArray;
 }

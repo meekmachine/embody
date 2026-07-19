@@ -32,10 +32,32 @@ export type {
   MorphTargetTrackTarget,
   NumericArray,
   Quat,
+  TemplateSkeletonFitManualAdjustment,
+  TemplateSkeletonFitMetadata,
+  TemplateSkeletonFitMetrics,
+  TemplateSkeletonFitStatus,
+  TemplateSkeletonFitTransform,
+  TemplateSkeletonFitTransformField,
+  TemplateSkeletonFitValidationResult,
+  TemplateSkeletonFitVerticalAnchor,
+  TemplateSkeletonFitVerticalAxis,
   TrackId,
   Transform,
   TransformSpace,
   Vec3,
+} from './contracts';
+
+export {
+  TEMPLATE_SKELETON_FIT_METADATA_KIND,
+  TEMPLATE_SKELETON_FIT_METADATA_VERSION,
+  TEMPLATE_SKELETON_FIT_STATUSES,
+  TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS,
+  TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE,
+  TEMPLATE_SKELETON_FIT_VERTICAL_ANCHORS,
+  TEMPLATE_SKELETON_FIT_VERTICAL_AXES,
+  composeTemplateSkeletonFitTransform,
+  isTemplateSkeletonFitStatus,
+  validateTemplateSkeletonFitMetadata,
 } from './contracts';
 
 export {

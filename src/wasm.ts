@@ -1,25 +1,32 @@
 import {
-  EMBODY_CORE_ABI_VERSION,
-  HAIR_CONFIG_STRIDE,
-  HAIR_HEAD_STATE_STRIDE,
-  HAIR_MORPH_OUTPUT_STRIDE,
-  HAIR_STATE_STRIDE,
-  PACKED_MORPH_FRAME_DELTA_STRIDE,
+  EMBODY_CORE_ABI_VERSION as CORE_ABI_VERSION,
+  HAIR_CONFIG_FIELDS as CORE_HAIR_CONFIG_FIELDS,
+  HAIR_CONFIG_STRIDE as CORE_HAIR_CONFIG_STRIDE,
+  HAIR_HEAD_STATE_FIELDS as CORE_HAIR_HEAD_STATE_FIELDS,
+  HAIR_HEAD_STATE_STRIDE as CORE_HAIR_HEAD_STATE_STRIDE,
+  HAIR_MORPH_OUTPUT_FIELDS as CORE_HAIR_MORPH_OUTPUT_FIELDS,
+  HAIR_MORPH_OUTPUT_STRIDE as CORE_HAIR_MORPH_OUTPUT_STRIDE,
+  HAIR_STATE_FIELDS as CORE_HAIR_STATE_FIELDS,
+  HAIR_STATE_STRIDE as CORE_HAIR_STATE_STRIDE,
+  PACKED_MORPH_FRAME_DELTA_FIELDS as CORE_PACKED_MORPH_FRAME_DELTA_FIELDS,
+  PACKED_MORPH_FRAME_DELTA_STRIDE as CORE_PACKED_MORPH_FRAME_DELTA_STRIDE,
+  TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS as CORE_TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS,
+  TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE as CORE_TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE,
 } from './core/contracts';
 
-export {
-  EMBODY_CORE_ABI_VERSION,
-  HAIR_CONFIG_FIELDS,
-  HAIR_CONFIG_STRIDE,
-  HAIR_HEAD_STATE_FIELDS,
-  HAIR_HEAD_STATE_STRIDE,
-  HAIR_MORPH_OUTPUT_FIELDS,
-  HAIR_MORPH_OUTPUT_STRIDE,
-  HAIR_STATE_FIELDS,
-  HAIR_STATE_STRIDE,
-  PACKED_MORPH_FRAME_DELTA_FIELDS,
-  PACKED_MORPH_FRAME_DELTA_STRIDE,
-} from './core/contracts';
+export const EMBODY_CORE_ABI_VERSION = CORE_ABI_VERSION;
+export const PACKED_MORPH_FRAME_DELTA_STRIDE = CORE_PACKED_MORPH_FRAME_DELTA_STRIDE;
+export const PACKED_MORPH_FRAME_DELTA_FIELDS = CORE_PACKED_MORPH_FRAME_DELTA_FIELDS;
+export const HAIR_CONFIG_STRIDE = CORE_HAIR_CONFIG_STRIDE;
+export const HAIR_CONFIG_FIELDS = CORE_HAIR_CONFIG_FIELDS;
+export const HAIR_STATE_STRIDE = CORE_HAIR_STATE_STRIDE;
+export const HAIR_STATE_FIELDS = CORE_HAIR_STATE_FIELDS;
+export const HAIR_HEAD_STATE_STRIDE = CORE_HAIR_HEAD_STATE_STRIDE;
+export const HAIR_HEAD_STATE_FIELDS = CORE_HAIR_HEAD_STATE_FIELDS;
+export const HAIR_MORPH_OUTPUT_STRIDE = CORE_HAIR_MORPH_OUTPUT_STRIDE;
+export const HAIR_MORPH_OUTPUT_FIELDS = CORE_HAIR_MORPH_OUTPUT_FIELDS;
+export const TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE = CORE_TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE;
+export const TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS = CORE_TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS;
 
 export interface WasmHairPhysicsSolver {
   update(dtSeconds: number, headValues: Float32Array): Float32Array;
@@ -51,6 +58,13 @@ export interface EmbodyCoreWasmModule {
   hair_state_stride(): number;
   hair_head_state_stride(): number;
   hair_morph_output_stride(): number;
+  template_skeleton_fit_transform_stride(): number;
+  compose_template_skeleton_fit_transform(
+    fitScale: number,
+    fitTranslation: Float32Array,
+    manualScale: number,
+    manualTranslation: Float32Array
+  ): Float32Array;
   default_hair_physics_config_values(): Float32Array;
   HairPhysicsSolver: WasmHairPhysicsSolverConstructor;
 }
@@ -149,6 +163,7 @@ function assertCoreAbi(mod: EmbodyCoreWasmModule): void {
     ['hair state', mod.hair_state_stride(), HAIR_STATE_STRIDE],
     ['hair head state', mod.hair_head_state_stride(), HAIR_HEAD_STATE_STRIDE],
     ['hair morph output', mod.hair_morph_output_stride(), HAIR_MORPH_OUTPUT_STRIDE],
+    ['template skeleton fit transform', mod.template_skeleton_fit_transform_stride(), TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE],
   ] as const;
 
   for (const [name, actual, expected] of checks) {

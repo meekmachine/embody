@@ -7,6 +7,8 @@ export type {
   PackedHairPhysicsState,
   PackedMorphFrameDelta,
   PackedMorphFrameDeltaField,
+  PackedTemplateSkeletonFitTransform,
+  TemplateSkeletonFitTransformField,
 } from './abi';
 export {
   EMBODY_CORE_ABI_VERSION,
@@ -20,6 +22,8 @@ export {
   HAIR_STATE_STRIDE,
   PACKED_MORPH_FRAME_DELTA_FIELDS,
   PACKED_MORPH_FRAME_DELTA_STRIDE,
+  TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS,
+  TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE,
 } from './abi';
 
 export type {
@@ -37,6 +41,27 @@ export type {
   Transform,
   Vec3,
 } from './primitives';
+
+export {
+  TEMPLATE_SKELETON_FIT_METADATA_KIND,
+  TEMPLATE_SKELETON_FIT_METADATA_VERSION,
+  TEMPLATE_SKELETON_FIT_STATUSES,
+  TEMPLATE_SKELETON_FIT_VERTICAL_ANCHORS,
+  TEMPLATE_SKELETON_FIT_VERTICAL_AXES,
+  composeTemplateSkeletonFitTransform,
+  isTemplateSkeletonFitStatus,
+  validateTemplateSkeletonFitMetadata,
+} from './skeletonFit';
+export type {
+  TemplateSkeletonFitManualAdjustment,
+  TemplateSkeletonFitMetadata,
+  TemplateSkeletonFitMetrics,
+  TemplateSkeletonFitStatus,
+  TemplateSkeletonFitTransform,
+  TemplateSkeletonFitValidationResult,
+  TemplateSkeletonFitVerticalAnchor,
+  TemplateSkeletonFitVerticalAxis,
+} from './skeletonFit';
 
 export type {
   BoneDescriptor,

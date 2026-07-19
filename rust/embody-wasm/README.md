@@ -16,6 +16,11 @@ same descriptor boundary. Rust can own host-neutral math over mesh descriptors,
 template skeleton descriptors, rest-pose transforms, bone envelopes, topology,
 inverse bind data, normals, scale, and manual fit adjustments. Host adapters
 must still own real mesh, material, GLB, skinning, and engine-object mutation.
+The TypeScript core contract exposes `TemplateSkeletonFitMetadata` so hosts can
+persist template id, source character id, fit transform, height/spans, status,
+vertical axis/anchor, confidence, and manual adjustments separately from actual
+skin weights. Both TypeScript and Rust/Wasm expose helpers that compose a
+solved fit transform with a user's manual scale and xyz offset.
 
 Automatic skin binding is not a per-frame Wasm target by default. It should be
 treated as research/offline-capable work until fixtures prove acceptable
