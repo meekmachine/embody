@@ -695,6 +695,37 @@ Use these helpers to:
 
 `analyzeModel()` returns a `ModelAnalysisReport` containing the extracted model data, optional validation results, animation summary, `overallScore`, and a plain-language `summary`.
 
+### Humanoid skeleton templates
+
+Embody owns reusable humanoid skeleton templates and the extraction path for
+turning a skinned character into template data. Host apps can select a template
+by id, derive its rest bounds for fitting, or seed validation/mapping UI with
+the template bone list:
+
+```typescript
+import {
+  JONATHAN_HUMANOID_SKELETON_TEMPLATE,
+  computeHumanoidSkeletonTemplateRestBounds,
+  createValidationSkeletonFromHumanoidTemplate,
+  getHumanoidSkeletonTemplate,
+} from '@lovelace_lol/embody';
+
+const template = getHumanoidSkeletonTemplate('jonathan-cc-base') ?? JONATHAN_HUMANOID_SKELETON_TEMPLATE;
+const templateBounds = computeHumanoidSkeletonTemplateRestBounds(template);
+const validationSkeleton = createValidationSkeletonFromHumanoidTemplate(template);
+```
+
+When a new skinned GLB should become a reusable template, extract its skeleton
+into `src/skeletonTemplates/data`:
+
+```bash
+npm run extract:humanoid-skeleton-template -- ../LoomLarge/frontend/public/characters/jonathan_new.glb src/skeletonTemplates/data/jonathan-cc-base.json --id jonathan-cc-base --source-character-id jonathan --skin-name Armature
+```
+
+The extracted template records joint names, parent links, and local
+translations. It is fit/mapping metadata only; it does not include skin weights,
+inverse bind matrices, or pose retargeting data.
+
 ### Controlling mesh visibility
 
 Hide or show individual meshes:
