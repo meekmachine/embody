@@ -71,6 +71,12 @@ const checks = [
   ['core runtime ESM', typeof core.TsRuntimeCore === 'function'],
   ['root compiler CJS', typeof rootCjs.TsClipCompiler === 'function'],
   ['root runtime CJS', typeof rootCjs.TsRuntimeCore === 'function'],
+  ['root humanoid skeleton template ESM', root.JONATHAN_HUMANOID_SKELETON_TEMPLATE?.id === 'jonathan-cc-base'],
+  ['root humanoid skeleton template CJS', rootCjs.JONATHAN_HUMANOID_SKELETON_TEMPLATE?.id === 'jonathan-cc-base'],
+  ['root humanoid skeleton template lookup ESM', typeof root.getHumanoidSkeletonTemplate === 'function'],
+  ['root humanoid skeleton template lookup CJS', typeof rootCjs.getHumanoidSkeletonTemplate === 'function'],
+  ['root humanoid skeleton template extractor ESM', typeof root.extractHumanoidSkeletonTemplateFromModel === 'function'],
+  ['root humanoid skeleton template extractor CJS', typeof rootCjs.extractHumanoidSkeletonTemplateFromModel === 'function'],
   ['core ESM object', typeof core === 'object'],
   ['core CJS object', typeof coreCjs === 'object'],
 ];

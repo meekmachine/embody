@@ -562,6 +562,24 @@ export type {
   AnimationAnalysis,
 } from './validation/analyzeModel';
 
+export {
+  computeHumanoidSkeletonTemplateRestBounds,
+  createValidationSkeletonFromHumanoidTemplate,
+  extractHumanoidSkeletonTemplateFromModel,
+  getHumanoidSkeletonTemplate,
+  getHumanoidSkeletonTemplateBoneNames,
+  HUMANOID_SKELETON_TEMPLATES,
+  JONATHAN_HUMANOID_SKELETON_TEMPLATE,
+} from './skeletonTemplates/humanoidSkeletonTemplates';
+
+export type {
+  ExtractHumanoidSkeletonTemplateOptions,
+  HumanoidSkeletonTemplate,
+  HumanoidSkeletonTemplateBone,
+  HumanoidSkeletonTemplateBounds,
+  HumanoidSkeletonTemplateVec3,
+} from './skeletonTemplates/humanoidSkeletonTemplates';
+
 // Geometry helpers for face/annotation positioning
 export {
   findFaceCenter,

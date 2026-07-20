@@ -1,0 +1,917 @@
+{
+  "id": "jonathan-cc-base",
+  "sourceCharacterId": "jonathan",
+  "sourceAsset": "frontend/public/characters/jonathan_new.glb",
+  "sourceSkinName": "Armature",
+  "bones": [
+    {
+      "name": "CC_Base_BoneRoot",
+      "parent": null,
+      "translation": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "CC_Base_Hip",
+      "parent": "CC_Base_BoneRoot",
+      "translation": [
+        0,
+        0,
+        102.33650207519531
+      ]
+    },
+    {
+      "name": "CC_Base_Pelvis",
+      "parent": "CC_Base_Hip",
+      "translation": [
+        -3.790411029074318e-15,
+        0.000030517578125,
+        -7.908884072094224e-7
+      ]
+    },
+    {
+      "name": "CC_Base_L_Thigh",
+      "parent": "CC_Base_Pelvis",
+      "translation": [
+        9.953155517578125,
+        -1.789858102798462,
+        -1.3750107288360596
+      ]
+    },
+    {
+      "name": "CC_Base_L_Calf",
+      "parent": "CC_Base_L_Thigh",
+      "translation": [
+        0.0010912826983258128,
+        47.572593688964844,
+        -0.00025631440803408623
+      ]
+    },
+    {
+      "name": "CC_Base_L_Foot",
+      "parent": "CC_Base_L_Calf",
+      "translation": [
+        0.012946736067533493,
+        47.30466842651367,
+        0.0028991601429879665
+      ]
+    },
+    {
+      "name": "CC_Base_L_ToeBaseShareBone",
+      "parent": "CC_Base_L_Foot",
+      "translation": [
+        -0.00015205750241875648,
+        15.384612083435059,
+        0.00008890032768249512
+      ]
+    },
+    {
+      "name": "CC_Base_L_ToeBase",
+      "parent": "CC_Base_L_Foot",
+      "translation": [
+        -0.00015205750241875648,
+        15.384612083435059,
+        0.00008890032768249512
+      ]
+    },
+    {
+      "name": "CC_Base_L_PinkyToe1",
+      "parent": "CC_Base_L_ToeBase",
+      "translation": [
+        -2.8338863849639893,
+        0.00474335253238678,
+        -0.449185848236084
+      ]
+    },
+    {
+      "name": "CC_Base_L_RingToe1",
+      "parent": "CC_Base_L_ToeBase",
+      "translation": [
+        -1.4594630002975464,
+        1.165667176246643,
+        -0.024081647396087646
+      ]
+    },
+    {
+      "name": "CC_Base_L_MidToe1",
+      "parent": "CC_Base_L_ToeBase",
+      "translation": [
+        -0.000005848705768585205,
+        2.3142271041870117,
+        0.00005245208740234375
+      ]
+    },
+    {
+      "name": "CC_Base_L_IndexToe1",
+      "parent": "CC_Base_L_ToeBase",
+      "translation": [
+        1.5948846340179443,
+        2.64426851272583,
+        0.3221862316131592
+      ]
+    },
+    {
+      "name": "CC_Base_L_BigToe1",
+      "parent": "CC_Base_L_ToeBase",
+      "translation": [
+        3.8480422496795654,
+        2.5877017974853516,
+        0.018612831830978394
+      ]
+    },
+    {
+      "name": "CC_Base_L_CalfTwist01",
+      "parent": "CC_Base_L_Calf",
+      "translation": [
+        -0.000009258394129574299,
+        0.000004678964614868164,
+        -3.073364496231079e-8
+      ]
+    },
+    {
+      "name": "CC_Base_L_CalfTwist02",
+      "parent": "CC_Base_L_CalfTwist01",
+      "translation": [
+        0.008389605209231377,
+        23.652305603027344,
+        0.0010145818814635277
+      ]
+    },
+    {
+      "name": "CC_Base_L_KneeShareBone",
+      "parent": "CC_Base_L_Calf",
+      "translation": [
+        -0.000009258394129574299,
+        0.000004678964614868164,
+        -3.073364496231079e-8
+      ]
+    },
+    {
+      "name": "CC_Base_L_ThighTwist01",
+      "parent": "CC_Base_L_Thigh",
+      "translation": [
+        -5.249967216514051e-8,
+        -0.0000446811318397522,
+        7.050111889839172e-7
+      ]
+    },
+    {
+      "name": "CC_Base_L_ThighTwist02",
+      "parent": "CC_Base_L_ThighTwist01",
+      "translation": [
+        0.0005524034495465457,
+        23.786300659179688,
+        0.00003187847323715687
+      ]
+    },
+    {
+      "name": "CC_Base_R_Thigh",
+      "parent": "CC_Base_Pelvis",
+      "translation": [
+        -9.953006744384766,
+        -1.7889251708984375,
+        -1.3763487339019775
+      ]
+    },
+    {
+      "name": "CC_Base_R_Calf",
+      "parent": "CC_Base_R_Thigh",
+      "translation": [
+        -0.001107644522562623,
+        47.52029800415039,
+        0.00004845880903303623
+      ]
+    },
+    {
+      "name": "CC_Base_R_KneeShareBone",
+      "parent": "CC_Base_R_Calf",
+      "translation": [
+        -0.000007073394954204559,
+        -0.000002518296241760254,
+        0.0000019818544387817383
+      ]
+    },
+    {
+      "name": "CC_Base_R_Foot",
+      "parent": "CC_Base_R_Calf",
+      "translation": [
+        -0.011737369000911713,
+        47.35129928588867,
+        -0.0035943761467933655
+      ]
+    },
+    {
+      "name": "CC_Base_R_ToeBase",
+      "parent": "CC_Base_R_Foot",
+      "translation": [
+        0.00023105042055249214,
+        15.38337230682373,
+        0.00045359134674072266
+      ]
+    },
+    {
+      "name": "CC_Base_R_BigToe1",
+      "parent": "CC_Base_R_ToeBase",
+      "translation": [
+        -3.848090648651123,
+        2.587796926498413,
+        0.018401414155960083
+      ]
+    },
+    {
+      "name": "CC_Base_R_PinkyToe1",
+      "parent": "CC_Base_R_ToeBase",
+      "translation": [
+        2.8339407444000244,
+        0.005379915237426758,
+        -0.4495028853416443
+      ]
+    },
+    {
+      "name": "CC_Base_R_RingToe1",
+      "parent": "CC_Base_R_ToeBase",
+      "translation": [
+        1.4595259428024292,
+        1.1659480333328247,
+        -0.02425825595855713
+      ]
+    },
+    {
+      "name": "CC_Base_R_IndexToe1",
+      "parent": "CC_Base_R_ToeBase",
+      "translation": [
+        -1.59493887424469,
+        2.64436674118042,
+        0.32200416922569275
+      ]
+    },
+    {
+      "name": "CC_Base_R_MidToe1",
+      "parent": "CC_Base_R_ToeBase",
+      "translation": [
+        -0.00000912696123123169,
+        2.3142714500427246,
+        0.00001671910285949707
+      ]
+    },
+    {
+      "name": "CC_Base_R_ToeBaseShareBone",
+      "parent": "CC_Base_R_Foot",
+      "translation": [
+        0.00023105042055249214,
+        15.38337230682373,
+        0.00045359134674072266
+      ]
+    },
+    {
+      "name": "CC_Base_R_CalfTwist01",
+      "parent": "CC_Base_R_Calf",
+      "translation": [
+        -0.000007073394954204559,
+        -0.000002518296241760254,
+        0.0000019818544387817383
+      ]
+    },
+    {
+      "name": "CC_Base_R_CalfTwist02",
+      "parent": "CC_Base_R_CalfTwist01",
+      "translation": [
+        -0.005310218781232834,
+        23.675636291503906,
+        -0.0015991628170013428
+      ]
+    },
+    {
+      "name": "CC_Base_R_ThighTwist01",
+      "parent": "CC_Base_R_Thigh",
+      "translation": [
+        0.0000030152787076076493,
+        -0.000012714415788650513,
+        -5.024485290050507e-7
+      ]
+    },
+    {
+      "name": "CC_Base_R_ThighTwist02",
+      "parent": "CC_Base_R_ThighTwist01",
+      "translation": [
+        -0.000532150617800653,
+        23.760181427001953,
+        -0.0005566661711782217
+      ]
+    },
+    {
+      "name": "CC_Base_Waist",
+      "parent": "CC_Base_Hip",
+      "translation": [
+        0,
+        7.9917144775390625,
+        1.035797119140625
+      ]
+    },
+    {
+      "name": "CC_Base_Spine01",
+      "parent": "CC_Base_Waist",
+      "translation": [
+        1.2880583372901905e-13,
+        4.44435453414917,
+        0.0000036954879760742188
+      ]
+    },
+    {
+      "name": "CC_Base_Spine02",
+      "parent": "CC_Base_Spine01",
+      "translation": [
+        1.3552527156068805e-20,
+        14.241397857666016,
+        -0.00000852346420288086
+      ]
+    },
+    {
+      "name": "CC_Base_NeckTwist01",
+      "parent": "CC_Base_Spine02",
+      "translation": [
+        -0.000001075023646990303,
+        29.157955169677734,
+        0.000044345855712890625
+      ]
+    },
+    {
+      "name": "CC_Base_NeckTwist02",
+      "parent": "CC_Base_NeckTwist01",
+      "translation": [
+        8.672486728755757e-9,
+        3.354764223098755,
+        0.00013446807861328125
+      ]
+    },
+    {
+      "name": "CC_Base_Head",
+      "parent": "CC_Base_NeckTwist02",
+      "translation": [
+        0.00041776246507652104,
+        3.995985746383667,
+        -0.00001358989356958773
+      ]
+    },
+    {
+      "name": "CC_Base_FacialBone",
+      "parent": "CC_Base_Head",
+      "translation": [
+        5.114753065527111e-11,
+        0.000015347271983046085,
+        -0.000007390974587906385
+      ]
+    },
+    {
+      "name": "CC_Base_JawRoot",
+      "parent": "CC_Base_FacialBone",
+      "translation": [
+        1.856170654296875,
+        2.3725814819335938,
+        -0.026499934494495392
+      ]
+    },
+    {
+      "name": "CC_Base_Tongue01",
+      "parent": "CC_Base_JawRoot",
+      "translation": [
+        3.4788222312927246,
+        1.3013767004013062,
+        0.001722173416055739
+      ]
+    },
+    {
+      "name": "CC_Base_Tongue02",
+      "parent": "CC_Base_Tongue01",
+      "translation": [
+        1.211624026298523,
+        0.00007291115616681054,
+        0.0000023348256945610046
+      ]
+    },
+    {
+      "name": "CC_Base_Tongue03",
+      "parent": "CC_Base_Tongue02",
+      "translation": [
+        1.8075196743011475,
+        0.0004838673339691013,
+        0.00001673889346420765
+      ]
+    },
+    {
+      "name": "CC_Base_Teeth02",
+      "parent": "CC_Base_JawRoot",
+      "translation": [
+        3.509425640106201,
+        1.6364113092422485,
+        0.025405975058674812
+      ]
+    },
+    {
+      "name": "CC_Base_R_Eye",
+      "parent": "CC_Base_FacialBone",
+      "translation": [
+        7.916625499725342,
+        8.004108428955078,
+        -3.399050235748291
+      ]
+    },
+    {
+      "name": "CC_Base_L_Eye",
+      "parent": "CC_Base_FacialBone",
+      "translation": [
+        7.864105701446533,
+        7.835659027099609,
+        3.473083019256592
+      ]
+    },
+    {
+      "name": "CC_Base_UpperJaw",
+      "parent": "CC_Base_FacialBone",
+      "translation": [
+        3.261932373046875,
+        6.942871570587158,
+        -0.02468101494014263
+      ]
+    },
+    {
+      "name": "CC_Base_Teeth01",
+      "parent": "CC_Base_UpperJaw",
+      "translation": [
+        0.09780752658843994,
+        0.021660717204213142,
+        0.023386476561427116
+      ]
+    },
+    {
+      "name": "CC_Base_L_Clavicle",
+      "parent": "CC_Base_Spine02",
+      "translation": [
+        5.846743106842041,
+        22.913326263427734,
+        0.15851521492004395
+      ]
+    },
+    {
+      "name": "CC_Base_L_Upperarm",
+      "parent": "CC_Base_L_Clavicle",
+      "translation": [
+        0.00006332993507385254,
+        13.675213813781738,
+        0.00040340423583984375
+      ]
+    },
+    {
+      "name": "CC_Base_L_Forearm",
+      "parent": "CC_Base_L_Upperarm",
+      "translation": [
+        -0.0021000131964683533,
+        29.648496627807617,
+        0.0005214959383010864
+      ]
+    },
+    {
+      "name": "CC_Base_L_ForearmTwist01",
+      "parent": "CC_Base_L_Forearm",
+      "translation": [
+        -0.00002450495958328247,
+        -0.0000063749030232429504,
+        0.000005811452865600586
+      ]
+    },
+    {
+      "name": "CC_Base_L_ForearmTwist02",
+      "parent": "CC_Base_L_ForearmTwist01",
+      "translation": [
+        -0.0017938688397407532,
+        12.154339790344238,
+        -0.0031246542930603027
+      ]
+    },
+    {
+      "name": "CC_Base_L_ElbowShareBone",
+      "parent": "CC_Base_L_Forearm",
+      "translation": [
+        -0.00002450495958328247,
+        -0.0000063749030232429504,
+        0.000005811452865600586
+      ]
+    },
+    {
+      "name": "CC_Base_L_Hand",
+      "parent": "CC_Base_L_Forearm",
+      "translation": [
+        -0.0032659247517585754,
+        24.308786392211914,
+        -0.0040430426597595215
+      ]
+    },
+    {
+      "name": "CC_Base_L_Pinky1",
+      "parent": "CC_Base_L_Hand",
+      "translation": [
+        0.8387796878814697,
+        9.643739700317383,
+        -1.8876361846923828
+      ]
+    },
+    {
+      "name": "CC_Base_L_Pinky2",
+      "parent": "CC_Base_L_Pinky1",
+      "translation": [
+        0.000396043062210083,
+        3.0504348278045654,
+        -0.0001811981201171875
+      ]
+    },
+    {
+      "name": "CC_Base_L_Pinky3",
+      "parent": "CC_Base_L_Pinky2",
+      "translation": [
+        0.000038370490074157715,
+        1.9355652332305908,
+        -0.00003510713577270508
+      ]
+    },
+    {
+      "name": "CC_Base_L_Ring1",
+      "parent": "CC_Base_L_Hand",
+      "translation": [
+        0.0010117590427398682,
+        9.706981658935547,
+        0.0030269622802734375
+      ]
+    },
+    {
+      "name": "CC_Base_L_Ring2",
+      "parent": "CC_Base_L_Ring1",
+      "translation": [
+        -0.0001965165138244629,
+        4.398406982421875,
+        -0.0005393028259277344
+      ]
+    },
+    {
+      "name": "CC_Base_L_Ring3",
+      "parent": "CC_Base_L_Ring2",
+      "translation": [
+        -0.0008174926042556763,
+        3.074361801147461,
+        0.0006477683782577515
+      ]
+    },
+    {
+      "name": "CC_Base_L_Mid1",
+      "parent": "CC_Base_L_Hand",
+      "translation": [
+        -0.6153436303138733,
+        9.996679306030273,
+        1.9597835540771484
+      ]
+    },
+    {
+      "name": "CC_Base_L_Mid2",
+      "parent": "CC_Base_L_Mid1",
+      "translation": [
+        -0.0002244412899017334,
+        4.767321586608887,
+        -0.000041157007217407227
+      ]
+    },
+    {
+      "name": "CC_Base_L_Mid3",
+      "parent": "CC_Base_L_Mid2",
+      "translation": [
+        -0.0010398924350738525,
+        3.306338310241699,
+        -0.0008061528205871582
+      ]
+    },
+    {
+      "name": "CC_Base_L_Index1",
+      "parent": "CC_Base_L_Hand",
+      "translation": [
+        -0.4277152717113495,
+        9.799840927124023,
+        4.421895980834961
+      ]
+    },
+    {
+      "name": "CC_Base_L_Index2",
+      "parent": "CC_Base_L_Index1",
+      "translation": [
+        -0.001440480351448059,
+        4.649103164672852,
+        0.001256398856639862
+      ]
+    },
+    {
+      "name": "CC_Base_L_Index3",
+      "parent": "CC_Base_L_Index2",
+      "translation": [
+        -0.0005395412445068359,
+        2.933397054672241,
+        0.000052034854888916016
+      ]
+    },
+    {
+      "name": "CC_Base_L_Thumb1",
+      "parent": "CC_Base_L_Hand",
+      "translation": [
+        0.4729442000389099,
+        1.4073847532272339,
+        2.9682064056396484
+      ]
+    },
+    {
+      "name": "CC_Base_L_Thumb2",
+      "parent": "CC_Base_L_Thumb1",
+      "translation": [
+        -0.00003701448440551758,
+        7.252772331237793,
+        -0.00034561753273010254
+      ]
+    },
+    {
+      "name": "CC_Base_L_Thumb3",
+      "parent": "CC_Base_L_Thumb2",
+      "translation": [
+        -0.0009371936321258545,
+        3.2246363162994385,
+        -0.0003355741500854492
+      ]
+    },
+    {
+      "name": "CC_Base_L_UpperarmTwist01",
+      "parent": "CC_Base_L_Upperarm",
+      "translation": [
+        -0.000024765729904174805,
+        -0.000008791685104370117,
+        -0.000004850327968597412
+      ]
+    },
+    {
+      "name": "CC_Base_L_UpperarmTwist02",
+      "parent": "CC_Base_L_UpperarmTwist01",
+      "translation": [
+        -0.00005109608173370361,
+        14.824237823486328,
+        -0.00004093348979949951
+      ]
+    },
+    {
+      "name": "CC_Base_L_RibsTwist",
+      "parent": "CC_Base_Spine02",
+      "translation": [
+        12.37477970123291,
+        4.240516662597656,
+        11.340028762817383
+      ]
+    },
+    {
+      "name": "CC_Base_L_Breast",
+      "parent": "CC_Base_L_RibsTwist",
+      "translation": [
+        0.000015254845493473113,
+        1.999998688697815,
+        0.00008869566954672337
+      ]
+    },
+    {
+      "name": "CC_Base_R_RibsTwist",
+      "parent": "CC_Base_Spine02",
+      "translation": [
+        -12.366527557373047,
+        4.255687236785889,
+        11.342021942138672
+      ]
+    },
+    {
+      "name": "CC_Base_R_Breast",
+      "parent": "CC_Base_R_RibsTwist",
+      "translation": [
+        -0.000014992387150414288,
+        1.9999765157699585,
+        0.0000698570511303842
+      ]
+    },
+    {
+      "name": "CC_Base_R_Clavicle",
+      "parent": "CC_Base_Spine02",
+      "translation": [
+        -5.847836017608643,
+        22.913354873657227,
+        0.158738374710083
+      ]
+    },
+    {
+      "name": "CC_Base_R_Upperarm",
+      "parent": "CC_Base_R_Clavicle",
+      "translation": [
+        -0.00038962066173553467,
+        13.675079345703125,
+        0.00013494491577148438
+      ]
+    },
+    {
+      "name": "CC_Base_R_Forearm",
+      "parent": "CC_Base_R_Upperarm",
+      "translation": [
+        0.0014372840523719788,
+        29.647546768188477,
+        -0.00034911930561065674
+      ]
+    },
+    {
+      "name": "CC_Base_R_ElbowShareBone",
+      "parent": "CC_Base_R_Forearm",
+      "translation": [
+        0.00004427880048751831,
+        -0.000005062669515609741,
+        0.0000019073486328125
+      ]
+    },
+    {
+      "name": "CC_Base_R_ForearmTwist01",
+      "parent": "CC_Base_R_Forearm",
+      "translation": [
+        0.00004427880048751831,
+        -0.000005062669515609741,
+        0.0000019073486328125
+      ]
+    },
+    {
+      "name": "CC_Base_R_ForearmTwist02",
+      "parent": "CC_Base_R_ForearmTwist01",
+      "translation": [
+        0.0017296746373176575,
+        12.154948234558105,
+        -0.0021570324897766113
+      ]
+    },
+    {
+      "name": "CC_Base_R_Hand",
+      "parent": "CC_Base_R_Forearm",
+      "translation": [
+        0.0013648197054862976,
+        24.31002426147461,
+        -0.0003132820129394531
+      ]
+    },
+    {
+      "name": "CC_Base_R_Ring1",
+      "parent": "CC_Base_R_Hand",
+      "translation": [
+        0.0000073462724685668945,
+        9.707071304321289,
+        -0.0007748603820800781
+      ]
+    },
+    {
+      "name": "CC_Base_R_Ring2",
+      "parent": "CC_Base_R_Ring1",
+      "translation": [
+        0.00015947222709655762,
+        4.398307800292969,
+        -0.0006395876407623291
+      ]
+    },
+    {
+      "name": "CC_Base_R_Ring3",
+      "parent": "CC_Base_R_Ring2",
+      "translation": [
+        -0.0010596513748168945,
+        3.074486494064331,
+        -0.00025691837072372437
+      ]
+    },
+    {
+      "name": "CC_Base_R_Mid1",
+      "parent": "CC_Base_R_Hand",
+      "translation": [
+        0.6159845590591431,
+        9.997448921203613,
+        1.9559621810913086
+      ]
+    },
+    {
+      "name": "CC_Base_R_Mid2",
+      "parent": "CC_Base_R_Mid1",
+      "translation": [
+        0.000445440411567688,
+        4.767148494720459,
+        -0.00016441941261291504
+      ]
+    },
+    {
+      "name": "CC_Base_R_Mid3",
+      "parent": "CC_Base_R_Mid2",
+      "translation": [
+        0.00012923777103424072,
+        3.306414842605591,
+        0.00005930662155151367
+      ]
+    },
+    {
+      "name": "CC_Base_R_Thumb1",
+      "parent": "CC_Base_R_Hand",
+      "translation": [
+        -0.4736732244491577,
+        1.408708095550537,
+        2.9675445556640625
+      ]
+    },
+    {
+      "name": "CC_Base_R_Thumb2",
+      "parent": "CC_Base_R_Thumb1",
+      "translation": [
+        0.0003608446568250656,
+        7.252943515777588,
+        -0.000981692224740982
+      ]
+    },
+    {
+      "name": "CC_Base_R_Thumb3",
+      "parent": "CC_Base_R_Thumb2",
+      "translation": [
+        -0.000009268522262573242,
+        3.2248055934906006,
+        0.00004887580871582031
+      ]
+    },
+    {
+      "name": "CC_Base_R_Index1",
+      "parent": "CC_Base_R_Hand",
+      "translation": [
+        0.4276627004146576,
+        9.801568984985352,
+        4.418048858642578
+      ]
+    },
+    {
+      "name": "CC_Base_R_Index2",
+      "parent": "CC_Base_R_Index1",
+      "translation": [
+        0.001061864197254181,
+        4.648791790008545,
+        0.0006793588399887085
+      ]
+    },
+    {
+      "name": "CC_Base_R_Index3",
+      "parent": "CC_Base_R_Index2",
+      "translation": [
+        -0.0006211921572685242,
+        2.9368622303009033,
+        -0.00016835331916809082
+      ]
+    },
+    {
+      "name": "CC_Base_R_Pinky1",
+      "parent": "CC_Base_R_Hand",
+      "translation": [
+        -0.837287962436676,
+        9.643238067626953,
+        -1.891557216644287
+      ]
+    },
+    {
+      "name": "CC_Base_R_Pinky2",
+      "parent": "CC_Base_R_Pinky1",
+      "translation": [
+        -0.0003053247928619385,
+        3.050346851348877,
+        -0.00022897124290466309
+      ]
+    },
+    {
+      "name": "CC_Base_R_Pinky3",
+      "parent": "CC_Base_R_Pinky2",
+      "translation": [
+        -0.000006973743438720703,
+        1.9355270862579346,
+        0.0000015944242477416992
+      ]
+    },
+    {
+      "name": "CC_Base_R_UpperarmTwist01",
+      "parent": "CC_Base_R_Upperarm",
+      "translation": [
+        0.000004403293132781982,
+        0.0000033676624298095703,
+        -0.000002473592758178711
+      ]
+    },
+    {
+      "name": "CC_Base_R_UpperarmTwist02",
+      "parent": "CC_Base_R_UpperarmTwist01",
+      "translation": [
+        -0.0015784502029418945,
+        14.823780059814453,
+        -0.0003107339143753052
+      ]
+    }
+  ]
+}
