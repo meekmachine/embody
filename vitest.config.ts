@@ -5,6 +5,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    setupFiles: ['src/test/setupWasm.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

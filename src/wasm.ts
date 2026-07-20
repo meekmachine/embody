@@ -46,6 +46,8 @@ const WASM_BINARY_SPECIFIER = './wasm/embody_wasm_bg.wasm';
 
 /** @type {Promise<import('./wasmTypes').EmbodyCoreWasmModule> | null} */
 let corePromise = null;
+/** @type {import('./wasmTypes').EmbodyCoreWasmModule | null} */
+let cachedCore = null;
 
 /** @returns {Promise<import('./wasmTypes').EmbodyCoreWasmModule>} */
 export async function initEmbodyCore() {
@@ -60,8 +62,34 @@ export async function getEmbodyCore() {
   return initEmbodyCore();
 }
 
+/**
+ * Synchronous access to the already-initialized Wasm module.
+ * Call `await initEmbodyCore()` first (vitest setup does this).
+ * @returns {import('./wasmTypes').EmbodyCoreWasmModule}
+ */
+export function getEmbodyCoreSync() {
+  if (!cachedCore) {
+    throw new Error(
+      'Embody Wasm core is not initialized. Await initEmbodyCore() before calling sync engine helpers.'
+    );
+  }
+  return cachedCore;
+}
+
 export function resetEmbodyCoreForTests() {
   corePromise = null;
+  cachedCore = null;
+}
+
+/**
+ * Install a pre-loaded Wasm module into the sync cache (used by vitest setup
+ * when the package dynamic import cannot resolve dist/wasm from source).
+ * @param {import('./wasmTypes').EmbodyCoreWasmModule} mod
+ */
+export function setEmbodyCoreForTests(mod) {
+  assertCoreAbi(mod);
+  cachedCore = mod;
+  corePromise = Promise.resolve(mod);
 }
 
 /** @returns {Promise<import('./wasmTypes').EmbodyCoreWasmModule>} */
@@ -72,6 +100,7 @@ async function loadCoreModule() {
   }
 
   assertCoreAbi(mod);
+  cachedCore = mod;
   return mod;
 }
 

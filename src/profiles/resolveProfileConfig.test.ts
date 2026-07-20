@@ -25,13 +25,10 @@ function createConfig(overrides: Partial<CharacterConfig> = {}): CharacterConfig
 
 type Expect<T extends true> = T;
 
-const inferredRuntimeProfileConfig = extendProfileConfigWithPreset({
-  profilePresetId: 'cc4',
-  regions: [],
-});
+type InferredRuntimeProfileConfig = ReturnType<typeof extendProfileConfigWithPreset>;
 
 type InferredRuntimeProfileHasResolvedSurface = Expect<
-  typeof inferredRuntimeProfileConfig extends {
+  InferredRuntimeProfileConfig extends {
     auToMorphs: Profile['auToMorphs'];
     boneNodes: Profile['boneNodes'];
     regions?: Region[];
@@ -39,6 +36,8 @@ type InferredRuntimeProfileHasResolvedSurface = Expect<
     ? true
     : false
 >;
+
+void (null as unknown as InferredRuntimeProfileHasResolvedSurface);
 
 describe('mergeProfileRegionsByName', () => {
   it('merges nested region fields by name while preserving preset geometry', () => {
