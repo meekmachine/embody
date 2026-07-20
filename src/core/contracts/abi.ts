@@ -10,6 +10,23 @@ export const PACKED_MORPH_FRAME_DELTA_FIELDS = [
   'mode',
 ] as const;
 
+export const PACKED_BONE_FRAME_DELTA_STRIDE = 9;
+export const PACKED_BONE_FRAME_DELTA_FIELDS = [
+  'boneId',
+  'positionX',
+  'positionY',
+  'positionZ',
+  'rotationX',
+  'rotationY',
+  'rotationZ',
+  'rotationW',
+  'flags',
+] as const;
+
+/** Packed bone FrameDelta flags: bit 0 = has position, bit 1 = has rotation. */
+export const PACKED_BONE_FLAG_HAS_POSITION = 1;
+export const PACKED_BONE_FLAG_HAS_ROTATION = 2;
+
 export const HAIR_CONFIG_STRIDE = 11;
 export const HAIR_STATE_STRIDE = 4;
 export const HAIR_HEAD_STATE_STRIDE = 5;

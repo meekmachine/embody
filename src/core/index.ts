@@ -78,9 +78,12 @@ export {
   VISEME_MORPH_BINDING_STRIDE,
   WasmRuntimeCore,
   compileMorphBindings,
+  compileBoneBindings,
   unpackMorphFrameDelta,
+  unpackBoneFrameDelta,
 } from './WasmRuntimeCore';
 export type {
+  CompiledBoneBindings,
   MorphBindingSide,
   WasmRuntimeCoreOptions,
 } from './WasmRuntimeCore';

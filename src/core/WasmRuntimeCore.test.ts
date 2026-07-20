@@ -75,6 +75,120 @@ describe('WasmRuntimeCore', () => {
     expect(rustMorphs['VisemeMesh:Mouth_Wide']).toBe(tsMorphs['VisemeMesh:Mouth_Wide']);
   });
 
+  it('matches TsRuntimeCore composite bone FrameDelta output', async () => {
+    const { profile, descriptor } = makeScene();
+    const wasm = await loadWasmModule();
+    const ts = new TsRuntimeCore({ profile, model: descriptor });
+    const rust = new WasmRuntimeCore({ profile, model: descriptor, wasm });
+
+    for (const [negAU, posAU, value] of [[30, 31, -0.5], [30, 31, 0.25]] as const) {
+      ts.setContinuum(negAU, posAU, value);
+      if (value < 0) {
+        rust.setAU(posAU, 0, 0);
+        rust.setAU(negAU, Math.abs(value), 0);
+      } else {
+        rust.setAU(negAU, 0, 0);
+        rust.setAU(posAU, value, 0);
+      }
+
+      const tsBones = ts.evaluateFrameDelta().bones ?? [];
+      const rustBones = rust.evaluateFrameDelta().bones ?? [];
+      expect(rustBones.length).toBe(tsBones.length);
+      for (const tsWrite of tsBones) {
+        const rustWrite = rustBones.find((write) => write.boneId === tsWrite.boneId);
+        expect(rustWrite).toBeTruthy();
+        const tsRot = tsWrite.transform.rotation!;
+        const rustRot = rustWrite!.transform.rotation!;
+        for (const axis of ['x', 'y', 'z', 'w'] as const) {
+          expect(rustRot[axis]).toBeCloseTo(tsRot[axis], 5);
+        }
+      }
+    }
+  });
+
+  it('matches TsRuntimeCore viseme jaw bone output', async () => {
+    const { profile, descriptor } = makeScene();
+    const wasm = await loadWasmModule();
+    const ts = new TsRuntimeCore({ profile, model: descriptor });
+    const rust = new WasmRuntimeCore({ profile, model: descriptor, wasm });
+
+    ts.setVisemeById('aa', 0.8, 0.5);
+    rust.setViseme(0, 0.8, 0.5);
+
+    const tsJaw = (ts.evaluateFrameDelta().bones ?? []).find(
+      (write) => write.transform.rotation
+        && Math.abs(write.transform.rotation.w - 1) > 1e-6
+    );
+    const rustJaw = (rust.evaluateFrameDelta().bones ?? []).find(
+      (write) => write.boneId === tsJaw?.boneId
+    );
+    expect(tsJaw).toBeTruthy();
+    expect(rustJaw).toBeTruthy();
+    for (const axis of ['x', 'y', 'z', 'w'] as const) {
+      expect(rustJaw!.transform.rotation![axis]).toBeCloseTo(tsJaw!.transform.rotation![axis], 5);
+    }
+  });
+
+  it('self-configures from profile and model JSON matching TS-compiled bindings', async () => {
+    const { profile, descriptor } = makeScene();
+    const wasm = await loadWasmModule();
+
+    // TS-compiled reference path.
+    const reference = new WasmRuntimeCore({ profile, model: descriptor, wasm });
+    // Rust-compiled path: the core ingests raw JSON and compiles everything itself.
+    const selfConfigured = new wasm.RuntimeCore(0);
+    selfConfigured.configure(JSON.stringify(profile), JSON.stringify(descriptor));
+
+    reference.setAU(1, 0.8, -0.25);
+    selfConfigured.set_au_signed(1, 0.8, -0.25);
+    reference.setViseme(0, 0.75);
+    selfConfigured.set_viseme(0, 0.75);
+
+    const toWrites = (packed: Float32Array) =>
+      morphWritesByName({ morphTargets: unpackMorphFrameDelta(packed) } as FrameDelta, descriptor);
+    const referenceMorphs = toWrites(reference.evaluatePackedMorphFrameDelta());
+    const selfMorphs = toWrites(selfConfigured.evaluate_morph_frame_delta());
+    expect(Object.keys(selfMorphs).length).toBeGreaterThan(0);
+    expect(selfMorphs).toEqual(referenceMorphs);
+
+    // Continuum pairs are compiled in Rust too: negative routes to the pair AU.
+    selfConfigured.set_au_signed(31, -0.5, 0);
+    expect(selfConfigured.get_au(30)).toBeCloseTo(0.5, 6);
+    expect(selfConfigured.get_au(31)).toBe(0);
+    reference.setAU(31, 0, 0);
+    reference.setAU(30, 0.5, 0);
+    expect(selfConfigured.viseme_slot_index('aa')).toBe(0);
+    expect(selfConfigured.viseme_slot_index('bmp')).toBe(1);
+
+    const referenceBones = Array.from(reference.evaluatePackedBoneFrameDelta());
+    const selfBones = Array.from(selfConfigured.evaluate_bone_frame_delta());
+    expect(selfBones.length).toBe(referenceBones.length);
+    selfBones.forEach((value, index) => {
+      expect(value).toBeCloseTo(referenceBones[index], 5);
+    });
+
+    selfConfigured.free?.();
+  });
+
+  it('runs eased transitions inside the Rust core via update(dt)', async () => {
+    const { profile, descriptor } = makeScene();
+    const wasm = await loadWasmModule();
+    const core = new wasm.RuntimeCore(0);
+    core.configure(JSON.stringify(profile), JSON.stringify(descriptor));
+
+    core.transition_au(1, 1.0, 200, Number.NaN);
+    expect(core.active_transition_count()).toBe(1);
+
+    core.update(0.1); // easeInOutQuad(0.5) = 0.5
+    expect(core.get_au(1)).toBeCloseTo(0.5, 6);
+
+    core.update(0.2);
+    expect(core.get_au(1)).toBeCloseTo(1.0, 6);
+    expect(core.active_transition_count()).toBe(0);
+
+    core.free?.();
+  });
+
   it('unpacks packed morph frame deltas', () => {
     const writes = unpackMorphFrameDelta(new Float32Array([1, 10, 0.5, 0, 2, 20, 0.25, 1]));
     expect(writes).toEqual([
