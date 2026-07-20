@@ -112,6 +112,24 @@ export class ThreeFrameApplier implements HostFrameApplier<Object3D> {
     }
   }
 
+  /** Rows: `[boneId, px, py, pz, qx, qy, qz, qw, flags]`; flags bit0=position, bit1=rotation. */
+  applyPackedBoneFrameDelta(values: ArrayLike<number>, stride = 9): void {
+    for (let index = 0; index + stride <= values.length; index += stride) {
+      const bone = this.bones.get(values[index] as BoneId);
+      if (!bone) continue;
+      const flags = values[index + 8] ?? 0;
+      if (flags & 1) {
+        bone.position.set(values[index + 1], values[index + 2], values[index + 3]);
+      }
+      if (flags & 2) {
+        bone.quaternion
+          .set(values[index + 4], values[index + 5], values[index + 6], values[index + 7])
+          .normalize();
+      }
+      bone.updateMatrixWorld(false);
+    }
+  }
+
   applyObjectTransform(
     target: Object3D,
     transform: Transform,

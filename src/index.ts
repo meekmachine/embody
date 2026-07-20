@@ -119,7 +119,9 @@ export {
   VISEME_MORPH_BINDING_STRIDE,
   WasmRuntimeCore,
   compileMorphBindings,
+  compileBoneBindings,
   unpackMorphFrameDelta,
+  unpackBoneFrameDelta,
 } from './core/WasmRuntimeCore';
 export {
   EMBODY_CORE_ABI_VERSION,
@@ -135,6 +137,8 @@ export {
   MESH_PROPORTIONS_STRIDE,
   PACKED_MORPH_FRAME_DELTA_FIELDS,
   PACKED_MORPH_FRAME_DELTA_STRIDE,
+  PACKED_BONE_FRAME_DELTA_FIELDS,
+  PACKED_BONE_FRAME_DELTA_STRIDE,
   TEMPLATE_SKELETON_FIT_SOLUTION_FIELDS,
   TEMPLATE_SKELETON_FIT_SOLUTION_STRIDE,
   TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS,
@@ -152,6 +156,7 @@ export type {
 } from './core/TsClipCompiler';
 export type { TsRuntimeCoreOptions } from './core/TsRuntimeCore';
 export type {
+  CompiledBoneBindings,
   MorphBindingSide,
   WasmRuntimeCoreOptions,
 } from './core/WasmRuntimeCore';

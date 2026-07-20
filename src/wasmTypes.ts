@@ -14,14 +14,21 @@ export interface WasmHairPhysicsSolverConstructor {
 export interface WasmRuntimeCoreHandle {
   load_au_morph_bindings(values: Float32Array): void;
   load_viseme_morph_bindings(values: Float32Array): void;
+  load_bone_rest_transforms(values: Float32Array): void;
+  load_composite_axes(values: Float32Array): void;
+  load_bone_translations(values: Float32Array): void;
+  load_jaw_binding(values: Float32Array): void;
+  load_viseme_jaw_amounts(values: Float32Array): void;
   set_mixed_aus(ids: Uint32Array): void;
   set_au(id: number, value: number, balance: number): void;
   get_au(id: number): number;
   set_au_mix_weight(id: number, weight: number): void;
   set_viseme(index: number, value: number): void;
+  set_viseme_jaw_scale(index: number, jawScale: number): void;
   set_viseme_slot_count(count: number): void;
   clear(): void;
   evaluate_morph_frame_delta(): Float32Array;
+  evaluate_bone_frame_delta(): Float32Array;
   free?: () => void;
 }
 
@@ -35,6 +42,7 @@ export interface EmbodyCoreWasmModule {
   default?: (moduleOrPath?: unknown) => Promise<unknown> | unknown;
   core_abi_version(): number;
   packed_morph_frame_delta_stride(): number;
+  packed_bone_frame_delta_stride(): number;
   pack_morph_frame_delta(
     meshIds: Uint32Array,
     morphTargetIds: Uint32Array,

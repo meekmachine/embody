@@ -75,6 +75,60 @@ describe('WasmRuntimeCore', () => {
     expect(rustMorphs['VisemeMesh:Mouth_Wide']).toBe(tsMorphs['VisemeMesh:Mouth_Wide']);
   });
 
+  it('matches TsRuntimeCore composite bone FrameDelta output', async () => {
+    const { profile, descriptor } = makeScene();
+    const wasm = await loadWasmModule();
+    const ts = new TsRuntimeCore({ profile, model: descriptor });
+    const rust = new WasmRuntimeCore({ profile, model: descriptor, wasm });
+
+    for (const [negAU, posAU, value] of [[30, 31, -0.5], [30, 31, 0.25]] as const) {
+      ts.setContinuum(negAU, posAU, value);
+      if (value < 0) {
+        rust.setAU(posAU, 0, 0);
+        rust.setAU(negAU, Math.abs(value), 0);
+      } else {
+        rust.setAU(negAU, 0, 0);
+        rust.setAU(posAU, value, 0);
+      }
+
+      const tsBones = ts.evaluateFrameDelta().bones ?? [];
+      const rustBones = rust.evaluateFrameDelta().bones ?? [];
+      expect(rustBones.length).toBe(tsBones.length);
+      for (const tsWrite of tsBones) {
+        const rustWrite = rustBones.find((write) => write.boneId === tsWrite.boneId);
+        expect(rustWrite).toBeTruthy();
+        const tsRot = tsWrite.transform.rotation!;
+        const rustRot = rustWrite!.transform.rotation!;
+        for (const axis of ['x', 'y', 'z', 'w'] as const) {
+          expect(rustRot[axis]).toBeCloseTo(tsRot[axis], 5);
+        }
+      }
+    }
+  });
+
+  it('matches TsRuntimeCore viseme jaw bone output', async () => {
+    const { profile, descriptor } = makeScene();
+    const wasm = await loadWasmModule();
+    const ts = new TsRuntimeCore({ profile, model: descriptor });
+    const rust = new WasmRuntimeCore({ profile, model: descriptor, wasm });
+
+    ts.setVisemeById('aa', 0.8, 0.5);
+    rust.setViseme(0, 0.8, 0.5);
+
+    const tsJaw = (ts.evaluateFrameDelta().bones ?? []).find(
+      (write) => write.transform.rotation
+        && Math.abs(write.transform.rotation.w - 1) > 1e-6
+    );
+    const rustJaw = (rust.evaluateFrameDelta().bones ?? []).find(
+      (write) => write.boneId === tsJaw?.boneId
+    );
+    expect(tsJaw).toBeTruthy();
+    expect(rustJaw).toBeTruthy();
+    for (const axis of ['x', 'y', 'z', 'w'] as const) {
+      expect(rustJaw!.transform.rotation![axis]).toBeCloseTo(tsJaw!.transform.rotation![axis], 5);
+    }
+  });
+
   it('unpacks packed morph frame deltas', () => {
     const writes = unpackMorphFrameDelta(new Float32Array([1, 10, 0.5, 0, 2, 20, 0.25, 1]));
     expect(writes).toEqual([

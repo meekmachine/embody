@@ -68,6 +68,8 @@ async function writeWasmEntryDeclarations() {
   const declaration = `export declare const EMBODY_CORE_ABI_VERSION = 1;
 export declare const PACKED_MORPH_FRAME_DELTA_STRIDE = 4;
 export declare const PACKED_MORPH_FRAME_DELTA_FIELDS: readonly ["meshId", "morphTargetId", "value", "mode"];
+export declare const PACKED_BONE_FRAME_DELTA_STRIDE = 9;
+export declare const PACKED_BONE_FRAME_DELTA_FIELDS: readonly ["boneId", "positionX", "positionY", "positionZ", "rotationX", "rotationY", "rotationZ", "rotationW", "flags"];
 export declare const HAIR_CONFIG_STRIDE = 11;
 export declare const HAIR_CONFIG_FIELDS: readonly ["mass", "stiffness", "damping", "gravity", "headInfluence", "windEnabled", "windStrength", "windDirectionX", "windDirectionZ", "windTurbulence", "windFrequency"];
 export declare const HAIR_STATE_STRIDE = 4;

@@ -1,4 +1,5 @@
 mod abi;
+mod bones;
 mod hair;
 mod humanoid_fit;
 mod math;

@@ -2,6 +2,9 @@ use wasm_bindgen::prelude::*;
 
 pub const CORE_ABI_VERSION: u32 = 1;
 pub const PACKED_MORPH_FRAME_DELTA_STRIDE: u32 = 4;
+/// `[bone_id, px, py, pz, qx, qy, qz, qw, flags]`
+/// flags: bit0 = has_position, bit1 = has_rotation
+pub const PACKED_BONE_FRAME_DELTA_STRIDE: u32 = 9;
 
 #[wasm_bindgen]
 pub fn core_abi_version() -> u32 {
@@ -11,6 +14,11 @@ pub fn core_abi_version() -> u32 {
 #[wasm_bindgen]
 pub fn packed_morph_frame_delta_stride() -> u32 {
     PACKED_MORPH_FRAME_DELTA_STRIDE
+}
+
+#[wasm_bindgen]
+pub fn packed_bone_frame_delta_stride() -> u32 {
+    PACKED_BONE_FRAME_DELTA_STRIDE
 }
 
 #[wasm_bindgen]
