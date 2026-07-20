@@ -1,4 +1,6 @@
 mod abi;
+mod annotation_camera;
+mod annotation_markers;
 mod bones;
 mod clip;
 mod hair;
@@ -12,6 +14,8 @@ mod skeleton;
 mod template_fit_metadata;
 
 pub use abi::*;
+pub use annotation_camera::*;
+pub use annotation_markers::*;
 pub use hair::*;
 pub use humanoid_fit::*;
 pub use math::*;

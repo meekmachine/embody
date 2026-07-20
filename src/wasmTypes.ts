@@ -48,6 +48,39 @@ export interface WasmRuntimeCoreConstructor {
   viseme_morph_binding_stride(): number;
 }
 
+export interface WasmCameraFlightHandle {
+  /** Returns `[posX, posY, posZ, targetX, targetY, targetZ, done]`. */
+  sample(elapsedMs: number): Float32Array;
+  duration_ms(): number;
+  free?: () => void;
+}
+
+export interface WasmCameraFlightConstructor {
+  new(
+    startPosition: Float32Array,
+    startTarget: Float32Array,
+    endPosition: Float32Array,
+    endTarget: Float32Array,
+    durationMs: number
+  ): WasmCameraFlightHandle;
+}
+
+export interface WasmCameraOrbitHandle {
+  /** Returns `[posX, posY, posZ, targetX, targetY, targetZ, done]`. */
+  sample(elapsedMs: number): Float32Array;
+  duration_ms(): number;
+  free?: () => void;
+}
+
+export interface WasmCameraOrbitConstructor {
+  new(
+    center: Float32Array,
+    radius: number,
+    height: number,
+    durationMs: number
+  ): WasmCameraOrbitHandle;
+}
+
 export interface EmbodyCoreWasmModule {
   default?: (moduleOrPath?: unknown) => Promise<unknown> | unknown;
   core_abi_version(): number;
@@ -101,6 +134,86 @@ export interface EmbodyCoreWasmModule {
     vertical: number
   ): string;
   build_hair_gravity_curves(configJson: string): string;
+  annotation_camera_framing_stride(): number;
+  camera_flight_sample_stride(): number;
+  marker_visibility_factors_stride(): number;
+  normalize_camera_angle_degrees(angle: number): number;
+  world_direction_for_camera_angle(modelQuat: Float32Array, cameraAngle: number): Float32Array;
+  resolve_focus_camera_direction(
+    modelQuat: Float32Array,
+    effectiveAngle: number,
+    hasExplicitAngle: boolean,
+    worldAngleSpace: boolean
+  ): Float32Array;
+  resolve_auto_closeup_angle(
+    horizontalOffset: number,
+    focusSize: Float32Array,
+    modelSize: Float32Array
+  ): number | undefined;
+  focus_padding_factor(
+    size: number,
+    closeUpPadding: number,
+    zoomPadding: number,
+    fullBodyPadding: number
+  ): number;
+  solve_focus_framing(
+    focusBounds: Float32Array,
+    modelBounds: Float32Array,
+    modelQuat: Float32Array,
+    fovDeg: number,
+    aspect: number,
+    minDistance: number,
+    closeUpPadding: number,
+    zoomPadding: number,
+    fullBodyPadding: number,
+    overridePadding: number | undefined,
+    cameraAngle: number | undefined,
+    worldAngleSpace: boolean
+  ): Float32Array;
+  solve_full_body_framing(
+    boxMin: Float32Array,
+    boxMax: Float32Array,
+    modelQuat: Float32Array,
+    fovDeg: number,
+    aspect: number,
+    minDistance: number,
+    fullBodyPadding: number,
+    overridePadding: number | undefined,
+    cameraAngle: number | undefined,
+    worldAngleSpace: boolean
+  ): Float32Array;
+  passes_marker_camera_angle_gate(
+    markerAngle: number | undefined,
+    currentCameraAngle: number | undefined,
+    rangeDegrees: number | undefined
+  ): boolean;
+  should_show_marker(
+    hiddenChild: boolean,
+    soloed: number,
+    markerAngle: number | undefined,
+    currentCameraAngle: number | undefined
+  ): boolean;
+  resolve_viewport_constrained_line_scale(
+    startClip: Float32Array,
+    endClip: Float32Array,
+    safeX: number,
+    safeY: number,
+    minLengthRatio: number | undefined
+  ): Float32Array;
+  resolve_viewport_safe_bounds(
+    labelScaleX: number,
+    labelScaleY: number,
+    projectionXScale: number,
+    projectionYScale: number,
+    viewportWidth: number,
+    viewportHeight: number,
+    edgePaddingPx: number | undefined
+  ): Float32Array;
+  sample_marker_bezier_curve(start: Float32Array, end: Float32Array, segments: number): Float32Array;
+  sample_marker_arc_curve(start: Float32Array, end: Float32Array, segments: number): Float32Array;
+  marker_visibility_animation_factors(visible: boolean, t: number): Float32Array;
   HairPhysicsSolver: WasmHairPhysicsSolverConstructor;
   RuntimeCore: WasmRuntimeCoreConstructor;
+  CameraFlight: WasmCameraFlightConstructor;
+  CameraOrbit: WasmCameraOrbitConstructor;
 }

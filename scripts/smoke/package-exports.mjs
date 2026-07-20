@@ -16,6 +16,20 @@ const wasmCjs = require('@lovelace_lol/embody/wasm');
 
 const wasmCore = await wasm.initEmbodyCore();
 const wasmCoreFromCjs = await wasmCjs.initEmbodyCore();
+// Polymer initializes via `@lovelace_lol/embody/wasm`. Sync helpers live on the
+// main package entry and must share that same Wasm singleton.
+let presetMergeAfterWasmInitOk = false;
+try {
+  const merged = root.extendPresetWithProfile(
+    { auPresetType: 'cc4', regions: [{ name: 'head', bones: ['Head'] }] },
+    { regions: [{ name: 'head', paddingFactor: 1.1 }] },
+  );
+  presetMergeAfterWasmInitOk =
+    Array.isArray(merged.regions) &&
+    merged.regions.some((region) => region?.name === 'head' && region?.paddingFactor === 1.1);
+} catch {
+  presetMergeAfterWasmInitOk = false;
+}
 const skeletonFitTransform = wasmCore.compose_template_skeleton_fit_transform(
   1.2,
   new Float32Array([0.1, 0.2, -0.1]),
@@ -38,6 +52,31 @@ const skeletonFitSolution = wasmCore.solve_template_skeleton_fit(
   0,
 );
 const rustHair = await root.createRustHairPhysics();
+const annotationCamera = await root.createRustAnnotationCameraCore();
+const focusFraming = annotationCamera.solveFocusFraming({
+  focusBounds: { center: { x: 0, y: 0.9, z: 0 }, size: { x: 0.8, y: 1.8, z: 0.4 } },
+  fovDegrees: 45,
+  aspect: 1,
+  minDistance: 0.5,
+  closeUpPaddingFactor: 1.2,
+  zoomPaddingFactor: 1.5,
+  fullBodyPaddingFactor: 2.0,
+});
+const markerLineScale = annotationCamera.resolveViewportConstrainedLineScale({
+  startClip: [0, 0, 0, 1],
+  endClip: [2, 0, 0, 1],
+  safeX: 0.8,
+  safeY: 0.9,
+});
+const cameraFlight = annotationCamera.createCameraFlight(
+  { x: 0, y: 1, z: 3 },
+  { x: 0, y: 1, z: 0 },
+  { x: 2, y: 1.4, z: 0 },
+  { x: 0.1, y: 1.2, z: 0 },
+  500,
+);
+const cameraFlightEnd = cameraFlight.sample(500);
+cameraFlight.dispose();
 const rustHairOutput = rustHair.update(0.016, {
   yaw: 0,
   pitch: 0,
@@ -72,12 +111,19 @@ const checks = [
   ['wasm init CJS', typeof wasmCjs.initEmbodyCore === 'function'],
   ['wasm core ABI ESM', wasmCore.core_abi_version() === wasm.EMBODY_CORE_ABI_VERSION],
   ['wasm core ABI CJS', wasmCoreFromCjs.core_abi_version() === wasmCjs.EMBODY_CORE_ABI_VERSION],
+  ['wasm singleton unlocks main-package preset merge', presetMergeAfterWasmInitOk],
   ['wasm bilateral helper', Array.from(wasmCore.solve_bilateral_values(0.8, 0.25)).join(',') === '0.6000000238418579,0.800000011920929'],
   ['wasm skeleton fit helper', Math.abs(skeletonFitTransform[0] - 1.26) < 1e-6 && Math.abs(skeletonFitTransform[3] - -0.07) < 1e-6],
   ['wasm mesh proportions helper', meshProportions.length === wasm.MESH_PROPORTIONS_STRIDE && meshProportions[15] > 0.7],
   ['wasm skeleton fit solver', skeletonFitSolution.length === wasm.TEMPLATE_SKELETON_FIT_SOLUTION_STRIDE && Math.abs(skeletonFitSolution[0] - 0.018) < 1e-6 && skeletonFitSolution[9] === 1],
   ['root Rust hair factory', typeof root.createRustHairPhysics === 'function'],
   ['root Rust hair output', rustHairOutput.L_Hair_Left > 0 && rustHairOutput.R_Hair_Left > 0],
+  ['root Rust annotation camera factory', typeof root.createRustAnnotationCameraCore === 'function'],
+  ['wasm annotation focus framing', focusFraming.distance > 0 && Math.abs(focusFraming.target.y - 0.9) < 1e-5],
+  ['wasm marker line clipping', markerLineScale.visible && Math.abs(markerLineScale.lineScale - 0.4) < 1e-5],
+  ['wasm marker angle gate', annotationCamera.passesMarkerCameraAngleGate({ markerAngle: 350, currentCameraAngle: 10 })
+    && !annotationCamera.shouldShowMarker({ hiddenChild: false, solo: 'other-soloed' })],
+  ['wasm camera flight endpoint', cameraFlightEnd.done && Math.abs(cameraFlightEnd.position.x - 2) < 1e-5],
   ['core compiler ESM', typeof core.TsClipCompiler === 'function'],
   ['core runtime ESM', typeof core.TsRuntimeCore === 'function'],
   ['root compiler CJS', typeof rootCjs.TsClipCompiler === 'function'],

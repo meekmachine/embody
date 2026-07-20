@@ -146,6 +146,7 @@ export {
   TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS,
   TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE,
   getEmbodyCore,
+  getEmbodyCoreSync,
   initEmbodyCore,
   resetEmbodyCoreForTests,
 } from './wasm';
@@ -486,6 +487,25 @@ export {
   toModelLocalDirection,
   toWorldDirection,
 } from './camera/annotationCameraAngles';
+
+export type {
+  BoundsLike,
+  CameraFramingResult,
+  CameraPoseSample,
+  FocusFramingOptions,
+  FullBodyFramingOptions,
+  MarkerSoloState,
+  MarkerVisibilityAnimationFactors,
+  QuatLike,
+  Vec3Like,
+} from './camera/rustAnnotationCameraCore';
+
+export {
+  RustAnnotationCameraCore,
+  RustCameraFlight,
+  RustCameraOrbit,
+  createRustAnnotationCameraCore,
+} from './camera/rustAnnotationCameraCore';
 
 // ========================================================================
 // REGION MAPPING HELPERS
