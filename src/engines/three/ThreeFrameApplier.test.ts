@@ -81,6 +81,18 @@ describe('ThreeFrameApplier', () => {
     expect(head.position.toArray()).toEqual([3, 1, 0]);
   });
 
+  it('applies packed morph frame deltas by morph target id', () => {
+    const face = makeMorphMesh('FaceMesh', ['Smile', 'Blink']);
+    const applier = new ThreeFrameApplier({
+      morphTargets: new Map([
+        [morphTargetId(10), { meshId: meshId(1), mesh: face, index: 1 }],
+      ]),
+    });
+
+    applier.applyPackedMorphFrameDelta(new Float32Array([1, 10, 0.4, 0]));
+    expect(face.morphTargetInfluences?.[1]).toBeCloseTo(0.4);
+  });
+
   it('centralizes direct morph target array writes', () => {
     const infl = [0, 0, 0];
     const applier = new ThreeFrameApplier();

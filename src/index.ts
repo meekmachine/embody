@@ -73,6 +73,13 @@ export {
 } from './core/TsClipCompiler';
 export { TsRuntimeCore } from './core/TsRuntimeCore';
 export {
+  AU_MORPH_BINDING_STRIDE,
+  VISEME_MORPH_BINDING_STRIDE,
+  WasmRuntimeCore,
+  compileMorphBindings,
+  unpackMorphFrameDelta,
+} from './core/WasmRuntimeCore';
+export {
   EMBODY_CORE_ABI_VERSION,
   HAIR_CONFIG_FIELDS,
   HAIR_CONFIG_STRIDE,
@@ -102,6 +109,10 @@ export type {
   TsClipCurvesInput,
 } from './core/TsClipCompiler';
 export type { TsRuntimeCoreOptions } from './core/TsRuntimeCore';
+export type {
+  MorphBindingSide,
+  WasmRuntimeCoreOptions,
+} from './core/WasmRuntimeCore';
 export type {
   EmbodyCoreWasmModule,
   WasmHairPhysicsSolver,

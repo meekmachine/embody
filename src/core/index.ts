@@ -73,6 +73,17 @@ export {
   numericArrayToNumbers,
 } from './TsClipCompiler';
 export { TsRuntimeCore } from './TsRuntimeCore';
+export {
+  AU_MORPH_BINDING_STRIDE,
+  VISEME_MORPH_BINDING_STRIDE,
+  WasmRuntimeCore,
+  compileMorphBindings,
+  unpackMorphFrameDelta,
+} from './WasmRuntimeCore';
+export type {
+  MorphBindingSide,
+  WasmRuntimeCoreOptions,
+} from './WasmRuntimeCore';
 export type {
   TsClipCompilerInput,
   TsClipCompilerKeyframe,
