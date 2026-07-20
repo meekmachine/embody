@@ -15,6 +15,7 @@ import type {
   WebGLRenderer,
 } from 'three';
 import type { EmbodyConfig } from '../../interfaces/EmbodyRuntime';
+import { getPresetWithProfile } from '../../presets';
 import { Embody } from './Embody';
 import {
   createDefaultCharacterScene,
@@ -177,12 +178,11 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
     resizeImpl = defaultScene.resize;
   }
 
-  let engine = new Embody(resolveEmbodyConfig(options, character));
+  const engine = new Embody(resolveEmbodyConfig(options, character));
 
   let model: Object3D | null = null;
   let meshes: Mesh[] = [];
   let animations: AnimationClip[] = [];
-  let wasStarted = false;
   let hasBoundCharacter = false;
   let activeCharacterKey = '';
 
@@ -221,20 +221,15 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
     scene.add(model);
 
     const nextKey = characterConfigKey(nextCharacter);
-    const shouldRebuildEngine =
+    const shouldSwapProfile =
       hasBoundCharacter &&
       nextKey !== activeCharacterKey &&
       Boolean(nextCharacter.presetType || nextCharacter.profile);
 
-    if (shouldRebuildEngine) {
-      const previousEngine = engine;
-      engine = new Embody(resolveEmbodyConfig(options, nextCharacter));
-      previousEngine.stop();
-      previousEngine.dispose();
-      if (wasStarted || autoStart) {
-        engine.start();
-        wasStarted = true;
-      }
+    if (shouldSwapProfile) {
+      // Swap presets in place so callers keep a stable `engine` reference.
+      const config = resolveEmbodyConfig(options, nextCharacter);
+      engine.setProfile(getPresetWithProfile(config.presetType, config.profile));
     }
 
     bindModelToEngine(engine, model, meshes, animations);
@@ -253,13 +248,10 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
 
   if (autoStart) {
     engine.start();
-    wasStarted = true;
   }
 
   return {
-    get engine() {
-      return engine;
-    },
+    engine,
     get scene() {
       return scene;
     },

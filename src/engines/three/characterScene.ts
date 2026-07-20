@@ -12,6 +12,7 @@ import {
   HemisphereLight,
   MathUtils,
   Mesh,
+  PCFSoftShadowMap,
   PerspectiveCamera,
   PlaneGeometry,
   PMREMGenerator,
@@ -437,6 +438,7 @@ export function createDefaultCharacterScene(
   setPixelRatio(renderer, pixelRatioCap);
   renderer.setSize(width, height, true);
   renderer.shadowMap.enabled = shadows;
+  renderer.shadowMap.type = PCFSoftShadowMap;
   container.appendChild(renderer.domElement);
   renderer.domElement.style.display = 'block';
   renderer.domElement.style.width = '100%';
