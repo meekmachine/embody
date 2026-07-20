@@ -191,7 +191,8 @@ keep those records separate from `TemplateSkeletonFitMetadata`.
 ### Basic setup (default host)
 
 Most callers only need a container element and a character URL. Embody creates
-the Three.js scene, loads the model, and binds the runtime:
+the Three.js scene (renderer, camera, lights, shadow plane), loads the model,
+frames the camera on it, starts a render loop, and binds the runtime:
 
 ```typescript
 import { createCharacterHost } from '@lovelace_lol/embody';
@@ -211,6 +212,21 @@ host.engine.setAU(12, 0.8);
 // later
 host.dispose();
 ```
+
+The default host renders on its own (`renderLoop: true`) and auto-frames the
+camera on the model (`autoFrame: true`). Turn either off when you drive the
+camera or render loop yourself (e.g. custom camera controls):
+
+```typescript
+const host = await createCharacterHost({
+  container,
+  character: { modelUrl: '/characters/jonathan.glb' },
+  renderLoop: false, // you call renderer.render(scene, camera)
+  autoFrame: false,  // you position the camera
+});
+```
+
+With `external`, both default to `false` — your app owns rendering and camera.
 
 ### Advanced setup (bring your own Three.js scene)
 
