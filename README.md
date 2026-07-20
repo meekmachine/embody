@@ -6,6 +6,8 @@ The missing character controller for Three.js! Embody allows you to bring humano
 Embody provides mappings that connect [Facial Action Coding System (FACS)](https://en.wikipedia.org/wiki/Facial_Action_Coding_System) Action Units to the morph targets and bone transforms found in 3d character assets. Instead of manually figuring out which blend shapes correspond to which facial movements, you can simply say `setAU(12, 0.8)` and the library handles the rest.
 
 > **Note:** If you previously used the `loomlarge` npm package, it has been renamed to `@lovelace_lol/embody`.
+>
+> Continuous PR releases are published via [pkg.pr.new](https://pkg.pr.new/). Stable npm publishing is deferred until we have a release candidate; until then consumers should use git SHA pins or pkg.pr.new preview URLs. Install the [pkg-pr-new GitHub App](https://github.com/apps/pkg-pr-new) on this repository so PR workflows can publish previews.
 
 ![Hero image showing Embody controlling a facial expression](./assets/readme/hero-expressions.webp)
 

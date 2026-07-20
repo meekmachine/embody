@@ -54,8 +54,7 @@
     "rust:test": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo test --manifest-path rust/embody-wasm/Cargo.toml",
     "rust:wasm-build": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo build --manifest-path rust/embody-wasm/Cargo.toml --target wasm32-unknown-unknown --release",
     "wasm:build": "node scripts/build-wasm.mjs",
-    "prepare": "npm run build",
-    "prepublishOnly": "npm run build && npm run typecheck && npm test && node scripts/smoke/package-exports.mjs && npm pack --dry-run"
+    "prepare": "npm run build"
   },
   "peerDependencies": {
     "three": ">=0.150.0"
