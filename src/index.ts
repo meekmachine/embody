@@ -55,6 +55,8 @@ export type {
   ThreeModelInspectionOptions,
 } from './engines/three/ThreeModelInspector';
 export { THREE_BLENDING_MODES, ThreeFrameApplier } from './engines/three/ThreeFrameApplier';
+export { RustEmbodyHost } from './engines/three/RustEmbodyHost';
+export type { RustEmbodyHostConfig } from './engines/three/RustEmbodyHost';
 export { ThreeClipAdapter } from './engines/three/ThreeClipAdapter';
 export type {
   ThreeFrameApplierBindings,
