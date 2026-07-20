@@ -18,13 +18,15 @@ const cloneValue = (value: unknown): unknown => {
 };
 
 const mergeRecord = <K extends RecordKey, T extends RecordValue>(
-  base: Record<K, T>,
-  override?: Partial<Record<K, T>>
+  base?: Record<K, T> | null,
+  override?: Partial<Record<K, T>> | null
 ): Record<K, T> => {
   const next = {} as Record<K, T>;
 
-  for (const [key, value] of Object.entries(base)) {
-    next[key as K] = cloneValue(value) as T;
+  if (base) {
+    for (const [key, value] of Object.entries(base)) {
+      next[key as K] = cloneValue(value) as T;
+    }
   }
 
   if (override) {
@@ -167,7 +169,11 @@ export function extendPresetWithProfile(base: Profile, extension?: Partial<Profi
       : base.mappingSections
         ? [...base.mappingSections]
         : undefined,
-    visemeKeys: extension.visemeKeys ? [...extension.visemeKeys] : [...base.visemeKeys],
+    visemeKeys: extension.visemeKeys
+      ? [...extension.visemeKeys]
+      : base.visemeKeys
+        ? [...base.visemeKeys]
+        : [],
     visemeSystemId: extension.visemeSystemId ?? base.visemeSystemId,
     visemeSlots: extension.visemeSlots ? [...extension.visemeSlots] : base.visemeSlots ? [...base.visemeSlots] : undefined,
     visemeBindings: base.visemeBindings || extension.visemeBindings
