@@ -8,6 +8,7 @@
 
 import {
   ACESFilmicToneMapping,
+  Color,
   DirectionalLight,
   HemisphereLight,
   MathUtils,
@@ -52,18 +53,35 @@ export interface DefaultCharacterLightingController {
   dispose: () => void;
 }
 
+export type CharacterSceneTypeId = 'studio' | 'showcase' | 'inspection' | 'void';
+
+/** A named bundle of scene defaults (background, lighting preset, shadow plane). */
+export interface CharacterSceneTypeDefinition {
+  id: CharacterSceneTypeId;
+  label: string;
+  description: string;
+  /** Scene background color (hex), or null for a transparent canvas. */
+  background: number | null;
+  lightingPreset: DefaultCharacterLightingPresetId;
+  shadowPlane: boolean;
+}
+
 export interface DefaultCharacterSceneOptions {
+  /** Named scene type providing background/lighting/shadow defaults. Default: 'studio' */
+  type?: CharacterSceneTypeId;
   /** Perspective camera FOV. Default: 45 */
   cameraFov?: number;
   /** Cap device pixel ratio. Default: 1.5 */
   pixelRatioCap?: number;
   /** Enable shadow maps. Default: true */
   shadows?: boolean;
-  /** Add a ground shadow receiver. Default: true */
+  /** Add a ground shadow receiver. Default: from scene type */
   shadowPlane?: boolean;
+  /** Scene background color (hex or CSS string), or null for transparent. Default: from scene type */
+  background?: number | string | null;
   /** Initial lighting settings / overrides */
   lighting?: Partial<DefaultCharacterLightingSettings>;
-  /** Lighting preset applied before lighting overrides. Default: cleanStudio */
+  /** Lighting preset applied before lighting overrides. Default: from scene type */
   lightingPreset?: DefaultCharacterLightingPresetId;
   /** Listen for window resize. Default: true */
   manageResize?: boolean;
@@ -76,10 +94,56 @@ export interface DefaultCharacterScene {
   camera: PerspectiveCamera;
   lighting: DefaultCharacterLightingController;
   shadowPlane: Mesh | null;
+  /** Resolved scene type used for defaults. */
+  sceneType: CharacterSceneTypeId;
   ownsScene: true;
   resize: () => void;
   dispose: () => void;
 }
+
+export const DEFAULT_CHARACTER_SCENE_TYPE_ID: CharacterSceneTypeId = 'studio';
+
+export const CHARACTER_SCENE_TYPES: Record<CharacterSceneTypeId, CharacterSceneTypeDefinition> = {
+  studio: {
+    id: 'studio',
+    label: 'Studio',
+    description: 'Transparent background, soft studio lighting, ground shadow.',
+    background: null,
+    lightingPreset: 'cleanStudio',
+    shadowPlane: true,
+  },
+  showcase: {
+    id: 'showcase',
+    label: 'Showcase',
+    description: 'Dark backdrop with contrasty key/rim lighting for presentation shots.',
+    background: 0x101216,
+    lightingPreset: 'contrast',
+    shadowPlane: true,
+  },
+  inspection: {
+    id: 'inspection',
+    label: 'Inspection',
+    description: 'Bright, even lighting on a light backdrop for close-up review.',
+    background: 0xe8eaed,
+    lightingPreset: 'inspection',
+    shadowPlane: true,
+  },
+  void: {
+    id: 'void',
+    label: 'Void',
+    description: 'Transparent background, soft fill lighting, no ground shadow.',
+    background: null,
+    lightingPreset: 'softFill',
+    shadowPlane: false,
+  },
+};
+
+export const CHARACTER_SCENE_TYPE_IDS: readonly CharacterSceneTypeId[] = [
+  'studio',
+  'showcase',
+  'inspection',
+  'void',
+];
 
 const LIGHT_NAMES = {
   ambient: 'embodyCharacterAmbientHemisphereLight',
@@ -418,12 +482,16 @@ export function createDefaultCharacterScene(
   container: HTMLElement,
   options: DefaultCharacterSceneOptions = {},
 ): DefaultCharacterScene {
+  const sceneType =
+    CHARACTER_SCENE_TYPES[options.type ?? DEFAULT_CHARACTER_SCENE_TYPE_ID]
+    ?? CHARACTER_SCENE_TYPES[DEFAULT_CHARACTER_SCENE_TYPE_ID];
   const {
     cameraFov = 45,
     pixelRatioCap = 1.5,
     shadows = true,
-    shadowPlane: enableShadowPlane = true,
-    lightingPreset = DEFAULT_CHARACTER_LIGHTING_PRESET_ID,
+    shadowPlane: enableShadowPlane = sceneType.shadowPlane,
+    background = sceneType.background,
+    lightingPreset = sceneType.lightingPreset,
     lighting: lightingOverrides = {},
     manageResize = true,
   } = options;
@@ -445,7 +513,7 @@ export function createDefaultCharacterScene(
   renderer.domElement.style.height = '100%';
 
   const scene = new Scene();
-  scene.background = null;
+  scene.background = background === null || background === undefined ? null : new Color(background);
 
   const camera = new PerspectiveCamera(cameraFov, width / height, 0.1, 1000);
 
@@ -480,6 +548,7 @@ export function createDefaultCharacterScene(
     camera,
     lighting,
     shadowPlane,
+    sceneType: sceneType.id,
     ownsScene: true,
     resize,
     dispose: () => {

@@ -48,6 +48,8 @@ export type {
   CharacterHostOptions,
 } from './characterHost';
 export {
+  CHARACTER_SCENE_TYPE_IDS,
+  CHARACTER_SCENE_TYPES,
   createDefaultCharacterLighting,
   createDefaultCharacterScene,
   createShadowPlane,
@@ -55,9 +57,12 @@ export {
   DEFAULT_CHARACTER_LIGHTING_PRESET_IDS,
   DEFAULT_CHARACTER_LIGHTING_PRESETS,
   DEFAULT_CHARACTER_LIGHTING_SETTINGS,
+  DEFAULT_CHARACTER_SCENE_TYPE_ID,
   normalizeDefaultCharacterLightingSettings,
 } from './characterScene';
 export type {
+  CharacterSceneTypeDefinition,
+  CharacterSceneTypeId,
   DefaultCharacterLightingController,
   DefaultCharacterLightingPresetId,
   DefaultCharacterLightingSettings,

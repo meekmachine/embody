@@ -213,6 +213,26 @@ host.engine.setAU(12, 0.8);
 host.dispose();
 ```
 
+Pick a named scene type to change the backdrop, lighting, and shadow defaults
+(`studio` is the default; `showcase`, `inspection`, and `void` are also built in),
+and override any individual option on top:
+
+```typescript
+const host = await createCharacterHost({
+  container,
+  character: { modelUrl: '/characters/jonathan.glb' },
+  scene: {
+    type: 'showcase',                  // dark backdrop, contrast lighting
+    // background: 0x223344,           // per-option overrides still win
+    // lightingPreset: 'inspection',
+    // shadowPlane: false,
+  },
+});
+```
+
+The available types are exported as `CHARACTER_SCENE_TYPES` /
+`CHARACTER_SCENE_TYPE_IDS` so UIs can enumerate them.
+
 The default host renders on its own (`renderLoop: true`) and auto-frames the
 camera on the model (`autoFrame: true`). Turn either off when you drive the
 camera or render loop yourself (e.g. custom camera controls):

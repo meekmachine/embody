@@ -53,6 +53,7 @@ const checks = [
   ['root createCharacterHost ESM', typeof root.createCharacterHost === 'function'],
   ['root createCharacterHost CJS', typeof rootCjs.createCharacterHost === 'function'],
   ['root createDefaultCharacterScene ESM', typeof root.createDefaultCharacterScene === 'function'],
+  ['root CHARACTER_SCENE_TYPES ESM', typeof root.CHARACTER_SCENE_TYPES === 'object' && root.CHARACTER_SCENE_TYPES !== null],
   ['root loadCharacterModel ESM', typeof root.loadCharacterModel === 'function'],
   ['root normalizeDefaultCharacterLightingSettings ESM', typeof root.normalizeDefaultCharacterLightingSettings === 'function'],
   ['three Embody ESM', typeof three.Embody === 'function'],
