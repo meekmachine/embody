@@ -15,6 +15,8 @@ export const HAIR_STATE_STRIDE = 4;
 export const HAIR_HEAD_STATE_STRIDE = 5;
 export const HAIR_MORPH_OUTPUT_STRIDE = 6;
 export const TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE = 4;
+export const MESH_PROPORTIONS_STRIDE = 16;
+export const TEMPLATE_SKELETON_FIT_SOLUTION_STRIDE = 10;
 
 export const HAIR_CONFIG_FIELDS = [
   'mass',
@@ -46,6 +48,36 @@ export const TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS = [
   'translationY',
   'translationZ',
 ] as const;
+export const MESH_PROPORTIONS_FIELDS = [
+  'minX',
+  'minY',
+  'minZ',
+  'maxX',
+  'maxY',
+  'maxZ',
+  'centerX',
+  'centerY',
+  'centerZ',
+  'spanX',
+  'spanY',
+  'spanZ',
+  'verticalHeight',
+  'crossAxisWideSpan',
+  'crossAxisNarrowSpan',
+  'humanoidLikelihood',
+] as const;
+export const TEMPLATE_SKELETON_FIT_SOLUTION_FIELDS = [
+  'scale',
+  'translationX',
+  'translationY',
+  'translationZ',
+  'confidence',
+  'meshHeight',
+  'templateHeight',
+  'meshCrossAxisWideSpan',
+  'templateCrossAxisWideSpan',
+  'status',
+] as const;
 
 export type PackedMorphFrameDeltaField = (typeof PACKED_MORPH_FRAME_DELTA_FIELDS)[number];
 export type HairConfigField = (typeof HAIR_CONFIG_FIELDS)[number];
@@ -53,6 +85,8 @@ export type HairStateField = (typeof HAIR_STATE_FIELDS)[number];
 export type HairHeadStateField = (typeof HAIR_HEAD_STATE_FIELDS)[number];
 export type HairMorphOutputField = (typeof HAIR_MORPH_OUTPUT_FIELDS)[number];
 export type TemplateSkeletonFitTransformField = (typeof TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS)[number];
+export type MeshProportionsField = (typeof MESH_PROPORTIONS_FIELDS)[number];
+export type TemplateSkeletonFitSolutionField = (typeof TEMPLATE_SKELETON_FIT_SOLUTION_FIELDS)[number];
 
 export interface PackedMorphFrameDelta {
   readonly abiVersion: typeof EMBODY_CORE_ABI_VERSION;
@@ -76,5 +110,17 @@ export interface PackedHairMorphOutput {
 export interface PackedTemplateSkeletonFitTransform {
   readonly stride: typeof TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE;
   readonly fields: typeof TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS;
+  readonly values: NumericArray;
+}
+
+export interface PackedMeshProportions {
+  readonly stride: typeof MESH_PROPORTIONS_STRIDE;
+  readonly fields: typeof MESH_PROPORTIONS_FIELDS;
+  readonly values: NumericArray;
+}
+
+export interface PackedTemplateSkeletonFitSolution {
+  readonly stride: typeof TEMPLATE_SKELETON_FIT_SOLUTION_STRIDE;
+  readonly fields: typeof TEMPLATE_SKELETON_FIT_SOLUTION_FIELDS;
   readonly values: NumericArray;
 }

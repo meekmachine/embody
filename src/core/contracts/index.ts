@@ -5,10 +5,14 @@ export type {
   HairStateField,
   PackedHairMorphOutput,
   PackedHairPhysicsState,
+  PackedMeshProportions,
   PackedMorphFrameDelta,
   PackedMorphFrameDeltaField,
+  PackedTemplateSkeletonFitSolution,
   PackedTemplateSkeletonFitTransform,
   TemplateSkeletonFitTransformField,
+  MeshProportionsField,
+  TemplateSkeletonFitSolutionField,
 } from './abi';
 export {
   EMBODY_CORE_ABI_VERSION,
@@ -20,8 +24,12 @@ export {
   HAIR_MORPH_OUTPUT_STRIDE,
   HAIR_STATE_FIELDS,
   HAIR_STATE_STRIDE,
+  MESH_PROPORTIONS_FIELDS,
+  MESH_PROPORTIONS_STRIDE,
   PACKED_MORPH_FRAME_DELTA_FIELDS,
   PACKED_MORPH_FRAME_DELTA_STRIDE,
+  TEMPLATE_SKELETON_FIT_SOLUTION_FIELDS,
+  TEMPLATE_SKELETON_FIT_SOLUTION_STRIDE,
   TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS,
   TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE,
 } from './abi';

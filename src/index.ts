@@ -33,8 +33,6 @@
 
 export {
   Embody,
-  Embody as Loom3,
-  Embody as LoomLargeThree,
   collectMorphMeshes,
 } from './engines/three/Embody';
 export {
@@ -84,8 +82,12 @@ export {
   HAIR_MORPH_OUTPUT_STRIDE,
   HAIR_STATE_FIELDS,
   HAIR_STATE_STRIDE,
+  MESH_PROPORTIONS_FIELDS,
+  MESH_PROPORTIONS_STRIDE,
   PACKED_MORPH_FRAME_DELTA_FIELDS,
   PACKED_MORPH_FRAME_DELTA_STRIDE,
+  TEMPLATE_SKELETON_FIT_SOLUTION_FIELDS,
+  TEMPLATE_SKELETON_FIT_SOLUTION_STRIDE,
   TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS,
   TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE,
   getEmbodyCore,
@@ -220,7 +222,11 @@ export type {
   MorphTargetId,
   MorphTargetTrackTarget,
   NumericArray,
+  PackedMeshProportions,
+  PackedTemplateSkeletonFitSolution,
   Quat,
+  MeshProportionsField,
+  TemplateSkeletonFitSolutionField,
   TemplateSkeletonFitManualAdjustment,
   TemplateSkeletonFitMetadata,
   TemplateSkeletonFitMetrics,
