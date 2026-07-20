@@ -80,6 +80,12 @@ export declare const HAIR_MORPH_OUTPUT_STRIDE = 6;
 export declare const HAIR_MORPH_OUTPUT_FIELDS: readonly ["L_Hair_Left", "L_Hair_Right", "L_Hair_Front", "R_Hair_Left", "R_Hair_Right", "R_Hair_Front"];
 export declare const TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE = 4;
 export declare const TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS: readonly ["scale", "translationX", "translationY", "translationZ"];
+export declare const ANNOTATION_CAMERA_FRAMING_STRIDE = 7;
+export declare const ANNOTATION_CAMERA_FRAMING_FIELDS: readonly ["positionX", "positionY", "positionZ", "targetX", "targetY", "targetZ", "distance"];
+export declare const CAMERA_FLIGHT_SAMPLE_STRIDE = 7;
+export declare const CAMERA_FLIGHT_SAMPLE_FIELDS: readonly ["positionX", "positionY", "positionZ", "targetX", "targetY", "targetZ", "done"];
+export declare const MARKER_VISIBILITY_FACTORS_STRIDE = 3;
+export declare const MARKER_VISIBILITY_FACTORS_FIELDS: readonly ["itemOpacityFactor", "labelScaleFactor", "lineOpacityFactor"];
 
 ${wasmTypes}
 
