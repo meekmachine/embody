@@ -146,6 +146,7 @@ export {
   TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS,
   TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE,
   getEmbodyCore,
+  getEmbodyCoreSync,
   initEmbodyCore,
   resetEmbodyCoreForTests,
 } from './wasm';

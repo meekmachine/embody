@@ -16,6 +16,20 @@ const wasmCjs = require('@lovelace_lol/embody/wasm');
 
 const wasmCore = await wasm.initEmbodyCore();
 const wasmCoreFromCjs = await wasmCjs.initEmbodyCore();
+// Polymer initializes via `@lovelace_lol/embody/wasm`. Sync helpers live on the
+// main package entry and must share that same Wasm singleton.
+let presetMergeAfterWasmInitOk = false;
+try {
+  const merged = root.extendPresetWithProfile(
+    { auPresetType: 'cc4', regions: [{ name: 'head', bones: ['Head'] }] },
+    { regions: [{ name: 'head', paddingFactor: 1.1 }] },
+  );
+  presetMergeAfterWasmInitOk =
+    Array.isArray(merged.regions) &&
+    merged.regions.some((region) => region?.name === 'head' && region?.paddingFactor === 1.1);
+} catch {
+  presetMergeAfterWasmInitOk = false;
+}
 const skeletonFitTransform = wasmCore.compose_template_skeleton_fit_transform(
   1.2,
   new Float32Array([0.1, 0.2, -0.1]),
@@ -97,6 +111,7 @@ const checks = [
   ['wasm init CJS', typeof wasmCjs.initEmbodyCore === 'function'],
   ['wasm core ABI ESM', wasmCore.core_abi_version() === wasm.EMBODY_CORE_ABI_VERSION],
   ['wasm core ABI CJS', wasmCoreFromCjs.core_abi_version() === wasmCjs.EMBODY_CORE_ABI_VERSION],
+  ['wasm singleton unlocks main-package preset merge', presetMergeAfterWasmInitOk],
   ['wasm bilateral helper', Array.from(wasmCore.solve_bilateral_values(0.8, 0.25)).join(',') === '0.6000000238418579,0.800000011920929'],
   ['wasm skeleton fit helper', Math.abs(skeletonFitTransform[0] - 1.26) < 1e-6 && Math.abs(skeletonFitTransform[3] - -0.07) < 1e-6],
   ['wasm mesh proportions helper', meshProportions.length === wasm.MESH_PROPORTIONS_STRIDE && meshProportions[15] > 0.7],
