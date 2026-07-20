@@ -90,6 +90,17 @@ export interface EmbodyCoreWasmModule {
     manualTranslation: Float32Array
   ): Float32Array;
   default_hair_physics_config_values(): Float32Array;
+  merge_preset_profile(baseJson: string, extensionJson: string): string;
+  compile_clip(inputJson: string): string;
+  compile_clip_curves(inputJson: string): string;
+  build_hair_idle_curves(configJson: string, durationSec: number): string;
+  build_hair_impulse_curves(
+    configJson: string,
+    durationSec: number,
+    horizontal: number,
+    vertical: number
+  ): string;
+  build_hair_gravity_curves(configJson: string): string;
   HairPhysicsSolver: WasmHairPhysicsSolverConstructor;
   RuntimeCore: WasmRuntimeCoreConstructor;
 }

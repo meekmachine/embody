@@ -5,7 +5,6 @@ import type { EmbodyCoreWasmModule, WasmRuntimeCoreHandle } from '../../wasmType
 import { initEmbodyCore } from '../../wasm';
 import { getPreset } from '../../presets';
 import { CC4_PRESET } from '../../presets/cc4';
-import { extendPresetWithProfile } from '../../mappings/extendPresetWithProfile';
 import { ThreeModelInspector } from './ThreeModelInspector';
 import { ThreeFrameApplier } from './ThreeFrameApplier';
 import { buildFrameApplierBindings } from './Embody';
@@ -47,7 +46,7 @@ export class RustEmbodyHost {
   static async create(model: Object3D, config: RustEmbodyHostConfig = {}): Promise<RustEmbodyHost> {
     const wasm = config.wasm ?? await initEmbodyCore();
     const basePreset = config.presetType ? getPreset(config.presetType) : CC4_PRESET;
-    const profile = extendPresetWithProfile(basePreset, config.profile);
+    const profile = mergeProfileInRust(wasm, basePreset, config.profile);
     const host = new RustEmbodyHost(new wasm.RuntimeCore(0), model, profile);
     host.bindModel(config.meshes);
     return host;
@@ -148,4 +147,13 @@ export class RustEmbodyHost {
       this.model.updateMatrixWorld(true);
     }
   }
+}
+
+function mergeProfileInRust(
+  wasm: EmbodyCoreWasmModule,
+  base: Profile,
+  extension?: Profile
+): Profile {
+  if (!extension) return base;
+  return JSON.parse(wasm.merge_preset_profile(JSON.stringify(base), JSON.stringify(extension))) as Profile;
 }

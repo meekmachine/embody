@@ -8,6 +8,7 @@ import type {
   HairPhysicsRuntimeConfigUpdate as SharedHairPhysicsConfigUpdate,
 } from '../../../interfaces/Hair';
 import { CC4_MESHES } from '../../../presets/cc4';
+import { getEmbodyCoreSync } from '../../../wasm';
 
 export type HairPhysicsDirectionConfig = SharedHairPhysicsDirectionConfig;
 export type HairMorphTargets = SharedHairMorphTargetsConfig;
@@ -511,23 +512,7 @@ export class HairPhysicsController {
 
     this.stopGravityClip();
 
-    // Head up (time=0) uses morphTargets.headUp; head down (time=1) uses morphTargets.headDown.
-    const morphTargets = this.hairPhysicsConfig.morphTargets;
-    const curves: CurvesMap = {};
-    const headUpKeys = Object.keys(morphTargets.headUp ?? {});
-    const headDownKeys = Object.keys(morphTargets.headDown ?? {});
-    const keys = new Set([...headUpKeys, ...headDownKeys]);
-
-    for (const key of keys) {
-      const up = morphTargets.headUp?.[key] ?? 0;
-      const down = morphTargets.headDown?.[key] ?? 0;
-      curves[key] = [
-        { time: 0, intensity: up },
-        { time: 0.5, intensity: 0 },
-        { time: 1, intensity: down },
-      ];
-    }
-
+    const curves = this.buildGravityCurves();
     if (Object.keys(curves).length === 0) return;
 
     const handle = this.host.buildClip?.(this.gravityClipName, curves, {
@@ -745,105 +730,45 @@ export class HairPhysicsController {
   }
 
   private buildIdleWindCurves(durationSec: number): CurvesMap {
-    const cfg = this.hairPhysicsConfig;
-    const morphTargets = this.hairPhysicsConfig.morphTargets;
-    const curves: CurvesMap = {};
-    const sampleCount = Math.max(16, Math.min(120, Math.round(durationSec * 12)));
-    const hasWind = cfg.windStrength > 0;
-    const hasIdle = cfg.idleSwayAmount > 0;
-    const windScale = cfg.windStrength * 0.1;
-
-    const pushPoint = (key: string, time: number, intensity: number) => {
-      if (!curves[key]) curves[key] = [];
-      curves[key].push({ time, intensity });
-    };
-
-    for (let i = 0; i <= sampleCount; i += 1) {
-      const t = (durationSec * i) / sampleCount;
-
-      const idleOffset = hasIdle
-        ? Math.sin(t * cfg.idleSwaySpeed * Math.PI * 2) * cfg.idleSwayAmount
-        : 0;
-
-      let windOffsetX = 0;
-      let windOffsetZ = 0;
-      if (hasWind) {
-        const basePhase = t * cfg.windFrequency * Math.PI * 2;
-        const primaryWave = Math.sin(basePhase);
-        const secondaryWave = Math.sin(basePhase * 1.7) * 0.3;
-        const turbulenceWave = Math.sin(basePhase * 3.3) * cfg.windTurbulence * 0.2;
-        const waveStrength = primaryWave + secondaryWave + turbulenceWave;
-        windOffsetX = cfg.windDirectionX * waveStrength * windScale;
-        windOffsetZ = cfg.windDirectionZ * waveStrength * windScale;
-      }
-
-      const combinedX = idleOffset + windOffsetX;
-      const combinedZ = windOffsetZ;
-
-      const leftValue = clamp01(combinedX > 0 ? combinedX : 0);
-      const rightValue = clamp01(combinedX < 0 ? -combinedX : 0);
-      const frontValue = clamp01(combinedZ > 0 ? combinedZ : 0);
-      const fluffyRightValue = clamp01(rightValue * 0.7);
-      const movementIntensity = Math.abs(combinedX) + Math.abs(combinedZ);
-      const fluffyBottomValue = clamp01(movementIntensity * 0.25);
-
-      if (morphTargets.swayLeft) pushPoint(morphTargets.swayLeft, t, leftValue);
-      if (morphTargets.swayRight) pushPoint(morphTargets.swayRight, t, rightValue);
-      if (morphTargets.swayFront) pushPoint(morphTargets.swayFront, t, frontValue);
-      if (morphTargets.fluffRight) pushPoint(morphTargets.fluffRight, t, fluffyRightValue);
-      if (morphTargets.fluffBottom) pushPoint(morphTargets.fluffBottom, t, fluffyBottomValue);
-    }
-
-    for (const points of Object.values(curves)) {
-      if (points.length > 1) {
-        points[points.length - 1].intensity = points[0].intensity;
-      }
-    }
-
-    return curves;
+    const wasm = getEmbodyCoreSync();
+    return JSON.parse(
+      wasm.build_hair_idle_curves(JSON.stringify(this.hairCurveConfigJson()), durationSec)
+    ) as CurvesMap;
   }
 
   private buildImpulseCurves(durationSec: number, horizontal: number, vertical: number): CurvesMap {
+    const wasm = getEmbodyCoreSync();
+    return JSON.parse(
+      wasm.build_hair_impulse_curves(
+        JSON.stringify(this.hairCurveConfigJson()),
+        durationSec,
+        horizontal,
+        vertical
+      )
+    ) as CurvesMap;
+  }
+
+  private buildGravityCurves(): CurvesMap {
+    const wasm = getEmbodyCoreSync();
+    return JSON.parse(
+      wasm.build_hair_gravity_curves(JSON.stringify(this.hairCurveConfigJson()))
+    ) as CurvesMap;
+  }
+
+  private hairCurveConfigJson() {
     const cfg = this.hairPhysicsConfig;
-    const morphTargets = this.hairPhysicsConfig.morphTargets;
-    const curves: CurvesMap = {};
-    const sampleCount = Math.max(12, Math.min(90, Math.round(durationSec * 30)));
-    const frequency = Math.max(0.5, cfg.stiffness * 0.2);
-    const decay = Math.max(0.1, cfg.damping * 4);
-    const omega = Math.PI * 2 * frequency;
-
-    const pushPoint = (key: string, time: number, intensity: number) => {
-      if (!curves[key]) curves[key] = [];
-      curves[key].push({ time, intensity });
+    return {
+      idleSwayAmount: cfg.idleSwayAmount,
+      idleSwaySpeed: cfg.idleSwaySpeed,
+      windStrength: cfg.windStrength,
+      windDirectionX: cfg.windDirectionX,
+      windDirectionZ: cfg.windDirectionZ,
+      windTurbulence: cfg.windTurbulence,
+      windFrequency: cfg.windFrequency,
+      stiffness: cfg.stiffness,
+      damping: cfg.damping,
+      morphTargets: cfg.morphTargets,
     };
-
-    for (let i = 0; i <= sampleCount; i += 1) {
-      const t = (durationSec * i) / sampleCount;
-      const wave = Math.cos(omega * t) * Math.exp(-decay * t);
-      const horizontalValue = horizontal * wave;
-      const verticalValue = vertical * wave;
-
-      const leftValue = clamp01(horizontalValue > 0 ? horizontalValue : 0);
-      const rightValue = clamp01(horizontalValue < 0 ? -horizontalValue : 0);
-      const frontValue = clamp01(verticalValue > 0 ? verticalValue : 0);
-      const fluffyRightValue = clamp01(rightValue * 0.7);
-      const movementIntensity = Math.abs(horizontalValue) + Math.abs(verticalValue);
-      const fluffyBottomValue = clamp01(movementIntensity * 0.25);
-
-      if (morphTargets.swayLeft) pushPoint(morphTargets.swayLeft, t, leftValue);
-      if (morphTargets.swayRight) pushPoint(morphTargets.swayRight, t, rightValue);
-      if (morphTargets.swayFront) pushPoint(morphTargets.swayFront, t, frontValue);
-      if (morphTargets.fluffRight) pushPoint(morphTargets.fluffRight, t, fluffyRightValue);
-      if (morphTargets.fluffBottom) pushPoint(morphTargets.fluffBottom, t, fluffyBottomValue);
-    }
-
-    for (const points of Object.values(curves)) {
-      if (points.length > 0) {
-        points[points.length - 1].intensity = 0;
-      }
-    }
-
-    return curves;
   }
 
 }

@@ -3,13 +3,13 @@ import type {
   ClipChannelIR,
   ClipIR,
   ClipInterpolation,
-  ClipTrackIR,
   ClipTrackTarget,
   ClipTrackValueType,
   NumericArray,
   TrackId,
 } from './contracts';
 import type { CurvePoint } from './types';
+import { getEmbodyCoreSync } from '../wasm';
 
 export interface TsClipCompilerKeyframe {
   readonly time: number;
@@ -53,123 +53,20 @@ export interface TsClipCurvesInput {
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
-const defaultChannelId = 1 as ChannelId;
-
+/**
+ * Thin host facade over the Rust clip compiler (`compile_clip` /
+ * `compile_clip_curves`). Requires `await initEmbodyCore()` first.
+ */
 export class TsClipCompiler {
   compile(input: TsClipCompilerInput): ClipIR {
-    const channels = normalizeChannels(input.channels);
-    const tracks = input.tracks.map((track, index) => this.compileTrack(track, index));
-    return {
-      id: input.id,
-      name: input.name,
-      durationSeconds: input.durationSeconds ?? inferDurationSeconds(tracks),
-      channels,
-      tracks,
-      metadata: input.metadata,
-    };
+    const wasm = getEmbodyCoreSync();
+    return JSON.parse(wasm.compile_clip(JSON.stringify(input))) as ClipIR;
   }
 
   compileCurves(input: TsClipCurvesInput): ClipIR {
-    const tracks: TsClipCompilerTrackInput[] = [];
-    const intensityScale = input.intensityScale ?? 1;
-
-    for (const [curveId, curve] of Object.entries(input.curves)) {
-      const targets = input.targets[curveId];
-      if (!targets || curve.length === 0) continue;
-
-      const targetList = Array.isArray(targets) ? targets : [targets];
-      for (const target of targetList) {
-        const scale = (target.scale ?? 1) * intensityScale;
-        tracks.push({
-          channelId: target.channelId,
-          target: target.target,
-          valueType: target.valueType ?? 'scalar',
-          interpolation: target.interpolation,
-          keyframes: curve.map((point) => ({
-            time: point.time,
-            value: point.intensity * scale,
-          })),
-        });
-      }
-    }
-
-    return this.compile({
-      id: input.id,
-      name: input.name,
-      durationSeconds: input.durationSeconds,
-      channels: input.channels,
-      tracks,
-      metadata: input.metadata,
-    });
+    const wasm = getEmbodyCoreSync();
+    return JSON.parse(wasm.compile_clip_curves(JSON.stringify(input))) as ClipIR;
   }
-
-  private compileTrack(track: TsClipCompilerTrackInput, index: number): ClipTrackIR {
-    if (track.keyframes.length === 0) {
-      throw new Error('ClipIR tracks require at least one keyframe.');
-    }
-
-    const valueSize = getValueSize(track.valueType);
-    const times: number[] = [];
-    const values: number[] = [];
-
-    for (const keyframe of track.keyframes) {
-      if (!Number.isFinite(keyframe.time) || keyframe.time < 0) {
-        throw new Error(`Invalid keyframe time "${keyframe.time}".`);
-      }
-
-      times.push(keyframe.time);
-      const encoded = encodeValue(keyframe.value, valueSize);
-      values.push(...encoded);
-    }
-
-    return {
-      id: track.id ?? ((index + 1) as TrackId),
-      channelId: track.channelId ?? defaultChannelId,
-      target: track.target,
-      valueType: track.valueType,
-      times,
-      values,
-      interpolation: track.interpolation,
-    };
-  }
-}
-
-function normalizeChannels(channels: readonly ClipChannelIR[] | undefined): readonly ClipChannelIR[] {
-  if (channels && channels.length > 0) {
-    return channels;
-  }
-  return [{ id: defaultChannelId, kind: 'face', name: 'default' }];
-}
-
-function inferDurationSeconds(tracks: readonly ClipTrackIR[]): number {
-  let duration = 0;
-  for (const track of tracks) {
-    for (const time of track.times) {
-      if (time > duration) {
-        duration = time;
-      }
-    }
-  }
-  return duration;
-}
-
-function getValueSize(valueType: ClipTrackValueType): number {
-  if (valueType === 'scalar') return 1;
-  if (valueType === 'vec3') return 3;
-  return 4;
-}
-
-function encodeValue(value: number | readonly number[], size: number): number[] {
-  const values = Array.isArray(value) ? value : [value];
-  if (values.length !== size) {
-    throw new Error(`Expected ${size} values for keyframe, received ${values.length}.`);
-  }
-  for (const entry of values) {
-    if (!Number.isFinite(entry)) {
-      throw new Error(`Invalid keyframe value "${entry}".`);
-    }
-  }
-  return [...values];
 }
 
 export function numericArrayToNumbers(values: NumericArray): number[] {
