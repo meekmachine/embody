@@ -32,6 +32,11 @@ jobs:
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
       - name: Verify release push token
         env:
           PUBLISH_PUSH_TOKEN: ${{ secrets.PUBLISH_PUSH_TOKEN }}
@@ -146,11 +151,20 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Run Rust tests
+        run: npm run rust:test
+
       - name: Run typecheck
         run: npm run typecheck
 
       - name: Run tests
         run: npm test
+
+      - name: Verify package exports
+        run: node scripts/smoke/package-exports.mjs
+
+      - name: Verify package contents
+        run: npm pack --dry-run
 
       - name: Check if version already exists on NPM
         id: existing

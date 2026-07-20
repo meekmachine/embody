@@ -33,8 +33,6 @@
 
 export {
   Embody,
-  Embody as Loom3,
-  Embody as LoomLargeThree,
   collectMorphMeshes,
 } from './engines/three/Embody';
 export {
@@ -74,6 +72,28 @@ export {
   numericArrayToNumbers,
 } from './core/TsClipCompiler';
 export { TsRuntimeCore } from './core/TsRuntimeCore';
+export {
+  EMBODY_CORE_ABI_VERSION,
+  HAIR_CONFIG_FIELDS,
+  HAIR_CONFIG_STRIDE,
+  HAIR_HEAD_STATE_FIELDS,
+  HAIR_HEAD_STATE_STRIDE,
+  HAIR_MORPH_OUTPUT_FIELDS,
+  HAIR_MORPH_OUTPUT_STRIDE,
+  HAIR_STATE_FIELDS,
+  HAIR_STATE_STRIDE,
+  MESH_PROPORTIONS_FIELDS,
+  MESH_PROPORTIONS_STRIDE,
+  PACKED_MORPH_FRAME_DELTA_FIELDS,
+  PACKED_MORPH_FRAME_DELTA_STRIDE,
+  TEMPLATE_SKELETON_FIT_SOLUTION_FIELDS,
+  TEMPLATE_SKELETON_FIT_SOLUTION_STRIDE,
+  TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS,
+  TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE,
+  getEmbodyCore,
+  initEmbodyCore,
+  resetEmbodyCoreForTests,
+} from './wasm';
 export type {
   TsClipCompilerInput,
   TsClipCompilerKeyframe,
@@ -82,6 +102,23 @@ export type {
   TsClipCurvesInput,
 } from './core/TsClipCompiler';
 export type { TsRuntimeCoreOptions } from './core/TsRuntimeCore';
+export type {
+  EmbodyCoreWasmModule,
+  WasmHairPhysicsSolver,
+  WasmHairPhysicsSolverConstructor,
+} from './wasmTypes';
+export type {
+  HairConfigField,
+  HairHeadStateField,
+  HairMorphOutputField,
+  HairStateField,
+  PackedHairMorphOutput,
+  PackedHairPhysicsState,
+  PackedMorphFrameDelta,
+  PackedMorphFrameDeltaField,
+  PackedTemplateSkeletonFitTransform,
+  TemplateSkeletonFitTransformField,
+} from './core/contracts';
 
 // ============================================================================
 // INTERFACES (for implementing custom engines)
@@ -185,11 +222,34 @@ export type {
   MorphTargetId,
   MorphTargetTrackTarget,
   NumericArray,
+  PackedMeshProportions,
+  PackedTemplateSkeletonFitSolution,
   Quat,
+  MeshProportionsField,
+  TemplateSkeletonFitSolutionField,
+  TemplateSkeletonFitManualAdjustment,
+  TemplateSkeletonFitMetadata,
+  TemplateSkeletonFitMetrics,
+  TemplateSkeletonFitStatus,
+  TemplateSkeletonFitTransform,
+  TemplateSkeletonFitValidationResult,
+  TemplateSkeletonFitVerticalAnchor,
+  TemplateSkeletonFitVerticalAxis,
   TrackId,
   Transform,
   TransformSpace,
   Vec3,
+} from './core/contracts';
+
+export {
+  TEMPLATE_SKELETON_FIT_METADATA_KIND,
+  TEMPLATE_SKELETON_FIT_METADATA_VERSION,
+  TEMPLATE_SKELETON_FIT_STATUSES,
+  TEMPLATE_SKELETON_FIT_VERTICAL_ANCHORS,
+  TEMPLATE_SKELETON_FIT_VERTICAL_AXES,
+  composeTemplateSkeletonFitTransform,
+  isTemplateSkeletonFitStatus,
+  validateTemplateSkeletonFitMetadata,
 } from './core/contracts';
 
 // ============================================================================
@@ -437,6 +497,15 @@ export {
   HairPhysics,
   DEFAULT_HAIR_PHYSICS_CONFIG,
 } from './physics/HairPhysics';
+export {
+  RustHairPhysics,
+  createRustHairPhysics,
+  packHairConfig,
+  packHeadState,
+  unpackHairConfig,
+  unpackHairMorphOutput,
+  unpackHairState,
+} from './physics/RustHairPhysics';
 
 export type { HairPhysicsState, HairMorphOutput as HairPhysicsMorphOutput } from './physics/HairPhysics';
 

@@ -102,6 +102,90 @@ Embody requires Three.js as a peer dependency:
 npm install three
 ```
 
+### Rust/Wasm core
+
+Embody ships a generated Rust/Wasm core artifact in the npm package. The Three.js
+controller initializes the parts it needs through the package facade, and direct
+core consumers can explicitly initialize the Wasm entrypoint:
+
+```typescript
+import { initEmbodyCore } from '@lovelace_lol/embody/wasm';
+
+const core = await initEmbodyCore();
+const [left, right] = core.solve_bilateral_values(0.8, 0.25);
+```
+
+### Template skeleton fit metadata
+
+Template skeleton fitting metadata is a host-neutral contract for recording how a
+template skeleton should be previewed against a source character. It is metadata
+for placement and QA only. It is not skinning data, bone weights, a rig
+definition, or permission for the host to automatically bind the source mesh to
+the template skeleton.
+
+```typescript
+import {
+  TEMPLATE_SKELETON_FIT_METADATA_KIND,
+  TEMPLATE_SKELETON_FIT_METADATA_VERSION,
+  composeTemplateSkeletonFitTransform,
+  validateTemplateSkeletonFitMetadata,
+  type TemplateSkeletonFitMetadata,
+} from '@lovelace_lol/embody/core/contracts';
+
+const fitMetadata: TemplateSkeletonFitMetadata = {
+  kind: TEMPLATE_SKELETON_FIT_METADATA_KIND,
+  version: TEMPLATE_SKELETON_FIT_METADATA_VERSION,
+  templateId: 'humanoid-basic',
+  sourceCharacterId: 'character-1',
+  verticalAxis: 'y',
+  verticalAnchor: 'min',
+  fit: {
+    scale: 1.2,
+    translation: { x: 0.1, y: 0.2, z: -0.1 },
+    confidence: 0.75,
+    meshHeight: 1.8,
+    templateHeight: 1.5,
+    crossAxisSpans: { x: 0.6, y: 1.8, z: 0.4 },
+    status: 'estimated',
+  },
+  manualAdjustment: {
+    scale: 1.05,
+    translation: { x: 0.01, y: -0.02, z: 0.03 },
+  },
+};
+
+const validation = validateTemplateSkeletonFitMetadata(fitMetadata);
+const transform = composeTemplateSkeletonFitTransform(fitMetadata.fit, fitMetadata.manualAdjustment);
+```
+
+The required fields are:
+- `kind`: must be `template-skeleton-fit` so hosts can distinguish this record
+  from skinning, rig, animation, or mesh metadata.
+- `version`: must match `TEMPLATE_SKELETON_FIT_METADATA_VERSION`. Unknown
+  versions are rejected so migrations are explicit.
+- `templateId` and `sourceCharacterId`: non-empty ids that let the host connect
+  the fit to its template registry and source asset record.
+- `verticalAxis`: one of `x`, `y`, or `z`; the source character axis used for
+  height alignment.
+- `verticalAnchor`: one of `min`, `center`, or `max`; the height anchor used
+  when solving the initial placement.
+- `fit`: the solver result, including positive `scale`, finite `translation`, a
+  `confidence` value from `0` to `1`, positive mesh/template heights, non-negative
+  cross-axis spans, and a stable status.
+- `manualAdjustment`: optional host-authored corrections. `scale` must be
+  positive and `translation` must be finite when present.
+
+The stable status values are:
+- `unfitted`: no usable solve exists yet.
+- `estimated`: Embody produced an automatic fit that is ready for host preview.
+- `manual-adjusted`: a user or host tool adjusted the automatic fit.
+- `invalid`: the host should keep the metadata for inspection, but must not use
+  it as a usable placement.
+
+Hosts should render the composed transform in a preview or setup flow first. The
+host owns any final retargeting, rig binding, or skin-binding decision, and should
+keep those records separate from `TemplateSkeletonFitMetadata`.
+
 ### Basic setup
 
 ```typescript
@@ -2175,6 +2259,7 @@ This is a compact reference for the public surface exported by `@lovelace_lol/em
 - Extraction: `extractModelData()`, `extractFromGLTF()`.
 - Config linting: `validateMappingConfig()`.
 - Model fit: `validateMappings()`, `isPresetCompatible()`, `suggestBestPreset()`, `generateMappingCorrections()`.
+- Template skeleton fit metadata: `TEMPLATE_SKELETON_FIT_METADATA_KIND`, `TEMPLATE_SKELETON_FIT_METADATA_VERSION`, `TEMPLATE_SKELETON_FIT_STATUSES`, `validateTemplateSkeletonFitMetadata()`, `composeTemplateSkeletonFitTransform()`.
 - Unified report: `analyzeModel()`.
 
 ### Runtime tooling

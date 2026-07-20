@@ -2,6 +2,9 @@
 name = "embody-wasm"
 version = "0.0.0"
 edition = "2021"
+description = "Rust/Wasm acceleration core for Embody"
+license = "MIT"
+repository = "https://github.com/meekmachine/embody"
 publish = false
 
 [lib]

@@ -419,8 +419,7 @@ export class ThreeAnimationSystem {
     const globalLocation = typeof window !== 'undefined' ? window.location : undefined;
     const search = globalLocation?.search ?? '';
     return search.includes('polymerVocalDebug=1')
-      || search.includes('embodyDebug=1')
-      || search.includes('loom3Debug=1');
+      || search.includes('embodyDebug=1');
   }
 
   private debugClipLog(...args: unknown[]): void {

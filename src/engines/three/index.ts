@@ -4,8 +4,6 @@
 
 export {
   Embody,
-  Embody as Loom3,
-  Embody as LoomLargeThree,
   collectMorphMeshes,
 } from './Embody';
 export {

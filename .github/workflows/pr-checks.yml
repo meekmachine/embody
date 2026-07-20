@@ -27,14 +27,23 @@ jobs:
         check:
           - name: Build
             command: npm run build
+          - name: Rust Test
+            command: npm run rust:test
           - name: Typecheck
             command: npm run typecheck
           - name: Test
             command: npm test
+          - name: Package Exports
+            command: npm run test:exports
     name: ${{ matrix.check.name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
