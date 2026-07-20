@@ -2545,7 +2545,7 @@ export function collectMorphMeshes(root: Object3D): Mesh[] {
   return meshes;
 }
 
-function buildFrameApplierBindings(
+export function buildFrameApplierBindings(
   inspection: ReturnType<ThreeModelInspector['inspectModel']>
 ): ThreeFrameApplierBindings {
   const meshes = new Map<import('../../core/contracts').MeshId, Mesh>();

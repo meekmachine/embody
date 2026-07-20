@@ -12,6 +12,16 @@ export interface WasmHairPhysicsSolverConstructor {
 }
 
 export interface WasmRuntimeCoreHandle {
+  configure(profileJson: string, modelJson: string): void;
+  viseme_slot_index(slotId: string): number;
+  set_au_signed(id: number, value: number, balance: number): void;
+  set_continuum(negAu: number, posAu: number, value: number, balance: number): void;
+  get_continuum(negAu: number, posAu: number): number;
+  transition_au(id: number, to: number, durationMs: number, balance: number): void;
+  transition_viseme(index: number, to: number, durationMs: number, jawScale: number): void;
+  update(dtSeconds: number): number;
+  active_transition_count(): number;
+  clear_transitions(): void;
   load_au_morph_bindings(values: Float32Array): void;
   load_viseme_morph_bindings(values: Float32Array): void;
   load_bone_rest_transforms(values: Float32Array): void;

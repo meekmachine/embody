@@ -11,6 +11,7 @@ use crate::bones::{
     FLAG_HAS_ROTATION, JAW_BINDING_STRIDE,
 };
 use crate::math::{clamp01, finite_or};
+use crate::profile::{compile_tables, ModelData, ProfileData};
 
 pub const AU_MORPH_BINDING_STRIDE: u32 = 5;
 pub const VISEME_MORPH_BINDING_STRIDE: u32 = 4;
@@ -36,6 +37,31 @@ struct VisemeMorphBinding {
     weight: f32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum TransitionTarget {
+    Au(u32),
+    Viseme(u32),
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Transition {
+    target: TransitionTarget,
+    from: f32,
+    to: f32,
+    duration: f32,
+    elapsed: f32,
+    balance: Option<f32>,
+    jaw_scale: f32,
+}
+
+fn ease_in_out_quad(t: f32) -> f32 {
+    if t < 0.5 {
+        2.0 * t * t
+    } else {
+        -1.0 + (4.0 - 2.0 * t) * t
+    }
+}
+
 /// Host-neutral live morph runtime. Owns AU/viseme/mix state and emits packed
 /// morph frame deltas. Engine objects never enter this struct.
 #[wasm_bindgen]
@@ -53,6 +79,9 @@ pub struct RuntimeCore {
     translation_rows: Vec<TranslationRow>,
     jaw_binding: Option<JawBinding>,
     viseme_jaw_amounts: Vec<f32>,
+    continuum_pairs: HashMap<u32, (u32, bool)>,
+    viseme_slot_ids: Vec<String>,
+    transitions: Vec<Transition>,
 }
 
 #[wasm_bindgen]
@@ -73,7 +102,51 @@ impl RuntimeCore {
             translation_rows: Vec::new(),
             jaw_binding: None,
             viseme_jaw_amounts: Vec::new(),
+            continuum_pairs: HashMap::new(),
+            viseme_slot_ids: Vec::new(),
+            transitions: Vec::new(),
         }
+    }
+
+    /// Configure the core from the profile and model descriptor JSON hosts
+    /// already have. All binding compilation (mesh/morph/bone name resolution,
+    /// composite axes, translations, jaw, viseme slots, mix defaults,
+    /// continuum pairs) happens here, inside the core.
+    #[wasm_bindgen]
+    pub fn configure(&mut self, profile_json: &str, model_json: &str) -> Result<(), JsError> {
+        let profile: ProfileData = serde_json::from_str(profile_json)
+            .map_err(|err| JsError::new(&format!("Invalid profile JSON: {err}")))?;
+        let model: ModelData = serde_json::from_str(model_json)
+            .map_err(|err| JsError::new(&format!("Invalid model descriptor JSON: {err}")))?;
+
+        let tables = compile_tables(&profile, &model);
+
+        self.load_au_morph_bindings(&tables.au_morph_bindings);
+        self.load_viseme_morph_bindings(&tables.viseme_morph_bindings);
+        self.set_mixed_aus(&tables.mixed_aus);
+        self.set_viseme_slot_count(tables.viseme_slot_count);
+        self.load_viseme_jaw_amounts(&tables.viseme_jaw_amounts);
+        self.load_bone_rest_transforms(&tables.rest_transforms);
+        self.load_composite_axes(&tables.composite_axes);
+        self.load_bone_translations(&tables.translations);
+        self.load_jaw_binding(&tables.jaw_binding);
+
+        self.mix_weights.clear();
+        for (au_id, weight) in tables.mix_defaults {
+            self.mix_weights.insert(au_id, clamp01(weight));
+        }
+        self.continuum_pairs = tables.continuum_pairs;
+        self.viseme_slot_ids = tables.viseme_slot_ids;
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub fn viseme_slot_index(&self, slot_id: &str) -> i32 {
+        self.viseme_slot_ids
+            .iter()
+            .position(|id| id == slot_id)
+            .map(|index| index as i32)
+            .unwrap_or(-1)
     }
 
     #[wasm_bindgen]
@@ -138,6 +211,155 @@ impl RuntimeCore {
         self.au_balances.insert(id, clamp_signed(balance));
     }
 
+    /// Continuum-aware AU set. Negative values route through the configured
+    /// continuum pair (e.g. eyes left/right) exactly like the legacy runtime.
+    #[wasm_bindgen]
+    pub fn set_au_signed(&mut self, id: u32, value: f32, balance: f32) {
+        if value < 0.0 {
+            if let Some((pair_id, is_negative)) = self.continuum_pairs.get(&id).copied() {
+                let (neg_au, pos_au) = if is_negative { (id, pair_id) } else { (pair_id, id) };
+                let continuum_value = if is_negative { -value } else { value };
+                self.set_continuum(neg_au, pos_au, continuum_value, balance);
+                return;
+            }
+        }
+        self.set_au(id, value, balance);
+    }
+
+    #[wasm_bindgen]
+    pub fn set_continuum(&mut self, neg_au: u32, pos_au: u32, value: f32, balance: f32) {
+        let value = clamp_signed(value);
+        if value < 0.0 {
+            self.set_au(pos_au, 0.0, balance);
+            self.set_au(neg_au, -value, balance);
+        } else {
+            self.set_au(neg_au, 0.0, balance);
+            self.set_au(pos_au, value, balance);
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn get_continuum(&self, neg_au: u32, pos_au: u32) -> f32 {
+        let neg = self.get_au(neg_au);
+        let pos = self.get_au(pos_au);
+        if neg > 0.0 {
+            -neg
+        } else {
+            pos
+        }
+    }
+
+    /// Start (or replace) an eased AU transition. Advanced by `update`.
+    #[wasm_bindgen]
+    pub fn transition_au(&mut self, id: u32, to: f32, duration_ms: f32, balance: f32) {
+        let from = if to < 0.0 && self.continuum_pairs.contains_key(&id) {
+            let (pair_id, is_negative) = self.continuum_pairs[&id];
+            let (neg_au, pos_au) = if is_negative { (id, pair_id) } else { (pair_id, id) };
+            let current = self.get_continuum(neg_au, pos_au);
+            if is_negative {
+                -current
+            } else {
+                current
+            }
+        } else {
+            self.get_au(id)
+        };
+        self.start_transition(Transition {
+            target: TransitionTarget::Au(id),
+            from,
+            to,
+            duration: duration_ms / 1000.0,
+            elapsed: 0.0,
+            balance: if balance.is_finite() { Some(balance) } else { None },
+            jaw_scale: 1.0,
+        });
+    }
+
+    #[wasm_bindgen]
+    pub fn transition_viseme(&mut self, index: u32, to: f32, duration_ms: f32, jaw_scale: f32) {
+        let from = self
+            .viseme_values
+            .get(index as usize)
+            .copied()
+            .unwrap_or(0.0);
+        self.start_transition(Transition {
+            target: TransitionTarget::Viseme(index),
+            from,
+            to: clamp01(to),
+            duration: duration_ms / 1000.0,
+            elapsed: 0.0,
+            balance: None,
+            jaw_scale: finite_or(jaw_scale, 1.0),
+        });
+    }
+
+    /// Advance all running transitions by `dt` seconds and write the eased
+    /// values into the core state. Returns the number of still-active
+    /// transitions so hosts know whether a frame delta re-evaluation is due.
+    #[wasm_bindgen]
+    pub fn update(&mut self, dt_seconds: f32) -> u32 {
+        if dt_seconds <= 0.0 {
+            return self.transitions.len() as u32;
+        }
+
+        let mut transitions = std::mem::take(&mut self.transitions);
+        transitions.retain_mut(|transition| {
+            transition.elapsed += dt_seconds;
+            let progress = (transition.elapsed / transition.duration).min(1.0);
+            let value =
+                transition.from + (transition.to - transition.from) * ease_in_out_quad(progress);
+            match transition.target {
+                TransitionTarget::Au(id) => {
+                    let balance = transition
+                        .balance
+                        .unwrap_or_else(|| *self.au_balances.get(&id).unwrap_or(&0.0));
+                    self.set_au_signed(id, value, balance);
+                }
+                TransitionTarget::Viseme(index) => {
+                    self.set_viseme(index, value);
+                    self.set_viseme_jaw_scale(index, transition.jaw_scale);
+                }
+            }
+            progress < 1.0
+        });
+        self.transitions = transitions;
+        self.transitions.len() as u32
+    }
+
+    #[wasm_bindgen]
+    pub fn active_transition_count(&self) -> u32 {
+        self.transitions.len() as u32
+    }
+
+    #[wasm_bindgen]
+    pub fn clear_transitions(&mut self) {
+        self.transitions.clear();
+    }
+
+    fn start_transition(&mut self, transition: Transition) {
+        self.transitions
+            .retain(|existing| existing.target != transition.target);
+        if transition.duration <= 0.0 || (transition.to - transition.from).abs() < 1e-6 {
+            let mut instant = transition;
+            instant.elapsed = instant.duration.max(1e-6);
+            let value = instant.to;
+            match instant.target {
+                TransitionTarget::Au(id) => {
+                    let balance = instant
+                        .balance
+                        .unwrap_or_else(|| *self.au_balances.get(&id).unwrap_or(&0.0));
+                    self.set_au_signed(id, value, balance);
+                }
+                TransitionTarget::Viseme(index) => {
+                    self.set_viseme(index, value);
+                    self.set_viseme_jaw_scale(index, instant.jaw_scale);
+                }
+            }
+            return;
+        }
+        self.transitions.push(transition);
+    }
+
     #[wasm_bindgen]
     pub fn get_au(&self, id: u32) -> f32 {
         *self.au_values.get(&id).unwrap_or(&0.0)
@@ -194,6 +416,7 @@ impl RuntimeCore {
         for scale in &mut self.viseme_jaw_scales {
             *scale = 1.0;
         }
+        self.transitions.clear();
     }
 
     /// Packed rows: `[bone_id, px, py, pz, qx, qy, qz, qw] * N`
@@ -705,6 +928,73 @@ mod tests {
         let expected_half = (15.0f32).to_radians() / 2.0;
         assert!((packed[13] - expected_half.sin()).abs() < 1e-6);
         assert!((packed[17] - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn configures_from_profile_and_model_json() {
+        let profile = r#"{
+            "auToMorphs": { "12": { "left": [], "right": [], "center": ["Smile"] } },
+            "auToBones": { "26": [{ "node": "JAW", "channel": "rx", "scale": 1, "maxDegrees": 30 }] },
+            "boneNodes": { "JAW": "Jaw" },
+            "morphToMesh": { "face": ["FaceMesh"] },
+            "continuumPairs": {
+                "61": { "pairId": 62, "isNegative": true },
+                "62": { "pairId": 61, "isNegative": false }
+            },
+            "visemeKeys": ["Aah"],
+            "visemeJawAmounts": [1.0]
+        }"#;
+        let model = r#"{
+            "meshes": [{ "id": 1, "name": "FaceMesh", "morphTargetIds": [7] }],
+            "morphTargets": [{ "id": 7, "meshId": 1, "name": "Smile", "hostIndex": 0 }],
+            "bones": [{ "id": 4, "name": "Jaw" }]
+        }"#;
+
+        let mut core = RuntimeCore::new(0);
+        core.configure(profile, model).unwrap();
+
+        core.set_au(12, 0.75, 0.0);
+        let packed = core.evaluate_morph_frame_delta();
+        let rows = unpack_rows(&packed);
+        assert_eq!(rows, vec![(1, 7, 0.75)]);
+
+        // Continuum pair compiled: negative set routes to the pair AU.
+        core.set_au_signed(62, -0.5, 0.0);
+        assert!((core.get_au(61) - 0.5).abs() < 1e-6);
+        assert_eq!(core.get_au(62), 0.0);
+
+        // Viseme drives the jaw bone compiled from AU 26.
+        core.set_viseme(0, 1.0);
+        let bones = core.evaluate_bone_frame_delta();
+        assert_eq!(bones[0], 4.0);
+        let expected_half = (30.0f32).to_radians() / 2.0;
+        assert!((bones[4] - expected_half.sin()).abs() < 1e-4);
+    }
+
+    #[test]
+    fn transitions_ease_au_values_via_update() {
+        let mut core = RuntimeCore::new(0);
+        core.transition_au(12, 1.0, 200.0, f32::NAN);
+        assert_eq!(core.active_transition_count(), 1);
+
+        // Halfway: easeInOutQuad(0.5) = 0.5.
+        core.update(0.1);
+        assert!((core.get_au(12) - 0.5).abs() < 1e-6);
+
+        // Completion clamps at the target and removes the transition.
+        core.update(0.2);
+        assert!((core.get_au(12) - 1.0).abs() < 1e-6);
+        assert_eq!(core.active_transition_count(), 0);
+    }
+
+    #[test]
+    fn zero_duration_transition_applies_instantly() {
+        let mut core = RuntimeCore::new(1);
+        core.transition_viseme(0, 0.8, 0.0, 1.5);
+        assert_eq!(core.active_transition_count(), 0);
+        let packed = core.evaluate_morph_frame_delta();
+        // No viseme bindings loaded, so no rows, but state is set.
+        assert!(packed.is_empty());
     }
 
     fn unpack_rows(packed: &[f32]) -> Vec<(u32, u32, f32)> {
