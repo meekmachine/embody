@@ -188,37 +188,99 @@ Hosts should render the composed transform in a preview or setup flow first. The
 host owns any final retargeting, rig binding, or skin-binding decision, and should
 keep those records separate from `TemplateSkeletonFitMetadata`.
 
-### Basic setup
+### Basic setup (default host)
+
+Most callers only need a container element and a character URL. Embody creates
+the Three.js scene (renderer, camera, lights, shadow plane), loads the model,
+frames the camera on it, starts a render loop, and binds the runtime:
+
+```typescript
+import { createCharacterHost } from '@lovelace_lol/embody';
+// or: import { createCharacterHost } from '@lovelace_lol/embody/three';
+
+const host = await createCharacterHost({
+  container: document.getElementById('viewport')!,
+  character: {
+    modelUrl: '/characters/jonathan.glb',
+    presetType: 'cc4',
+  },
+});
+
+// host.engine is a ready Embody instance
+host.engine.setAU(12, 0.8);
+
+// later
+host.dispose();
+```
+
+Pick a named scene type to change the backdrop, lighting, and shadow defaults
+(`studio` is the default; `showcase`, `inspection`, and `void` are also built in),
+and override any individual option on top:
+
+```typescript
+const host = await createCharacterHost({
+  container,
+  character: { modelUrl: '/characters/jonathan.glb' },
+  scene: {
+    type: 'showcase',                  // dark backdrop, contrast lighting
+    // background: 0x223344,           // per-option overrides still win
+    // lightingPreset: 'inspection',
+    // shadowPlane: false,
+  },
+});
+```
+
+The available types are exported as `CHARACTER_SCENE_TYPES` /
+`CHARACTER_SCENE_TYPE_IDS` so UIs can enumerate them.
+
+The default host renders on its own (`renderLoop: true`) and auto-frames the
+camera on the model (`autoFrame: true`). Turn either off when you drive the
+camera or render loop yourself (e.g. custom camera controls):
+
+```typescript
+const host = await createCharacterHost({
+  container,
+  character: { modelUrl: '/characters/jonathan.glb' },
+  renderLoop: false, // you call renderer.render(scene, camera)
+  autoFrame: false,  // you position the camera
+});
+```
+
+With `external`, both default to `false` — your app owns rendering and camera.
+
+### Advanced setup (bring your own Three.js scene)
+
+Pass an existing scene/renderer/camera when you already own the WebGL host
+(R3F, custom workbench, etc.). Embody still loads and binds the character:
+
+```typescript
+const host = await createCharacterHost({
+  container: mountEl,
+  character: { modelUrl: '/characters/jonathan.glb', presetType: 'cc4' },
+  external: {
+    scene,
+    renderer,
+    camera,
+    // mountCanvas: true,  // optional
+    // manageResize: true, // optional
+  },
+});
+```
+
+The lowest-level contract remains stable: `new Embody(...)` + `onReady({ meshes, model })`
+if you want to own loading yourself.
 
 ```typescript
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Embody, collectMorphMeshes, CC4_PRESET } from '@lovelace_lol/embody';
 
-// 1. Create the Embody controller with a preset
 const loom = new Embody({ profile: CC4_PRESET });
-
-// 2. Set up your Three.js scene
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 100);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
-
-// 3. Load your character model
 const loader = new GLTFLoader();
 loader.load('/character.glb', (gltf) => {
   scene.add(gltf.scene);
-
-  // 4. Collect all meshes that have morph targets
-  const meshes = collectMorphMeshes(gltf.scene);
-
-  // 5. Initialize Embody with the meshes and model
-  loom.onReady({ meshes, model: gltf.scene });
+  loom.onReady({ meshes: collectMorphMeshes(gltf.scene), model: gltf.scene });
 });
-
-// 6. In your animation loop, call loom.update(deltaSeconds)
-// This drives all transitions and animations
 ```
 
 If you’re implementing a custom renderer, target the `Embody` interface exported from `@lovelace_lol/embody` (legacy alias: `LoomLarge`).
