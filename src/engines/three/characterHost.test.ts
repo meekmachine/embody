@@ -4,7 +4,7 @@ import { applyCharacterModelTransform, disposeCharacterModel } from './modelLoad
 import { createCharacterHost } from './characterHost';
 
 describe('applyCharacterModelTransform', () => {
-  it('applies offset, rotation degrees, and ground clearance', () => {
+  it('applies offset, rotation degrees, scale, and ground clearance', () => {
     const geometry = new BufferGeometry();
     geometry.setAttribute(
       'position',
@@ -22,12 +22,16 @@ describe('applyCharacterModelTransform', () => {
     applyCharacterModelTransform(model, {
       modelOffset: { x: 1, y: 0, z: -2 },
       modelRotation: { y: 90 },
+      modelScale: 0.5,
       modelGroundClearance: 0.05,
     });
 
     expect(model.position.x).toBe(1);
     expect(model.position.z).toBe(-2);
     expect(model.rotation.y).toBeCloseTo(Math.PI / 2, 5);
+    expect(model.scale.x).toBe(0.5);
+    expect(model.scale.y).toBe(0.5);
+    expect(model.scale.z).toBe(0.5);
 
     model.updateMatrixWorld(true);
     const bounds = new Box3().setFromObject(model);
