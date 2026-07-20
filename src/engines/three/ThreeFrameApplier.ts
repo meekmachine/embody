@@ -97,6 +97,16 @@ export class ThreeFrameApplier implements HostFrameApplier<Object3D> {
     model.updateMatrixWorld(true);
   }
 
+  applyPackedMorphFrameDelta(values: ArrayLike<number>, stride = 4): void {
+    for (let index = 0; index + stride <= values.length; index += stride) {
+      const morphTargetId = values[index + 1] as MorphTargetId;
+      const binding = this.morphTargets.get(morphTargetId);
+      if (!binding) continue;
+      const mode = (values[index + 3] ?? 0) === 1 ? 'additive' : 'absolute';
+      this.setMorphTarget(binding, values[index + 2] ?? 0, mode);
+    }
+  }
+
   applyObjectTransform(
     target: Object3D,
     transform: Transform,

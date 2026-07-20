@@ -11,6 +11,26 @@ export interface WasmHairPhysicsSolverConstructor {
   new(configValues: Float32Array): WasmHairPhysicsSolver;
 }
 
+export interface WasmRuntimeCoreHandle {
+  load_au_morph_bindings(values: Float32Array): void;
+  load_viseme_morph_bindings(values: Float32Array): void;
+  set_mixed_aus(ids: Uint32Array): void;
+  set_au(id: number, value: number, balance: number): void;
+  get_au(id: number): number;
+  set_au_mix_weight(id: number, weight: number): void;
+  set_viseme(index: number, value: number): void;
+  set_viseme_slot_count(count: number): void;
+  clear(): void;
+  evaluate_morph_frame_delta(): Float32Array;
+  free?: () => void;
+}
+
+export interface WasmRuntimeCoreConstructor {
+  new(visemeSlotCount: number): WasmRuntimeCoreHandle;
+  au_morph_binding_stride(): number;
+  viseme_morph_binding_stride(): number;
+}
+
 export interface EmbodyCoreWasmModule {
   default?: (moduleOrPath?: unknown) => Promise<unknown> | unknown;
   core_abi_version(): number;
@@ -53,4 +73,5 @@ export interface EmbodyCoreWasmModule {
   ): Float32Array;
   default_hair_physics_config_values(): Float32Array;
   HairPhysicsSolver: WasmHairPhysicsSolverConstructor;
+  RuntimeCore: WasmRuntimeCoreConstructor;
 }

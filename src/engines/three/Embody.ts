@@ -44,7 +44,11 @@ import { getCompositeAxisBinding, getCompositeAxisValue } from '../../core/compo
 import { ThreeAnimationRuntime, ThreeAnimationSystem } from './ThreeAnimationRuntime';
 import { getSideScale } from './balanceUtils';
 import { ThreeModelInspector } from './ThreeModelInspector';
-import { ThreeFrameApplier, type ThreeMaterialConfig, type ThreeResolvedMaterialConfig } from './ThreeFrameApplier';
+import { ThreeFrameApplier, type ThreeFrameApplierBindings, type ThreeMaterialConfig, type ThreeResolvedMaterialConfig } from './ThreeFrameApplier';
+import { TsRuntimeCore } from '../../core/TsRuntimeCore';
+import { WasmRuntimeCore } from '../../core/WasmRuntimeCore';
+import type { ModelDescriptor } from '../../core/contracts';
+import { initEmbodyCore } from '../../wasm';
 import { HairPhysicsController, type HairPhysicsConfig, type HairPhysicsConfigUpdate, type HairPhysicsDirectionConfig, type HairMorphTargets } from './hair/HairPhysicsController';
 import { CC4_PRESET, CC4_MESHES, COMPOSITE_ROTATIONS as CC4_COMPOSITE_ROTATIONS } from '../../presets/cc4';
 import { getPreset } from '../../presets';
@@ -170,6 +174,10 @@ export class Embody implements EmbodyRuntime {
   private hairPhysics: HairPhysicsController;
   private modelInspector = new ThreeModelInspector();
   private frameApplier = new ThreeFrameApplier();
+  private modelDescriptor: ModelDescriptor | null = null;
+  private tsRuntimeCore: TsRuntimeCore | null = null;
+  private wasmRuntimeCore: WasmRuntimeCore | null = null;
+  private framePathReady = false;
 
   // Internal animation loop
   private clock = new Clock(false); // Don't auto-start
@@ -283,6 +291,7 @@ export class Embody implements EmbodyRuntime {
     }
 
     this.rebuildMorphTargetsCache();
+    this.bindHostNeutralRuntime(inspection);
 
     if (this.resolvedFaceMeshes.length > 0) {
       for (const faceName of this.resolvedFaceMeshes) {
@@ -299,6 +308,97 @@ export class Embody implements EmbodyRuntime {
 
     // Apply render order and material settings from CC4_MESHES
     this.applyMeshMaterialSettings(model);
+  }
+
+  private bindHostNeutralRuntime(inspection: ReturnType<ThreeModelInspector['inspectModel']>): void {
+    this.modelDescriptor = inspection.descriptor;
+    this.frameApplier.setBindings(buildFrameApplierBindings(inspection));
+    this.tsRuntimeCore = new TsRuntimeCore({
+      profile: this.config,
+      model: inspection.descriptor,
+    });
+    this.syncRuntimeCoreState();
+    this.framePathReady = true;
+
+    void initEmbodyCore()
+      .then((wasm) => {
+        if (!this.modelDescriptor) return;
+        this.wasmRuntimeCore = new WasmRuntimeCore({
+          profile: this.config,
+          model: this.modelDescriptor,
+          wasm,
+        });
+        this.syncRuntimeCoreState();
+      })
+      .catch(() => {
+        // Vitest and some hosts cannot resolve the package wasm dynamic import; TsRuntimeCore remains the morph path.
+        this.wasmRuntimeCore = null;
+      });
+  }
+
+  private syncRuntimeCoreState(): void {
+    if (this.tsRuntimeCore) {
+      this.tsRuntimeCore.setProfile(this.config);
+      if (this.modelDescriptor) {
+        this.tsRuntimeCore.setModelDescriptor(this.modelDescriptor);
+      }
+      for (const [auIdText, value] of Object.entries(this.auValues)) {
+        const auId = Number(auIdText);
+        if (Number.isNaN(auId)) continue;
+        this.tsRuntimeCore.setAU(auId, value, this.auBalances[auId]);
+      }
+      for (const [auIdText, weight] of Object.entries(this.mixWeights)) {
+        const auId = Number(auIdText);
+        if (Number.isNaN(auId)) continue;
+        this.tsRuntimeCore.setAUMixWeight(auId, weight);
+      }
+      for (let index = 0; index < this.visemeValues.length; index += 1) {
+        this.tsRuntimeCore.setViseme(index, this.visemeValues[index] ?? 0, this.visemeJawScales[index] ?? 1);
+      }
+    }
+
+    if (this.wasmRuntimeCore) {
+      this.wasmRuntimeCore.setProfile(this.config);
+      if (this.modelDescriptor) {
+        this.wasmRuntimeCore.setModelDescriptor(this.modelDescriptor);
+      }
+      this.wasmRuntimeCore.clear();
+      for (const [auIdText, value] of Object.entries(this.auValues)) {
+        const auId = Number(auIdText);
+        if (Number.isNaN(auId)) continue;
+        this.wasmRuntimeCore.setAU(auId, value, this.auBalances[auId] ?? 0);
+      }
+      for (const [auIdText, weight] of Object.entries(this.mixWeights)) {
+        const auId = Number(auIdText);
+        if (Number.isNaN(auId)) continue;
+        this.wasmRuntimeCore.setAUMixWeight(auId, weight);
+      }
+      for (let index = 0; index < this.visemeValues.length; index += 1) {
+        this.wasmRuntimeCore.setViseme(index, this.visemeValues[index] ?? 0);
+      }
+    }
+  }
+
+  private applyLiveMorphFrameDelta(): boolean {
+    if (!this.framePathReady || !this.model) return false;
+
+    if (this.wasmRuntimeCore) {
+      this.frameApplier.applyPackedMorphFrameDelta(
+        this.wasmRuntimeCore.evaluatePackedMorphFrameDelta()
+      );
+      this.model.updateMatrixWorld(true);
+      return true;
+    }
+
+    if (this.tsRuntimeCore) {
+      const frame = this.tsRuntimeCore.evaluateFrameDelta();
+      this.frameApplier.applyFrameDelta(this.model, {
+        morphTargets: frame.morphTargets,
+      });
+      return true;
+    }
+
+    return false;
   }
 
   private rebuildMorphTargetsCache(): void {
@@ -464,6 +564,10 @@ export class Embody implements EmbodyRuntime {
     this.meshes = [];
     this.model = null;
     this.bones = {};
+    this.modelDescriptor = null;
+    this.tsRuntimeCore = null;
+    this.wasmRuntimeCore = null;
+    this.framePathReady = false;
   }
 
   // ============================================================================
@@ -506,41 +610,47 @@ export class Embody implements EmbodyRuntime {
       this.auBalances[id] = balance;
     }
 
-    const resolvedMorphTargets = this.resolvedAUMorphTargets.get(id);
-    const { left: leftKeys, right: rightKeys, center: centerKeys } = this.getAUMorphsBySide(id);
+    this.tsRuntimeCore?.setAU(id, v, balance);
+    this.wasmRuntimeCore?.setAU(id, v, balance ?? this.auBalances[id] ?? 0);
 
-    if (resolvedMorphTargets) {
-      const mixWeight = this.isMixedAU(id) ? this.getAUMixWeight(id) : 1.0;
-      const base = clamp01(v) * mixWeight;
-      const { left: leftVal, right: rightVal } = this.computeSideValues(base, balance);
+    const appliedViaFrame = this.applyLiveMorphFrameDelta();
+    if (!appliedViaFrame) {
+      const resolvedMorphTargets = this.resolvedAUMorphTargets.get(id);
+      const { left: leftKeys, right: rightKeys, center: centerKeys } = this.getAUMorphsBySide(id);
 
-      if (resolvedMorphTargets.left.length || resolvedMorphTargets.right.length) {
-        this.applyMorphTargets(resolvedMorphTargets.left, leftVal);
-        this.applyMorphTargets(resolvedMorphTargets.right, rightVal);
-      }
+      if (resolvedMorphTargets) {
+        const mixWeight = this.isMixedAU(id) ? this.getAUMixWeight(id) : 1.0;
+        const base = clamp01(v) * mixWeight;
+        const { left: leftVal, right: rightVal } = this.computeSideValues(base, balance);
 
-      this.applyMorphTargets(resolvedMorphTargets.center, base);
-    } else if (leftKeys.length || rightKeys.length || centerKeys.length) {
-      const mixWeight = this.isMixedAU(id) ? this.getAUMixWeight(id) : 1.0;
-      const base = clamp01(v) * mixWeight;
-      const meshNames = this.getMeshNamesForAU(id);
-
-      const { left: leftVal, right: rightVal } = this.computeSideValues(base, balance);
-
-      if (leftKeys.length || rightKeys.length) {
-        for (const k of leftKeys) {
-          if (typeof k === 'number') this.setMorphInfluence(k, leftVal, meshNames);
-          else this.setMorph(k, leftVal, meshNames);
+        if (resolvedMorphTargets.left.length || resolvedMorphTargets.right.length) {
+          this.applyMorphTargets(resolvedMorphTargets.left, leftVal);
+          this.applyMorphTargets(resolvedMorphTargets.right, rightVal);
         }
-        for (const k of rightKeys) {
-          if (typeof k === 'number') this.setMorphInfluence(k, rightVal, meshNames);
-          else this.setMorph(k, rightVal, meshNames);
-        }
-      }
 
-      for (const k of centerKeys) {
-        if (typeof k === 'number') this.setMorphInfluence(k, base, meshNames);
-        else this.setMorph(k, base, meshNames);
+        this.applyMorphTargets(resolvedMorphTargets.center, base);
+      } else if (leftKeys.length || rightKeys.length || centerKeys.length) {
+        const mixWeight = this.isMixedAU(id) ? this.getAUMixWeight(id) : 1.0;
+        const base = clamp01(v) * mixWeight;
+        const meshNames = this.getMeshNamesForAU(id);
+
+        const { left: leftVal, right: rightVal } = this.computeSideValues(base, balance);
+
+        if (leftKeys.length || rightKeys.length) {
+          for (const k of leftKeys) {
+            if (typeof k === 'number') this.setMorphInfluence(k, leftVal, meshNames);
+            else this.setMorph(k, leftVal, meshNames);
+          }
+          for (const k of rightKeys) {
+            if (typeof k === 'number') this.setMorphInfluence(k, rightVal, meshNames);
+            else this.setMorph(k, rightVal, meshNames);
+          }
+        }
+
+        for (const k of centerKeys) {
+          if (typeof k === 'number') this.setMorphInfluence(k, base, meshNames);
+          else this.setMorph(k, base, meshNames);
+        }
       }
     }
 
@@ -1038,6 +1148,8 @@ export class Embody implements EmbodyRuntime {
 
   setAUMixWeight(id: number, weight: number): void {
     this.mixWeights[id] = clamp01(weight);
+    this.tsRuntimeCore?.setAUMixWeight(id, weight);
+    this.wasmRuntimeCore?.setAUMixWeight(id, weight);
     const v = this.auValues[id] ?? 0;
     if (v > 0) this.setAU(id, v);
 
@@ -1352,6 +1464,12 @@ export class Embody implements EmbodyRuntime {
       this.bones = this.resolveBones(this.model);
       this.missingBoneWarnings.clear();
       this.rebuildMorphTargetsCache();
+      if (this.modelDescriptor) {
+        this.tsRuntimeCore?.setProfile(this.config);
+        this.tsRuntimeCore?.setModelDescriptor(this.modelDescriptor);
+        this.wasmRuntimeCore?.setProfile(this.config);
+        this.wasmRuntimeCore?.setModelDescriptor(this.modelDescriptor);
+      }
     }
     this.hairPhysics.refreshMeshSelection();
     this.applyHairPhysicsProfileConfig();
@@ -1469,21 +1587,28 @@ export class Embody implements EmbodyRuntime {
   }
 
   private applyVisemeRuntimeState(): void {
-    for (const targets of this.resolvedVisemeTargets) {
-      this.frameApplier.resetMorphTargets(targets || []);
+    for (let index = 0; index < this.visemeValues.length; index += 1) {
+      this.tsRuntimeCore?.setViseme(index, this.visemeValues[index] ?? 0, this.visemeJawScales[index] ?? 1);
+      this.wasmRuntimeCore?.setViseme(index, this.visemeValues[index] ?? 0);
     }
 
-    for (let index = 0; index < this.visemeValues.length; index += 1) {
-      const value = clamp01(this.visemeValues[index] ?? 0);
-      if (value <= 1e-6) continue;
-      const targets = this.resolvedVisemeTargets[index] || [];
-      for (const target of targets) {
-        if (target.idx >= target.infl.length) continue;
-        const weighted = clamp01(value * target.weight);
-        this.frameApplier.applyMorphTargets(
-          [target],
-          Math.max(target.infl[target.idx] ?? 0, weighted)
-        );
+    if (!this.applyLiveMorphFrameDelta()) {
+      for (const targets of this.resolvedVisemeTargets) {
+        this.frameApplier.resetMorphTargets(targets || []);
+      }
+
+      for (let index = 0; index < this.visemeValues.length; index += 1) {
+        const value = clamp01(this.visemeValues[index] ?? 0);
+        if (value <= 1e-6) continue;
+        const targets = this.resolvedVisemeTargets[index] || [];
+        for (const target of targets) {
+          if (target.idx >= target.infl.length) continue;
+          const weighted = clamp01(value * target.weight);
+          this.frameApplier.applyMorphTargets(
+            [target],
+            Math.max(target.infl[target.idx] ?? 0, weighted)
+          );
+        }
       }
     }
 
@@ -2402,4 +2527,57 @@ export function collectMorphMeshes(root: Object3D): Mesh[] {
     }
   });
   return meshes;
+}
+
+function buildFrameApplierBindings(
+  inspection: ReturnType<ThreeModelInspector['inspectModel']>
+): ThreeFrameApplierBindings {
+  const meshes = new Map<import('../../core/contracts').MeshId, Mesh>();
+  for (const meshDesc of inspection.descriptor.meshes) {
+    const mesh = inspection.meshByName.get(meshDesc.name)
+      || inspection.allMeshes.find((candidate) => candidate.name === meshDesc.name);
+    if (mesh) {
+      meshes.set(meshDesc.id, mesh);
+    }
+  }
+
+  const morphTargets = new Map<
+    import('../../core/contracts').MorphTargetId,
+    { meshId: import('../../core/contracts').MeshId; mesh: Mesh; index: number }
+  >();
+  for (const morph of inspection.descriptor.morphTargets) {
+    const mesh = meshes.get(morph.meshId);
+    if (!mesh || morph.hostIndex === undefined) continue;
+    morphTargets.set(morph.id, {
+      meshId: morph.meshId,
+      mesh,
+      index: morph.hostIndex,
+    });
+  }
+
+  const bonesByName = new Map<string, Object3D>();
+  for (const entry of Object.values(inspection.bones)) {
+    if (entry?.obj?.name) {
+      bonesByName.set(entry.obj.name, entry.obj);
+    }
+  }
+  if (inspection.allMeshes[0]?.parent) {
+    let root: Object3D | null = inspection.allMeshes[0];
+    while (root?.parent) root = root.parent;
+    root?.traverse((obj) => {
+      if (obj.name && !bonesByName.has(obj.name)) {
+        bonesByName.set(obj.name, obj);
+      }
+    });
+  }
+
+  const bones = new Map<import('../../core/contracts').BoneId, Object3D>();
+  for (const boneDesc of inspection.descriptor.bones) {
+    const bone = bonesByName.get(boneDesc.name);
+    if (bone) {
+      bones.set(boneDesc.id, bone);
+    }
+  }
+
+  return { meshes, morphTargets, bones };
 }
