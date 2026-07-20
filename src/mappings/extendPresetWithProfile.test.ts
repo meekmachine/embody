@@ -21,6 +21,25 @@ const basePreset: Profile = {
 };
 
 describe('extendPresetWithProfile', () => {
+  it('merges sparse host profiles without requiring Wasm init', () => {
+    const result = extendPresetWithProfile(
+      {
+        auPresetType: 'cc4',
+        annotationRegions: [{ name: 'head', bones: ['Head'] }],
+      } as Profile,
+      {
+        annotationRegions: [{ name: 'head', paddingFactor: 1.1 }],
+      },
+    );
+
+    expect(result.annotationRegions?.find((region) => region.name === 'head')).toMatchObject({
+      name: 'head',
+      bones: ['Head'],
+      paddingFactor: 1.1,
+    });
+    expect(result.auToMorphs).toEqual({});
+  });
+
   it('merges maps and overrides scalars', () => {
     const result = extendPresetWithProfile(basePreset, {
       name: 'override',

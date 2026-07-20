@@ -56,17 +56,50 @@ export const MARKER_VISIBILITY_FACTORS_FIELDS = CORE_MARKER_VISIBILITY_FACTORS_F
 const WASM_MODULE_SPECIFIER = './wasm/embody_wasm.js';
 const WASM_BINARY_SPECIFIER = './wasm/embody_wasm_bg.wasm';
 
-/** @type {Promise<import('./wasmTypes').EmbodyCoreWasmModule> | null} */
-let corePromise = null;
-/** @type {import('./wasmTypes').EmbodyCoreWasmModule | null} */
-let cachedCore = null;
+/**
+ * Process-wide Wasm singleton.
+ *
+ * Bundlers / Vite can still evaluate `wasm.ts` more than once (main package vs
+ * `/wasm` entry, CJS vs ESM, HMR). Module-local `let` caches then diverge:
+ * Polymer awaits `initEmbodyCore()` on one copy while sync helpers read
+ * `getEmbodyCoreSync()` on another → intermittent "not initialized" failures
+ * that abort character load and revert the UI.
+ */
+const EMBODY_WASM_CORE_GLOBAL_KEY = Symbol.for('@lovelace_lol/embody/wasm-core');
+
+/**
+ * @typedef {{
+ *   corePromise: Promise<import('./wasmTypes').EmbodyCoreWasmModule> | null,
+ *   cachedCore: import('./wasmTypes').EmbodyCoreWasmModule | null,
+ * }} EmbodyWasmCoreCache
+ */
+
+/** @returns {EmbodyWasmCoreCache} */
+function getSharedCoreCache() {
+  const runtime = /** @type {Record<PropertyKey, EmbodyWasmCoreCache | undefined>} */ (globalThis);
+  let cache = runtime[EMBODY_WASM_CORE_GLOBAL_KEY];
+  if (!cache) {
+    cache = { corePromise: null, cachedCore: null };
+    runtime[EMBODY_WASM_CORE_GLOBAL_KEY] = cache;
+  }
+  return cache;
+}
 
 /** @returns {Promise<import('./wasmTypes').EmbodyCoreWasmModule>} */
 export async function initEmbodyCore() {
-  if (!corePromise) {
-    corePromise = loadCoreModule();
+  const cache = getSharedCoreCache();
+  if (!cache.corePromise) {
+    cache.corePromise = loadCoreModule().catch((error) => {
+      // Allow a later retry after a transient load failure.
+      const shared = getSharedCoreCache();
+      if (shared.corePromise) {
+        shared.corePromise = null;
+      }
+      shared.cachedCore = null;
+      throw error;
+    });
   }
-  return corePromise;
+  return cache.corePromise;
 }
 
 /** @returns {Promise<import('./wasmTypes').EmbodyCoreWasmModule>} */
@@ -80,6 +113,7 @@ export async function getEmbodyCore() {
  * @returns {import('./wasmTypes').EmbodyCoreWasmModule}
  */
 export function getEmbodyCoreSync() {
+  const { cachedCore } = getSharedCoreCache();
   if (!cachedCore) {
     throw new Error(
       'Embody Wasm core is not initialized. Await initEmbodyCore() before calling sync engine helpers.'
@@ -89,8 +123,9 @@ export function getEmbodyCoreSync() {
 }
 
 export function resetEmbodyCoreForTests() {
-  corePromise = null;
-  cachedCore = null;
+  const cache = getSharedCoreCache();
+  cache.corePromise = null;
+  cache.cachedCore = null;
 }
 
 /**
@@ -100,8 +135,9 @@ export function resetEmbodyCoreForTests() {
  */
 export function setEmbodyCoreForTests(mod) {
   assertCoreAbi(mod);
-  cachedCore = mod;
-  corePromise = Promise.resolve(mod);
+  const cache = getSharedCoreCache();
+  cache.cachedCore = mod;
+  cache.corePromise = Promise.resolve(mod);
 }
 
 /** @returns {Promise<import('./wasmTypes').EmbodyCoreWasmModule>} */
@@ -112,7 +148,7 @@ async function loadCoreModule() {
   }
 
   assertCoreAbi(mod);
-  cachedCore = mod;
+  getSharedCoreCache().cachedCore = mod;
   return mod;
 }
 
