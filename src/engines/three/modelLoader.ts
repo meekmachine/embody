@@ -140,22 +140,36 @@ export function applyCharacterModelTransform(
 
 /**
  * Dispose a model graph and remove it from a scene when present.
+ *
+ * Handles any renderable object (Mesh, Points, Line, ...) and releases
+ * textures referenced by materials.
  */
 export function disposeCharacterModel(scene: Scene | null, model: Object3D): void {
   scene?.remove(model);
   model.traverse((obj) => {
-    const mesh = obj as Mesh & {
+    const holder = obj as Object3D & {
       geometry?: { dispose?: () => void };
-      material?: { dispose?: () => void } | Array<{ dispose?: () => void }>;
+      material?: MaterialLike | MaterialLike[];
     };
-    if (!mesh.isMesh) return;
-    mesh.geometry?.dispose?.();
-    if (Array.isArray(mesh.material)) {
-      mesh.material.forEach((material) => material.dispose?.());
-    } else {
-      mesh.material?.dispose?.();
+    holder.geometry?.dispose?.();
+    if (!holder.material) return;
+    const materials = Array.isArray(holder.material) ? holder.material : [holder.material];
+    materials.forEach(disposeMaterialWithTextures);
+  });
+}
+
+interface MaterialLike {
+  dispose?: () => void;
+}
+
+function disposeMaterialWithTextures(material: MaterialLike): void {
+  Object.values(material as Record<string, unknown>).forEach((value) => {
+    const texture = value as { isTexture?: boolean; dispose?: () => void } | null;
+    if (texture?.isTexture && typeof texture.dispose === 'function') {
+      texture.dispose();
     }
   });
+  material.dispose?.();
 }
 
 function loadGltf(
