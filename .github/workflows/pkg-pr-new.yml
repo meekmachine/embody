@@ -39,4 +39,11 @@ jobs:
         run: npm run build
 
       - name: Publish preview package
+        id: publish
+        continue-on-error: true
         run: npx --yes pkg-pr-new publish --no-compact
+
+      - name: Warn if pkg.pr.new is unavailable
+        if: steps.publish.outcome == 'failure'
+        run: |
+          echo "::warning::pkg.pr.new publish failed. Install the GitHub App at https://github.com/apps/pkg-pr-new on meekmachine/embody, then re-run this job. Consumers will fall back to git SHA installs until then."
