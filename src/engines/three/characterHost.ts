@@ -255,6 +255,7 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
       profile: value.profile ?? null,
       modelOffset: value.modelOffset ?? null,
       modelRotation: value.modelRotation ?? null,
+      modelScale: value.modelScale ?? null,
       modelGroundClearance: value.modelGroundClearance ?? null,
     });
 
