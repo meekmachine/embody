@@ -80,10 +80,12 @@ export class ThreeFrameApplier implements HostFrameApplier<Object3D> {
       this.setMorphTarget(binding, write.value, write.mode);
     }
 
+    let wroteTransforms = false;
     for (const write of frame.bones || []) {
       const bone = this.bones.get(write.boneId);
       if (!bone) continue;
       this.applyTransform(bone, write.transform, write.mode);
+      wroteTransforms = true;
     }
 
     for (const write of frame.meshes || []) {
@@ -94,7 +96,10 @@ export class ThreeFrameApplier implements HostFrameApplier<Object3D> {
       }
     }
 
-    model.updateMatrixWorld(true);
+    // Morph-only frames don't affect matrices; skip the full-tree update.
+    if (wroteTransforms) {
+      model.updateMatrixWorld(true);
+    }
   }
 
   applyPackedMorphFrameDelta(values: ArrayLike<number>, stride = 4): void {

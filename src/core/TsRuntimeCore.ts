@@ -180,7 +180,10 @@ export class TsRuntimeCore {
     }
 
     for (const [key, write] of localMax) {
-      morphWrites.set(key, write);
+      const existing = morphWrites.get(key);
+      if (!existing || write.value > existing.value) {
+        morphWrites.set(key, write);
+      }
     }
   }
 
@@ -296,7 +299,12 @@ export class TsRuntimeCore {
     value: number
   ): void {
     for (const resolved of this.resolveMorphTargets(morph, meshNames)) {
-      morphWrites.set(morphWriteKey(resolved.mesh.id, resolved.morphTarget.id), {
+      const key = morphWriteKey(resolved.mesh.id, resolved.morphTarget.id);
+      const existing = morphWrites.get(key);
+      // Max-combine: several AUs can bind the same morph target; an inactive
+      // AU must not clobber an active one in full-state evaluation.
+      if (existing && existing.value >= value) continue;
+      morphWrites.set(key, {
         meshId: resolved.mesh.id,
         morphTargetId: resolved.morphTarget.id,
         value,

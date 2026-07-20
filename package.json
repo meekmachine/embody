@@ -61,6 +61,7 @@
     "three": ">=0.150.0"
   },
   "devDependencies": {
+    "@types/node": "^26.1.1",
     "@types/three": "^0.170.0",
     "@vitest/coverage-v8": "^3.2.4",
     "three": "^0.170.0",

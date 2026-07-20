@@ -379,14 +379,32 @@ export class Embody implements EmbodyRuntime {
     }
   }
 
+  /**
+   * Re-inspect the current model and push a fresh ModelDescriptor into the
+   * runtime cores and frame applier. Needed whenever host-side morph targets
+   * or meshes change after onReady (e.g. addMorphTarget).
+   */
+  private refreshHostNeutralModelDescriptor(): void {
+    if (!this.model || !this.framePathReady) return;
+    const inspection = this.modelInspector.inspectModel(this.model, {
+      meshes: this.meshes,
+      profile: this.config,
+      previousBones: this.bones,
+    });
+    this.modelDescriptor = inspection.descriptor;
+    this.frameApplier.setBindings(buildFrameApplierBindings(inspection));
+    this.tsRuntimeCore?.setModelDescriptor(inspection.descriptor);
+    this.wasmRuntimeCore?.setModelDescriptor(inspection.descriptor);
+  }
+
   private applyLiveMorphFrameDelta(): boolean {
     if (!this.framePathReady || !this.model) return false;
 
     if (this.wasmRuntimeCore) {
+      // Morph influence writes never touch transforms, so no matrix update.
       this.frameApplier.applyPackedMorphFrameDelta(
         this.wasmRuntimeCore.evaluatePackedMorphFrameDelta()
       );
-      this.model.updateMatrixWorld(true);
       return true;
     }
 
@@ -923,6 +941,7 @@ export class Embody implements EmbodyRuntime {
     }
 
     this.rebuildMorphTargetsCache();
+    this.refreshHostNeutralModelDescriptor();
     this.hairPhysics.refreshMeshSelection();
   }
 
@@ -1464,12 +1483,9 @@ export class Embody implements EmbodyRuntime {
       this.bones = this.resolveBones(this.model);
       this.missingBoneWarnings.clear();
       this.rebuildMorphTargetsCache();
-      if (this.modelDescriptor) {
-        this.tsRuntimeCore?.setProfile(this.config);
-        this.tsRuntimeCore?.setModelDescriptor(this.modelDescriptor);
-        this.wasmRuntimeCore?.setProfile(this.config);
-        this.wasmRuntimeCore?.setModelDescriptor(this.modelDescriptor);
-      }
+      this.tsRuntimeCore?.setProfile(this.config);
+      this.wasmRuntimeCore?.setProfile(this.config);
+      this.refreshHostNeutralModelDescriptor();
     }
     this.hairPhysics.refreshMeshSelection();
     this.applyHairPhysicsProfileConfig();

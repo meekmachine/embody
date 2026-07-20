@@ -182,7 +182,14 @@ impl RuntimeCore {
                 _ => base,
             };
             let weighted = clamp01(side_value * binding.weight);
-            writes.insert((binding.mesh_id, binding.morph_target_id), weighted);
+            // Max-combine: several AUs can bind the same morph target; an
+            // inactive AU must not clobber an active one.
+            let entry = writes
+                .entry((binding.mesh_id, binding.morph_target_id))
+                .or_insert(0.0);
+            if weighted > *entry {
+                *entry = weighted;
+            }
         }
 
         let mut viseme_writes: HashMap<(u32, u32), f32> = HashMap::new();
@@ -203,7 +210,10 @@ impl RuntimeCore {
             }
         }
         for (key, value) in viseme_writes {
-            writes.insert(key, value);
+            let entry = writes.entry(key).or_insert(0.0);
+            if value > *entry {
+                *entry = value;
+            }
         }
 
         let mut out = Vec::with_capacity(writes.len() * PACKED_MORPH_FRAME_DELTA_STRIDE as usize);
@@ -255,6 +265,20 @@ mod tests {
         assert!(rows.contains(&(10, 100, 0.8)));
         assert!(rows.contains(&(10, 101, 0.6)));
         assert!(rows.contains(&(10, 102, 0.8)));
+    }
+
+    #[test]
+    fn inactive_au_does_not_clobber_active_au_on_shared_morph() {
+        let mut core = RuntimeCore::new(0);
+        core.load_au_morph_bindings(&[
+            43.0, 0.0, 10.0, 100.0, 1.0, // AU 43 left -> morph 100
+            7.0, 0.0, 10.0, 100.0, 1.0, // AU 7 left -> same morph, inactive
+        ]);
+        core.set_au(43, 1.0, 0.0);
+
+        let packed = core.evaluate_morph_frame_delta();
+        let rows = unpack_rows(&packed);
+        assert_eq!(rows, vec![(10, 100, 1.0)]);
     }
 
     #[test]
