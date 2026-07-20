@@ -68,6 +68,41 @@ export type {
   ThreeClipMorphTargetBinding,
 } from './engines/three/ThreeClipAdapter';
 export {
+  createCharacterHost,
+} from './engines/three/characterHost';
+export type {
+  CharacterHost,
+  CharacterHostCharacterOptions,
+  CharacterHostExternalScene,
+  CharacterHostOptions,
+} from './engines/three/characterHost';
+export {
+  createDefaultCharacterLighting,
+  createDefaultCharacterScene,
+  createShadowPlane,
+  DEFAULT_CHARACTER_LIGHTING_PRESET_ID,
+  DEFAULT_CHARACTER_LIGHTING_PRESETS,
+  DEFAULT_CHARACTER_LIGHTING_SETTINGS,
+} from './engines/three/characterScene';
+export type {
+  DefaultCharacterLightingController,
+  DefaultCharacterLightingPresetId,
+  DefaultCharacterLightingSettings,
+  DefaultCharacterScene,
+  DefaultCharacterSceneOptions,
+} from './engines/three/characterScene';
+export {
+  applyCharacterModelTransform,
+  disposeCharacterModel,
+  loadCharacterModel,
+  parseCharacterModel,
+} from './engines/three/modelLoader';
+export type {
+  CharacterModelLoadOptions,
+  CharacterModelLoadResult,
+  CharacterModelTransform,
+} from './engines/three/modelLoader';
+export {
   TsClipCompiler,
   numericArrayToNumbers,
 } from './core/TsClipCompiler';

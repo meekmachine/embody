@@ -38,3 +38,38 @@ export type {
   ThreeClipMeshBinding,
   ThreeClipMorphTargetBinding,
 } from './ThreeClipAdapter';
+export {
+  createCharacterHost,
+} from './characterHost';
+export type {
+  CharacterHost,
+  CharacterHostCharacterOptions,
+  CharacterHostExternalScene,
+  CharacterHostOptions,
+} from './characterHost';
+export {
+  createDefaultCharacterLighting,
+  createDefaultCharacterScene,
+  createShadowPlane,
+  DEFAULT_CHARACTER_LIGHTING_PRESET_ID,
+  DEFAULT_CHARACTER_LIGHTING_PRESETS,
+  DEFAULT_CHARACTER_LIGHTING_SETTINGS,
+} from './characterScene';
+export type {
+  DefaultCharacterLightingController,
+  DefaultCharacterLightingPresetId,
+  DefaultCharacterLightingSettings,
+  DefaultCharacterScene,
+  DefaultCharacterSceneOptions,
+} from './characterScene';
+export {
+  applyCharacterModelTransform,
+  disposeCharacterModel,
+  loadCharacterModel,
+  parseCharacterModel,
+} from './modelLoader';
+export type {
+  CharacterModelLoadOptions,
+  CharacterModelLoadResult,
+  CharacterModelTransform,
+} from './modelLoader';
