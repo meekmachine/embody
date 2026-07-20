@@ -159,6 +159,13 @@ export const DEFAULT_CHARACTER_LIGHTING_SETTINGS: DefaultCharacterLightingSettin
   ...DEFAULT_CHARACTER_LIGHTING_PRESETS[DEFAULT_CHARACTER_LIGHTING_PRESET_ID].settings,
 };
 
+export const DEFAULT_CHARACTER_LIGHTING_PRESET_IDS: readonly DefaultCharacterLightingPresetId[] = [
+  'cleanStudio',
+  'softFill',
+  'inspection',
+  'contrast',
+];
+
 function cloneSettings(settings: DefaultCharacterLightingSettings): DefaultCharacterLightingSettings {
   return { ...settings };
 }
@@ -173,8 +180,12 @@ function normalizeBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+type DefaultCharacterLightingSettingsInput = Partial<
+  Record<keyof DefaultCharacterLightingSettings, unknown>
+>;
+
 function normalizeSettings(
-  settings: Partial<DefaultCharacterLightingSettings>,
+  settings: DefaultCharacterLightingSettingsInput,
 ): DefaultCharacterLightingSettings {
   return {
     envMapEnabled: normalizeBoolean(settings.envMapEnabled, DEFAULT_CHARACTER_LIGHTING_SETTINGS.envMapEnabled),
@@ -202,6 +213,20 @@ function normalizeSettings(
     rimIntensity: clampFinite(settings.rimIntensity, 0, 1.6, DEFAULT_CHARACTER_LIGHTING_SETTINGS.rimIntensity),
     shadowOpacity: clampFinite(settings.shadowOpacity, 0, 0.5, DEFAULT_CHARACTER_LIGHTING_SETTINGS.shadowOpacity),
   };
+}
+
+/**
+ * Normalize persisted / untrusted lighting settings (e.g. profile JSON).
+ * Returns null when the value is not a plain object.
+ */
+export function normalizeDefaultCharacterLightingSettings(
+  value: unknown,
+): DefaultCharacterLightingSettings | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  return normalizeSettings(value as DefaultCharacterLightingSettingsInput);
 }
 
 function setRendererLighting(renderer: WebGLRenderer, settings: DefaultCharacterLightingSettings): void {
