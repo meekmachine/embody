@@ -18,24 +18,64 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  changes:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        check:
-          - name: Build
-            command: npm run build
-          - name: Rust Test
-            command: npm run rust:test
-          - name: Typecheck
-            command: npm run typecheck
-          - name: Test
-            command: npm test
-          - name: Package Exports
-            command: npm run test:exports
-    name: ${{ matrix.check.name }}
+    outputs:
+      ts: ${{ steps.filter.outputs.ts }}
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed areas
+        id: filter
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          ts=false
+          rust=false
+
+          if ! git diff --quiet "${BASE_SHA}...${HEAD_SHA}" -- \
+            .github/workflows/pr-checks.yml; then
+            ts=true
+            rust=true
+          fi
+
+          if ! git diff --quiet "${BASE_SHA}...${HEAD_SHA}" -- \
+            '*.ts' '*.tsx' '*.mts' '*.cts' \
+            'tsconfig*.json' 'tsup.config.*' 'vitest.config.*' \
+            package.json package-lock.json \
+            'scripts/smoke/**'; then
+            ts=true
+          fi
+
+          if ! git diff --quiet "${BASE_SHA}...${HEAD_SHA}" -- \
+            rust \
+            '*.rs' \
+            '**/Cargo.toml' '**/Cargo.lock' \
+            scripts/build-wasm.mjs; then
+            rust=true
+          fi
+
+          {
+            echo "ts=${ts}"
+            echo "rust=${rust}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "TypeScript checks: ${ts}"
+          echo "Rust checks: ${rust}"
+
+  ts-checks:
+    needs: changes
+    if: needs.changes.outputs.ts == 'true'
+    runs-on: ubuntu-latest
+    name: Typecheck, Test, Package Exports
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -54,5 +94,40 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run ${{ matrix.check.name }}
-        run: ${{ matrix.check.command }}
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Package Exports
+        run: npm run test:exports
+
+  rust-checks:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    name: Build, Rust Test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Rust Test
+        run: npm run rust:test
