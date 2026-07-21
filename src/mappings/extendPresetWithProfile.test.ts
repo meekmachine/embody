@@ -26,7 +26,7 @@ describe('extendPresetWithProfile', () => {
       {
         auPresetType: 'cc4',
         annotationRegions: [{ name: 'head', bones: ['Head'] }],
-      } as Profile,
+      } as unknown as Profile,
       {
         annotationRegions: [{ name: 'head', paddingFactor: 1.1 }],
       },
