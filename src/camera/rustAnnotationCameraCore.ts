@@ -78,6 +78,15 @@ export interface MarkerVisibilityAnimationFactors {
   lineOpacityFactor: number;
 }
 
+export interface MarkerEndpointSeparationOptions {
+  /** Packed marker surface anchors as `[x, y, z, ...]`. */
+  starts: readonly number[];
+  /** Packed marker leader-line ends as `[x, y, z, ...]`. */
+  ends: readonly number[];
+  modelCenter: Vec3Like;
+  modelHeight: number;
+}
+
 function packVec3(value: Vec3Like): Float32Array {
   return new Float32Array([value.x, value.y, value.z]);
 }
@@ -371,6 +380,19 @@ export class RustAnnotationCameraCore {
       labelScaleFactor: values[1],
       lineOpacityFactor: values[2],
     };
+  }
+
+  /**
+   * Separates overlapping leader-line endpoints while retaining marker anchors
+   * and leader-line lengths. Returns packed `[x, y, z, ...]` end points.
+   */
+  separateOverlappingMarkerEndpoints(options: MarkerEndpointSeparationOptions): Float32Array {
+    return this.core.separate_overlapping_marker_endpoints(
+      new Float32Array(options.starts),
+      new Float32Array(options.ends),
+      packVec3(options.modelCenter),
+      options.modelHeight,
+    );
   }
 }
 

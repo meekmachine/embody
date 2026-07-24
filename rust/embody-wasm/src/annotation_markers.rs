@@ -10,11 +10,15 @@ use wasm_bindgen::prelude::*;
 use crate::annotation_camera::{normalize_camera_angle_value, read_vec3};
 
 pub const MARKER_VISIBILITY_FACTORS_STRIDE: u32 = 3;
+pub const MARKER_ENDPOINT_STRIDE: u32 = 3;
 
 const CLIP_EPSILON: f32 = 1e-6;
 const DEFAULT_MIN_VIEWPORT_LINE_SCALE: f32 = 0.18;
 const DEFAULT_VIEWPORT_LABEL_EDGE_PADDING_PX: f32 = 12.0;
 const DEFAULT_CAMERA_ANGLE_GATE_RANGE: f32 = 90.0;
+const REFERENCE_MODEL_HEIGHT: f32 = 1.8;
+const MARKER_SEPARATION_DISTANCE: f32 = 0.15;
+const MARKER_SEPARATION_ANGLE: f32 = 25.0;
 
 const LABEL_SHOW_START_SCALE: f32 = 0.18;
 const LABEL_SHOW_PEAK_SCALE: f32 = 1.28;
@@ -24,6 +28,11 @@ const LABEL_HIDE_END_SCALE: f32 = 0.14;
 #[wasm_bindgen]
 pub fn marker_visibility_factors_stride() -> u32 {
     MARKER_VISIBILITY_FACTORS_STRIDE
+}
+
+#[wasm_bindgen]
+pub fn marker_endpoint_stride() -> u32 {
+    MARKER_ENDPOINT_STRIDE
 }
 
 // ====== CAMERA ANGLE GATE ======
@@ -370,6 +379,144 @@ pub fn marker_visibility_animation_factors(visible: bool, t: f32) -> Box<[f32]> 
     vec![item_opacity, label_visibility_scale(visible, t), line_opacity].into_boxed_slice()
 }
 
+// ====== MARKER ENDPOINT SEPARATION ======
+
+fn cross3(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn rotate_around_axis(v: [f32; 3], axis: [f32; 3], angle: f32) -> [f32; 3] {
+    let axis = crate::annotation_camera::normalize3(axis);
+    if axis == [0.0, 0.0, 0.0] {
+        return v;
+    }
+
+    let cos = angle.cos();
+    let sin = angle.sin();
+    let dot = axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2];
+    let cross = cross3(axis, v);
+    [
+        v[0] * cos + cross[0] * sin + axis[0] * dot * (1.0 - cos),
+        v[1] * cos + cross[1] * sin + axis[1] * dot * (1.0 - cos),
+        v[2] * cos + cross[2] * sin + axis[2] * dot * (1.0 - cos),
+    ]
+}
+
+/// Separates overlapping marker endpoints while preserving each marker's
+/// surface anchor and leader-line length.
+///
+/// `starts` and `ends` are packed `[x, y, z, ...]` arrays. The output contains
+/// one adjusted endpoint per complete input pair, using the same vec3 stride.
+/// Markers are grouped when their endpoints are closer than 0.15 model units
+/// (scaled against the 1.8-unit reference model height), or their anchors are
+/// closer than half that distance.
+#[wasm_bindgen]
+pub fn separate_overlapping_marker_endpoints(
+    starts: &[f32],
+    ends: &[f32],
+    model_center: &[f32],
+    model_height: f32,
+) -> Box<[f32]> {
+    let count = (starts.len() / MARKER_ENDPOINT_STRIDE as usize)
+        .min(ends.len() / MARKER_ENDPOINT_STRIDE as usize);
+    let mut adjusted_ends = ends[..count * MARKER_ENDPOINT_STRIDE as usize].to_vec();
+    if count < 2 {
+        return adjusted_ends.into_boxed_slice();
+    }
+
+    let model_center = read_vec3(model_center, 0);
+    let scale = (model_height / REFERENCE_MODEL_HEIGHT).max(0.0);
+    let min_distance = MARKER_SEPARATION_DISTANCE * scale;
+    let angle_step = MARKER_SEPARATION_ANGLE.to_radians();
+    let mut processed = vec![false; count];
+
+    for i in 0..count {
+        if processed[i] {
+            continue;
+        }
+
+        let start_a = read_vec3(starts, i * MARKER_ENDPOINT_STRIDE as usize);
+        let end_a = read_vec3(&adjusted_ends, i * MARKER_ENDPOINT_STRIDE as usize);
+        let mut close_markers = vec![i];
+
+        for j in (i + 1)..count {
+            if processed[j] {
+                continue;
+            }
+
+            let start_b = read_vec3(starts, j * MARKER_ENDPOINT_STRIDE as usize);
+            let end_b = read_vec3(&adjusted_ends, j * MARKER_ENDPOINT_STRIDE as usize);
+            if crate::annotation_camera::distance3(end_a, end_b) < min_distance
+                || crate::annotation_camera::distance3(start_a, start_b) < min_distance * 0.5
+            {
+                close_markers.push(j);
+            }
+        }
+
+        if close_markers.len() < 2 {
+            continue;
+        }
+
+        let mut group_center = [0.0; 3];
+        for &marker in &close_markers {
+            let start = read_vec3(starts, marker * MARKER_ENDPOINT_STRIDE as usize);
+            group_center[0] += start[0];
+            group_center[1] += start[1];
+            group_center[2] += start[2];
+        }
+        let group_count = close_markers.len() as f32;
+        group_center = [
+            group_center[0] / group_count,
+            group_center[1] / group_count,
+            group_center[2] / group_count,
+        ];
+        let average_direction = crate::annotation_camera::normalize3(
+            crate::annotation_camera::sub3(group_center, model_center),
+        );
+        let up = [0.0, 1.0, 0.0];
+        let right = crate::annotation_camera::normalize3(cross3(average_direction, up));
+
+        for (group_index, &marker) in close_markers.iter().enumerate() {
+            let start = read_vec3(starts, marker * MARKER_ENDPOINT_STRIDE as usize);
+            let end = read_vec3(&adjusted_ends, marker * MARKER_ENDPOINT_STRIDE as usize);
+            let offset_index = group_index as f32 - (group_count - 1.0) * 0.5;
+            let line_vector = crate::annotation_camera::sub3(end, start);
+            let line_length = crate::annotation_camera::distance3(start, end);
+            if line_length <= f32::EPSILON {
+                continue;
+            }
+
+            let mut direction = crate::annotation_camera::normalize3(line_vector);
+            direction = rotate_around_axis(
+                direction,
+                if group_index % 2 == 0 { up } else { right },
+                offset_index * angle_step,
+            );
+            if group_count > 2.0 {
+                let vertical_offset =
+                    (group_index as f32 / (group_count - 1.0) - 0.5) * angle_step * 0.5;
+                direction = rotate_around_axis(direction, right, vertical_offset);
+            }
+            direction = crate::annotation_camera::normalize3(direction);
+
+            let offset = marker * MARKER_ENDPOINT_STRIDE as usize;
+            adjusted_ends[offset] = start[0] + direction[0] * line_length;
+            adjusted_ends[offset + 1] = start[1] + direction[1] * line_length;
+            adjusted_ends[offset + 2] = start[2] + direction[2] * line_length;
+        }
+
+        for marker in close_markers {
+            processed[marker] = true;
+        }
+    }
+
+    adjusted_ends.into_boxed_slice()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -514,5 +661,41 @@ mod tests {
         assert!((peak - LABEL_SHOW_PEAK_SCALE).abs() < 1e-6);
         let settled = label_visibility_scale(true, 1.0);
         assert!((settled - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn separates_close_endpoints_without_changing_line_lengths() {
+        let starts = [0.0, 0.0, 1.0, 0.02, 0.0, 1.0];
+        let ends = [0.0, 0.0, 2.0, 0.02, 0.0, 2.0];
+        let separated =
+            separate_overlapping_marker_endpoints(&starts, &ends, &[0.0, 0.0, 0.0], 1.8);
+
+        assert_eq!(separated.len(), ends.len());
+        assert!(
+            crate::annotation_camera::distance3(read_vec3(&separated, 0), read_vec3(&separated, 3))
+                > 0.15
+        );
+        assert!(
+            (crate::annotation_camera::distance3(read_vec3(&starts, 0), read_vec3(&separated, 0))
+                - 1.0)
+                .abs()
+                < 1e-6
+        );
+        assert!(
+            (crate::annotation_camera::distance3(read_vec3(&starts, 3), read_vec3(&separated, 3))
+                - 1.0)
+                .abs()
+                < 1e-6
+        );
+    }
+
+    #[test]
+    fn leaves_distant_endpoints_unchanged() {
+        let starts = [0.0, 0.0, 1.0, 2.0, 0.0, 1.0];
+        let ends = [0.0, 0.0, 2.0, 2.0, 0.0, 2.0];
+        let separated =
+            separate_overlapping_marker_endpoints(&starts, &ends, &[0.0, 0.0, 0.0], 1.8);
+
+        assert_eq!(&*separated, &ends);
     }
 }

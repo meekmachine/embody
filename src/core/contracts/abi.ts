@@ -37,6 +37,7 @@ export const TEMPLATE_SKELETON_FIT_SOLUTION_STRIDE = 10;
 export const ANNOTATION_CAMERA_FRAMING_STRIDE = 7;
 export const CAMERA_FLIGHT_SAMPLE_STRIDE = 7;
 export const MARKER_VISIBILITY_FACTORS_STRIDE = 3;
+export const MARKER_ENDPOINT_STRIDE = 3;
 
 export const HAIR_CONFIG_FIELDS = [
   'mass',
@@ -121,6 +122,7 @@ export const MARKER_VISIBILITY_FACTORS_FIELDS = [
   'labelScaleFactor',
   'lineOpacityFactor',
 ] as const;
+export const MARKER_ENDPOINT_FIELDS = ['x', 'y', 'z'] as const;
 
 export type PackedMorphFrameDeltaField = (typeof PACKED_MORPH_FRAME_DELTA_FIELDS)[number];
 export type HairConfigField = (typeof HAIR_CONFIG_FIELDS)[number];
