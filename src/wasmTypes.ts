@@ -137,6 +137,7 @@ export interface EmbodyCoreWasmModule {
   annotation_camera_framing_stride(): number;
   camera_flight_sample_stride(): number;
   marker_visibility_factors_stride(): number;
+  marker_endpoint_stride(): number;
   normalize_camera_angle_degrees(angle: number): number;
   world_direction_for_camera_angle(modelQuat: Float32Array, cameraAngle: number): Float32Array;
   resolve_focus_camera_direction(
@@ -212,6 +213,12 @@ export interface EmbodyCoreWasmModule {
   sample_marker_bezier_curve(start: Float32Array, end: Float32Array, segments: number): Float32Array;
   sample_marker_arc_curve(start: Float32Array, end: Float32Array, segments: number): Float32Array;
   marker_visibility_animation_factors(visible: boolean, t: number): Float32Array;
+  separate_overlapping_marker_endpoints(
+    starts: Float32Array,
+    ends: Float32Array,
+    modelCenter: Float32Array,
+    modelHeight: number
+  ): Float32Array;
   HairPhysicsSolver: WasmHairPhysicsSolverConstructor;
   RuntimeCore: WasmRuntimeCoreConstructor;
   CameraFlight: WasmCameraFlightConstructor;

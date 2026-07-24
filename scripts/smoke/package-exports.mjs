@@ -82,6 +82,12 @@ const markerLineScale = annotationCamera.resolveViewportConstrainedLineScale({
   safeX: 0.8,
   safeY: 0.9,
 });
+const separatedMarkerEndpoints = annotationCamera.separateOverlappingMarkerEndpoints({
+  starts: [0, 0, 1, 0.02, 0, 1],
+  ends: [0, 0, 2, 0.02, 0, 2],
+  modelCenter: { x: 0, y: 0, z: 0 },
+  modelHeight: 1.8,
+});
 const cameraFlight = annotationCamera.createCameraFlight(
   { x: 0, y: 1, z: 3 },
   { x: 0, y: 1, z: 0 },
@@ -138,6 +144,12 @@ const checks = [
   ['wasm marker line clipping', markerLineScale.visible && Math.abs(markerLineScale.lineScale - 0.4) < 1e-5],
   ['wasm marker angle gate', annotationCamera.passesMarkerCameraAngleGate({ markerAngle: 350, currentCameraAngle: 10 })
     && !annotationCamera.shouldShowMarker({ hiddenChild: false, solo: 'other-soloed' })],
+  ['wasm marker endpoint separation', separatedMarkerEndpoints.length === 6
+    && Math.hypot(
+      separatedMarkerEndpoints[0] - separatedMarkerEndpoints[3],
+      separatedMarkerEndpoints[1] - separatedMarkerEndpoints[4],
+      separatedMarkerEndpoints[2] - separatedMarkerEndpoints[5],
+    ) > 0.15],
   ['wasm camera flight endpoint', cameraFlightEnd.done && Math.abs(cameraFlightEnd.position.x - 2) < 1e-5],
   ['core compiler ESM', typeof core.TsClipCompiler === 'function'],
   ['core runtime ESM', typeof core.TsRuntimeCore === 'function'],
