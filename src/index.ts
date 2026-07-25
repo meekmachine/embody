@@ -503,6 +503,7 @@ export type {
   CameraPoseSample,
   FocusFramingOptions,
   FullBodyFramingOptions,
+  MarkerEndpointSeparationOptions,
   MarkerSoloState,
   MarkerVisibilityAnimationFactors,
   QuatLike,
