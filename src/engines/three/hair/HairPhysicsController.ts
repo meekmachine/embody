@@ -14,6 +14,7 @@ import {
   DEFAULT_HAIR_COLOR_APPEARANCE,
   normalizeHairColorAppearance,
 } from '../../../hair/appearance';
+import type { HairPhysicsProfileConfig } from '../../../mappings/types';
 import { CC4_MESHES } from '../../../presets/cc4';
 import type { EmbodyCoreWasmModule } from '../../../wasmTypes';
 
@@ -353,6 +354,74 @@ export class HairPhysicsController {
 
   isHairPhysicsEnabled(): boolean {
     return this.hairPhysicsEnabled;
+  }
+
+  setHairPhysicsProfileConfig(hairConfig?: HairPhysicsProfileConfig): void {
+    if (!hairConfig) return;
+
+    const runtimeConfig: HairPhysicsConfigUpdate = {};
+    const numericKeys: Array<keyof HairPhysicsProfileConfig> = [
+      'stiffness',
+      'damping',
+      'inertia',
+      'gravity',
+      'responseScale',
+      'idleSwayAmount',
+      'idleSwaySpeed',
+      'windStrength',
+      'windDirectionX',
+      'windDirectionZ',
+      'windTurbulence',
+      'windFrequency',
+      'idleClipDuration',
+      'impulseClipDuration',
+    ];
+
+    for (const key of numericKeys) {
+      const value = hairConfig[key];
+      if (value !== undefined) {
+        (runtimeConfig as Record<string, unknown>)[key] = value;
+      }
+    }
+
+    if (hairConfig.direction) {
+      runtimeConfig.direction = { ...hairConfig.direction } as HairPhysicsDirectionConfig;
+    }
+
+    if (hairConfig.morphTargets) {
+      const morphTargets: Partial<HairMorphTargets> = {};
+      if (hairConfig.morphTargets.swayLeft) morphTargets.swayLeft = hairConfig.morphTargets.swayLeft.key;
+      if (hairConfig.morphTargets.swayRight) morphTargets.swayRight = hairConfig.morphTargets.swayRight.key;
+      if (hairConfig.morphTargets.swayFront) morphTargets.swayFront = hairConfig.morphTargets.swayFront.key;
+      if (hairConfig.morphTargets.fluffRight) morphTargets.fluffRight = hairConfig.morphTargets.fluffRight.key;
+      if (hairConfig.morphTargets.fluffBottom) morphTargets.fluffBottom = hairConfig.morphTargets.fluffBottom.key;
+
+      if (hairConfig.morphTargets.headUp) {
+        const headUp: Record<string, number> = {};
+        for (const [key, value] of Object.entries(hairConfig.morphTargets.headUp)) {
+          if (value && typeof value.value === 'number') {
+            headUp[key] = value.value;
+          }
+        }
+        if (Object.keys(headUp).length > 0) morphTargets.headUp = headUp;
+      }
+
+      if (hairConfig.morphTargets.headDown) {
+        const headDown: Record<string, number> = {};
+        for (const [key, value] of Object.entries(hairConfig.morphTargets.headDown)) {
+          if (value && typeof value.value === 'number') {
+            headDown[key] = value.value;
+          }
+        }
+        if (Object.keys(headDown).length > 0) morphTargets.headDown = headDown;
+      }
+
+      if (Object.keys(morphTargets).length > 0) {
+        runtimeConfig.morphTargets = morphTargets as HairMorphTargets;
+      }
+    }
+
+    this.setHairPhysicsConfig(runtimeConfig);
   }
 
   setHairPhysicsConfig(config: HairPhysicsConfigUpdate): void {

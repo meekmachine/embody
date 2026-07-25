@@ -39,6 +39,8 @@ export type {
   ThreeClipMeshBinding,
   ThreeClipMorphTargetBinding,
 } from './ThreeClipAdapter';
+export { HairPhysicsController } from './hair/HairPhysicsController';
+export type { HairPhysicsHost } from './hair/HairPhysicsController';
 export {
   createCharacterHost,
 } from './characterHost';

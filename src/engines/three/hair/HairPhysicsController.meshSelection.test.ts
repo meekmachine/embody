@@ -168,4 +168,40 @@ describe('HairPhysicsController mesh selection', () => {
     expect(finalIdleBuildCount).toBe(1);
     expect(idleStopCount).toBeGreaterThan(0);
   });
+
+  it('normalizes profile hair mappings into the shared runtime config', () => {
+    const controller = makeController({
+      getMeshByName: () => undefined,
+    });
+
+    controller.setHairPhysicsProfileConfig({
+      stiffness: 9,
+      windStrength: 0.4,
+      direction: {
+        yawSign: 1,
+        pitchSign: -1,
+      },
+      morphTargets: {
+        swayLeft: { key: 'Hair_Sway_Left', axis: 'yaw' },
+        headUp: {
+          Hair_Up: { value: 0.35, axis: 'pitch' },
+        },
+      },
+    });
+
+    expect(controller.getHairPhysicsConfig()).toMatchObject({
+      stiffness: 9,
+      windStrength: 0.4,
+      direction: {
+        yawSign: 1,
+        pitchSign: -1,
+      },
+      morphTargets: {
+        swayLeft: 'Hair_Sway_Left',
+        headUp: {
+          Hair_Up: 0.35,
+        },
+      },
+    });
+  });
 });
