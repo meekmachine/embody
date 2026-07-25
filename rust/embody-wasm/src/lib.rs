@@ -7,6 +7,7 @@ mod hair;
 mod hair_curves;
 mod humanoid_fit;
 mod math;
+mod presets;
 mod profile;
 mod profile_merge;
 mod runtime;
@@ -24,6 +25,38 @@ pub use skeleton::*;
 pub use template_fit_metadata::*;
 
 use wasm_bindgen::prelude::*;
+
+/// Embedded preset ids available inside the Wasm core (currently: "cc4").
+#[wasm_bindgen]
+pub fn list_presets() -> Vec<String> {
+    presets::list_preset_ids()
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
+/// True when the Wasm core ships the given preset id.
+#[wasm_bindgen]
+pub fn has_preset(preset_id: &str) -> bool {
+    presets::has_preset(preset_id)
+}
+
+/// Return the embedded preset JSON for a preset id (intake source of truth).
+#[wasm_bindgen]
+pub fn get_preset_json(preset_id: &str) -> Result<String, JsError> {
+    presets::preset_json(preset_id)
+        .map(str::to_string)
+        .map_err(|err| JsError::new(&err))
+}
+
+/// Merge overrides onto an embedded preset. Hosts that still need a JS Profile
+/// object for Mixer callbacks can use this; the runtime configure path should
+/// prefer `RuntimeCore.configure_with_preset`.
+#[wasm_bindgen]
+pub fn merge_embedded_preset(preset_id: &str, override_json: &str) -> Result<String, JsError> {
+    presets::merge_preset_with_override_json(preset_id, override_json)
+        .map_err(|err| JsError::new(&err))
+}
 
 /// Merge a base preset profile with an extension profile (both JSON strings)
 /// using the engine's preset extension rules. Returns the merged profile JSON.

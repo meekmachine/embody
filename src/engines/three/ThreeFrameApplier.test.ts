@@ -140,6 +140,39 @@ describe('ThreeFrameApplier', () => {
     expect(material.emissiveIntensity).toBe(0.1);
   });
 
+  it('applies profile material settings to every matching model mesh', () => {
+    const root = new Object3D();
+    const eye = makeMorphMesh('Eye', []);
+    const hair = makeMorphMesh('Hair', []);
+    const other = makeMorphMesh('Other', []);
+    eye.material = new MeshBasicMaterial();
+    hair.material = new MeshBasicMaterial();
+    other.material = new MeshBasicMaterial();
+    root.add(eye, hair, other);
+
+    const applier = new ThreeFrameApplier();
+    applier.applyMeshMaterialConfigs(root, {
+      Eye: {
+        material: {
+          renderOrder: -10,
+          depthWrite: false,
+        },
+      },
+      Hair: {
+        material: {
+          renderOrder: 10,
+          transparent: true,
+        },
+      },
+    });
+
+    expect(eye.renderOrder).toBe(-10);
+    expect((eye.material as MeshBasicMaterial).depthWrite).toBe(false);
+    expect(hair.renderOrder).toBe(10);
+    expect((hair.material as MeshBasicMaterial).transparent).toBe(true);
+    expect(other.renderOrder).toBe(0);
+  });
+
   it('ignores meshes without compatible material features', () => {
     const root = new Object3D();
     const face = makeMorphMesh('FaceMesh', ['Smile']);

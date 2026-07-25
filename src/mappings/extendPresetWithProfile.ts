@@ -40,6 +40,29 @@ const mergeRecord = <K extends RecordKey, T extends RecordValue>(
   return next;
 };
 
+const mergeMeshInfoRecord = (
+  base?: Profile['meshes'] | null,
+  override?: Profile['meshes'] | null
+): NonNullable<Profile['meshes']> => {
+  const next = mergeRecord(base, undefined);
+
+  if (override) {
+    for (const [key, value] of Object.entries(override)) {
+      if (value === undefined) continue;
+      const baseValue = base?.[key];
+      next[key] = {
+        ...baseValue,
+        ...value,
+        material: baseValue?.material || value.material
+          ? { ...baseValue?.material, ...value.material }
+          : undefined,
+      };
+    }
+  }
+
+  return next;
+};
+
 const mergeAnnotationRegion = (
   base: AnnotationRegion,
   override: AnnotationRegion
@@ -140,6 +163,7 @@ const mergeHairPhysicsConfig = (
  * Rules:
  * - Scalars: extension wins when provided.
  * - Maps: shallow-merged by key, values cloned.
+ * - Mesh entries: merged by mesh name, including nested material settings.
  * - Arrays: replaced when the extension provides them (except annotationRegions).
  * - annotationRegions: merged by region name, with nested camera/style fields preserved.
  */
@@ -190,7 +214,7 @@ export function extendPresetWithProfile(base: Profile, extension?: Partial<Profi
     eyeMeshNodes: extension.eyeMeshNodes ?? base.eyeMeshNodes,
     compositeRotations: extension.compositeRotations ?? base.compositeRotations,
     meshes: base.meshes || extension.meshes
-      ? mergeRecord(base.meshes || {}, extension.meshes || {})
+      ? mergeMeshInfoRecord(base.meshes || {}, extension.meshes || {})
       : undefined,
     continuumPairs: base.continuumPairs || extension.continuumPairs
       ? mergeRecord(base.continuumPairs || {}, extension.continuumPairs || {})

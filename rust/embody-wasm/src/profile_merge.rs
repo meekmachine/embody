@@ -4,6 +4,7 @@
 //! - Scalars: extension wins when provided.
 //! - Maps (auToMorphs, auToBones, boneNodes, morphToMesh, ...): shallow-merged
 //!   by key, extension values win.
+//! - meshes: merged by mesh name, including nested material settings.
 //! - Arrays: replaced when the extension provides them (except
 //!   annotationRegions).
 //! - annotationRegions: merged by region name, with nested cameraOffset/style
@@ -12,7 +13,7 @@
 
 use serde_json::{Map, Value};
 
-const MERGED_MAPS: [&str; 12] = [
+const MERGED_MAPS: [&str; 11] = [
     "auToMorphs",
     "auToBones",
     "boneNodes",
@@ -21,7 +22,6 @@ const MERGED_MAPS: [&str; 12] = [
     "visemeBindings",
     "auMixDefaults",
     "auInfo",
-    "meshes",
     "continuumPairs",
     "continuumLabels",
     "annotationRegions",
@@ -48,6 +48,47 @@ fn merge_map(base: Option<&Value>, extension: Option<&Value>) -> Option<Value> {
 
 fn merge_objects_shallow(base: Option<&Value>, extension: Option<&Value>) -> Option<Value> {
     merge_map(base, extension)
+}
+
+fn merge_meshes(base: Option<&Value>, extension: Option<&Value>) -> Option<Value> {
+    if base.is_none() && extension.is_none() {
+        return None;
+    }
+    let mut merged = Value::Object(
+        base.and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default(),
+    );
+    let Some(extension) = extension.and_then(Value::as_object) else {
+        return Some(merged);
+    };
+    let Some(merged_map) = merged.as_object_mut() else {
+        return Some(Value::Object(extension.clone()));
+    };
+
+    for (mesh_name, extension_mesh) in extension {
+        if extension_mesh.is_null() {
+            continue;
+        }
+        if !extension_mesh.is_object() {
+            merged_map.insert(mesh_name.clone(), extension_mesh.clone());
+            continue;
+        }
+
+        let base_mesh = base.and_then(|value| value.get(mesh_name));
+        let mut merged_mesh = merge_map(base_mesh, Some(extension_mesh))
+            .unwrap_or_else(|| Value::Object(Map::new()));
+        let material = merge_map(
+            base_mesh.and_then(|value| value.get("material")),
+            extension_mesh.get("material"),
+        );
+        if let (Some(merged_mesh_map), Some(material)) = (merged_mesh.as_object_mut(), material) {
+            merged_mesh_map.insert("material".to_string(), material);
+        }
+        merged_map.insert(mesh_name.clone(), merged_mesh);
+    }
+
+    Some(merged)
 }
 
 fn merge_annotation_region(base: &Value, extension: &Value) -> Value {
@@ -195,6 +236,10 @@ pub fn extend_preset_with_profile(base: &Value, extension: Option<&Value>) -> Va
         }
     }
 
+    if let Some(meshes) = merge_meshes(base.get("meshes"), extension.get("meshes")) {
+        merged.insert("meshes".to_string(), meshes);
+    }
+
     if let Some(hair) = merge_hair_physics(base.get("hairPhysics"), extension.get("hairPhysics"))
     {
         merged.insert("hairPhysics".to_string(), hair);
@@ -285,6 +330,41 @@ mod tests {
         assert_eq!(hair["morphTargets"]["headUp"]["a"], 1);
         assert_eq!(hair["morphTargets"]["headUp"]["c"], 2);
         assert_eq!(hair["morphTargets"]["headDown"]["b"], 1);
+    }
+
+    #[test]
+    fn mesh_entries_preserve_category_and_nested_material_defaults() {
+        let base = json!({
+            "meshes": {
+                "EyeOcclusion": {
+                    "category": "eyeOcclusion",
+                    "morphCount": 94,
+                    "material": {
+                        "renderOrder": 2,
+                        "transparent": true,
+                        "depthWrite": true
+                    }
+                }
+            }
+        });
+        let extension = json!({
+            "meshes": {
+                "EyeOcclusion": {
+                    "material": {
+                        "opacity": 0.5
+                    }
+                }
+            }
+        });
+
+        let merged = extend_preset_with_profile(&base, Some(&extension));
+        let mesh = &merged["meshes"]["EyeOcclusion"];
+        assert_eq!(mesh["category"], "eyeOcclusion");
+        assert_eq!(mesh["morphCount"], 94);
+        assert_eq!(mesh["material"]["renderOrder"], 2);
+        assert_eq!(mesh["material"]["transparent"], true);
+        assert_eq!(mesh["material"]["depthWrite"], true);
+        assert_eq!(mesh["material"]["opacity"], 0.5);
     }
 
     #[test]

@@ -59,6 +59,7 @@ export class RustEmbodyHost {
       meshes,
     });
     this.applier.setBindings(buildFrameApplierBindings(inspection));
+    this.applier.applyMeshMaterialConfigs(this.model, this.profile.meshes ?? {});
     this.core.configure(JSON.stringify(this.profile), JSON.stringify(inspection.descriptor));
     this.applyFrame();
   }

@@ -4,6 +4,7 @@
 
 export {
   Embody,
+  buildFrameApplierBindings,
   collectMorphMeshes,
 } from './Embody';
 export {

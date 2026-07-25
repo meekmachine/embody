@@ -13,6 +13,7 @@ export interface WasmHairPhysicsSolverConstructor {
 
 export interface WasmRuntimeCoreHandle {
   configure(profileJson: string, modelJson: string): void;
+  configure_with_preset(presetId: string, overrideJson: string, modelJson: string): void;
   viseme_slot_index(slotId: string): number;
   set_au_signed(id: number, value: number, balance: number): void;
   set_continuum(negAu: number, posAu: number, value: number, balance: number): void;
@@ -124,6 +125,10 @@ export interface EmbodyCoreWasmModule {
   ): Float32Array;
   default_hair_physics_config_values(): Float32Array;
   merge_preset_profile(baseJson: string, extensionJson: string): string;
+  list_presets(): string[];
+  has_preset(presetId: string): boolean;
+  get_preset_json(presetId: string): string;
+  merge_embedded_preset(presetId: string, overrideJson: string): string;
   compile_clip(inputJson: string): string;
   compile_clip_curves(inputJson: string): string;
   build_hair_idle_curves(configJson: string, durationSec: number): string;

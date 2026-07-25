@@ -49,6 +49,7 @@ export default defineConfig([
       core: 'src/core/index.ts',
       three: 'src/engines/three/index.ts',
       cljs: 'src/cljs.ts',
+      preset: 'scripts/cc4-preset-entry.ts',
     },
     format: ['cjs', 'esm'],
     dts: true,

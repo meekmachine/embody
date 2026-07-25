@@ -11,7 +11,9 @@ use crate::bones::{
     FLAG_HAS_ROTATION, JAW_BINDING_STRIDE,
 };
 use crate::math::{clamp01, finite_or};
+use crate::presets;
 use crate::profile::{compile_tables, ModelData, ProfileData};
+use crate::profile_merge::extend_preset_with_profile;
 
 pub const AU_MORPH_BINDING_STRIDE: u32 = 5;
 pub const VISEME_MORPH_BINDING_STRIDE: u32 = 4;
@@ -19,6 +21,27 @@ pub const VISEME_MORPH_BINDING_STRIDE: u32 = 4;
 const SIDE_LEFT: u8 = 0;
 const SIDE_RIGHT: u8 = 1;
 const SIDE_CENTER: u8 = 2;
+
+type BoneWrite = (Option<[f32; 3]>, Option<[f32; 4]>);
+
+fn upsert_bone_write(
+    writes: &mut HashMap<u32, BoneWrite>,
+    order: &mut Vec<u32>,
+    bone_id: u32,
+    position: Option<[f32; 3]>,
+    rotation: Option<[f32; 4]>,
+) {
+    let entry = writes.entry(bone_id).or_insert_with(|| {
+        order.push(bone_id);
+        (None, None)
+    });
+    if position.is_some() {
+        entry.0 = position;
+    }
+    if rotation.is_some() {
+        entry.1 = rotation;
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 struct AuMorphBinding {
@@ -118,9 +141,41 @@ impl RuntimeCore {
             .map_err(|err| JsError::new(&format!("Invalid profile JSON: {err}")))?;
         let model: ModelData = serde_json::from_str(model_json)
             .map_err(|err| JsError::new(&format!("Invalid model descriptor JSON: {err}")))?;
+        self.apply_compiled_tables(compile_tables(&profile, &model));
+        Ok(())
+    }
 
-        let tables = compile_tables(&profile, &model);
+    /// Configure from an embedded preset id + optional override JSON + model
+    /// descriptor JSON. The CC4 (etc.) preset data lives in the Wasm core;
+    /// hosts only pass the preset id and overrides.
+    #[wasm_bindgen]
+    pub fn configure_with_preset(
+        &mut self,
+        preset_id: &str,
+        override_json: &str,
+        model_json: &str,
+    ) -> Result<(), JsError> {
+        let base_json = presets::preset_json(preset_id).map_err(|err| JsError::new(&err))?;
+        let base: serde_json::Value = serde_json::from_str(base_json)
+            .map_err(|err| JsError::new(&format!("Invalid embedded preset JSON: {err}")))?;
+        let extension = if override_json.trim().is_empty() {
+            None
+        } else {
+            Some(
+                serde_json::from_str(override_json)
+                    .map_err(|err| JsError::new(&format!("Invalid profile override JSON: {err}")))?,
+            )
+        };
+        let merged = extend_preset_with_profile(&base, extension.as_ref());
+        let profile: ProfileData = serde_json::from_value(merged)
+            .map_err(|err| JsError::new(&format!("Merged profile is invalid: {err}")))?;
+        let model: ModelData = serde_json::from_str(model_json)
+            .map_err(|err| JsError::new(&format!("Invalid model descriptor JSON: {err}")))?;
+        self.apply_compiled_tables(compile_tables(&profile, &model));
+        Ok(())
+    }
 
+    fn apply_compiled_tables(&mut self, tables: crate::profile::CompiledTables) {
         self.load_au_morph_bindings(&tables.au_morph_bindings);
         self.load_viseme_morph_bindings(&tables.viseme_morph_bindings);
         self.set_mixed_aus(&tables.mixed_aus);
@@ -137,7 +192,6 @@ impl RuntimeCore {
         }
         self.continuum_pairs = tables.continuum_pairs;
         self.viseme_slot_ids = tables.viseme_slot_ids;
-        Ok(())
     }
 
     #[wasm_bindgen]
@@ -611,22 +665,7 @@ impl RuntimeCore {
     #[wasm_bindgen]
     pub fn evaluate_bone_frame_delta(&self) -> Box<[f32]> {
         let mut order: Vec<u32> = Vec::new();
-        let mut writes: HashMap<u32, (Option<[f32; 3]>, Option<[f32; 4]>)> = HashMap::new();
-        let mut upsert = |bone_id: u32,
-                          position: Option<[f32; 3]>,
-                          rotation: Option<[f32; 4]>,
-                          order: &mut Vec<u32>| {
-            let entry = writes.entry(bone_id).or_insert_with(|| {
-                order.push(bone_id);
-                (None, None)
-            });
-            if position.is_some() {
-                entry.0 = position;
-            }
-            if rotation.is_some() {
-                entry.1 = rotation;
-            }
-        };
+        let mut writes: HashMap<u32, BoneWrite> = HashMap::new();
 
         let effective_value = |au_id: u32, side: u8| -> f32 {
             let raw = clamp01(*self.au_values.get(&au_id).unwrap_or(&0.0));
@@ -672,17 +711,12 @@ impl RuntimeCore {
                 composite_index += 1;
             }
 
-            upsert(bone_id, None, Some(rotation), &mut order);
+            upsert_bone_write(&mut writes, &mut order, bone_id, None, Some(rotation));
         }
 
         // AU translations: per-component offsets against the rest position.
         let mut offsets: Vec<(u32, [f32; 3])> = Vec::new();
         for row in &self.translation_rows {
-            let value = clamp01(*self.au_values.get(&row.au_id).unwrap_or(&0.0));
-            if value <= 1e-6 {
-                continue;
-            }
-            let offset = (value * row.scale).clamp(-1.0, 1.0) * row.max_units;
             let entry = if let Some(existing) =
                 offsets.iter_mut().find(|(bone_id, _)| *bone_id == row.bone_id)
             {
@@ -691,6 +725,11 @@ impl RuntimeCore {
                 offsets.push((row.bone_id, [0.0, 0.0, 0.0]));
                 offsets.last_mut().unwrap()
             };
+            let value = clamp01(*self.au_values.get(&row.au_id).unwrap_or(&0.0));
+            if value <= 1e-6 {
+                continue;
+            }
+            let offset = (value * row.scale).clamp(-1.0, 1.0) * row.max_units;
             entry.1[row.axis.min(2) as usize] = offset;
         }
         for (bone_id, offset) in offsets {
@@ -699,23 +738,26 @@ impl RuntimeCore {
                 .get(&bone_id)
                 .map(|rest| rest.position)
                 .unwrap_or([0.0, 0.0, 0.0]);
-            upsert(
+            upsert_bone_write(
+                &mut writes,
+                &mut order,
                 bone_id,
                 Some([rest[0] + offset[0], rest[1] + offset[1], rest[2] + offset[2]]),
                 None,
-                &mut order,
             );
         }
 
-        // Viseme-driven jaw rotation.
+        // Viseme-driven jaw rotation. When no viseme is active, emit rest if
+        // no composite rotation already owns the jaw so the previous frame
+        // cannot leave the Three.js bone open.
         let jaw_amount = self.active_viseme_jaw_amount();
-        if jaw_amount > 1e-6 {
-            if let Some(jaw) = &self.jaw_binding {
-                let rest = self
-                    .bone_rest_transforms
-                    .get(&jaw.bone_id)
-                    .map(|rest| rest.rotation)
-                    .unwrap_or([0.0, 0.0, 0.0, 1.0]);
+        if let Some(jaw) = &self.jaw_binding {
+            let rest = self
+                .bone_rest_transforms
+                .get(&jaw.bone_id)
+                .map(|rest| rest.rotation)
+                .unwrap_or([0.0, 0.0, 0.0, 1.0]);
+            if jaw_amount > 1e-6 {
                 let rotation = multiply_quat(
                     rest,
                     quat_from_channel(
@@ -723,7 +765,13 @@ impl RuntimeCore {
                         jaw.max_degrees.to_radians() * jaw_amount * jaw.scale,
                     ),
                 );
-                upsert(jaw.bone_id, None, Some(rotation), &mut order);
+                upsert_bone_write(&mut writes, &mut order, jaw.bone_id, None, Some(rotation));
+            } else if writes
+                .get(&jaw.bone_id)
+                .and_then(|(_, rotation)| *rotation)
+                .is_none()
+            {
+                upsert_bone_write(&mut writes, &mut order, jaw.bone_id, None, Some(rest));
             }
         }
 
@@ -928,6 +976,54 @@ mod tests {
         let expected_half = (15.0f32).to_radians() / 2.0;
         assert!((packed[13] - expected_half.sin()).abs() < 1e-6);
         assert!((packed[17] - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn inactive_controls_emit_rest_transforms_without_composite_axes() {
+        let mut core = RuntimeCore::new(1);
+        core.load_bone_rest_transforms(&[
+            2.0, 1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0, // translated bone
+            3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, // jaw
+        ]);
+        core.load_bone_translations(&[40.0, 2.0, 1.0, 1.0, 0.5]);
+        core.load_jaw_binding(&[3.0, 0.0, 1.0, 30.0]);
+        core.load_viseme_jaw_amounts(&[1.0]);
+
+        core.set_au(40, 1.0, 0.0);
+        core.set_viseme(0, 1.0);
+        let active = core.evaluate_bone_frame_delta();
+        assert_eq!(active.len(), 2 * PACKED_BONE_FRAME_DELTA_STRIDE as usize);
+
+        core.set_au(40, 0.0, 0.0);
+        core.set_viseme(0, 0.0);
+        let neutral = core.evaluate_bone_frame_delta();
+        assert_eq!(neutral.len(), 2 * PACKED_BONE_FRAME_DELTA_STRIDE as usize);
+
+        assert_eq!(neutral[0], 2.0);
+        assert!((neutral[1] - 1.0).abs() < 1e-6);
+        assert!((neutral[2] - 2.0).abs() < 1e-6);
+        assert!((neutral[3] - 3.0).abs() < 1e-6);
+        assert_eq!(neutral[8], FLAG_HAS_POSITION as f32);
+
+        assert_eq!(neutral[9], 3.0);
+        assert!((neutral[13]).abs() < 1e-6);
+        assert!((neutral[14]).abs() < 1e-6);
+        assert!((neutral[15]).abs() < 1e-6);
+        assert!((neutral[16] - 1.0).abs() < 1e-6);
+        assert_eq!(neutral[17], FLAG_HAS_ROTATION as f32);
+    }
+
+    #[test]
+    fn configures_from_embedded_cc4_preset() {
+        let model = r#"{
+            "meshes": [{ "id": 1, "name": "CC_Base_Body", "morphTargetIds": [] }],
+            "morphTargets": [],
+            "bones": [{ "id": 1, "name": "CC_Base_JawRoot" }]
+        }"#;
+        let mut core = RuntimeCore::new(0);
+        // Override empty is fine; embedded CC4 must merge + compile without error.
+        core.configure_with_preset("cc4", "", model).unwrap();
+        assert!(core.viseme_slot_index("aa") >= -1);
     }
 
     #[test]

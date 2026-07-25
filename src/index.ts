@@ -33,6 +33,7 @@
 
 export {
   Embody,
+  buildFrameApplierBindings,
   collectMorphMeshes,
 } from './engines/three/Embody';
 export {

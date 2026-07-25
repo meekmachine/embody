@@ -49,6 +49,10 @@ export interface ThreeResolvedMaterialConfig {
   blending: keyof typeof THREE_BLENDING_MODES;
 }
 
+export interface ThreeMeshMaterialConfig {
+  readonly material?: ThreeMaterialConfig;
+}
+
 export const THREE_BLENDING_MODES = {
   Normal: NormalBlending,
   Additive: AdditiveBlending,
@@ -203,32 +207,49 @@ export class ThreeFrameApplier implements HostFrameApplier<Object3D> {
 
   setMeshMaterialConfig(root: Object3D, meshName: string, config: ThreeMaterialConfig): void {
     this.visitNamedMesh(root, meshName, (mesh) => {
-      if (typeof config.renderOrder === 'number') {
-        mesh.renderOrder = config.renderOrder;
-      }
+      this.applyMeshMaterialConfig(mesh, config);
+    });
+  }
 
-      for (const material of getMaterials((mesh as any).material)) {
-        if (typeof config.opacity === 'number') {
-          material.opacity = config.opacity;
-          if (config.opacity < 1 && config.transparent === undefined) {
-            material.transparent = true;
-          }
-        }
-        if (typeof config.transparent === 'boolean') {
-          material.transparent = config.transparent;
-        }
-        if (typeof config.depthWrite === 'boolean') {
-          material.depthWrite = config.depthWrite;
-        }
-        if (typeof config.depthTest === 'boolean') {
-          material.depthTest = config.depthTest;
-        }
-        if (config.blending && config.blending in THREE_BLENDING_MODES) {
-          material.blending = THREE_BLENDING_MODES[config.blending];
-        }
-        material.needsUpdate = true;
+  applyMeshMaterialConfigs(
+    root: Object3D,
+    configs: Readonly<Record<string, ThreeMeshMaterialConfig>>
+  ): void {
+    root.traverse((obj: any) => {
+      if (!obj.isMesh || !obj.name) return;
+      const config = configs[obj.name]?.material;
+      if (config) {
+        this.applyMeshMaterialConfig(obj as Mesh, config);
       }
     });
+  }
+
+  private applyMeshMaterialConfig(mesh: Mesh, config: ThreeMaterialConfig): void {
+    if (typeof config.renderOrder === 'number') {
+      mesh.renderOrder = config.renderOrder;
+    }
+
+    for (const material of getMaterials((mesh as any).material)) {
+      if (typeof config.opacity === 'number') {
+        material.opacity = config.opacity;
+        if (config.opacity < 1 && config.transparent === undefined) {
+          material.transparent = true;
+        }
+      }
+      if (typeof config.transparent === 'boolean') {
+        material.transparent = config.transparent;
+      }
+      if (typeof config.depthWrite === 'boolean') {
+        material.depthWrite = config.depthWrite;
+      }
+      if (typeof config.depthTest === 'boolean') {
+        material.depthTest = config.depthTest;
+      }
+      if (config.blending && config.blending in THREE_BLENDING_MODES) {
+        material.blending = THREE_BLENDING_MODES[config.blending];
+      }
+      material.needsUpdate = true;
+    }
   }
 
   private setMorphTarget(

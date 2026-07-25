@@ -26,7 +26,7 @@ describe('extendPresetWithProfile', () => {
       {
         auPresetType: 'cc4',
         annotationRegions: [{ name: 'head', bones: ['Head'] }],
-      } as Profile,
+      } as unknown as Profile,
       {
         annotationRegions: [{ name: 'head', paddingFactor: 1.1 }],
       },
@@ -142,6 +142,45 @@ describe('extendPresetWithProfile', () => {
     expect(result.auFacePartToMeshCategory).toEqual({
       Eye: 'eye',
       Tongue: 'tongue',
+    });
+  });
+
+  it('preserves mesh categories and nested material defaults under sparse overrides', () => {
+    const result = extendPresetWithProfile(
+      {
+        ...basePreset,
+        meshes: {
+          EyeOcclusion: {
+            category: 'eyeOcclusion',
+            morphCount: 94,
+            material: {
+              renderOrder: 2,
+              transparent: true,
+              depthWrite: true,
+            },
+          },
+        },
+      },
+      {
+        meshes: {
+          EyeOcclusion: {
+            material: {
+              opacity: 0.5,
+            },
+          } as any,
+        },
+      },
+    );
+
+    expect(result.meshes?.EyeOcclusion).toEqual({
+      category: 'eyeOcclusion',
+      morphCount: 94,
+      material: {
+        renderOrder: 2,
+        transparent: true,
+        depthWrite: true,
+        opacity: 0.5,
+      },
     });
   });
 });

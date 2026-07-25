@@ -117,6 +117,16 @@ const core = await initEmbodyCore();
 const [left, right] = core.solve_bilateral_values(0.8, 0.25);
 ```
 
+The Wasm preset registry currently embeds `cc4`. `default` and `human` are
+accepted aliases for that preset; `fish`, `skeletal`, and `custom` are not
+silently coerced to CC4. Hosts should check `core.has_preset(id)` and keep an
+existing compatibility path until a preset has been explicitly migrated.
+
+Preset/profile JSON crosses the Wasm boundary only during configuration. Rust
+merges overrides, deserializes the runtime projection, compiles model bindings,
+and returns packed numeric frame deltas on the hot path. Three.js object
+inspection and frame application remain host-side concerns.
+
 ### Template skeleton fit metadata
 
 Template skeleton fitting metadata is a host-neutral contract for recording how a

@@ -213,14 +213,18 @@ export class TsRuntimeCore {
     }
 
     const jawAmount = this.getActiveVisemeJawAmount();
-    if (jawAmount > 1e-6) {
-      const jawBinding = this.findAutoVisemeJawBinding();
-      const jawBone = jawBinding ? this.findBoneDescriptor(jawBinding.node) : undefined;
-      if (jawBone && jawBinding?.maxDegrees && jawBinding.channel) {
-        const rotation = multiplyQuat(
-          jawBone.restTransform?.rotation ?? identityQuat,
-          quatFromChannel(jawBinding.channel, deg2rad(jawBinding.maxDegrees) * jawAmount * jawBinding.scale)
-        );
+    const jawBinding = this.findAutoVisemeJawBinding();
+    const jawBone = jawBinding ? this.findBoneDescriptor(jawBinding.node) : undefined;
+    if (jawBone && jawBinding?.maxDegrees && jawBinding.channel) {
+      const current = writes.find((write) => write.boneId === jawBone.id);
+      if (jawAmount > 1e-6 || !current?.transform.rotation) {
+        const rest = jawBone.restTransform?.rotation ?? identityQuat;
+        const rotation = jawAmount > 1e-6
+          ? multiplyQuat(
+              rest,
+              quatFromChannel(jawBinding.channel, deg2rad(jawBinding.maxDegrees) * jawAmount * jawBinding.scale)
+            )
+          : rest;
         upsertBoneWrite(writes, jawBone.id, { rotation });
       }
     }
@@ -276,11 +280,12 @@ export class TsRuntimeCore {
       const auId = Number(auIdText);
       if (Number.isNaN(auId)) continue;
       const value = clamp01(this.auValues[auId] ?? 0);
-      if (value <= 1e-6) continue;
       for (const binding of bindings || []) {
         if (binding.channel !== 'tx' && binding.channel !== 'ty' && binding.channel !== 'tz') continue;
         if (binding.maxUnits === undefined) continue;
         const current = translations[binding.node] ?? { x: 0, y: 0, z: 0 };
+        translations[binding.node] = current;
+        if (value <= 1e-6) continue;
         const offset = clampSigned(value * binding.scale) * binding.maxUnits;
         translations[binding.node] = {
           x: binding.channel === 'tx' ? offset : current.x,

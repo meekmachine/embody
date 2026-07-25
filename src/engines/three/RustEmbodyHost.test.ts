@@ -38,11 +38,11 @@ function makeModel() {
   return { model, head, jaw, face, viseme };
 }
 
-async function makeHost() {
+async function makeHost(profile = makeTestProfile()) {
   const scene = makeModel();
   const wasm = await loadWasmModule();
   const host = await RustEmbodyHost.create(scene.model, {
-    profile: makeTestProfile(),
+    profile,
     meshes: [scene.face, scene.viseme],
     wasm,
   });
@@ -104,6 +104,17 @@ describe('RustEmbodyHost', () => {
 
     host.setVisemeById('aa', 0);
     expect(snapshotMorphInfluences(viseme).Mouth_Aah).toBe(0);
+    expect(Math.abs(jaw.quaternion.z)).toBeLessThan(1e-6);
+    host.dispose();
+  });
+
+  it('returns the jaw to rest when no composite rotation owns it', async () => {
+    const { host, jaw } = await makeHost(makeTestProfile({ compositeRotations: [] }));
+
+    host.setVisemeById('aa', 1);
+    expect(Math.abs(jaw.quaternion.z)).toBeGreaterThan(0.01);
+
+    host.setVisemeById('aa', 0);
     expect(Math.abs(jaw.quaternion.z)).toBeLessThan(1e-6);
     host.dispose();
   });
