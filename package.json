@@ -42,7 +42,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "node scripts/export-cc4-preset-json.mjs --check && tsup && npm run wasm:build",
+    "build": "tsup && node scripts/export-cc4-preset-json.mjs --check && npm run wasm:build",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

@@ -9,10 +9,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outPath = resolve(root, 'rust/embody-wasm/assets/presets/cc4.json');
-const mod = await import(pathToFileURL(resolve(root, 'src/presets/cc4.ts')).href);
+const check = process.argv.includes('--check');
+const presetModulePath = check
+  ? resolve(root, 'dist/preset.js')
+  : resolve(root, 'src/presets/cc4.ts');
+const mod = await import(pathToFileURL(presetModulePath).href);
 const json = JSON.stringify(mod.CC4_PRESET);
 
-if (process.argv.includes('--check')) {
+if (check) {
   const embedded = readFileSync(outPath, 'utf8');
   if (embedded !== json) {
     throw new Error(
