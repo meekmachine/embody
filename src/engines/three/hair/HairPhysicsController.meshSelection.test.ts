@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BufferGeometry, Mesh, MeshBasicMaterial } from 'three';
 import type { ClipHandle, ClipOptions, CurvesMap } from '../../../core/types';
+import { requireInitializedEmbodyCore } from '../../../wasm';
 import { HairPhysicsController, type HairPhysicsHost } from './HairPhysicsController';
 
 function makeMorphMesh(
@@ -37,6 +38,12 @@ function makeClipHandle(clipName: string): ClipHandle {
   };
 }
 
+function makeController(host: HairPhysicsHost): HairPhysicsController {
+  const controller = new HairPhysicsController(host);
+  controller.setCore(requireInitializedEmbodyCore());
+  return controller;
+}
+
 describe('HairPhysicsController mesh selection', () => {
   it('uses selected hair meshes from host config when building physics clips', () => {
     const hairA = makeMorphMesh('HairA');
@@ -58,7 +65,7 @@ describe('HairPhysicsController mesh selection', () => {
       cleanupSnippet: vi.fn(),
     };
 
-    const controller = new HairPhysicsController(host);
+    const controller = makeController(host);
     controller.registerHairObjects([hairA, hairB]);
     controller.setHairPhysicsEnabled(true);
 
@@ -86,7 +93,7 @@ describe('HairPhysicsController mesh selection', () => {
       cleanupSnippet: vi.fn(),
     };
 
-    const controller = new HairPhysicsController(host);
+    const controller = makeController(host);
     controller.registerHairObjects([hairA, hairB]);
     controller.setHairPhysicsEnabled(true);
 
@@ -118,7 +125,7 @@ describe('HairPhysicsController mesh selection', () => {
       cleanupSnippet: vi.fn(),
     };
 
-    const controller = new HairPhysicsController(host);
+    const controller = makeController(host);
     controller.registerHairObjects([hairA, hairB]);
     controller.setHairPhysicsEnabled(true);
 
@@ -147,7 +154,7 @@ describe('HairPhysicsController mesh selection', () => {
       cleanupSnippet: vi.fn(),
     };
 
-    const controller = new HairPhysicsController(host);
+    const controller = makeController(host);
     controller.registerHairObjects([hairA]);
     controller.setHairPhysicsEnabled(true);
 
