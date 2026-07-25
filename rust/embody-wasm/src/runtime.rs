@@ -12,7 +12,7 @@ use crate::bones::{
 };
 use crate::math::{clamp01, finite_or};
 use crate::presets;
-use crate::profile::{compile_tables, ModelData, ProfileData};
+use crate::profile::{compile_tables, CompiledTables, ModelData, ProfileData};
 use crate::profile_merge::extend_preset_with_profile;
 
 pub const AU_MORPH_BINDING_STRIDE: u32 = 5;
@@ -85,6 +85,34 @@ fn ease_in_out_quad(t: f32) -> f32 {
     }
 }
 
+fn compile_exact_profile_tables(
+    profile_json: &str,
+    model_json: &str,
+) -> Result<CompiledTables, String> {
+    let profile: ProfileData = serde_json::from_str(profile_json)
+        .map_err(|err| format!("Invalid exact profile JSON: {err}"))?;
+    if !profile.has_runtime_mappings() {
+        return Err(
+            "Exact profile is incomplete: expected at least one AU, bone, or viseme mapping"
+                .to_string(),
+        );
+    }
+
+    let model: ModelData = serde_json::from_str(model_json)
+        .map_err(|err| format!("Invalid model descriptor JSON: {err}"))?;
+    let tables = compile_tables(&profile, &model);
+    if !tables.has_runtime_bindings() {
+        return Err(format!(
+            "Exact profile is incompatible with the model descriptor: no runtime bindings resolved against {} meshes, {} morph targets, and {} bones",
+            model.meshes.len(),
+            model.morph_targets.len(),
+            model.bones.len(),
+        ));
+    }
+
+    Ok(tables)
+}
+
 /// Host-neutral live morph runtime. Owns AU/viseme/mix state and emits packed
 /// morph frame deltas. Engine objects never enter this struct.
 #[wasm_bindgen]
@@ -145,6 +173,23 @@ impl RuntimeCore {
         Ok(())
     }
 
+    /// Configure from a complete profile without applying an embedded preset.
+    ///
+    /// This path is intentionally strict so a host cannot accidentally select
+    /// exact mode for an incomplete custom profile and silently get an inert
+    /// runtime. Preset fallback remains an explicit host decision.
+    #[wasm_bindgen]
+    pub fn configure_exact_profile(
+        &mut self,
+        profile_json: &str,
+        model_json: &str,
+    ) -> Result<(), JsError> {
+        let tables = compile_exact_profile_tables(profile_json, model_json)
+            .map_err(|err| JsError::new(&err))?;
+        self.apply_compiled_tables(tables);
+        Ok(())
+    }
+
     /// Configure from an embedded preset id + optional override JSON + model
     /// descriptor JSON. The CC4 (etc.) preset data lives in the Wasm core;
     /// hosts only pass the preset id and overrides.
@@ -155,20 +200,20 @@ impl RuntimeCore {
         override_json: &str,
         model_json: &str,
     ) -> Result<(), JsError> {
-        let base_json = presets::preset_json(preset_id).map_err(|err| JsError::new(&err))?;
-        let base: serde_json::Value = serde_json::from_str(base_json)
-            .map_err(|err| JsError::new(&format!("Invalid embedded preset JSON: {err}")))?;
-        let extension = if override_json.trim().is_empty() {
-            None
+        let profile = if override_json.trim().is_empty() {
+            presets::load_profile(preset_id)
+                .cloned()
+                .map_err(|err| JsError::new(&err))?
         } else {
-            Some(
-                serde_json::from_str(override_json)
-                    .map_err(|err| JsError::new(&format!("Invalid profile override JSON: {err}")))?,
-            )
+            let base_json = presets::preset_json(preset_id).map_err(|err| JsError::new(&err))?;
+            let base: serde_json::Value = serde_json::from_str(base_json)
+                .map_err(|err| JsError::new(&format!("Invalid embedded preset JSON: {err}")))?;
+            let extension = serde_json::from_str(override_json)
+                .map_err(|err| JsError::new(&format!("Invalid profile override JSON: {err}")))?;
+            let merged = extend_preset_with_profile(&base, Some(&extension));
+            serde_json::from_value(merged)
+                .map_err(|err| JsError::new(&format!("Merged profile is invalid: {err}")))?
         };
-        let merged = extend_preset_with_profile(&base, extension.as_ref());
-        let profile: ProfileData = serde_json::from_value(merged)
-            .map_err(|err| JsError::new(&format!("Merged profile is invalid: {err}")))?;
         let model: ModelData = serde_json::from_str(model_json)
             .map_err(|err| JsError::new(&format!("Invalid model descriptor JSON: {err}")))?;
         self.apply_compiled_tables(compile_tables(&profile, &model));
@@ -1027,6 +1072,31 @@ mod tests {
     }
 
     #[test]
+    fn configures_from_embedded_fish_aliases() {
+        let model = r#"{
+            "meshes": [{ "id": 1, "name": "EYES_0", "morphTargetIds": [] }],
+            "morphTargets": [],
+            "bones": [
+                {
+                    "id": 4,
+                    "name": "Bone.001_Armature",
+                    "restTransform": {
+                        "position": { "x": 0, "y": 0, "z": 0 },
+                        "rotation": { "x": 0, "y": 0, "z": 0, "w": 1 }
+                    }
+                }
+            ]
+        }"#;
+
+        for preset_id in ["fish", "skeletal"] {
+            let mut core = RuntimeCore::new(0);
+            core.configure_with_preset(preset_id, "", model).unwrap();
+            core.set_au(51, 0.5, 0.0);
+            assert!(!core.evaluate_bone_frame_delta().is_empty());
+        }
+    }
+
+    #[test]
     fn configures_from_profile_and_model_json() {
         let profile = r#"{
             "auToMorphs": { "12": { "left": [], "right": [], "center": ["Smile"] } },
@@ -1065,6 +1135,56 @@ mod tests {
         assert_eq!(bones[0], 4.0);
         let expected_half = (30.0f32).to_radians() / 2.0;
         assert!((bones[4] - expected_half.sin()).abs() < 1e-4);
+    }
+
+    #[test]
+    fn exact_profile_is_not_merged_with_an_embedded_preset() {
+        let profile = r#"{
+            "auToMorphs": {
+                "900": { "left": [], "right": [], "center": ["OnlyExact"] }
+            },
+            "morphToMesh": { "face": ["ExactFace"] }
+        }"#;
+        let model = r#"{
+            "meshes": [{ "id": 1, "name": "ExactFace", "morphTargetIds": [7, 8] }],
+            "morphTargets": [
+                { "id": 7, "meshId": 1, "name": "OnlyExact", "hostIndex": 0 },
+                { "id": 8, "meshId": 1, "name": "Mouth_Smile_L", "hostIndex": 1 }
+            ],
+            "bones": []
+        }"#;
+
+        let mut core = RuntimeCore::new(0);
+        core.configure_exact_profile(profile, model).unwrap();
+        core.set_au(900, 0.75, 0.0);
+        core.set_au(12, 1.0, 0.0);
+
+        let rows = unpack_rows(&core.evaluate_morph_frame_delta());
+        assert_eq!(rows, vec![(1, 7, 0.75)]);
+    }
+
+    #[test]
+    fn exact_profile_rejects_incomplete_or_incompatible_profiles() {
+        let empty_model = r#"{"meshes":[],"morphTargets":[],"bones":[]}"#;
+        let incomplete =
+            compile_exact_profile_tables(r#"{"name":"metadata only"}"#, empty_model).unwrap_err();
+        assert!(incomplete.contains("Exact profile is incomplete"));
+
+        let incompatible = compile_exact_profile_tables(
+            r#"{
+                    "auToBones": {
+                        "42": [{
+                            "node": "MISSING",
+                            "channel": "rx",
+                            "scale": 1,
+                            "maxDegrees": 30
+                        }]
+                    }
+                }"#,
+            empty_model,
+        )
+        .unwrap_err();
+        assert!(incompatible.contains("Exact profile is incompatible"));
     }
 
     #[test]

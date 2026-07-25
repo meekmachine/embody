@@ -13,6 +13,7 @@ export interface WasmHairPhysicsSolverConstructor {
 
 export interface WasmRuntimeCoreHandle {
   configure(profileJson: string, modelJson: string): void;
+  configure_exact_profile(profileJson: string, modelJson: string): void;
   configure_with_preset(presetId: string, overrideJson: string, modelJson: string): void;
   viseme_slot_index(slotId: string): number;
   set_au_signed(id: number, value: number, balance: number): void;

@@ -151,6 +151,19 @@ pub struct ProfileData {
     pub viseme_mesh_category: Option<String>,
 }
 
+impl ProfileData {
+    pub fn has_runtime_mappings(&self) -> bool {
+        self.au_to_morphs.values().any(|entry| {
+            entry.as_ref().is_some_and(|entry| {
+                !entry.left.is_empty() || !entry.right.is_empty() || !entry.center.is_empty()
+            })
+        }) || self.au_to_bones.values().any(|bindings| !bindings.is_empty())
+            || !self.viseme_keys.is_empty()
+            || !self.viseme_slots.is_empty()
+            || !self.viseme_bindings.is_empty()
+    }
+}
+
 #[derive(Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Vec3Data {
@@ -227,6 +240,16 @@ pub struct CompiledTables {
     pub jaw_binding: Vec<f32>,
     pub continuum_pairs: HashMap<u32, (u32, bool)>,
     pub viseme_slot_ids: Vec<String>,
+}
+
+impl CompiledTables {
+    pub fn has_runtime_bindings(&self) -> bool {
+        !self.au_morph_bindings.is_empty()
+            || !self.viseme_morph_bindings.is_empty()
+            || !self.composite_axes.is_empty()
+            || !self.translations.is_empty()
+            || !self.jaw_binding.is_empty()
+    }
 }
 
 struct VisemeSlot {
