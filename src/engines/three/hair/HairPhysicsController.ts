@@ -6,7 +6,14 @@ import type {
   HairMorphTargetsConfig as SharedHairMorphTargetsConfig,
   HairPhysicsRuntimeConfig as SharedHairPhysicsConfig,
   HairPhysicsRuntimeConfigUpdate as SharedHairPhysicsConfigUpdate,
+  HairAppearanceState,
+  HairColorAppearance,
 } from '../../../interfaces/Hair';
+import {
+  colorToCssHex,
+  DEFAULT_HAIR_COLOR_APPEARANCE,
+  normalizeHairColorAppearance,
+} from '../../../hair/appearance';
 import { CC4_MESHES } from '../../../presets/cc4';
 import { getEmbodyCoreSync } from '../../../wasm';
 
@@ -83,14 +90,170 @@ export class HairPhysicsController {
   private registeredHairObjects = new Map<string, Mesh>();
   private cachedHairMeshNames: string[] | null = null;
   private warnedMissingMorphTargets = new Set<string>();
+  private appearance: HairAppearanceState = {
+    hairColor: { ...DEFAULT_HAIR_COLOR_APPEARANCE },
+    eyebrowColor: { ...DEFAULT_HAIR_COLOR_APPEARANCE },
+    showOutline: false,
+    outlineColor: '#00ff00',
+    outlineOpacity: 1,
+  };
+  private appearanceSampled = false;
 
   constructor(host: HairPhysicsHost) {
     this.host = host;
   }
 
+  private isEyebrowMesh(name: string, mesh?: Mesh): boolean {
+    const info = CC4_MESHES[name];
+    if (info?.category === 'eyebrow') return true;
+    if (info?.category === 'hair') return false;
+    const lower = name.toLowerCase();
+    return lower.includes('eyebrow') || lower.includes('brow');
+  }
+
+  private sampleColorFromMesh(mesh: Mesh | undefined): HairAppearanceState['hairColor'] | null {
+    if (!mesh || !mesh.material || Array.isArray(mesh.material)) return null;
+    const mat = mesh.material as typeof mesh.material & {
+      color?: { getHexString(): string };
+      emissive?: { getHexString(): string };
+      emissiveIntensity?: number;
+    };
+    const baseColor = colorToCssHex(mat.color);
+    if (!baseColor) return null;
+    return {
+      baseColor,
+      emissive: colorToCssHex(mat.emissive) ?? '#000000',
+      emissiveIntensity: typeof mat.emissiveIntensity === 'number' ? mat.emissiveIntensity : 0,
+    };
+  }
+
+  private ensureAppearanceSampled(): void {
+    if (this.appearanceSampled) return;
+    this.appearanceSampled = true;
+
+    let hairSample: HairAppearanceState['hairColor'] | null = null;
+    let browSample: HairAppearanceState['hairColor'] | null = null;
+    for (const [name, mesh] of this.registeredHairObjects) {
+      if (this.isEyebrowMesh(name, mesh)) {
+        browSample ??= this.sampleColorFromMesh(mesh);
+      } else {
+        hairSample ??= this.sampleColorFromMesh(mesh);
+      }
+      if (hairSample && browSample) break;
+    }
+
+    if (hairSample) this.appearance.hairColor = hairSample;
+    if (browSample) this.appearance.eyebrowColor = browSample;
+  }
+
+  private applyColorToCategory(
+    category: 'hair' | 'eyebrow',
+    color: HairAppearanceState['hairColor'],
+  ): void {
+    for (const [name, mesh] of this.registeredHairObjects) {
+      const isBrow = this.isEyebrowMesh(name, mesh);
+      if (category === 'eyebrow' ? !isBrow : isBrow) continue;
+      this.applyHairStateToObject(name, {
+        color: {
+          baseColor: color.baseColor,
+          emissive: color.emissive,
+          emissiveIntensity: color.emissiveIntensity,
+        },
+        isEyebrow: isBrow,
+      });
+    }
+  }
+
+  getHairAppearance(): HairAppearanceState {
+    this.ensureAppearanceSampled();
+    return {
+      hairColor: { ...this.appearance.hairColor },
+      eyebrowColor: { ...this.appearance.eyebrowColor },
+      showOutline: this.appearance.showOutline,
+      outlineColor: this.appearance.outlineColor,
+      outlineOpacity: this.appearance.outlineOpacity,
+    };
+  }
+
+  setHairColor(color: HairColorAppearance | string): void {
+    this.ensureAppearanceSampled();
+    this.appearance.hairColor = normalizeHairColorAppearance(color, {
+      ...DEFAULT_HAIR_COLOR_APPEARANCE,
+      ...this.appearance.hairColor,
+      name: this.appearance.hairColor.name ?? DEFAULT_HAIR_COLOR_APPEARANCE.name,
+    });
+    this.applyColorToCategory('hair', this.appearance.hairColor);
+  }
+
+  setEyebrowColor(color: HairColorAppearance | string): void {
+    this.ensureAppearanceSampled();
+    this.appearance.eyebrowColor = normalizeHairColorAppearance(color, {
+      ...DEFAULT_HAIR_COLOR_APPEARANCE,
+      ...this.appearance.eyebrowColor,
+      name: this.appearance.eyebrowColor.name ?? DEFAULT_HAIR_COLOR_APPEARANCE.name,
+    });
+    this.applyColorToCategory('eyebrow', this.appearance.eyebrowColor);
+  }
+
+  setHairBaseColor(baseColor: string): void {
+    this.ensureAppearanceSampled();
+    this.setHairColor({
+      ...this.appearance.hairColor,
+      baseColor,
+    });
+  }
+
+  setEyebrowBaseColor(baseColor: string): void {
+    this.ensureAppearanceSampled();
+    this.setEyebrowColor({
+      ...this.appearance.eyebrowColor,
+      baseColor,
+    });
+  }
+
+  setHairGlow(emissive: string, intensity: number): void {
+    this.ensureAppearanceSampled();
+    this.setHairColor({
+      ...this.appearance.hairColor,
+      emissive,
+      emissiveIntensity: intensity,
+    });
+  }
+
+  setEyebrowGlow(emissive: string, intensity: number): void {
+    this.ensureAppearanceSampled();
+    this.setEyebrowColor({
+      ...this.appearance.eyebrowColor,
+      emissive,
+      emissiveIntensity: intensity,
+    });
+  }
+
+  setHairOutline(outline: { show: boolean; color?: string; opacity?: number }): void {
+    this.ensureAppearanceSampled();
+    this.appearance.showOutline = Boolean(outline.show);
+    if (outline.color !== undefined) {
+      this.appearance.outlineColor = outline.color;
+    }
+    if (outline.opacity !== undefined) {
+      this.appearance.outlineOpacity = outline.opacity;
+    }
+    const payload = {
+      outline: {
+        show: this.appearance.showOutline,
+        color: this.appearance.outlineColor,
+        opacity: this.appearance.outlineOpacity,
+      },
+    };
+    for (const name of this.registeredHairObjects.keys()) {
+      this.applyHairStateToObject(name, payload);
+    }
+  }
+
   clearRegisteredHairObjects(): void {
     this.registeredHairObjects.clear();
     this.cachedHairMeshNames = null;
+    this.appearanceSampled = false;
     this.stopIdleClip();
     this.stopGravityClip();
     this.stopImpulseClips();

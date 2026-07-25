@@ -1576,6 +1576,38 @@ export class Embody implements EmbodyRuntime {
     this.hairPhysics.applyHairStateToObject(objectName, state);
   }
 
+  getHairAppearance() {
+    return this.hairPhysics.getHairAppearance();
+  }
+
+  setHairColor(color: Parameters<HairPhysicsController['setHairColor']>[0]): void {
+    this.hairPhysics.setHairColor(color);
+  }
+
+  setEyebrowColor(color: Parameters<HairPhysicsController['setEyebrowColor']>[0]): void {
+    this.hairPhysics.setEyebrowColor(color);
+  }
+
+  setHairBaseColor(baseColor: string): void {
+    this.hairPhysics.setHairBaseColor(baseColor);
+  }
+
+  setEyebrowBaseColor(baseColor: string): void {
+    this.hairPhysics.setEyebrowBaseColor(baseColor);
+  }
+
+  setHairGlow(emissive: string, intensity: number): void {
+    this.hairPhysics.setHairGlow(emissive, intensity);
+  }
+
+  setEyebrowGlow(emissive: string, intensity: number): void {
+    this.hairPhysics.setEyebrowGlow(emissive, intensity);
+  }
+
+  setHairOutline(outline: { show: boolean; color?: string; opacity?: number }): void {
+    this.hairPhysics.setHairOutline(outline);
+  }
+
   // ============================================================================
   // PRIVATE METHODS
   // ============================================================================

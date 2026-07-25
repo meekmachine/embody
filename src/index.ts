@@ -211,7 +211,15 @@ export type {
   HairMorphTargetsConfig,
   HairObjectRef,
   HairObjectState,
+  HairColorAppearance,
+  HairAppearanceState,
 } from './interfaces/Hair';
+
+export {
+  HAIR_COLOR_PRESETS,
+  DEFAULT_HAIR_COLOR_APPEARANCE,
+  normalizeHairColorAppearance,
+} from './hair/appearance';
 
 // ============================================================================
 // CORE TYPES

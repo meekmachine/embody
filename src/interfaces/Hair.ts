@@ -60,10 +60,30 @@ export interface HairObjectState {
   isEyebrow?: boolean;
 }
 
+export interface HairColorAppearance {
+  name?: string;
+  baseColor: string;
+  emissive: string;
+  emissiveIntensity: number;
+}
+
+export interface HairAppearanceState {
+  hairColor: Required<Pick<HairColorAppearance, 'baseColor' | 'emissive' | 'emissiveIntensity'>> & {
+    name?: string;
+  };
+  eyebrowColor: Required<Pick<HairColorAppearance, 'baseColor' | 'emissive' | 'emissiveIntensity'>> & {
+    name?: string;
+  };
+  showOutline: boolean;
+  outlineColor: string;
+  outlineOpacity: number;
+}
+
 export interface Hair {
   /**
    * Register hair objects from a scene.
-   * Returns engine-agnostic references for UI and service layers.
+   * Returns engine-agnostic references for UI and runtime helpers.
+   * Registration must not rewrite material colors.
    */
   registerHairObjects(objects: Object3D[]): HairObjectRef[];
 
@@ -122,4 +142,45 @@ export interface Hair {
    * Apply hair/eyebrow styling state to a mesh.
    */
   applyHairStateToObject(objectName: string, state: HairObjectState): void;
+
+  /**
+   * Sample current hair/eyebrow material appearance from registered meshes.
+   * Does not mutate the scene.
+   */
+  getHairAppearance(): HairAppearanceState;
+
+  /**
+   * Apply color to registered non-eyebrow hair meshes.
+   */
+  setHairColor(color: HairColorAppearance | string): void;
+
+  /**
+   * Apply color to registered eyebrow meshes.
+   */
+  setEyebrowColor(color: HairColorAppearance | string): void;
+
+  /**
+   * Update hair base color only (keeps emissive settings).
+   */
+  setHairBaseColor(baseColor: string): void;
+
+  /**
+   * Update eyebrow base color only (keeps emissive settings).
+   */
+  setEyebrowBaseColor(baseColor: string): void;
+
+  /**
+   * Update hair glow (emissive + intensity).
+   */
+  setHairGlow(emissive: string, intensity: number): void;
+
+  /**
+   * Update eyebrow glow (emissive + intensity).
+   */
+  setEyebrowGlow(emissive: string, intensity: number): void;
+
+  /**
+   * Toggle/update hair mesh outline for all registered hair objects.
+   */
+  setHairOutline(outline: { show: boolean; color?: string; opacity?: number }): void;
 }
