@@ -31,33 +31,19 @@ const externalizeWasmSingleton = (): Plugin => ({
   },
 });
 
-export default defineConfig([
-  {
-    entry: {
-      wasm: 'src/wasm.ts',
-    },
-    format: ['cjs', 'esm'],
-    dts: true,
-    clean: true,
-    treeshake: true,
-    splitting: false,
-    sourcemap: true,
+export default defineConfig({
+  entry: {
+    index: 'src/index.ts',
+    core: 'src/core/index.ts',
+    three: 'src/engines/three/index.ts',
+    cljs: 'src/cljs.ts',
+    preset: 'scripts/cc4-preset-entry.ts',
   },
-  {
-    entry: {
-      index: 'src/index.ts',
-      core: 'src/core/index.ts',
-      three: 'src/engines/three/index.ts',
-      cljs: 'src/cljs.ts',
-      preset: 'scripts/cc4-preset-entry.ts',
-    },
-    format: ['cjs', 'esm'],
-    dts: true,
-    clean: false,
-    treeshake: true,
-    splitting: false,
-    sourcemap: true,
-    external: [WASM_PACKAGE_ENTRY],
-    esbuildPlugins: [externalizeWasmSingleton()],
-  },
-]);
+  format: ['cjs', 'esm'],
+  clean: false,
+  treeshake: true,
+  splitting: false,
+  sourcemap: true,
+  external: [WASM_PACKAGE_ENTRY],
+  esbuildPlugins: [externalizeWasmSingleton()],
+});
