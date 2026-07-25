@@ -26,7 +26,7 @@ pub use template_fit_metadata::*;
 
 use wasm_bindgen::prelude::*;
 
-/// Embedded preset ids available inside the Wasm core (currently: "cc4").
+/// Canonical embedded preset ids available inside the Wasm core.
 #[wasm_bindgen]
 pub fn list_presets() -> Vec<String> {
     presets::list_preset_ids()
