@@ -18,8 +18,33 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  changes:
     if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.classify.outputs.build }}
+      rust-test: ${{ steps.classify.outputs.rust-test }}
+      typecheck: ${{ steps.classify.outputs.typecheck }}
+      test: ${{ steps.classify.outputs.test }}
+      package-exports: ${{ steps.classify.outputs.package-exports }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Test path classifier
+        run: node --test scripts/ci/classify-pr-checks.test.mjs
+
+      - name: Classify changed paths
+        id: classify
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/ci/classify-pr-checks.mjs
+
+  verify:
+    needs: changes
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -27,32 +52,51 @@ jobs:
         check:
           - name: Build
             command: npm run build
+            enabled: ${{ needs.changes.outputs.build }}
+            rust: true
           - name: Rust Test
             command: npm run rust:test
+            enabled: ${{ needs.changes.outputs.rust-test }}
+            rust: true
           - name: Typecheck
             command: npm run typecheck
+            enabled: ${{ needs.changes.outputs.typecheck }}
+            rust: false
           - name: Test
             command: npm test
+            enabled: ${{ needs.changes.outputs.test }}
+            rust: false
           - name: Package Exports
             command: npm run test:exports
+            enabled: ${{ needs.changes.outputs.package-exports }}
+            rust: true
     name: ${{ matrix.check.name }}
     steps:
       - name: Checkout
+        if: matrix.check.enabled == 'true'
         uses: actions/checkout@v5
 
       - name: Setup Rust
+        if: matrix.check.enabled == 'true' && matrix.check.rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
       - name: Setup Node.js
+        if: matrix.check.enabled == 'true'
         uses: actions/setup-node@v5
         with:
           node-version: "24"
           cache: "npm"
 
       - name: Install dependencies
+        if: matrix.check.enabled == 'true'
         run: npm ci
 
       - name: Run ${{ matrix.check.name }}
+        if: matrix.check.enabled == 'true'
         run: ${{ matrix.check.command }}
+
+      - name: Report unchanged area
+        if: matrix.check.enabled != 'true'
+        run: echo "${{ matrix.check.name }} is not required for the changed paths."
