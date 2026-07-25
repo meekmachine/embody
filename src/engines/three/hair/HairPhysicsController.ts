@@ -422,6 +422,9 @@ export class HairPhysicsController {
     }
 
     this.setHairPhysicsConfig(runtimeConfig);
+    if (hairConfig.enabled !== undefined) {
+      this.setHairPhysicsEnabled(Boolean(hairConfig.enabled));
+    }
   }
 
   setHairPhysicsConfig(config: HairPhysicsConfigUpdate): void {

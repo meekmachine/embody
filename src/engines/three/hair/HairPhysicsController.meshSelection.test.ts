@@ -175,6 +175,7 @@ describe('HairPhysicsController mesh selection', () => {
     });
 
     controller.setHairPhysicsProfileConfig({
+      enabled: true,
       stiffness: 9,
       windStrength: 0.4,
       direction: {
@@ -203,5 +204,6 @@ describe('HairPhysicsController mesh selection', () => {
         },
       },
     });
+    expect(controller.isHairPhysicsEnabled()).toBe(true);
   });
 });

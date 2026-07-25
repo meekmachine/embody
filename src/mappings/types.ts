@@ -193,6 +193,8 @@ export interface HairMorphTargetValueMapping {
  * Hair physics defaults stored in presets/profiles.
  */
 export interface HairPhysicsProfileConfig {
+  /** Whether hair physics should start enabled when this profile is applied. */
+  enabled?: boolean;
   stiffness?: number;
   damping?: number;
   inertia?: number;
