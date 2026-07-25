@@ -285,6 +285,16 @@ describe('extendProfileConfigWithPreset', () => {
     expect(extended.boneNodes).toBeDefined();
   });
 
+  it('preserves modelScale while extending a saved profile with its preset', async () => {
+    const extended = await extendProfileConfigWithPreset(
+      createConfig({
+        modelScale: 0.75,
+      }),
+    );
+
+    expect(extended.modelScale).toBe(0.75);
+  });
+
   it('lets semantic annotation region bones use preset bone nodes plus profile affixes', async () => {
     const extended = await extendProfileConfigWithPreset(
       createConfig({

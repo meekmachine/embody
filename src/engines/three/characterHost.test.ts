@@ -4,7 +4,7 @@ import { applyCharacterModelTransform, disposeCharacterModel } from './modelLoad
 import { createCharacterHost } from './characterHost';
 
 describe('applyCharacterModelTransform', () => {
-  it('applies offset, rotation degrees, and ground clearance', () => {
+  it('applies offset, rotation degrees, uniform scale, and then ground clearance', () => {
     const geometry = new BufferGeometry();
     geometry.setAttribute(
       'position',
@@ -22,17 +22,43 @@ describe('applyCharacterModelTransform', () => {
     applyCharacterModelTransform(model, {
       modelOffset: { x: 1, y: 0, z: -2 },
       modelRotation: { y: 90 },
+      modelScale: 0.5,
       modelGroundClearance: 0.05,
     });
 
     expect(model.position.x).toBe(1);
     expect(model.position.z).toBe(-2);
     expect(model.rotation.y).toBeCloseTo(Math.PI / 2, 5);
+    expect(model.scale.toArray()).toEqual([0.5, 0.5, 0.5]);
 
     model.updateMatrixWorld(true);
     const bounds = new Box3().setFromObject(model);
     expect(bounds.min.y).toBeGreaterThanOrEqual(0.05 - 1e-5);
+    expect(bounds.max.y - bounds.min.y).toBeCloseTo(1, 5);
   });
+
+  it('preserves authored scale when modelScale is omitted', () => {
+    const model = new Group();
+    model.scale.set(2, 3, 4);
+
+    applyCharacterModelTransform(model, {
+      modelOffset: { x: 1 },
+    });
+
+    expect(model.scale.toArray()).toEqual([2, 3, 4]);
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'ignores invalid modelScale value %s',
+    (modelScale) => {
+      const model = new Group();
+      model.scale.setScalar(2);
+
+      applyCharacterModelTransform(model, { modelScale });
+
+      expect(model.scale.toArray()).toEqual([2, 2, 2]);
+    },
+  );
 });
 
 describe('disposeCharacterModel', () => {
