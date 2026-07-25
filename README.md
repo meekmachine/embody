@@ -117,15 +117,24 @@ const core = await initEmbodyCore();
 const [left, right] = core.solve_bilateral_values(0.8, 0.25);
 ```
 
-The Wasm preset registry currently embeds `cc4`. `default` and `human` are
-accepted aliases for that preset; `fish`, `skeletal`, and `custom` are not
-silently coerced to CC4. Hosts should check `core.has_preset(id)` and keep an
-existing compatibility path until a preset has been explicitly migrated.
+The Wasm preset registry embeds `cc4` and `fish`. `default` and `human` select
+CC4; `skeletal` selects fish. Hosts can check `core.has_preset(id)` before
+calling `configure_with_preset(id, overrideJson, modelJson)`.
+
+Complete custom profiles use
+`configure_exact_profile(profileJson, modelJson)`. Exact mode never merges an
+embedded preset, and it rejects profiles that contain no runtime mappings or
+resolve no bindings against the inspected model. Selecting preset fallback for
+an incomplete legacy profile remains an explicit host decision.
 
 Preset/profile JSON crosses the Wasm boundary only during configuration. Rust
 merges overrides, deserializes the runtime projection, compiles model bindings,
 and returns packed numeric frame deltas on the hot path. Three.js object
 inspection and frame application remain host-side concerns.
+
+The package exports the Three.js inspector, frame applier, and clip adapter.
+Character host orchestration belongs in Polymer, so Embody no longer exports a
+separate TypeScript `RustEmbodyHost`.
 
 ### Template skeleton fit metadata
 

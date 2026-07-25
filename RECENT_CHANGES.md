@@ -3,6 +3,12 @@
 ## Current release highlights
 
 ### Mapping and control updates
+- The Rust/Wasm preset registry now embeds both CC4 and Betta fish profiles;
+  `skeletal` is an alias for fish, while complete custom profiles use strict
+  exact-profile intake with no implicit preset merge.
+- The obsolete public TypeScript `RustEmbodyHost` was removed. Embody keeps the
+  Three.js inspection/application adapters, while Polymer owns character host
+  orchestration.
 - CC4 now includes independent eye AUs 65-72 for both morph and bone mappings.
 - Composite eye axes now evaluate per-node effective values consistently, so shared-eye balance no longer leaks into independent-eye controls.
 - CC4 head yaw/pitch/roll max degrees were increased for wider head turns.
