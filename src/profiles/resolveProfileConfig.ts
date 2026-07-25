@@ -228,7 +228,7 @@ export function extractProfileOverrides(config: CharacterProfile): Partial<Profi
   return extractLegacyCharacterProfileOverrides(config);
 }
 
-export function resolveProfileFromPreset(config: CharacterProfile): Profile | null {
+export async function resolveProfileFromPreset(config: CharacterProfile): Promise<Profile | null> {
   const presetType = getProfilePresetId(config);
   if (!presetType) {
     return null;
@@ -240,7 +240,7 @@ export function resolveProfileFromPreset(config: CharacterProfile): Profile | nu
 /**
  * @deprecated Use `resolveProfileFromPreset`.
  */
-export function applyCharacterProfileToPreset(config: CharacterProfile): Profile | null {
+export async function applyCharacterProfileToPreset(config: CharacterProfile): Promise<Profile | null> {
   return resolveProfileFromPreset(config);
 }
 
@@ -283,16 +283,16 @@ function orderExtendedRegions(
  * 3. legacy nested `config.profile` overrides (compatibility only)
  * 4. legacy `config.regions` fallback only when canonical annotation overrides are absent
  */
-export function extendProfileConfigWithPreset<T extends CustomProfileRuntimeConfig>(config: T): T;
+export function extendProfileConfigWithPreset<T extends CustomProfileRuntimeConfig>(config: T): Promise<T>;
 export function extendProfileConfigWithPreset<T extends PresetBackedProfileRuntimeConfig>(
   config: T
-): ResolvedProfileRuntimeConfig<T>;
+): Promise<ResolvedProfileRuntimeConfig<T>>;
 export function extendProfileConfigWithPreset<T extends CharacterProfile>(
   config: T
-): T | ResolvedProfileRuntimeConfig<T>;
-export function extendProfileConfigWithPreset<T extends CharacterProfile>(
+): Promise<T | ResolvedProfileRuntimeConfig<T>>;
+export async function extendProfileConfigWithPreset<T extends CharacterProfile>(
   config: T
-): T | ResolvedProfileRuntimeConfig<T> {
+): Promise<T | ResolvedProfileRuntimeConfig<T>> {
   const presetType = getProfilePresetId(config);
   if (!presetType || presetType === 'custom') {
     return config;
@@ -301,7 +301,7 @@ export function extendProfileConfigWithPreset<T extends CharacterProfile>(
   const canonicalAnnotationOverrides = getCanonicalAnnotationOverrides(config);
   const legacyRuntimeRegions = getLegacyRuntimeRegions(config);
   const profileOverrides = extractLegacyCharacterProfileOverrides(config);
-  const extendedPresetProfile = resolveProfileFromPreset(config);
+  const extendedPresetProfile = await resolveProfileFromPreset(config);
   if (!extendedPresetProfile) {
     return config;
   }
@@ -340,6 +340,8 @@ export function extendProfileConfigWithPreset<T extends CharacterProfile>(
 /**
  * @deprecated Use `extendProfileConfigWithPreset`.
  */
-export function extendCharacterConfigWithPreset(config: CharacterConfig): CharacterConfig {
-  return extendProfileConfigWithPreset(config) as CharacterConfig;
+export async function extendCharacterConfigWithPreset(
+  config: CharacterConfig
+): Promise<CharacterConfig> {
+  return extendProfileConfigWithPreset(config) as Promise<CharacterConfig>;
 }

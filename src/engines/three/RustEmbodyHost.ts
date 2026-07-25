@@ -5,6 +5,7 @@ import type { EmbodyCoreWasmModule, WasmRuntimeCoreHandle } from '../../wasmType
 import { initEmbodyCore } from '../../wasm';
 import { getPreset } from '../../presets';
 import { CC4_PRESET } from '../../presets/cc4';
+import { mergePresetWithProfile } from '../../mappings/extendPresetWithProfile';
 import { ThreeModelInspector } from './ThreeModelInspector';
 import { ThreeFrameApplier } from './ThreeFrameApplier';
 import { buildFrameApplierBindings } from './Embody';
@@ -155,6 +156,5 @@ function mergeProfileInRust(
   base: Profile,
   extension?: Profile
 ): Profile {
-  if (!extension) return base;
-  return JSON.parse(wasm.merge_preset_profile(JSON.stringify(base), JSON.stringify(extension))) as Profile;
+  return mergePresetWithProfile(wasm, base, extension);
 }

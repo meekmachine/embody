@@ -9,7 +9,7 @@ import type {
   TrackId,
 } from './contracts';
 import type { CurvePoint } from './types';
-import { getEmbodyCoreSync } from '../wasm';
+import type { EmbodyCoreWasmModule } from '../wasmTypes';
 
 export interface TsClipCompilerKeyframe {
   readonly time: number;
@@ -55,17 +55,17 @@ export interface TsClipCurvesInput {
 
 /**
  * Thin host facade over the Rust clip compiler (`compile_clip` /
- * `compile_clip_curves`). Requires `await initEmbodyCore()` first.
+ * `compile_clip_curves`). Callers pass the Wasm module from `initEmbodyCore()`.
  */
 export class TsClipCompiler {
+  constructor(private readonly core: EmbodyCoreWasmModule) {}
+
   compile(input: TsClipCompilerInput): ClipIR {
-    const wasm = getEmbodyCoreSync();
-    return JSON.parse(wasm.compile_clip(JSON.stringify(input))) as ClipIR;
+    return JSON.parse(this.core.compile_clip(JSON.stringify(input))) as ClipIR;
   }
 
   compileCurves(input: TsClipCurvesInput): ClipIR {
-    const wasm = getEmbodyCoreSync();
-    return JSON.parse(wasm.compile_clip_curves(JSON.stringify(input))) as ClipIR;
+    return JSON.parse(this.core.compile_clip_curves(JSON.stringify(input))) as ClipIR;
   }
 }
 

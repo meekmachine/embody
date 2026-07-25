@@ -11,14 +11,14 @@ function makeMorphMesh(name: string, morphKeys: string[]): Mesh {
 }
 
 describe('Embody face mesh fallback selection', () => {
-  it('seeds morphToMesh.face from resolved face meshes (not all morph meshes)', () => {
+  it('seeds morphToMesh.face from resolved face meshes (not all morph meshes)', async () => {
     const face = makeMorphMesh('FaceMesh', ['Brow_Drop_L']);
     const hair = makeMorphMesh('HairMesh', ['Brow_Drop_L']);
 
     const model = new Object3D();
     model.add(face, hair);
 
-    const engine = new Embody({
+    const engine = await Embody.create({
       presetType: 'cc4',
       profile: {
         morphToMesh: { face: [] },
@@ -32,14 +32,14 @@ describe('Embody face mesh fallback selection', () => {
     expect(profile.morphToMesh.face).toEqual(['FaceMesh']);
   });
 
-  it('transitionAU applies only to selected face mesh mapping by default', () => {
+  it('transitionAU applies only to selected face mesh mapping by default', async () => {
     const face = makeMorphMesh('FaceMesh', ['Brow_Drop_L']);
     const hair = makeMorphMesh('HairMesh', ['Brow_Drop_L']);
 
     const model = new Object3D();
     model.add(face, hair);
 
-    const engine = new Embody({
+    const engine = await Embody.create({
       presetType: 'cc4',
       profile: {
         morphToMesh: { face: [] },
@@ -59,14 +59,14 @@ describe('Embody face mesh fallback selection', () => {
     expect(hair.morphTargetInfluences?.[hairIndex as number]).toBe(0);
   });
 
-  it('routes AU meshes using configurable auFacePartToMeshCategory', () => {
+  it('routes AU meshes using configurable auFacePartToMeshCategory', async () => {
     const face = makeMorphMesh('FaceMesh', ['Eye_Blink_L']);
     const eye = makeMorphMesh('EyeMesh', ['Eye_Blink_L']);
 
     const model = new Object3D();
     model.add(face, eye);
 
-    const engine = new Embody({
+    const engine = await Embody.create({
       presetType: 'cc4',
       profile: {
         morphToMesh: { face: ['FaceMesh'], eye: ['EyeMesh'] },
@@ -88,7 +88,7 @@ describe('Embody face mesh fallback selection', () => {
     expect(eye.morphTargetInfluences?.[eyeIndex as number]).toBe(1);
   });
 
-  it('exposes typed lip-sync playback on the top-level engine wrapper', () => {
+  it('exposes typed lip-sync playback on the top-level engine wrapper', async () => {
     const face = makeMorphMesh('VisemeMesh', ['Ah', 'Jaw_Open']);
     const jaw = new Object3D();
     jaw.name = 'JawRoot';
@@ -96,7 +96,7 @@ describe('Embody face mesh fallback selection', () => {
     const model = new Object3D();
     model.add(face, jaw);
 
-    const engine = new Embody({
+    const engine = await Embody.create({
       presetType: 'cc4',
       profile: {
         auToMorphs: {

@@ -15,7 +15,7 @@ import {
   normalizeHairColorAppearance,
 } from '../../../hair/appearance';
 import { CC4_MESHES } from '../../../presets/cc4';
-import { getEmbodyCoreSync } from '../../../wasm';
+import type { EmbodyCoreWasmModule } from '../../../wasmTypes';
 
 export type HairPhysicsDirectionConfig = SharedHairPhysicsDirectionConfig;
 export type HairMorphTargets = SharedHairMorphTargetsConfig;
@@ -33,6 +33,7 @@ const clamp01 = (value: number) => (value < 0 ? 0 : value > 1 ? 1 : value);
 
 export class HairPhysicsController {
   private host: HairPhysicsHost;
+  private core: EmbodyCoreWasmModule | null = null;
   private hairPhysicsEnabled = false;
   private hairPhysicsConfig: HairPhysicsConfig = {
     stiffness: 7.5,
@@ -101,6 +102,20 @@ export class HairPhysicsController {
 
   constructor(host: HairPhysicsHost) {
     this.host = host;
+  }
+
+  /** Attach the Wasm module owned by the engine/session that created this controller. */
+  setCore(core: EmbodyCoreWasmModule): void {
+    this.core = core;
+  }
+
+  private requireCore(): EmbodyCoreWasmModule {
+    if (!this.core) {
+      throw new Error(
+        'HairPhysicsController has no Embody Wasm core. Create the engine with Embody.create() or call setCore() after initEmbodyCore().'
+      );
+    }
+    return this.core;
   }
 
   private isEyebrowMesh(name: string, mesh?: Mesh): boolean {
@@ -893,14 +908,14 @@ export class HairPhysicsController {
   }
 
   private buildIdleWindCurves(durationSec: number): CurvesMap {
-    const wasm = getEmbodyCoreSync();
+    const wasm = this.requireCore();
     return JSON.parse(
       wasm.build_hair_idle_curves(JSON.stringify(this.hairCurveConfigJson()), durationSec)
     ) as CurvesMap;
   }
 
   private buildImpulseCurves(durationSec: number, horizontal: number, vertical: number): CurvesMap {
-    const wasm = getEmbodyCoreSync();
+    const wasm = this.requireCore();
     return JSON.parse(
       wasm.build_hair_impulse_curves(
         JSON.stringify(this.hairCurveConfigJson()),
@@ -912,7 +927,7 @@ export class HairPhysicsController {
   }
 
   private buildGravityCurves(): CurvesMap {
-    const wasm = getEmbodyCoreSync();
+    const wasm = this.requireCore();
     return JSON.parse(
       wasm.build_hair_gravity_curves(JSON.stringify(this.hairCurveConfigJson()))
     ) as CurvesMap;

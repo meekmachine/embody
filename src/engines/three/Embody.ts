@@ -52,7 +52,7 @@ import { initEmbodyCore } from '../../wasm';
 import { HairPhysicsController, type HairPhysicsConfig, type HairPhysicsConfigUpdate, type HairPhysicsDirectionConfig, type HairMorphTargets } from './hair/HairPhysicsController';
 import { CC4_PRESET, CC4_MESHES, COMPOSITE_ROTATIONS as CC4_COMPOSITE_ROTATIONS } from '../../presets/cc4';
 import { getPreset } from '../../presets';
-import { extendPresetWithProfile } from '../../mappings/extendPresetWithProfile';
+import { mergePresetWithProfile } from '../../mappings/extendPresetWithProfile';
 import {
   getProfileVisemeSlots,
   getMeshNamesForAUProfile,
@@ -109,6 +109,43 @@ type ResolvedMorphTargetsBySide = {
 export class Embody implements EmbodyRuntime {
   // Optional hook for animation schedulers.
   onSnippetEnd?: (name: string) => void;
+
+  /**
+   * Create an engine with Rust-owned preset/profile resolution.
+   *
+   * Prefer this factory whenever a profile patch must be merged onto a preset.
+   * The sync constructor accepts either a presetType with no patch, or an
+   * already-resolved profile.
+   */
+  static async create(
+    config: EmbodyConfig = {},
+    animation?: {
+      tick(dtSeconds: number): void;
+      addTransition(
+        key: string,
+        from: number,
+        to: number,
+        durationMs: number,
+        apply: (value: number) => void,
+        easing?: (t: number) => number
+      ): TransitionHandle;
+      clearTransitions(): void;
+      getActiveTransitionCount(): number;
+    }
+  ): Promise<Embody> {
+    const core = await initEmbodyCore();
+    const basePreset = config.presetType ? getPreset(config.presetType) : CC4_PRESET;
+    const resolvedProfile = mergePresetWithProfile(core, basePreset, config.profile);
+    const engine = new Embody(
+      {
+        profile: resolvedProfile,
+        animationRuntimeFactory: config.animationRuntimeFactory,
+      },
+      animation
+    );
+    engine.attachWasmCore(core);
+    return engine;
+  }
 
   // Configuration
   private config: Profile;
@@ -200,8 +237,13 @@ export class Embody implements EmbodyRuntime {
       getActiveTransitionCount(): number;
     }
   ) {
-    const basePreset = config.presetType ? getPreset(config.presetType) : CC4_PRESET;
-    this.config = extendPresetWithProfile(basePreset, config.profile);
+    // Sync construction does not merge profile patches. Use Embody.create() for
+    // preset + override resolution through the Rust Wasm core.
+    this.config = config.profile
+      ? (config.profile as Profile)
+      : config.presetType
+        ? getPreset(config.presetType)
+        : CC4_PRESET;
     this.mixWeights = { ...this.config.auMixDefaults };
     this.syncVisemeRuntimeState();
     this.animation = animation || new ThreeAnimationRuntime();
@@ -323,6 +365,7 @@ export class Embody implements EmbodyRuntime {
     void initEmbodyCore()
       .then((wasm) => {
         if (!this.modelDescriptor) return;
+        this.attachWasmCore(wasm);
         this.wasmRuntimeCore = new WasmRuntimeCore({
           profile: this.config,
           model: this.modelDescriptor,
@@ -334,6 +377,10 @@ export class Embody implements EmbodyRuntime {
         // Vitest and some hosts cannot resolve the package wasm dynamic import; TsRuntimeCore remains the morph path.
         this.wasmRuntimeCore = null;
       });
+  }
+
+  private attachWasmCore(core: Awaited<ReturnType<typeof initEmbodyCore>>): void {
+    this.hairPhysics.setCore(core);
   }
 
   private syncRuntimeCoreState(): void {

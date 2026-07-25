@@ -13,7 +13,11 @@
 
 use serde_json::{Map, Value};
 
-const MERGED_MAPS: [&str; 11] = [
+/// Profile fields whose entries compose by key instead of being replaced.
+///
+/// Keep this contract in Rust: JavaScript hosts supply profile data, but do not
+/// decide how that data composes.
+const PROFILE_MAP_FIELDS: [&str; 10] = [
     "auToMorphs",
     "auToBones",
     "boneNodes",
@@ -24,7 +28,31 @@ const MERGED_MAPS: [&str; 11] = [
     "auInfo",
     "continuumPairs",
     "continuumLabels",
-    "annotationRegions",
+];
+
+/// Scalar and array fields whose extension value replaces the preset value.
+/// All profile composition is deliberately enumerated so a new profile field
+/// cannot silently acquire a JavaScript-specific merge rule.
+const PROFILE_REPLACE_FIELDS: [&str; 19] = [
+    "name",
+    "animalType",
+    "emoji",
+    "bonePrefix",
+    "boneSuffix",
+    "morphPrefix",
+    "morphSuffix",
+    "suffixPattern",
+    "leftMorphSuffixes",
+    "rightMorphSuffixes",
+    "mappingSections",
+    "visemeKeys",
+    "visemeSystemId",
+    "visemeSlots",
+    "visemeMeshCategory",
+    "visemeJawAmounts",
+    "eyeMeshNodes",
+    "compositeRotations",
+    "disabledRegions",
 ];
 
 fn merge_map(base: Option<&Value>, extension: Option<&Value>) -> Option<Value> {
@@ -215,22 +243,18 @@ pub fn extend_preset_with_profile(base: &Value, extension: Option<&Value>) -> Va
         return base.clone();
     }
 
-    // Scalars and untouched arrays: extension wins when the key is present.
+    // Start with preset data, then apply the explicit profile contract below.
     let mut merged = base.as_object().cloned().unwrap_or_default();
-    if let Some(extension_map) = extension.as_object() {
-        for (key, value) in extension_map {
-            if !value.is_null() || !merged.contains_key(key) {
-                merged.insert(key.clone(), value.clone());
-            }
+
+    // Scalars and arrays replace only when the profile supplies a value.
+    for key in PROFILE_REPLACE_FIELDS {
+        if let Some(value) = extension.get(key).filter(|value| !value.is_null()) {
+            merged.insert(key.to_string(), value.clone());
         }
     }
 
-    for key in MERGED_MAPS {
-        let value = if key == "annotationRegions" {
-            merge_annotation_regions(base.get(key), extension.get(key))
-        } else {
-            merge_map(base.get(key), extension.get(key))
-        };
+    for key in PROFILE_MAP_FIELDS {
+        let value = merge_map(base.get(key), extension.get(key));
         if let Some(value) = value {
             merged.insert(key.to_string(), value);
         }
@@ -238,6 +262,13 @@ pub fn extend_preset_with_profile(base: &Value, extension: Option<&Value>) -> Va
 
     if let Some(meshes) = merge_meshes(base.get("meshes"), extension.get("meshes")) {
         merged.insert("meshes".to_string(), meshes);
+    }
+
+    if let Some(regions) = merge_annotation_regions(
+        base.get("annotationRegions"),
+        extension.get("annotationRegions"),
+    ) {
+        merged.insert("annotationRegions".to_string(), regions);
     }
 
     if let Some(hair) = merge_hair_physics(base.get("hairPhysics"), extension.get("hairPhysics"))
