@@ -23,7 +23,7 @@ pub fn has_preset(preset_id: &str) -> bool {
 
 pub fn normalize_preset_id(preset_id: &str) -> Option<&'static str> {
     match preset_id.trim().to_ascii_lowercase().as_str() {
-        "" | "cc4" | "custom" | "default" | "human" => Some("cc4"),
+        "" | "cc4" | "default" | "human" => Some("cc4"),
         _ => None,
     }
 }
@@ -74,7 +74,7 @@ mod tests {
     #[test]
     fn embeds_and_loads_cc4() {
         assert!(has_preset("cc4"));
-        assert!(has_preset("custom"));
+        assert!(!has_preset("custom"));
         let profile = load_profile("cc4").unwrap();
         assert!(!profile.au_to_morphs.is_empty() || !profile.au_to_bones.is_empty());
         assert!(preset_json("cc4").unwrap().contains("auToMorphs"));
@@ -91,5 +91,7 @@ mod tests {
     #[test]
     fn rejects_unknown_preset() {
         assert!(load_profile("fish").is_err());
+        assert!(load_profile("skeletal").is_err());
+        assert!(load_profile("custom").is_err());
     }
 }

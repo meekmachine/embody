@@ -25,7 +25,7 @@ import {
 } from '../../mappings/visemeSystem';
 
 export interface RustEmbodyHostConfig {
-  profile?: Profile;
+  profile?: Partial<Profile>;
   presetType?: PresetType | string;
   meshes?: Mesh[];
   /** Pre-initialized wasm module (used by tests and hosts with custom loaders). */
@@ -402,14 +402,13 @@ export class RustEmbodyHost {
 
 function resolvePresetId(presetType: PresetType | string | undefined): string {
   switch (presetType) {
-    case 'fish':
-    case 'skeletal':
-      // Not embedded yet — fall back to cc4 structural preset for the vertical slice.
-      return 'cc4';
     case 'cc4':
-    case 'custom':
     case undefined:
-    default:
       return 'cc4';
+    case 'default':
+    case 'human':
+      return 'cc4';
+    default:
+      return presetType;
   }
 }
