@@ -11,7 +11,9 @@ use crate::bones::{
     FLAG_HAS_ROTATION, JAW_BINDING_STRIDE,
 };
 use crate::math::{clamp01, finite_or};
+use crate::presets;
 use crate::profile::{compile_tables, ModelData, ProfileData};
+use crate::profile_merge::extend_preset_with_profile;
 
 pub const AU_MORPH_BINDING_STRIDE: u32 = 5;
 pub const VISEME_MORPH_BINDING_STRIDE: u32 = 4;
@@ -118,9 +120,41 @@ impl RuntimeCore {
             .map_err(|err| JsError::new(&format!("Invalid profile JSON: {err}")))?;
         let model: ModelData = serde_json::from_str(model_json)
             .map_err(|err| JsError::new(&format!("Invalid model descriptor JSON: {err}")))?;
+        self.apply_compiled_tables(compile_tables(&profile, &model));
+        Ok(())
+    }
 
-        let tables = compile_tables(&profile, &model);
+    /// Configure from an embedded preset id + optional override JSON + model
+    /// descriptor JSON. The CC4 (etc.) preset data lives in the Wasm core;
+    /// hosts only pass the preset id and overrides.
+    #[wasm_bindgen]
+    pub fn configure_with_preset(
+        &mut self,
+        preset_id: &str,
+        override_json: &str,
+        model_json: &str,
+    ) -> Result<(), JsError> {
+        let base_json = presets::preset_json(preset_id).map_err(|err| JsError::new(&err))?;
+        let base: serde_json::Value = serde_json::from_str(base_json)
+            .map_err(|err| JsError::new(&format!("Invalid embedded preset JSON: {err}")))?;
+        let extension = if override_json.trim().is_empty() {
+            None
+        } else {
+            Some(
+                serde_json::from_str(override_json)
+                    .map_err(|err| JsError::new(&format!("Invalid profile override JSON: {err}")))?,
+            )
+        };
+        let merged = extend_preset_with_profile(&base, extension.as_ref());
+        let profile: ProfileData = serde_json::from_value(merged)
+            .map_err(|err| JsError::new(&format!("Merged profile is invalid: {err}")))?;
+        let model: ModelData = serde_json::from_str(model_json)
+            .map_err(|err| JsError::new(&format!("Invalid model descriptor JSON: {err}")))?;
+        self.apply_compiled_tables(compile_tables(&profile, &model));
+        Ok(())
+    }
 
+    fn apply_compiled_tables(&mut self, tables: crate::profile::CompiledTables) {
         self.load_au_morph_bindings(&tables.au_morph_bindings);
         self.load_viseme_morph_bindings(&tables.viseme_morph_bindings);
         self.set_mixed_aus(&tables.mixed_aus);
@@ -137,7 +171,6 @@ impl RuntimeCore {
         }
         self.continuum_pairs = tables.continuum_pairs;
         self.viseme_slot_ids = tables.viseme_slot_ids;
-        Ok(())
     }
 
     #[wasm_bindgen]
@@ -928,6 +961,19 @@ mod tests {
         let expected_half = (15.0f32).to_radians() / 2.0;
         assert!((packed[13] - expected_half.sin()).abs() < 1e-6);
         assert!((packed[17] - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn configures_from_embedded_cc4_preset() {
+        let model = r#"{
+            "meshes": [{ "id": 1, "name": "CC_Base_Body", "morphTargetIds": [] }],
+            "morphTargets": [],
+            "bones": [{ "id": 1, "name": "CC_Base_JawRoot" }]
+        }"#;
+        let mut core = RuntimeCore::new(0);
+        // Override empty is fine; embedded CC4 must merge + compile without error.
+        core.configure_with_preset("cc4", "", model).unwrap();
+        assert!(core.viseme_slot_index("aa") >= -1);
     }
 
     #[test]

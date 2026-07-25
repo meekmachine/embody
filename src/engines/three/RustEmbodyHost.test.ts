@@ -50,6 +50,22 @@ async function makeHost() {
 }
 
 describe('RustEmbodyHost', () => {
+  it('loads the embedded CC4 preset from Wasm (no TS preset blob)', async () => {
+    const scene = makeModel();
+    const wasm = await loadWasmModule();
+    expect(wasm.has_preset('cc4')).toBe(true);
+    expect(wasm.list_presets()).toContain('cc4');
+
+    const host = await RustEmbodyHost.create(scene.model, {
+      presetType: 'cc4',
+      meshes: [scene.face, scene.viseme],
+      wasm,
+    });
+    // Profile object for Mixer callbacks comes from Wasm merge_embedded_preset.
+    expect(host.getProfile().auToMorphs).toBeTruthy();
+    host.dispose();
+  });
+
   it('applies AU morphs evaluated by the Rust core', async () => {
     const { host, face } = await makeHost();
 

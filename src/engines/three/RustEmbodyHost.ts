@@ -1,66 +1,183 @@
-import type { Mesh, Object3D } from 'three';
+import { Clock, Object3D, type Mesh } from 'three';
 import type { Profile } from '../../mappings/types';
+import type { MeshInfo } from '../../mappings/types';
 import type { PresetType } from '../../presets';
+import type {
+  AnimationClipInfo,
+  ClipHandle,
+  ClipOptions,
+  CurvesMap,
+  SnippetChannel,
+  CompositeRotation,
+} from '../../core/types';
 import type { EmbodyCoreWasmModule, WasmRuntimeCoreHandle } from '../../wasmTypes';
-import { initEmbodyCore } from '../../wasm';
-import { getPreset } from '../../presets';
-import { CC4_PRESET } from '../../presets/cc4';
-import { ThreeModelInspector } from './ThreeModelInspector';
+import { getEmbodyCoreSync, initEmbodyCore } from '../../wasm';
+import { CC4_MESHES } from '../../presets/cc4';
+import { ThreeModelInspector, type ThreeModelInspection } from './ThreeModelInspector';
 import { ThreeFrameApplier } from './ThreeFrameApplier';
+import { ThreeAnimationSystem } from './ThreeAnimationRuntime';
 import { buildFrameApplierBindings } from './Embody';
+import type { ResolvedBones } from './types';
+import { getSideScale } from './balanceUtils';
+import {
+  getMeshNamesForAUProfile,
+  getMeshNamesForVisemeProfile,
+} from '../../mappings/visemeSystem';
 
 export interface RustEmbodyHostConfig {
   profile?: Profile;
-  presetType?: PresetType;
+  presetType?: PresetType | string;
   meshes?: Mesh[];
   /** Pre-initialized wasm module (used by tests and hosts with custom loaders). */
   wasm?: EmbodyCoreWasmModule;
 }
 
 /**
- * Thin Three.js host adapter over the Rust engine.
+ * Thin Three.js host over the Rust engine.
  *
- * All animation logic lives in the Rust RuntimeCore: profile/binding
- * compilation, AU/viseme/continuum state, transitions, and frame evaluation.
- * This class only does what JavaScript must do because Three.js objects live
- * in JavaScript:
- *  - read the model into a plain data descriptor (ThreeModelInspector)
- *  - forward control calls and the per-frame clock to the core
- *  - write the core's packed frame output back onto Three.js objects
- *    (ThreeFrameApplier)
+ * Presets (CC4) live inside the Wasm core. This host:
+ *  - inspects the Three.js model
+ *  - calls `configure_with_preset` (embedded preset + overrides + model)
+ *  - forwards live controls to RuntimeCore
+ *  - applies packed frame output to Three.js
+ *  - delegates AnimationMixer / snippets to ThreeAnimationSystem (host-only)
  */
 export class RustEmbodyHost {
   private core: WasmRuntimeCoreHandle;
-  private model: Object3D;
+  private wasm: EmbodyCoreWasmModule;
+  private model: Object3D | null;
   private profile: Profile;
+  private presetId: string;
+  private meshes: Mesh[] = [];
+  private meshByName = new Map<string, Mesh>();
+  private bones: ResolvedBones = {};
   private inspector = new ThreeModelInspector();
   private applier = new ThreeFrameApplier();
+  private animationController: ThreeAnimationSystem;
+  private clock = new Clock();
+  private isRunning = false;
+  private animationFrameId: number | null = null;
   private disposed = false;
+  private visemeValues: number[] = [];
 
-  private constructor(core: WasmRuntimeCoreHandle, model: Object3D, profile: Profile) {
+  private constructor(
+    wasm: EmbodyCoreWasmModule,
+    core: WasmRuntimeCoreHandle,
+    model: Object3D,
+    profile: Profile,
+    presetId: string,
+  ) {
+    this.wasm = wasm;
     this.core = core;
     this.model = model;
     this.profile = profile;
+    this.presetId = presetId;
+    this.animationController = new ThreeAnimationSystem({
+      getModel: () => this.model,
+      getMeshes: () => this.meshes,
+      getMeshByName: (name) => this.meshByName.get(name),
+      getMeshNamesForAU: (auId) => getMeshNamesForAUProfile(this.profile, auId),
+      getMeshNamesForViseme: () => getMeshNamesForVisemeProfile(this.profile),
+      getCurrentAUValue: (auId) => this.getAU(auId),
+      getCurrentVisemeValue: (visemeIndex) => this.visemeValues[visemeIndex] ?? 0,
+      getCurrentMorphValue: (morphKey, meshNames) => this.getMorphValueForMeshes(morphKey, meshNames),
+      getCurrentBoneQuaternion: (nodeKey) => this.bones[nodeKey]?.obj.quaternion.clone() ?? null,
+      getCurrentBonePositionValue: (nodeKey, axis) => this.bones[nodeKey]?.obj.position[axis] ?? null,
+      getBones: () => this.bones,
+      getConfig: () => this.profile,
+      getCompositeRotations: () => (this.profile.compositeRotations || []) as CompositeRotation[],
+      computeSideValues: (base, balance) => {
+        const b = balance ?? 0;
+        return { left: base * getSideScale(b, 'left'), right: base * getSideScale(b, 'right') };
+      },
+      getAUMixWeight: (auId) => this.profile.auMixDefaults?.[auId] ?? 1,
+      isMixedAU: (auId) => {
+        const morphs = this.profile.auToMorphs?.[auId];
+        const hasMorphs = !!(morphs?.left?.length || morphs?.right?.length || morphs?.center?.length);
+        return hasMorphs && !!(this.profile.auToBones?.[auId]?.length);
+      },
+      reapplyProceduralState: () => this.applyFrame(),
+    });
   }
 
   static async create(model: Object3D, config: RustEmbodyHostConfig = {}): Promise<RustEmbodyHost> {
     const wasm = config.wasm ?? await initEmbodyCore();
-    const basePreset = config.presetType ? getPreset(config.presetType) : CC4_PRESET;
-    const profile = mergeProfileInRust(wasm, basePreset, config.profile);
-    const host = new RustEmbodyHost(new wasm.RuntimeCore(0), model, profile);
-    host.bindModel(config.meshes);
+    return RustEmbodyHost.createWithWasm(wasm, model, config);
+  }
+
+  /** Sync constructor when Wasm is already initialized (LoomLarge bootstrap). */
+  static createSync(model: Object3D, config: RustEmbodyHostConfig = {}): RustEmbodyHost {
+    const wasm = config.wasm ?? getEmbodyCoreSync();
+    return RustEmbodyHost.createWithWasm(wasm, model, config);
+  }
+
+  private static createWithWasm(
+    wasm: EmbodyCoreWasmModule,
+    model: Object3D | null,
+    config: RustEmbodyHostConfig,
+  ): RustEmbodyHost {
+    const presetId = resolvePresetId(config.presetType);
+    const overrideJson = config.profile ? JSON.stringify(config.profile) : '';
+    // Preset data comes from the Wasm core; overrides are host-only.
+    const profile = JSON.parse(wasm.merge_embedded_preset(presetId, overrideJson)) as Profile;
+    const host = new RustEmbodyHost(
+      wasm,
+      new wasm.RuntimeCore(0),
+      model ?? new Object3D(),
+      profile,
+      presetId,
+    );
+    host.overrideJson = overrideJson;
+    if (model) {
+      host.onReady({ model, meshes: config.meshes });
+    }
     return host;
   }
 
-  /** Re-inspect the model and reconfigure the core (e.g. after mesh changes). */
+  private overrideJson = '';
+
+  /**
+   * Create without a model yet (LoomLarge constructs the engine, then calls onReady).
+   * Requires Wasm already initialized.
+   */
+  static createUnbound(config: RustEmbodyHostConfig = {}): RustEmbodyHost {
+    const wasm = config.wasm ?? getEmbodyCoreSync();
+    return RustEmbodyHost.createWithWasm(wasm, null, config);
+  }
+
+  /** LoomLarge-compatible bind entrypoint. */
+  onReady(options: { model: Object3D; meshes?: Mesh[] }): void {
+    this.model = options.model;
+    this.bindModel(options.meshes);
+  }
+
   bindModel(meshes?: Mesh[]): void {
+    if (!this.model) return;
     const inspection = this.inspector.inspectModel(this.model, {
       profile: this.profile,
       meshes,
     });
-    this.applier.setBindings(buildFrameApplierBindings(inspection));
-    this.core.configure(JSON.stringify(this.profile), JSON.stringify(inspection.descriptor));
+    this.applyInspection(inspection);
+    // Embedded preset + overrides compiled inside the core (no TS CC4 blob).
+    this.core.configure_with_preset(
+      this.presetId,
+      this.overrideJson,
+      JSON.stringify(inspection.descriptor),
+    );
     this.applyFrame();
+  }
+
+  setProfile(profile: Profile): void {
+    this.profile = profile;
+    this.overrideJson = JSON.stringify(profile);
+    this.presetId = 'cc4';
+    if (this.model) {
+      this.bindModel(this.meshes);
+    }
+  }
+
+  getProfile(): Profile {
+    return this.profile;
   }
 
   setAU(id: number, value: number, balance?: number): void {
@@ -84,6 +201,10 @@ export class RustEmbodyHost {
   setViseme(index: number, value: number, jawScale = 1.0): void {
     this.core.set_viseme(index, value);
     this.core.set_viseme_jaw_scale(index, jawScale);
+    if (index >= this.visemeValues.length) {
+      this.visemeValues.length = index + 1;
+    }
+    this.visemeValues[index] = value;
     this.applyFrame();
   }
 
@@ -112,12 +233,35 @@ export class RustEmbodyHost {
     this.transitionViseme(index, to, durationMs, jawScale);
   }
 
-  /** Advance transitions and apply the resulting frame. Call once per render tick. */
   update(dtSeconds: number): void {
+    const dt = Math.max(0, dtSeconds || 0);
+    if (dt <= 0) return;
     const activeBefore = this.core.active_transition_count();
-    const activeAfter = this.core.update(dtSeconds);
+    const activeAfter = this.core.update(dt);
     if (activeBefore > 0 || activeAfter > 0) {
       this.applyFrame();
+    }
+    this.animationController.update(dt);
+  }
+
+  start(): void {
+    if (this.isRunning) return;
+    this.isRunning = true;
+    this.clock.start();
+    const tick = () => {
+      if (!this.isRunning) return;
+      this.update(this.clock.getDelta());
+      this.animationFrameId = requestAnimationFrame(tick);
+    };
+    this.animationFrameId = requestAnimationFrame(tick);
+  }
+
+  stop(): void {
+    this.isRunning = false;
+    this.clock.stop();
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
     }
   }
 
@@ -130,10 +274,117 @@ export class RustEmbodyHost {
     this.applyFrame();
   }
 
+  getMeshList(): MeshInfo[] {
+    if (!this.model) return [];
+    const result: MeshInfo[] = [];
+    this.model.traverse((obj: any) => {
+      if (obj.isMesh) {
+        const meshInfo = CC4_MESHES[obj.name];
+        result.push({
+          name: obj.name,
+          visible: obj.visible,
+          morphCount: obj.morphTargetInfluences?.length || 0,
+          category: meshInfo?.category || 'other',
+        });
+      }
+    });
+    return result;
+  }
+
+  getMorphTargets(): Record<string, string[]> {
+    const result: Record<string, string[]> = {};
+    for (const mesh of this.meshes) {
+      const dict = mesh.morphTargetDictionary;
+      if (!dict) continue;
+      result[mesh.name] = Object.keys(dict);
+    }
+    return result;
+  }
+
+  getBones(): ResolvedBones {
+    return this.bones;
+  }
+
+  // --- AnimationMixer / snippet surface (host-only; agencies need these) ---
+
+  loadAnimationClips(clips: unknown[]): void {
+    this.animationController.loadAnimationClips(clips);
+  }
+
+  getAnimationClips(): AnimationClipInfo[] {
+    return this.animationController.getAnimationClips();
+  }
+
+  playAnimation(clipName: string, options?: Parameters<ThreeAnimationSystem['playAnimation']>[1]) {
+    return this.animationController.playAnimation(clipName, options);
+  }
+
+  stopAnimation(clipName: string): void {
+    this.animationController.stopAnimation(clipName);
+  }
+
+  stopAllAnimations(): void {
+    this.animationController.stopAllAnimations();
+  }
+
+  pauseAnimation(clipName: string): void {
+    this.animationController.pauseAnimation(clipName);
+  }
+
+  resumeAnimation(clipName: string): void {
+    this.animationController.resumeAnimation(clipName);
+  }
+
+  buildClip(clipName: string, curves: CurvesMap, options?: ClipOptions): ClipHandle | null {
+    return this.animationController.buildClip(clipName, curves, options);
+  }
+
+  playTypedSnippet(
+    snippet: Parameters<ThreeAnimationSystem['playTypedSnippet']>[0],
+    options?: Parameters<ThreeAnimationSystem['playTypedSnippet']>[1],
+  ) {
+    return this.animationController.playTypedSnippet(snippet, options);
+  }
+
+  buildTypedClip(clipName: string, channels: SnippetChannel[], options?: ClipOptions) {
+    return this.animationController.buildTypedClip(clipName, channels, options);
+  }
+
+  cleanupSnippet(name: string): void {
+    this.animationController.cleanupSnippet(name);
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.stop();
+    this.animationController.dispose();
     this.core.free?.();
+    this.model = null;
+    this.meshes = [];
+    this.bones = {};
+  }
+
+  private applyInspection(inspection: ThreeModelInspection): void {
+    this.applier.setBindings(buildFrameApplierBindings(inspection));
+    this.meshes = inspection.morphMeshes.length > 0 ? [...inspection.morphMeshes] : [...inspection.allMeshes];
+    this.meshByName = inspection.meshByName;
+    this.bones = inspection.bones;
+  }
+
+  private getMorphValueForMeshes(morphKey: string, meshNames?: string[]): number {
+    const names = meshNames && meshNames.length > 0 ? meshNames : this.meshes.map((mesh) => mesh.name);
+    let max = 0;
+    for (const name of names) {
+      const mesh = this.meshByName.get(name);
+      const dict = mesh?.morphTargetDictionary;
+      const infl = mesh?.morphTargetInfluences;
+      if (!dict || !infl) continue;
+      const index = dict[morphKey];
+      if (index === undefined) continue;
+      max = Math.max(max, infl[index] ?? 0);
+    }
+    return max;
   }
 
   private applyFrame(): void {
@@ -144,16 +395,21 @@ export class RustEmbodyHost {
     const bones = this.core.evaluate_bone_frame_delta();
     if (bones.length > 0) {
       this.applier.applyPackedBoneFrameDelta(bones);
-      this.model.updateMatrixWorld(true);
+      this.model?.updateMatrixWorld(true);
     }
   }
 }
 
-function mergeProfileInRust(
-  wasm: EmbodyCoreWasmModule,
-  base: Profile,
-  extension?: Profile
-): Profile {
-  if (!extension) return base;
-  return JSON.parse(wasm.merge_preset_profile(JSON.stringify(base), JSON.stringify(extension))) as Profile;
+function resolvePresetId(presetType: PresetType | string | undefined): string {
+  switch (presetType) {
+    case 'fish':
+    case 'skeletal':
+      // Not embedded yet — fall back to cc4 structural preset for the vertical slice.
+      return 'cc4';
+    case 'cc4':
+    case 'custom':
+    case undefined:
+    default:
+      return 'cc4';
+  }
 }
