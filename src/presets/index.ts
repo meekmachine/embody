@@ -10,8 +10,14 @@ export { CC4_PRESET, default } from './cc4';
 export * from './cc4';
 
 import type { Profile } from '../mappings/types';
-import { extendPresetWithProfile } from '../mappings/extendPresetWithProfile';
-export { extendPresetWithProfile } from '../mappings/extendPresetWithProfile';
+import {
+  extendPresetWithProfile,
+  mergePresetWithProfile,
+} from '../mappings/extendPresetWithProfile';
+export {
+  extendPresetWithProfile,
+  mergePresetWithProfile,
+} from '../mappings/extendPresetWithProfile';
 
 // Betta fish preset (skeletal animation, no morphs)
 import { BETTA_FISH_PRESET } from './bettaFish';
@@ -55,10 +61,10 @@ export const resolvePreset = getPreset;
 /**
  * Get a preset, then extend it with an optional profile.
  */
-export function getPresetWithProfile(
+export async function getPresetWithProfile(
   presetType: PresetType | string | undefined,
   profile?: Partial<Profile>
-): Profile {
+): Promise<Profile> {
   return extendPresetWithProfile(getPreset(presetType), profile);
 }
 

@@ -240,7 +240,7 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
     }
   };
 
-  const engine = new Embody(resolveEmbodyConfig(options, character));
+  const engine = await Embody.create(resolveEmbodyConfig(options, character));
 
   let model: Object3D | null = null;
   let meshes: Mesh[] = [];
@@ -295,7 +295,7 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
     if (shouldSwapProfile) {
       // Swap presets in place so callers keep a stable `engine` reference.
       const config = resolveEmbodyConfig(options, nextCharacter);
-      engine.setProfile(getPresetWithProfile(config.presetType, config.profile));
+      engine.setProfile(await getPresetWithProfile(config.presetType, config.profile));
     }
 
     bindModelToEngine(engine, model, meshes, animations);

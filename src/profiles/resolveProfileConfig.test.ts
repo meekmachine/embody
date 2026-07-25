@@ -87,9 +87,9 @@ describe('mergeProfileRegionsByName', () => {
 });
 
 describe('extendProfileConfigWithPreset', () => {
-  it('lets saved annotationRegions override preset defaults by region name', () => {
-    const presetRegions = getPresetWithProfile('cc4').annotationRegions ?? [];
-    const extended = extendProfileConfigWithPreset(
+  it('lets saved annotationRegions override preset defaults by region name', async () => {
+    const presetRegions = (await getPresetWithProfile('cc4')).annotationRegions ?? [];
+    const extended = await extendProfileConfigWithPreset(
       createConfig({
         annotationRegions: presetRegions.map((region) =>
           region.name === 'left_eye'
@@ -131,8 +131,8 @@ describe('extendProfileConfigWithPreset', () => {
     });
   });
 
-  it('keeps preset order when canonical annotationRegions only override a subset', () => {
-    const extended = extendProfileConfigWithPreset(
+  it('keeps preset order when canonical annotationRegions only override a subset', async () => {
+    const extended = await extendProfileConfigWithPreset(
       createConfig({
         annotationRegions: [
           { name: 'left_eye', cameraAngle: 45, paddingFactor: 0.5 },
@@ -161,11 +161,11 @@ describe('extendProfileConfigWithPreset', () => {
     ]);
   });
 
-  it('treats saved top-level regions as a legacy fallback when annotationRegions are absent', () => {
-    const presetRightEye = getPresetWithProfile('cc4').annotationRegions?.find(
+  it('treats saved top-level regions as a legacy fallback when annotationRegions are absent', async () => {
+    const presetRightEye = (await getPresetWithProfile('cc4')).annotationRegions?.find(
       (region) => region.name === 'right_eye'
     );
-    const extended = extendProfileConfigWithPreset(
+    const extended = await extendProfileConfigWithPreset(
       createConfig({
         regions: [
           { name: 'left_eye', cameraAngle: 45, paddingFactor: 0.5 },
@@ -201,8 +201,8 @@ describe('extendProfileConfigWithPreset', () => {
     });
   });
 
-  it('preserves saved region order ahead of preset-only fill-ins', () => {
-    const extended = extendProfileConfigWithPreset(
+  it('preserves saved region order ahead of preset-only fill-ins', async () => {
+    const extended = await extendProfileConfigWithPreset(
       createConfig({
         regions: [
           { name: 'full_body', objects: ['*'], paddingFactor: 2.5 },
@@ -225,8 +225,8 @@ describe('extendProfileConfigWithPreset', () => {
     ]);
   });
 
-  it('prefers canonical annotationRegions over legacy regions while preserving legacy extras', () => {
-    const extended = extendProfileConfigWithPreset(
+  it('prefers canonical annotationRegions over legacy regions while preserving legacy extras', async () => {
+    const extended = await extendProfileConfigWithPreset(
       createConfig({
         profile: {
           annotationRegions: [
@@ -262,8 +262,8 @@ describe('extendProfileConfigWithPreset', () => {
     });
   });
 
-  it('drops disabled preset regions after extension and cleans parent-child links', () => {
-    const extended = extendProfileConfigWithPreset(
+  it('drops disabled preset regions after extension and cleans parent-child links', async () => {
+    const extended = await extendProfileConfigWithPreset(
       createConfig({
         disabledRegions: ['mouth', 'right_eye'],
       })
@@ -278,15 +278,15 @@ describe('extendProfileConfigWithPreset', () => {
     ]);
   });
 
-  it('carries preset bone metadata needed by runtime consumers', () => {
-    const extended = extendProfileConfigWithPreset(createConfig());
+  it('carries preset bone metadata needed by runtime consumers', async () => {
+    const extended = await extendProfileConfigWithPreset(createConfig());
 
     expect(extended.suffixPattern).toBeDefined();
     expect(extended.boneNodes).toBeDefined();
   });
 
-  it('lets semantic annotation region bones use preset bone nodes plus profile affixes', () => {
-    const extended = extendProfileConfigWithPreset(
+  it('lets semantic annotation region bones use preset bone nodes plus profile affixes', async () => {
+    const extended = await extendProfileConfigWithPreset(
       createConfig({
         characterId: 'trex',
         characterName: 'T-Rex',
@@ -326,8 +326,8 @@ describe('extendProfileConfigWithPreset', () => {
     ]);
   });
 
-  it('returns the full preset-extended profile surface instead of only bone metadata', () => {
-    const extended = extendProfileConfigWithPreset(
+  it('returns the full preset-extended profile surface instead of only bone metadata', async () => {
+    const extended = await extendProfileConfigWithPreset(
       createConfig({
         morphToMesh: { face: ['CustomFace'] },
         meshes: { CustomFace: { category: 'body', morphCount: 1 } },
@@ -345,8 +345,8 @@ describe('extendProfileConfigWithPreset', () => {
     expect(extended.visemeKeys?.length).toBeGreaterThan(0);
   });
 
-  it('merges saved top-level bone node overrides over preset bone mappings by key', () => {
-    const extended = extendProfileConfigWithPreset(
+  it('merges saved top-level bone node overrides over preset bone mappings by key', async () => {
+    const extended = await extendProfileConfigWithPreset(
       createConfig({
         profilePresetId: 'fish',
         boneNodes: {
@@ -367,8 +367,8 @@ describe('extendProfileConfigWithPreset', () => {
     expect(extended.suffixPattern).toBe('_\\d+$|\\.\\d+$');
   });
 
-  it('uses fish preset annotation regions when saved top-level regions are absent', () => {
-    const extended = extendProfileConfigWithPreset(
+  it('uses fish preset annotation regions when saved top-level regions are absent', async () => {
+    const extended = await extendProfileConfigWithPreset(
       createConfig({
         profilePresetId: 'fish',
         regions: [],
@@ -403,8 +403,8 @@ describe('extendProfileConfigWithPreset', () => {
     });
   });
 
-  it('keeps auPresetType as a deprecated preset id fallback', () => {
-    const extended = extendProfileConfigWithPreset(
+  it('keeps auPresetType as a deprecated preset id fallback', async () => {
+    const extended = await extendProfileConfigWithPreset(
       createConfig({
         profilePresetId: undefined,
         auPresetType: 'fish',
@@ -416,13 +416,13 @@ describe('extendProfileConfigWithPreset', () => {
     expect(extended.regions.map((region) => region.name)).toContain('tail');
   });
 
-  it('keeps custom profile configs on their raw saved region list', () => {
+  it('keeps custom profile configs on their raw saved region list', async () => {
     const config = createConfig({
       profilePresetId: 'custom',
       regions: [{ name: 'visor', objects: ['VisorMesh'], paddingFactor: 1.4 }],
     });
 
-    const extended = extendProfileConfigWithPreset(config);
+    const extended = await extendProfileConfigWithPreset(config);
 
     expect(extended).toBe(config);
   });
@@ -476,8 +476,8 @@ describe('extractLegacyCharacterProfileOverrides', () => {
 });
 
 describe('resolveProfileFromPreset', () => {
-  it('applies flattened character profile overrides on top of the selected preset', () => {
-    const extendedPreset = resolveProfileFromPreset(
+  it('applies flattened character profile overrides on top of the selected preset', async () => {
+    const extendedPreset = await resolveProfileFromPreset(
       createConfig({
         morphToMesh: { face: ['CustomFace'] },
         meshes: { CustomFace: { category: 'body', morphCount: 1 } },

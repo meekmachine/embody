@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ChannelId, MeshId, MorphTargetId, BoneId } from './contracts';
 import { TsClipCompiler } from './TsClipCompiler';
+import { requireInitializedEmbodyCore } from '../wasm';
 
 const channelId = (value: number) => value as ChannelId;
 const meshId = (value: number) => value as MeshId;
@@ -9,7 +10,7 @@ const boneId = (value: number) => value as BoneId;
 
 describe('TsClipCompiler', () => {
   it('compiles authored keyframes into host-neutral ClipIR', () => {
-    const compiler = new TsClipCompiler();
+    const compiler = new TsClipCompiler(requireInitializedEmbodyCore());
 
     expect(compiler.compile({
       name: 'core-smile',
@@ -80,7 +81,7 @@ describe('TsClipCompiler', () => {
   });
 
   it('compiles resolved curve targets into ClipIR tracks', () => {
-    const clip = new TsClipCompiler().compileCurves({
+    const clip = new TsClipCompiler(requireInitializedEmbodyCore()).compileCurves({
       name: 'curve-smile',
       curves: {
         smile: [
@@ -119,7 +120,7 @@ describe('TsClipCompiler', () => {
   });
 
   it('rejects mismatched keyframe value sizes', () => {
-    expect(() => new TsClipCompiler().compile({
+    expect(() => new TsClipCompiler(requireInitializedEmbodyCore()).compile({
       name: 'bad',
       tracks: [
         {
