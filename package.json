@@ -42,13 +42,13 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup && node scripts/export-cc4-preset-json.mjs --check && npm run wasm:build",
+    "build": "tsup --config tsup.wasm.config.ts && tsup --config tsup.config.ts && node scripts/export-cc4-preset-json.mjs --check && npm run wasm:build",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:exports": "npm run build && node scripts/smoke/package-exports.mjs",
+    "test:exports": "npm run build && node scripts/smoke/package-exports.mjs && node scripts/smoke/package-declarations.mjs",
     "test:pack": "npm run build && npm pack --dry-run",
     "extract:humanoid-skeleton-template": "node scripts/extract-humanoid-skeleton-template.cjs",
     "bench:runtime": "npm run build && node scripts/bench/runtime.mjs",
