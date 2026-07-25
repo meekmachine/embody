@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Object3D } from 'three';
 import type { BoneId, MeshId, MorphTargetId } from '../../core/contracts';
 import { TsClipCompiler } from '../../core/TsClipCompiler';
+import { requireInitializedEmbodyCore } from '../../wasm';
 import { ThreeClipAdapter } from './ThreeClipAdapter';
 
 const meshId = (value: number) => value as MeshId;
@@ -12,7 +13,7 @@ describe('ThreeClipAdapter', () => {
   it('converts ClipIR morph and bone tracks to Three AnimationClip tracks', () => {
     const head = new Object3D();
     head.name = 'Head';
-    const clipIR = new TsClipCompiler().compile({
+    const clipIR = new TsClipCompiler(requireInitializedEmbodyCore()).compile({
       name: 'adapter-smile',
       tracks: [
         {

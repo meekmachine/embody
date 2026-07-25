@@ -56,50 +56,21 @@ export const MARKER_VISIBILITY_FACTORS_FIELDS = CORE_MARKER_VISIBILITY_FACTORS_F
 const WASM_MODULE_SPECIFIER = './wasm/embody_wasm.js';
 const WASM_BINARY_SPECIFIER = './wasm/embody_wasm_bg.wasm';
 
-/**
- * Process-wide Wasm singleton.
- *
- * Bundlers / Vite can still evaluate `wasm.ts` more than once (main package vs
- * `/wasm` entry, CJS vs ESM, HMR). Module-local `let` caches then diverge:
- * Polymer awaits `initEmbodyCore()` on one copy while sync helpers read
- * `getEmbodyCoreSync()` on another → intermittent "not initialized" failures
- * that abort character load and revert the UI.
- */
-const EMBODY_WASM_CORE_GLOBAL_KEY = Symbol.for('@lovelace_lol/embody/wasm-core');
-
-/**
- * @typedef {{
- *   corePromise: Promise<import('./wasmTypes').EmbodyCoreWasmModule> | null,
- *   cachedCore: import('./wasmTypes').EmbodyCoreWasmModule | null,
- * }} EmbodyWasmCoreCache
- */
-
-/** @returns {EmbodyWasmCoreCache} */
-function getSharedCoreCache() {
-  const runtime = /** @type {Record<PropertyKey, EmbodyWasmCoreCache | undefined>} */ (globalThis);
-  let cache = runtime[EMBODY_WASM_CORE_GLOBAL_KEY];
-  if (!cache) {
-    cache = { corePromise: null, cachedCore: null };
-    runtime[EMBODY_WASM_CORE_GLOBAL_KEY] = cache;
-  }
-  return cache;
-}
+/** Per-entry loader state. Core consumers receive the resolved module explicitly. */
+let corePromise: Promise<import('./wasmTypes').EmbodyCoreWasmModule> | null = null;
+let cachedCore: import('./wasmTypes').EmbodyCoreWasmModule | null = null;
 
 /** @returns {Promise<import('./wasmTypes').EmbodyCoreWasmModule>} */
 export async function initEmbodyCore() {
-  const cache = getSharedCoreCache();
-  if (!cache.corePromise) {
-    cache.corePromise = loadCoreModule().catch((error) => {
+  if (!corePromise) {
+    corePromise = loadCoreModule().catch((error) => {
       // Allow a later retry after a transient load failure.
-      const shared = getSharedCoreCache();
-      if (shared.corePromise) {
-        shared.corePromise = null;
-      }
-      shared.cachedCore = null;
+      corePromise = null;
+      cachedCore = null;
       throw error;
     });
   }
-  return cache.corePromise;
+  return corePromise;
 }
 
 /** @returns {Promise<import('./wasmTypes').EmbodyCoreWasmModule>} */
@@ -108,12 +79,10 @@ export async function getEmbodyCore() {
 }
 
 /**
- * Synchronous access to the already-initialized Wasm module.
- * Call `await initEmbodyCore()` first (vitest setup does this).
- * @returns {import('./wasmTypes').EmbodyCoreWasmModule}
+ * Return the Wasm module already loaded by this package entry.
+ * Prefer passing the module returned by `initEmbodyCore()` explicitly.
  */
-export function getEmbodyCoreSync() {
-  const { cachedCore } = getSharedCoreCache();
+export function requireInitializedEmbodyCore() {
   if (!cachedCore) {
     throw new Error(
       'Embody Wasm core is not initialized. Await initEmbodyCore() before calling sync engine helpers.'
@@ -123,9 +92,8 @@ export function getEmbodyCoreSync() {
 }
 
 export function resetEmbodyCoreForTests() {
-  const cache = getSharedCoreCache();
-  cache.corePromise = null;
-  cache.cachedCore = null;
+  corePromise = null;
+  cachedCore = null;
 }
 
 /**
@@ -135,9 +103,8 @@ export function resetEmbodyCoreForTests() {
  */
 export function setEmbodyCoreForTests(mod) {
   assertCoreAbi(mod);
-  const cache = getSharedCoreCache();
-  cache.cachedCore = mod;
-  cache.corePromise = Promise.resolve(mod);
+  cachedCore = mod;
+  corePromise = Promise.resolve(mod);
 }
 
 /** @returns {Promise<import('./wasmTypes').EmbodyCoreWasmModule>} */
@@ -148,7 +115,7 @@ async function loadCoreModule() {
   }
 
   assertCoreAbi(mod);
-  getSharedCoreCache().cachedCore = mod;
+  cachedCore = mod;
   return mod;
 }
 

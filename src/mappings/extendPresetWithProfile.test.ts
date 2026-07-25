@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { Profile } from './types';
-import { extendPresetWithProfile } from './extendPresetWithProfile';
+import { extendPresetWithProfile, mergePresetWithProfile } from './extendPresetWithProfile';
+import { requireInitializedEmbodyCore } from '../wasm';
+import { CC4_PRESET } from '../presets/cc4';
 
 const basePreset: Profile = {
   name: 'base',
@@ -21,27 +23,25 @@ const basePreset: Profile = {
 };
 
 describe('extendPresetWithProfile', () => {
-  it('merges sparse host profiles without requiring Wasm init', () => {
-    const result = extendPresetWithProfile(
-      {
-        auPresetType: 'cc4',
-        annotationRegions: [{ name: 'head', bones: ['Head'] }],
-      } as unknown as Profile,
-      {
-        annotationRegions: [{ name: 'head', paddingFactor: 1.1 }],
-      },
-    );
+  it('merges sparse host profiles through the initialized Rust core', async () => {
+    const headRegion = CC4_PRESET.annotationRegions?.find((region) => region.name === 'head')
+      ?? CC4_PRESET.annotationRegions?.[0];
+    expect(headRegion).toBeTruthy();
 
-    expect(result.annotationRegions?.find((region) => region.name === 'head')).toMatchObject({
-      name: 'head',
-      bones: ['Head'],
+    const result = await extendPresetWithProfile(CC4_PRESET, {
+      annotationRegions: [{ name: headRegion!.name, paddingFactor: 1.1 }],
+    });
+
+    expect(result.annotationRegions?.find((region) => region.name === headRegion!.name)).toMatchObject({
+      name: headRegion!.name,
+      bones: headRegion!.bones,
       paddingFactor: 1.1,
     });
-    expect(result.auToMorphs).toEqual({});
+    expect(result.auToMorphs).toEqual(CC4_PRESET.auToMorphs);
   });
 
-  it('merges maps and overrides scalars', () => {
-    const result = extendPresetWithProfile(basePreset, {
+  it('merges maps and overrides scalars', async () => {
+    const result = await extendPresetWithProfile(basePreset, {
       name: 'override',
       auToMorphs: { 2: { left: [], right: [], center: ['B'] } },
       boneNodes: { HEAD: 'CC_Base_Head' },
@@ -53,8 +53,8 @@ describe('extendPresetWithProfile', () => {
     expect(result.boneNodes.HEAD).toBe('CC_Base_Head');
   });
 
-  it('merges annotation regions by name', () => {
-    const result = extendPresetWithProfile(basePreset, {
+  it('merges annotation regions by name', async () => {
+    const result = await extendPresetWithProfile(basePreset, {
       annotationRegions: [
         { name: 'face', meshes: ['FaceMesh2'], paddingFactor: 1.5 },
         { name: 'mouth', bones: ['Jaw'] },
@@ -70,8 +70,8 @@ describe('extendPresetWithProfile', () => {
     expect(mouth?.bones).toEqual(['Jaw']);
   });
 
-  it('merges annotation camera offsets by axis instead of replacing the whole vector', () => {
-    const result = extendPresetWithProfile(
+  it('merges annotation camera offsets by axis instead of replacing the whole vector', async () => {
+    const result = await extendPresetWithProfile(
       {
         ...basePreset,
         annotationRegions: [
@@ -96,8 +96,8 @@ describe('extendPresetWithProfile', () => {
     });
   });
 
-  it('carries disabled region names without pruning annotation regions', () => {
-    const result = extendPresetWithProfile(
+  it('carries disabled region names without pruning annotation regions', async () => {
+    const result = await extendPresetWithProfile(
       {
         ...basePreset,
         annotationRegions: [
@@ -126,16 +126,16 @@ describe('extendPresetWithProfile', () => {
     expect(result.annotationRegions?.find((region) => region.name === 'head')?.children).toEqual(['face', 'mouth']);
   });
 
-  it('does not mutate the base preset', () => {
-    extendPresetWithProfile(basePreset, {
+  it('does not mutate the base preset', async () => {
+    await extendPresetWithProfile(basePreset, {
       annotationRegions: [{ name: 'face', meshes: ['FaceMesh2'] }],
     });
 
     expect(basePreset.annotationRegions?.[0].meshes).toBeUndefined();
   });
 
-  it('merges auFacePartToMeshCategory mappings', () => {
-    const result = extendPresetWithProfile(basePreset, {
+  it('merges auFacePartToMeshCategory mappings', async () => {
+    const result = await extendPresetWithProfile(basePreset, {
       auFacePartToMeshCategory: { Tongue: 'tongue' },
     });
 
@@ -144,15 +144,22 @@ describe('extendPresetWithProfile', () => {
       Tongue: 'tongue',
     });
   });
+
+  it('accepts an explicitly injected Wasm core', () => {
+    const result = mergePresetWithProfile(requireInitializedEmbodyCore(), basePreset, {
+      name: 'injected',
+    });
+    expect(result.name).toBe('injected');
+  });
 });
 
 describe('extendPresetWithProfile reuse', () => {
-  it('returns the base preset unchanged when no extension is provided', () => {
-    expect(extendPresetWithProfile(basePreset)).toBe(basePreset);
+  it('returns the base preset unchanged when no extension is provided', async () => {
+    expect(await extendPresetWithProfile(basePreset)).toBe(basePreset);
   });
 
-  it('applies a profile extension on top of the preset', () => {
-    const result = extendPresetWithProfile(basePreset, {
+  it('applies a profile extension on top of the preset', async () => {
+    const result = await extendPresetWithProfile(basePreset, {
       morphToMesh: { face: ['CustomFace'] },
     });
 

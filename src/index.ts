@@ -146,7 +146,7 @@ export {
   TEMPLATE_SKELETON_FIT_TRANSFORM_FIELDS,
   TEMPLATE_SKELETON_FIT_TRANSFORM_STRIDE,
   getEmbodyCore,
-  getEmbodyCoreSync,
+  requireInitializedEmbodyCore,
   initEmbodyCore,
   resetEmbodyCoreForTests,
 } from './wasm';
@@ -536,7 +536,10 @@ export type {
 // ============================================================================
 
 export { CC4_PRESET } from './presets/cc4';
-export { extendPresetWithProfile } from './mappings/extendPresetWithProfile';
+export {
+  extendPresetWithProfile,
+  mergePresetWithProfile,
+} from './mappings/extendPresetWithProfile';
 
 // Individual CC4 preset components (for apps that need direct access)
 export {
