@@ -11,7 +11,6 @@ export default defineConfig({
     wasm: 'src/wasm.ts',
   },
   format: ['cjs', 'esm'],
-  dts: true,
   clean: true,
   treeshake: true,
   splitting: false,

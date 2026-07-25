@@ -40,7 +40,6 @@ export default defineConfig({
     preset: 'scripts/cc4-preset-entry.ts',
   },
   format: ['cjs', 'esm'],
-  dts: true,
   clean: false,
   treeshake: true,
   splitting: false,
