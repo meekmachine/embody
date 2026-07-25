@@ -178,4 +178,9 @@ export interface Hair {
    * Update eyebrow glow (emissive + intensity).
    */
   setEyebrowGlow(emissive: string, intensity: number): void;
+
+  /**
+   * Toggle/update hair mesh outline for all registered hair objects.
+   */
+  setHairOutline(outline: { show: boolean; color?: string; opacity?: number }): void;
 }

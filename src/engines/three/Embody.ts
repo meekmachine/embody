@@ -1604,6 +1604,10 @@ export class Embody implements EmbodyRuntime {
     this.hairPhysics.setEyebrowGlow(emissive, intensity);
   }
 
+  setHairOutline(outline: { show: boolean; color?: string; opacity?: number }): void {
+    this.hairPhysics.setHairOutline(outline);
+  }
+
   // ============================================================================
   // PRIVATE METHODS
   // ============================================================================

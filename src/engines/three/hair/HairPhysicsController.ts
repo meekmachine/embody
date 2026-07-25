@@ -229,6 +229,27 @@ export class HairPhysicsController {
     });
   }
 
+  setHairOutline(outline: { show: boolean; color?: string; opacity?: number }): void {
+    this.ensureAppearanceSampled();
+    this.appearance.showOutline = Boolean(outline.show);
+    if (outline.color !== undefined) {
+      this.appearance.outlineColor = outline.color;
+    }
+    if (outline.opacity !== undefined) {
+      this.appearance.outlineOpacity = outline.opacity;
+    }
+    const payload = {
+      outline: {
+        show: this.appearance.showOutline,
+        color: this.appearance.outlineColor,
+        opacity: this.appearance.outlineOpacity,
+      },
+    };
+    for (const name of this.registeredHairObjects.keys()) {
+      this.applyHairStateToObject(name, payload);
+    }
+  }
+
   clearRegisteredHairObjects(): void {
     this.registeredHairObjects.clear();
     this.cachedHairMeshNames = null;
