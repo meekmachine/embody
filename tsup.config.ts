@@ -39,7 +39,6 @@ export default defineConfig({
     cljs: 'src/cljs.ts',
   },
   format: ['cjs', 'esm'],
-  dts: true,
   clean: false,
   treeshake: true,
   splitting: false,
