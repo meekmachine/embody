@@ -1257,6 +1257,7 @@ export const CC4_PRESET: Profile = {
   auMixDefaults: AU_MIX_DEFAULTS,
   auInfo: AU_INFO,
   eyeMeshNodes: CC4_EYE_MESH_NODES,
+  meshes: CC4_MESHES,
   continuumPairs: CONTINUUM_PAIRS_MAP,
   continuumLabels: CONTINUUM_LABELS,
   hairPhysics: CC4_HAIR_PHYSICS,

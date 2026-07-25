@@ -78,6 +78,12 @@ mod tests {
         let profile = load_profile("cc4").unwrap();
         assert!(!profile.au_to_morphs.is_empty() || !profile.au_to_bones.is_empty());
         assert!(preset_json("cc4").unwrap().contains("auToMorphs"));
+        let preset: serde_json::Value = serde_json::from_str(preset_json("cc4").unwrap()).unwrap();
+        assert_eq!(preset["meshes"]["CC_Base_Eye"]["category"], "eye");
+        assert_eq!(
+            preset["meshes"]["CC_Base_Eye"]["material"]["renderOrder"],
+            -10
+        );
     }
 
     #[test]

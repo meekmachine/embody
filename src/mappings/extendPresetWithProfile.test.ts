@@ -144,6 +144,45 @@ describe('extendPresetWithProfile', () => {
       Tongue: 'tongue',
     });
   });
+
+  it('preserves mesh categories and nested material defaults under sparse overrides', () => {
+    const result = extendPresetWithProfile(
+      {
+        ...basePreset,
+        meshes: {
+          EyeOcclusion: {
+            category: 'eyeOcclusion',
+            morphCount: 94,
+            material: {
+              renderOrder: 2,
+              transparent: true,
+              depthWrite: true,
+            },
+          },
+        },
+      },
+      {
+        meshes: {
+          EyeOcclusion: {
+            material: {
+              opacity: 0.5,
+            },
+          } as any,
+        },
+      },
+    );
+
+    expect(result.meshes?.EyeOcclusion).toEqual({
+      category: 'eyeOcclusion',
+      morphCount: 94,
+      material: {
+        renderOrder: 2,
+        transparent: true,
+        depthWrite: true,
+        opacity: 0.5,
+      },
+    });
+  });
 });
 
 describe('extendPresetWithProfile reuse', () => {
