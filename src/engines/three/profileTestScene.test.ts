@@ -168,7 +168,7 @@ describe('Three profile test scene', () => {
             "type": "number",
             "values": [
               0,
-              0.25,
+              0.5,
             ],
           },
           {

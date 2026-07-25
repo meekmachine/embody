@@ -51,12 +51,12 @@ const bodyDelta = new Float32Array([
 ]);
 
 describe('Embody runtime morph target authoring', () => {
-  it('adds a named morph target and drives it by key and influence index', () => {
+  it('adds a named morph target and drives it by key and influence index', async () => {
     const face = makeMesh('FaceMesh', { ExistingSmile: smileDelta });
     const model = new Object3D();
     model.add(face);
 
-    const engine = new Embody({
+    const engine = await Embody.create({
       presetType: 'cc4',
       profile: { morphToMesh: { face: ['FaceMesh'] } },
     });
@@ -79,14 +79,14 @@ describe('Embody runtime morph target authoring', () => {
     expect(face.morphTargetInfluences?.[1]).toBe(0.25);
   });
 
-  it('uses geometry replacement by default for post-render-safe mutation', () => {
+  it('uses geometry replacement by default for post-render-safe mutation', async () => {
     const face = makeMesh('FaceMesh', { ExistingSmile: smileDelta });
     const oldGeometry = face.geometry;
     const dispose = vi.spyOn(oldGeometry, 'dispose');
     const model = new Object3D();
     model.add(face);
 
-    const engine = new Embody({
+    const engine = await Embody.create({
       presetType: 'cc4',
       profile: { morphToMesh: { face: ['FaceMesh'] } },
     });
@@ -104,7 +104,7 @@ describe('Embody runtime morph target authoring', () => {
     expect(face.morphTargetInfluences).toEqual([0, 0]);
   });
 
-  it('keeps existing morph attribute streams aligned for position-only targets', () => {
+  it('keeps existing morph attribute streams aligned for position-only targets', async () => {
     const face = makeMesh('FaceMesh', { ExistingSmile: smileDelta });
     face.geometry.morphAttributes.normal = [
       new BufferAttribute(new Float32Array([
@@ -116,7 +116,7 @@ describe('Embody runtime morph target authoring', () => {
     const model = new Object3D();
     model.add(face);
 
-    const engine = new Embody({
+    const engine = await Embody.create({
       presetType: 'cc4',
       profile: { morphToMesh: { face: ['FaceMesh'] } },
     });
@@ -133,12 +133,12 @@ describe('Embody runtime morph target authoring', () => {
     expect(normalMorphs?.[1]?.array).toEqual(new Float32Array(9));
   });
 
-  it('rejects mixed relative and absolute morph targets on an existing morph geometry', () => {
+  it('rejects mixed relative and absolute morph targets on an existing morph geometry', async () => {
     const face = makeMesh('FaceMesh', { ExistingSmile: smileDelta });
     const model = new Object3D();
     model.add(face);
 
-    const engine = new Embody({
+    const engine = await Embody.create({
       presetType: 'cc4',
       profile: { morphToMesh: { face: ['FaceMesh'] } },
     });
@@ -154,12 +154,12 @@ describe('Embody runtime morph target authoring', () => {
     expect(face.morphTargetDictionary?.AbsoluteSmile).toBeUndefined();
   });
 
-  it('prevalidates bulk morph targets before mutating any mesh', () => {
+  it('prevalidates bulk morph targets before mutating any mesh', async () => {
     const face = makeMesh('FaceMesh');
     const model = new Object3D();
     model.add(face);
 
-    const engine = new Embody({
+    const engine = await Embody.create({
       presetType: 'cc4',
       profile: { morphToMesh: { face: ['FaceMesh'] } },
     });
@@ -186,7 +186,7 @@ describe('Embody runtime morph target authoring', () => {
     const model = new Object3D();
     model.add(body);
 
-    const engine = new Embody({
+    const engine = await Embody.create({
       presetType: 'cc4',
       profile: { morphToMesh: { face: ['BodyMesh'] } },
     });
@@ -205,12 +205,12 @@ describe('Embody runtime morph target authoring', () => {
     expect(report.model.morphNames).toContain('BodyType_Muscular');
   });
 
-  it('rebuilds AU morph caches after adding a previously missing target', () => {
+  it('rebuilds AU morph caches after adding a previously missing target', async () => {
     const face = makeMesh('FaceMesh');
     const model = new Object3D();
     model.add(face);
 
-    const engine = new Embody({
+    const engine = await Embody.create({
       presetType: 'cc4',
       profile: {
         morphToMesh: { face: ['FaceMesh'] },
@@ -229,12 +229,12 @@ describe('Embody runtime morph target authoring', () => {
     expect(face.morphTargetInfluences?.[0]).toBe(1);
   });
 
-  it('rejects morph deltas with the wrong vertex count', () => {
+  it('rejects morph deltas with the wrong vertex count', async () => {
     const face = makeMesh('FaceMesh');
     const model = new Object3D();
     model.add(face);
 
-    const engine = new Embody({
+    const engine = await Embody.create({
       presetType: 'cc4',
       profile: { morphToMesh: { face: ['FaceMesh'] } },
     });
