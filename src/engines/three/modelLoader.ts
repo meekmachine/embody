@@ -37,6 +37,11 @@ export interface CharacterModelLoadOptions {
 export interface CharacterModelTransform {
   modelOffset?: { x?: number; y?: number; z?: number };
   modelRotation?: { x?: number; y?: number; z?: number };
+  /**
+   * Positive finite uniform scale applied to the model root.
+   * Omit this field to preserve the scale authored in the model asset.
+   */
+  modelScale?: number;
   /** Lift model so its lowest point clears this Y value. */
   modelGroundClearance?: number;
 }
@@ -114,7 +119,7 @@ export function applyCharacterModelTransform(
   model: Object3D,
   transform: CharacterModelTransform = {},
 ): void {
-  const { modelOffset, modelRotation, modelGroundClearance } = transform;
+  const { modelOffset, modelRotation, modelScale, modelGroundClearance } = transform;
 
   if (modelOffset) {
     model.position.set(modelOffset.x ?? 0, modelOffset.y ?? 0, modelOffset.z ?? 0);
@@ -129,6 +134,11 @@ export function applyCharacterModelTransform(
     );
   }
 
+  if (modelScale !== undefined && Number.isFinite(modelScale) && modelScale > 0) {
+    model.scale.setScalar(modelScale);
+  }
+
+  // Apply ground clearance after scale so the bounds reflect the final size.
   if (modelGroundClearance !== undefined && Number.isFinite(modelGroundClearance)) {
     model.updateMatrixWorld(true);
     const bounds = new Box3().setFromObject(model);

@@ -222,6 +222,7 @@ const host = await createCharacterHost({
   character: {
     modelUrl: '/characters/jonathan.glb',
     presetType: 'cc4',
+    modelScale: 0.9,
   },
 });
 
@@ -231,6 +232,11 @@ host.engine.setAU(12, 0.8);
 // later
 host.dispose();
 ```
+
+`modelScale` is an optional positive finite uniform scale for the loaded model
+root. When omitted, Embody preserves the scale authored in the asset. Embody
+applies model scale before `modelGroundClearance`, so ground placement uses the
+scaled model bounds.
 
 Pick a named scene type to change the backdrop, lighting, and shadow defaults
 (`studio` is the default; `showcase`, `inspection`, and `void` are also built in),

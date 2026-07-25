@@ -46,6 +46,11 @@ export interface ProfileRuntimeConfig extends Partial<Profile> {
   modelOffset?: { x?: number; y?: number; z?: number };
   /** Model rotation in degrees to apply on load. */
   modelRotation?: { x?: number; y?: number; z?: number };
+  /**
+   * Positive finite uniform scale applied to the model root on load.
+   * Omit this field to preserve the scale authored in the model asset.
+   */
+  modelScale?: number;
   /** Ensure model's lowest point clears the ground by this amount. */
   modelGroundClearance?: number;
   /** Baked clip names hidden from downstream UIs and filtered out on load. */
