@@ -36,6 +36,11 @@ export {
   buildFrameApplierBindings,
   collectMorphMeshes,
 } from './engines/three/Embody';
+export { RustEmbodyHost, createRustEmbodyHost } from './engines/three/RustEmbodyHost';
+export type { RustEmbodyHostConfig } from './engines/three/RustEmbodyHost';
+export { MemoryHost } from './hosts/memory';
+export type { MemoryHostConfig, MemoryBonePose } from './hosts/memory';
+export type { EmbodyHostControls } from './hosts/types';
 export {
   ThreeAnimationRuntime,
   ThreeAnimationSystem,

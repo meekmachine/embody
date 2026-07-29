@@ -1,102 +1,57 @@
-# Secondary Host Adapter Targets
+# Host Adapter Targets
 
-Embody should keep Three.js as the first supported host while making the core
-contracts realistic for Babylon.js, React Three Fiber, and Unity.
+Embody keeps a **Rust/Wasm required core**. TypeScript host adapters only talk
+to that core through the packed ABI (see [HOST_ABI.md](./HOST_ABI.md)).
 
-## Current Boundary
+## Architecture
 
-The shared package now has three layers:
+| Layer | Owns |
+|-------|------|
+| `@lovelace_lol/embody` Wasm core | State, bindings, eval, transitions, presets, ClipIR, hair/fit solvers |
+| Packed ABI (waist) | `ModelDescriptor` in; packed morph/bone `FrameDelta` + ClipIR out |
+| `src/hosts/three` | Three inspect / apply / Mixer schedule (`RustEmbodyHost`) |
+| `src/hosts/memory` | Engine-agnostic proof host (plain maps; no renderer) |
+| Fat `Embody.ts` (legacy) | Exact-custom / authoring surface until full cutover |
 
-- `@lovelace_lol/embody/core`: host-neutral descriptors, frame deltas, ClipIR,
-  `TsRuntimeCore`, and `TsClipCompiler`.
-- `@lovelace_lol/embody/three`: Three-specific inspection, frame application,
-  ClipIR conversion, and mixer lifecycle.
-- `@lovelace_lol/embody`: compatibility root that keeps existing Embody imports.
+Hosts must not reimplement AU solving, profile merge, or preset blobs as
+runtime truth. Those live in Rust.
 
-The adapter contract is intentionally numeric:
+## Three.js (first host)
 
-- models are described as `ModelDescriptor`
-- runtime output is `FrameDelta`
-- authored animation output is `ClipIR`
-- host adapters own object lookup and mutation
+Adapter pieces (under `src/hosts/three` + `src/engines/three` helpers):
 
-This keeps Rust/Wasm, Babylon, R3F, and Unity from needing Three.js objects.
+- `ThreeModelInspector` → `ModelDescriptor`
+- `ThreeFrameApplier` ← packed FrameDelta
+- `RustEmbodyHost` → thin driver over `RuntimeCore`
+- `ThreeAnimationSystem` → host-only Mixer / snippet playback
 
-## Babylon.js
+R3F should wrap the Three host; it does not need a separate core.
 
-Babylon should be the first non-Three runtime target after the Three adapter is
-stable because its browser/npm shape is closest to the current host.
+## MemoryHost (ABI proof)
 
-Expected adapter pieces:
+`src/hosts/memory` drives `RuntimeCore` and stores morph/bone results in plain
+JS maps. Any future engine host should be able to follow the same pattern.
 
-- `BabylonModelInspector`: convert Babylon meshes, skeleton bones, morph target
-  managers, and animation groups into `ModelDescriptor`.
-- `BabylonFrameApplier`: apply `FrameDelta` to morph target influences, bone
-  transforms, and mesh visibility/material properties.
-- `BabylonClipAdapter`: convert `ClipIR` into Babylon animations and animation
-  groups.
+## Babylon.js (next renderer host)
 
-Research anchors:
+Expected pieces against the same contracts:
 
-- Morph targets: https://doc.babylonjs.com/features/featuresDeepDive/mesh/morphTargets
-- Animations: https://doc.babylonjs.com/features/featuresDeepDive/animation/animations
+- `BabylonModelInspector` → `ModelDescriptor` (morph target managers → ids)
+- `BabylonFrameApplier` ← packed FrameDelta
+- `BabylonClipAdapter` ← ClipIR → animation groups
 
-Primary risk:
+Primary risk: morph targets are manager-based, not `morphTargetInfluences` arrays.
 
-- Babylon morph targets are managed through morph target managers rather than
-  Three-style `Mesh.morphTargetInfluences` arrays, so descriptor ids must map to
-  manager/target pairs instead of raw mesh slots.
+## Unity (bridge host)
 
-## React Three Fiber
+Treat Unity as a native/bridge consumer of the same ABI (C# applier for
+blendshapes/bones, ClipIR bake or runtime bridge). Not an npm peer of Three.
 
-R3F should not need a separate core runtime. It should be a React integration
-for the existing Three adapter.
+## Recommended order
 
-Expected adapter pieces:
-
-- React hooks for creating/disposal of `Embody`, `ThreeModelInspector`,
-  `ThreeFrameApplier`, and `ThreeAnimationSystem`.
-- Lifecycle helpers that bind loaded GLTF scenes to `onReady`.
-- Optional suspense-friendly model descriptor extraction.
-
-Research anchor:
-
-- R3F renderer model: https://r3f.docs.pmnd.rs/getting-started/introduction
-
-Primary risk:
-
-- React lifecycle and disposal must not fight Three mixer ownership. The runtime
-  should remain in the Three adapter; R3F should only orchestrate it.
-
-## Unity
-
-Unity should be treated as a bridge target, not a direct npm runtime target.
-The cleanest path is exporting `ModelDescriptor`, `FrameDelta`, and `ClipIR`
-data to Unity-side C# scripts or browser WebGL interop.
-
-Expected adapter pieces:
-
-- A Unity descriptor/import format for blendshapes and bones.
-- A C# frame applier for blendshape weights, transforms, and visibility.
-- A ClipIR-to-Unity AnimationClip converter or offline baking tool.
-
-Research anchors:
-
-- WebGL browser scripting interop: https://docs.unity3d.com/Manual/webgl-interactingwithbrowserscripting.html
-- Animation clips: https://docs.unity3d.com/Manual/AnimationClips.html
-
-Primary risk:
-
-- Unity's runtime API and WebGL JS interop have different deployment constraints
-  than npm/browser engines. Treat Unity as a generated/bridge target until the
-  TypeScript and Rust core contracts are stable.
-
-## Recommended Order
-
-1. Finish routing Three live runtime through `TsRuntimeCore` and
-   `ThreeFrameApplier`.
-2. Route Three dynamic clips through `TsClipCompiler` and `ThreeClipAdapter`.
-3. Add a small R3F wrapper because it reuses the Three adapter.
-4. Prototype Babylon descriptor + frame application.
-5. Only start Unity once `FrameDelta` and `ClipIR` are stable enough for a
-   bridge format.
+1. Keep Three live path on `RustEmbodyHost` + packed FrameDelta.
+2. Prove non-Three with MemoryHost tests.
+3. Cut LoomLarge / Polymer preset characters fully onto the thin host.
+4. Delete fat `Embody.ts` / `TsRuntimeCore` once exact-custom + authoring parity lands.
+5. Prototype Babylon inspect + apply.
+6. Unity bridge once FrameDelta / ClipIR stay stable across hosts.

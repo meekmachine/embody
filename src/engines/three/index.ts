@@ -7,6 +7,8 @@ export {
   buildFrameApplierBindings,
   collectMorphMeshes,
 } from './Embody';
+export { RustEmbodyHost, createRustEmbodyHost } from './RustEmbodyHost';
+export type { RustEmbodyHostConfig } from './RustEmbodyHost';
 export {
   ThreeAnimationRuntime,
   ThreeAnimationSystem,
