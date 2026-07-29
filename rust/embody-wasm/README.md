@@ -1,10 +1,18 @@
 # Embody Wasm Core
 
-This crate provides the Rust/Wasm artifact used by the host-neutral Embody core.
-The npm build now produces the generated Wasm package under `dist/wasm` and
-the public `@lovelace_lol/embody/wasm` entrypoint initializes it explicitly.
+This crate is the **required** host-neutral Embody engine. The npm build
+produces the generated Wasm package under `dist/wasm`, and consumers must call
+`await initEmbodyCore()` from `@lovelace_lol/embody/wasm` (or use
+`Embody.create(...)`) before constructing a runtime. There is no TypeScript
+runtime-core fallback.
 
-The current Rust surface focuses on batched numeric operations that match the
+TypeScript remains only for:
+
+- package/Wasm loading glue
+- host-neutral contract types
+- Three.js (or future host) adapters that inspect/mutate engine objects
+
+The Rust surface focuses on batched numeric operations that match the
 core JS/Wasm boundary shape:
 
 - inputs are number slices / typed arrays

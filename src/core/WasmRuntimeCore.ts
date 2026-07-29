@@ -50,8 +50,9 @@ export interface WasmRuntimeCoreOptions {
 }
 
 /**
- * TypeScript facade over the Rust Wasm RuntimeCore for live morph FrameDelta
- * evaluation. Bones/composites remain on TsRuntimeCore until a later slice.
+ * Thin TypeScript facade over the Rust Wasm RuntimeCore.
+ * Binding compilation helpers live here only to pack host-neutral descriptors
+ * into the numeric tables Rust consumes; solving stays in Rust.
  */
 export class WasmRuntimeCore {
   private readonly wasm: EmbodyCoreWasmModule;
@@ -129,17 +130,9 @@ export class WasmRuntimeCore {
   }
 
   private reloadBindings(): void {
-    const { auBindings, mixedAus, visemeBindings } = compileMorphBindings(this.profile, this.model);
-    this.core.load_au_morph_bindings(auBindings);
-    this.core.load_viseme_morph_bindings(visemeBindings);
-    this.core.set_mixed_aus(mixedAus);
-
-    const boneBindings = compileBoneBindings(this.profile, this.model);
-    this.core.load_bone_rest_transforms(boneBindings.restTransforms);
-    this.core.load_composite_axes(boneBindings.compositeAxes);
-    this.core.load_bone_translations(boneBindings.translations);
-    this.core.load_jaw_binding(boneBindings.jawBinding);
-    this.core.load_viseme_jaw_amounts(boneBindings.visemeJawAmounts);
+    // Binding compilation (mesh/morph/bone name resolution, composites, jaw)
+    // lives in Rust. The TS facade only supplies profile + model JSON.
+    this.core.configure(JSON.stringify(this.profile), JSON.stringify(this.model));
   }
 }
 
@@ -204,7 +197,7 @@ export interface CompiledBoneBindings {
  * Compile profile bone mappings into the packed tables the Rust RuntimeCore
  * consumes: rest transforms, composite rotation axes (in yaw/pitch/roll
  * application order), AU translations, and the auto viseme jaw binding.
- * Mirrors the mapping resolution in TsRuntimeCore.collectBoneWrites.
+ * Packs profile bone mappings into the numeric tables Rust consumes.
  */
 export function compileBoneBindings(profile: Profile, model: ModelDescriptor): CompiledBoneBindings {
   const referencedBones = new Map<BoneId, BoneDescriptor>();
@@ -226,7 +219,7 @@ export function compileBoneBindings(profile: Profile, model: ModelDescriptor): C
     const bone = findBone(composite.node);
     if (!bone) continue;
 
-    // Application order must match TsRuntimeCore: yaw, pitch, roll.
+    // Application order: yaw, pitch, roll.
     const axes: Array<{ axis: number; config: RotationAxis | null }> = [
       { axis: 1, config: composite.yaw },
       { axis: 0, config: composite.pitch },

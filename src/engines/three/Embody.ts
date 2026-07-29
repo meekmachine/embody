@@ -45,12 +45,11 @@ import { ThreeAnimationRuntime, ThreeAnimationSystem } from './ThreeAnimationRun
 import { getSideScale } from './balanceUtils';
 import { ThreeModelInspector } from './ThreeModelInspector';
 import { ThreeFrameApplier, type ThreeFrameApplierBindings, type ThreeMaterialConfig, type ThreeResolvedMaterialConfig } from './ThreeFrameApplier';
-import { TsRuntimeCore } from '../../core/TsRuntimeCore';
 import { WasmRuntimeCore } from '../../core/WasmRuntimeCore';
 import type { ModelDescriptor } from '../../core/contracts';
-import { initEmbodyCore } from '../../wasm';
+import { initEmbodyCore, requireInitializedEmbodyCore } from '../../wasm';
 import { HairPhysicsController, type HairPhysicsConfig, type HairPhysicsConfigUpdate } from './hair/HairPhysicsController';
-import { CC4_PRESET, CC4_MESHES, COMPOSITE_ROTATIONS as CC4_COMPOSITE_ROTATIONS } from '../../presets/cc4';
+import { CC4_MESHES } from '../../presets/cc4';
 import { getPreset } from '../../presets';
 import { mergePresetWithProfile } from '../../mappings/extendPresetWithProfile';
 import {
@@ -134,7 +133,7 @@ export class Embody implements EmbodyRuntime {
     }
   ): Promise<Embody> {
     const core = await initEmbodyCore();
-    const basePreset = config.presetType ? getPreset(config.presetType) : CC4_PRESET;
+    const basePreset = getPreset(config.presetType || 'cc4');
     const resolvedProfile = mergePresetWithProfile(core, basePreset, config.profile);
     const engine = new Embody(
       {
@@ -212,7 +211,6 @@ export class Embody implements EmbodyRuntime {
   private modelInspector = new ThreeModelInspector();
   private frameApplier = new ThreeFrameApplier();
   private modelDescriptor: ModelDescriptor | null = null;
-  private tsRuntimeCore: TsRuntimeCore | null = null;
   private wasmRuntimeCore: WasmRuntimeCore | null = null;
   private framePathReady = false;
 
@@ -238,18 +236,17 @@ export class Embody implements EmbodyRuntime {
     }
   ) {
     // Sync construction does not merge profile patches. Use Embody.create() for
-    // preset + override resolution through the Rust Wasm core.
+    // preset + override resolution through the Rust Wasm core. Preset lookup and
+    // live solving both require await initEmbodyCore() first.
     this.config = config.profile
       ? (config.profile as Profile)
-      : config.presetType
-        ? getPreset(config.presetType)
-        : CC4_PRESET;
+      : getPreset(config.presetType || 'cc4');
     this.mixWeights = { ...this.config.auMixDefaults };
     this.syncVisemeRuntimeState();
     this.animation = animation || new ThreeAnimationRuntime();
 
-    // Use config's composite rotations or default to CC4
-    this.compositeRotations = this.config.compositeRotations || CC4_COMPOSITE_ROTATIONS;
+    // Composite rotations come from the Rust-owned profile. No host-side preset fallback.
+    this.compositeRotations = this.config.compositeRotations || [];
     this.auToCompositeMap = buildAUToCompositeMap(this.compositeRotations);
 
     this.animationController = new ThreeAnimationSystem({
@@ -355,28 +352,18 @@ export class Embody implements EmbodyRuntime {
   private bindHostNeutralRuntime(inspection: ReturnType<ThreeModelInspector['inspectModel']>): void {
     this.modelDescriptor = inspection.descriptor;
     this.frameApplier.setBindings(buildFrameApplierBindings(inspection));
-    this.tsRuntimeCore = new TsRuntimeCore({
+
+    // Rust/Wasm is required. Hosts must await initEmbodyCore() (or Embody.create())
+    // before onReady; there is no TypeScript runtime fallback.
+    const wasm = requireInitializedEmbodyCore();
+    this.attachWasmCore(wasm);
+    this.wasmRuntimeCore = new WasmRuntimeCore({
       profile: this.config,
       model: inspection.descriptor,
+      wasm,
     });
     this.syncRuntimeCoreState();
     this.framePathReady = true;
-
-    void initEmbodyCore()
-      .then((wasm) => {
-        if (!this.modelDescriptor) return;
-        this.attachWasmCore(wasm);
-        this.wasmRuntimeCore = new WasmRuntimeCore({
-          profile: this.config,
-          model: this.modelDescriptor,
-          wasm,
-        });
-        this.syncRuntimeCoreState();
-      })
-      .catch(() => {
-        // Vitest and some hosts cannot resolve the package wasm dynamic import; TsRuntimeCore remains the morph path.
-        this.wasmRuntimeCore = null;
-      });
   }
 
   private attachWasmCore(core: Awaited<ReturnType<typeof initEmbodyCore>>): void {
@@ -384,45 +371,28 @@ export class Embody implements EmbodyRuntime {
   }
 
   private syncRuntimeCoreState(): void {
-    if (this.tsRuntimeCore) {
-      this.tsRuntimeCore.setProfile(this.config);
-      if (this.modelDescriptor) {
-        this.tsRuntimeCore.setModelDescriptor(this.modelDescriptor);
-      }
-      for (const [auIdText, value] of Object.entries(this.auValues)) {
-        const auId = Number(auIdText);
-        if (Number.isNaN(auId)) continue;
-        this.tsRuntimeCore.setAU(auId, value, this.auBalances[auId]);
-      }
-      for (const [auIdText, weight] of Object.entries(this.mixWeights)) {
-        const auId = Number(auIdText);
-        if (Number.isNaN(auId)) continue;
-        this.tsRuntimeCore.setAUMixWeight(auId, weight);
-      }
-      for (let index = 0; index < this.visemeValues.length; index += 1) {
-        this.tsRuntimeCore.setViseme(index, this.visemeValues[index] ?? 0, this.visemeJawScales[index] ?? 1);
-      }
+    if (!this.wasmRuntimeCore) return;
+    this.wasmRuntimeCore.setProfile(this.config);
+    if (this.modelDescriptor) {
+      this.wasmRuntimeCore.setModelDescriptor(this.modelDescriptor);
     }
-
-    if (this.wasmRuntimeCore) {
-      this.wasmRuntimeCore.setProfile(this.config);
-      if (this.modelDescriptor) {
-        this.wasmRuntimeCore.setModelDescriptor(this.modelDescriptor);
-      }
-      this.wasmRuntimeCore.clear();
-      for (const [auIdText, value] of Object.entries(this.auValues)) {
-        const auId = Number(auIdText);
-        if (Number.isNaN(auId)) continue;
-        this.wasmRuntimeCore.setAU(auId, value, this.auBalances[auId] ?? 0);
-      }
-      for (const [auIdText, weight] of Object.entries(this.mixWeights)) {
-        const auId = Number(auIdText);
-        if (Number.isNaN(auId)) continue;
-        this.wasmRuntimeCore.setAUMixWeight(auId, weight);
-      }
-      for (let index = 0; index < this.visemeValues.length; index += 1) {
-        this.wasmRuntimeCore.setViseme(index, this.visemeValues[index] ?? 0);
-      }
+    this.wasmRuntimeCore.clear();
+    for (const [auIdText, value] of Object.entries(this.auValues)) {
+      const auId = Number(auIdText);
+      if (Number.isNaN(auId)) continue;
+      this.wasmRuntimeCore.setAU(auId, value, this.auBalances[auId] ?? 0);
+    }
+    for (const [auIdText, weight] of Object.entries(this.mixWeights)) {
+      const auId = Number(auIdText);
+      if (Number.isNaN(auId)) continue;
+      this.wasmRuntimeCore.setAUMixWeight(auId, weight);
+    }
+    for (let index = 0; index < this.visemeValues.length; index += 1) {
+      this.wasmRuntimeCore.setViseme(
+        index,
+        this.visemeValues[index] ?? 0,
+        this.visemeJawScales[index] ?? 1
+      );
     }
   }
 
@@ -440,31 +410,32 @@ export class Embody implements EmbodyRuntime {
     });
     this.modelDescriptor = inspection.descriptor;
     this.frameApplier.setBindings(buildFrameApplierBindings(inspection));
-    this.tsRuntimeCore?.setModelDescriptor(inspection.descriptor);
     this.wasmRuntimeCore?.setModelDescriptor(inspection.descriptor);
   }
 
-  private applyLiveMorphFrameDelta(): boolean {
-    if (!this.framePathReady || !this.model) return false;
+  private applyLiveFrameDelta(): boolean {
+    if (!this.framePathReady || !this.model || !this.wasmRuntimeCore) return false;
 
-    if (this.wasmRuntimeCore) {
-      // Morph influence writes never touch transforms, so no matrix update.
-      this.frameApplier.applyPackedMorphFrameDelta(
-        this.wasmRuntimeCore.evaluatePackedMorphFrameDelta()
-      );
-      return true;
+    // Restore rest poses first so bones that drop out of the sparse packed
+    // delta (for example after a profile remap) do not keep stale transforms.
+    for (const entry of Object.values(this.bones)) {
+      if (!entry) continue;
+      entry.obj.position.set(entry.basePos.x, entry.basePos.y, entry.basePos.z);
+      entry.obj.quaternion.copy(entry.baseQuat);
+      entry.obj.rotation.setFromQuaternion(entry.obj.quaternion, entry.obj.rotation.order);
     }
 
-    if (this.tsRuntimeCore) {
-      const frame = this.tsRuntimeCore.evaluateFrameDelta();
-      this.frameApplier.applyFrameDelta(this.model, {
-        morphTargets: frame.morphTargets,
-      });
-      return true;
-    }
-
-    return false;
+    this.frameApplier.applyPackedMorphFrameDelta(
+      this.wasmRuntimeCore.evaluatePackedMorphFrameDelta()
+    );
+    this.frameApplier.applyPackedBoneFrameDelta(
+      this.wasmRuntimeCore.evaluatePackedBoneFrameDelta()
+    );
+    // Bone writes need world matrices refreshed for dependent markers/cameras.
+    this.model.updateMatrixWorld(true);
+    return true;
   }
+
 
   private rebuildMorphTargetsCache(): void {
     this.morphKeyCache.clear();
@@ -590,7 +561,14 @@ export class Embody implements EmbodyRuntime {
     if (dtSeconds <= 0 || this.isPaused) return;
 
     this.animation.tick(dtSeconds);
-    this.flushPendingComposites();
+
+    // Rust owns live morph/bone solving. Do not let the legacy local composite
+    // flush overwrite Three bone transforms after packed frame application.
+    if (this.wasmRuntimeCore && this.framePathReady) {
+      this.applyLiveFrameDelta();
+    } else {
+      this.flushPendingComposites();
+    }
 
     this.animationController.update(dtSeconds);
     this.hairPhysics.update(dtSeconds);
@@ -630,7 +608,6 @@ export class Embody implements EmbodyRuntime {
     this.model = null;
     this.bones = {};
     this.modelDescriptor = null;
-    this.tsRuntimeCore = null;
     this.wasmRuntimeCore = null;
     this.framePathReady = false;
   }
@@ -675,79 +652,13 @@ export class Embody implements EmbodyRuntime {
       this.auBalances[id] = balance;
     }
 
-    this.tsRuntimeCore?.setAU(id, v, balance);
-    this.wasmRuntimeCore?.setAU(id, v, balance ?? this.auBalances[id] ?? 0);
-
-    const appliedViaFrame = this.applyLiveMorphFrameDelta();
-    if (!appliedViaFrame) {
-      const resolvedMorphTargets = this.resolvedAUMorphTargets.get(id);
-      const { left: leftKeys, right: rightKeys, center: centerKeys } = this.getAUMorphsBySide(id);
-
-      if (resolvedMorphTargets) {
-        const mixWeight = this.isMixedAU(id) ? this.getAUMixWeight(id) : 1.0;
-        const base = clamp01(v) * mixWeight;
-        const { left: leftVal, right: rightVal } = this.computeSideValues(base, balance);
-
-        if (resolvedMorphTargets.left.length || resolvedMorphTargets.right.length) {
-          this.applyMorphTargets(resolvedMorphTargets.left, leftVal);
-          this.applyMorphTargets(resolvedMorphTargets.right, rightVal);
-        }
-
-        this.applyMorphTargets(resolvedMorphTargets.center, base);
-      } else if (leftKeys.length || rightKeys.length || centerKeys.length) {
-        const mixWeight = this.isMixedAU(id) ? this.getAUMixWeight(id) : 1.0;
-        const base = clamp01(v) * mixWeight;
-        const meshNames = this.getMeshNamesForAU(id);
-
-        const { left: leftVal, right: rightVal } = this.computeSideValues(base, balance);
-
-        if (leftKeys.length || rightKeys.length) {
-          for (const k of leftKeys) {
-            if (typeof k === 'number') this.setMorphInfluence(k, leftVal, meshNames);
-            else this.setMorph(k, leftVal, meshNames);
-          }
-          for (const k of rightKeys) {
-            if (typeof k === 'number') this.setMorphInfluence(k, rightVal, meshNames);
-            else this.setMorph(k, rightVal, meshNames);
-          }
-        }
-
-        for (const k of centerKeys) {
-          if (typeof k === 'number') this.setMorphInfluence(k, base, meshNames);
-          else this.setMorph(k, base, meshNames);
-        }
-      }
+    // Before onReady, only record state. Live writes require the Rust core.
+    if (!this.wasmRuntimeCore || !this.framePathReady) {
+      return;
     }
 
-    // Check if this AU affects composite rotations
-    const compositeInfo = this.auToCompositeMap.get(id);
-
-    if (compositeInfo) {
-      // This AU affects composite bone rotations - use axis from compositeRotations
-      for (const nodeKey of compositeInfo.nodes) {
-        const config = this.compositeRotations.find((c: CompositeRotation) => c.node === nodeKey);
-        if (!config) continue;
-
-        const axisConfig = config[compositeInfo.axis];
-        if (!axisConfig) continue;
-
-        const axisValue = this.getCompositeAxisValueForNode(nodeKey, axisConfig);
-        this.updateBoneRotation(nodeKey, compositeInfo.axis, axisValue);
-        this.pendingCompositeNodes.add(nodeKey);
-      }
-    }
-
-    // Handle translations (non-composite)
-    const bindings = this.config.auToBones[id];
-    if (bindings) {
-      for (const binding of bindings) {
-        if (binding.channel === 'tx' || binding.channel === 'ty' || binding.channel === 'tz') {
-          if (binding.maxUnits !== undefined) {
-            this.updateBoneTranslation(binding.node, binding.channel, v * binding.scale, binding.maxUnits);
-          }
-        }
-      }
-    }
+    this.wasmRuntimeCore.setAU(id, v, balance ?? this.auBalances[id] ?? 0);
+    this.applyLiveFrameDelta();
   }
 
   transitionAU(id: number | string, to: number, durationMs = 200, balance?: number): TransitionHandle {
@@ -770,6 +681,13 @@ export class Embody implements EmbodyRuntime {
     if (balance !== undefined) {
       this.auBalances[numId] = balance;
     }
+
+    // Instant transitions go through the Rust live path; no parallel TS solvers.
+    if (durationMs <= 0) {
+      this.setAU(numId, target, balance ?? this.auBalances[numId]);
+      return { promise: Promise.resolve(), pause: () => {}, resume: () => {}, cancel: () => {} };
+    }
+
     const storedBalance = this.auBalances[numId] ?? 0;
 
     const { left: leftKeys, right: rightKeys, center: centerKeys } = this.getAUMorphsBySide(numId);
@@ -1214,17 +1132,9 @@ export class Embody implements EmbodyRuntime {
 
   setAUMixWeight(id: number, weight: number): void {
     this.mixWeights[id] = clamp01(weight);
-    this.tsRuntimeCore?.setAUMixWeight(id, weight);
     this.wasmRuntimeCore?.setAUMixWeight(id, weight);
     const v = this.auValues[id] ?? 0;
     if (v > 0) this.setAU(id, v);
-
-    const boneBindings = this.config.auToBones[id];
-    if (boneBindings) {
-      for (const binding of boneBindings) {
-        this.pendingCompositeNodes.add(binding.node);
-      }
-    }
   }
 
   getAUMixWeight(id: number): number {
@@ -1455,17 +1365,23 @@ export class Embody implements EmbodyRuntime {
 
   setProfile(profile: Profile): void {
     this.config = profile;
-    this.compositeRotations = this.config.compositeRotations || CC4_COMPOSITE_ROTATIONS;
+    this.compositeRotations = this.config.compositeRotations || [];
     this.auToCompositeMap = buildAUToCompositeMap(this.compositeRotations);
     this.mixWeights = { ...profile.auMixDefaults };
     this.syncVisemeRuntimeState();
     let staleMorphTargets: MorphTargetHandle[] = [];
     if (this.model) {
       staleMorphTargets = this.collectResolvedExpressionMorphTargets();
+      // Clear live transforms before re-resolving so rest poses stay truthful.
+      for (const entry of Object.values(this.bones)) {
+        if (!entry) continue;
+        entry.obj.position.set(entry.basePos.x, entry.basePos.y, entry.basePos.z);
+        entry.obj.quaternion.copy(entry.baseQuat);
+        entry.obj.rotation.setFromQuaternion(entry.obj.quaternion, entry.obj.rotation.order);
+      }
       this.bones = this.resolveBones(this.model);
       this.missingBoneWarnings.clear();
       this.rebuildMorphTargetsCache();
-      this.tsRuntimeCore?.setProfile(this.config);
       this.wasmRuntimeCore?.setProfile(this.config);
       this.refreshHostNeutralModelDescriptor();
     }
@@ -1617,32 +1533,19 @@ export class Embody implements EmbodyRuntime {
   }
 
   private applyVisemeRuntimeState(): void {
+    if (!this.wasmRuntimeCore) {
+      throw new Error(
+        'Embody Rust/Wasm core is required before applying visemes. Await initEmbodyCore() or use Embody.create().'
+      );
+    }
     for (let index = 0; index < this.visemeValues.length; index += 1) {
-      this.tsRuntimeCore?.setViseme(index, this.visemeValues[index] ?? 0, this.visemeJawScales[index] ?? 1);
-      this.wasmRuntimeCore?.setViseme(index, this.visemeValues[index] ?? 0);
+      this.wasmRuntimeCore.setViseme(
+        index,
+        this.visemeValues[index] ?? 0,
+        this.visemeJawScales[index] ?? 1
+      );
     }
-
-    if (!this.applyLiveMorphFrameDelta()) {
-      for (const targets of this.resolvedVisemeTargets) {
-        this.frameApplier.resetMorphTargets(targets || []);
-      }
-
-      for (let index = 0; index < this.visemeValues.length; index += 1) {
-        const value = clamp01(this.visemeValues[index] ?? 0);
-        if (value <= 1e-6) continue;
-        const targets = this.resolvedVisemeTargets[index] || [];
-        for (const target of targets) {
-          if (target.idx >= target.infl.length) continue;
-          const weighted = clamp01(value * target.weight);
-          this.frameApplier.applyMorphTargets(
-            [target],
-            Math.max(target.infl[target.idx] ?? 0, weighted)
-          );
-        }
-      }
-    }
-
-    this.updateBoneRotation(this.getJawBoneNodeKey(), 'pitch', this.getActiveVisemeJawAmount());
+    this.applyLiveFrameDelta();
   }
 
   private getJawBoneNodeKey(): BoneKey {

@@ -68,8 +68,8 @@ describe('Embody eye balance', () => {
     engine.transitionAU(61, 1, 0, -1);
     engine.update(1 / 60);
 
-    expect(leftEye.quaternion.toArray()).not.toEqual([0, 0, 0, 1]);
-    expect(rightEye.quaternion.toArray()).toEqual([0, 0, 0, 1]);
+    expect(leftEye.quaternion.toArray().slice(0, 3).some((value) => Math.abs(value) > 1e-6)).toBe(true);
+    expect(rightEye.quaternion.toArray().every((value, index) => Math.abs(value - [0, 0, 0, 1][index]!) < 1e-6)).toBe(true);
   });
 
   it('keeps shared-eye balance from leaking into grouped independent eye AUs', () => {

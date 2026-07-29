@@ -1260,6 +1260,7 @@ export const CC4_PRESET: Profile = {
   meshes: CC4_MESHES,
   continuumPairs: CONTINUUM_PAIRS_MAP,
   continuumLabels: CONTINUUM_LABELS,
+  compositeRotations: COMPOSITE_ROTATIONS,
   hairPhysics: CC4_HAIR_PHYSICS,
   annotationRegions: [
     {

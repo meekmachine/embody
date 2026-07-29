@@ -129,6 +129,8 @@ export class ThreeFrameApplier implements HostFrameApplier<Object3D> {
         bone.quaternion
           .set(values[index + 4], values[index + 5], values[index + 6], values[index + 7])
           .normalize();
+        // Keep Euler `.rotation` in sync for hosts/tests that read degrees from it.
+        bone.rotation.setFromQuaternion(bone.quaternion, bone.rotation.order);
       }
       bone.updateMatrixWorld(false);
     }
@@ -276,6 +278,7 @@ export class ThreeFrameApplier implements HostFrameApplier<Object3D> {
     }
     if (transform.rotation) {
       applyQuat(target.quaternion, transform.rotation, mode);
+      target.rotation.setFromQuaternion(target.quaternion, target.rotation.order);
     }
     if (transform.scale) {
       applyVec3(target.scale, transform.scale, mode);

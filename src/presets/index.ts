@@ -10,6 +10,7 @@ export { CC4_PRESET, default } from './cc4';
 export * from './cc4';
 
 import type { Profile } from '../mappings/types';
+import { requireInitializedEmbodyCore } from '../wasm';
 import {
   extendPresetWithProfile,
   mergePresetWithProfile,
@@ -43,16 +44,17 @@ import { CC4_PRESET } from './cc4';
  * Get a preset by type name.
  * This allows frontend to pass a string instead of importing the full preset.
  */
-export function getPreset(presetType: PresetType | string | undefined) {
-  switch (presetType) {
-    case 'fish':
-    case 'skeletal':
-      return BETTA_FISH_PRESET;
-    case 'cc4':
-    case 'custom':
-    default:
-      return CC4_PRESET;
-  }
+export function getPreset(presetType: PresetType | string | undefined): Profile {
+  // Runtime preset ownership lives in the Rust/Wasm core. Await initEmbodyCore()
+  // (or use Embody.create / getPresetWithProfile) before calling this sync helper.
+  const core = requireInitializedEmbodyCore();
+  const id =
+    presetType === 'fish' || presetType === 'skeletal'
+      ? String(presetType)
+      : presetType === 'custom' || !presetType
+        ? 'cc4'
+        : String(presetType);
+  return JSON.parse(core.get_preset_json(id)) as Profile;
 }
 
 // Backwards-compatible lookup alias retained for LoomLarge consumers.

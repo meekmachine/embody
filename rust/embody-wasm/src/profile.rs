@@ -833,8 +833,20 @@ impl NameResolver {
             prefixed
         };
 
-        model.bones.iter().find(|bone| {
+        if let Some(exact) = model.bones.iter().find(|bone| {
             bone.name == node_key || bone.name == configured || bone.name == full
+        }) {
+            return Some(exact);
+        }
+
+        // Match CC4-style names such as L_Eye -> CC_Base_L_Eye via suffixPattern.
+        let regex = self.suffix_regex.as_ref()?;
+        model.bones.iter().find(|bone| {
+            bone.name.strip_prefix(&full)
+                .map(|rest| rest.is_empty() || regex.is_match(rest))
+                .unwrap_or(false)
+                || bone.name.ends_with(&configured)
+                || bone.name.ends_with(&full)
         })
     }
 }

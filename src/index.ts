@@ -116,7 +116,6 @@ export {
   TsClipCompiler,
   numericArrayToNumbers,
 } from './core/TsClipCompiler';
-export { TsRuntimeCore } from './core/TsRuntimeCore';
 export {
   AU_MORPH_BINDING_STRIDE,
   VISEME_MORPH_BINDING_STRIDE,
@@ -158,7 +157,6 @@ export type {
   TsClipCurveTarget,
   TsClipCurvesInput,
 } from './core/TsClipCompiler';
-export type { TsRuntimeCoreOptions } from './core/TsRuntimeCore';
 export type {
   CompiledBoneBindings,
   MorphBindingSide,

@@ -106,9 +106,14 @@ npm install three
 
 ### Rust/Wasm core
 
-Embody ships a generated Rust/Wasm core artifact in the npm package. The Three.js
-controller initializes the parts it needs through the package facade, and direct
-core consumers can explicitly initialize the Wasm entrypoint:
+Embody's host-neutral engine is **Rust/Wasm and required**. There is no
+TypeScript runtime-core fallback. Await `initEmbodyCore()` (or use
+`Embody.create(...)`) before constructing a runtime or calling sync helpers such
+as `getPreset(...)`. TypeScript remains only for package glue and Three.js
+object inspection/mutation.
+
+The Three.js controller initializes the parts it needs through the package
+facade, and direct core consumers can explicitly initialize the Wasm entrypoint:
 
 ```typescript
 import { initEmbodyCore } from '@lovelace_lol/embody/wasm';

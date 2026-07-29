@@ -407,7 +407,9 @@ export class ThreeModelInspector implements HostModelInspector<Object3D> {
         name: bone.name,
         parentId: boneParentIds.get(bone),
         childIds: boneChildIds.get(bone) || [],
-        restTransform: objectTransform(bone),
+        // Prefer the captured rest pose from resolveBones so a live pose that is
+        // currently applied on the Object3D is not frozen into the descriptor.
+        restTransform: restTransformForBone(bone, resolvedBones),
       })),
       metadata: animations.length > 0 ? { animations } : undefined,
     };
@@ -503,6 +505,24 @@ function getMorphTargetEntries(mesh: Mesh): MorphTargetEntry[] {
   }
 
   return influences.map((_, index) => ({ name: `morph_${index}`, index }));
+}
+
+
+function restTransformForBone(obj: Object3D, resolvedBones: ResolvedBones): Transform {
+  const entry = Object.values(resolvedBones).find((candidate) => candidate?.obj === obj);
+  if (!entry) {
+    return objectTransform(obj);
+  }
+  return {
+    position: { ...entry.basePos },
+    rotation: {
+      x: entry.baseQuat.x,
+      y: entry.baseQuat.y,
+      z: entry.baseQuat.z,
+      w: entry.baseQuat.w,
+    },
+    scale: { x: obj.scale.x, y: obj.scale.y, z: obj.scale.z },
+  };
 }
 
 function objectTransform(obj: Object3D): Transform {

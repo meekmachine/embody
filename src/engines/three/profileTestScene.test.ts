@@ -75,10 +75,11 @@ describe('Three profile test scene', () => {
       Mouth_Wide: 0.375,
       Shared_Mouth: 0,
     });
-    expect(snapshotBones(engine).JAW).toEqual({
-      position: [0, 0, 0],
-      rotation: [0, 0, 18],
-    });
+    const jaw = snapshotBones(engine).JAW;
+    expect(jaw.position).toEqual([0, 0, 0]);
+    expect(jaw.rotation[0]).toBeCloseTo(0, 4);
+    expect(jaw.rotation[1]).toBeCloseTo(0, 4);
+    expect(jaw.rotation[2]).toBeCloseTo(18, 4);
   });
 
   it('captures continuum and composite bone output', () => {
@@ -92,14 +93,14 @@ describe('Three profile test scene', () => {
     engine.update(1 / 60);
     const positive = snapshotBones(engine).HEAD;
 
-    expect(negative).toEqual({
-      position: [0, 0, 0],
-      rotation: [0, -10, 0],
-    });
-    expect(positive).toEqual({
-      position: [0, 0, 0],
-      rotation: [0, 5, 0],
-    });
+    expect(negative.position).toEqual([0, 0, 0]);
+    expect(negative.rotation[0]).toBeCloseTo(0, 4);
+    expect(negative.rotation[1]).toBeCloseTo(-10, 4);
+    expect(negative.rotation[2]).toBeCloseTo(0, 4);
+    expect(positive.position).toEqual([0, 0, 0]);
+    expect(positive.rotation[0]).toBeCloseTo(0, 4);
+    expect(positive.rotation[1]).toBeCloseTo(5, 4);
+    expect(positive.rotation[2]).toBeCloseTo(0, 4);
   });
 
   it('captures dynamic clip output in normalized host-readable form', () => {
