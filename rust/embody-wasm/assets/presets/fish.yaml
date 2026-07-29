@@ -1,0 +1,1814 @@
+name: Betta Fish
+animalType: fish
+emoji: 🐟
+auToBones:
+  '2':
+  - node: HEAD
+    channel: ry
+    scale: 1
+    maxDegrees: 30
+  - node: BODY_FRONT
+    channel: ry
+    scale: 1
+    maxDegrees: 14
+  - node: BODY_MID
+    channel: ry
+    scale: 1
+    maxDegrees: 5
+  '3':
+  - node: HEAD
+    channel: ry
+    scale: -1
+    maxDegrees: 30
+  - node: BODY_FRONT
+    channel: ry
+    scale: -1
+    maxDegrees: 14
+  - node: BODY_MID
+    channel: ry
+    scale: -1
+    maxDegrees: 5
+  '4':
+  - node: HEAD
+    channel: rx
+    scale: -1
+    maxDegrees: 20
+  - node: BODY_FRONT
+    channel: rx
+    scale: -1
+    maxDegrees: 5
+  '5':
+  - node: HEAD
+    channel: rx
+    scale: 1
+    maxDegrees: 20
+  - node: BODY_FRONT
+    channel: rx
+    scale: 1
+    maxDegrees: 5
+  '6':
+  - node: BODY_ROOT
+    channel: rz
+    scale: -1
+    maxDegrees: 25
+  '7':
+  - node: BODY_ROOT
+    channel: rz
+    scale: 1
+    maxDegrees: 25
+  '12':
+  - node: BODY_BACK
+    channel: rz
+    scale: 1
+    maxDegrees: 15
+  - node: TAIL_BASE
+    channel: rz
+    scale: 1
+    maxDegrees: 30
+  - node: TAIL_TOP
+    channel: rz
+    scale: 1
+    maxDegrees: 20
+  - node: TAIL_MID
+    channel: rz
+    scale: 1
+    maxDegrees: 20
+  '13':
+  - node: BODY_BACK
+    channel: rz
+    scale: -1
+    maxDegrees: 15
+  - node: TAIL_BASE
+    channel: rz
+    scale: -1
+    maxDegrees: 30
+  - node: TAIL_TOP
+    channel: rz
+    scale: -1
+    maxDegrees: 20
+  - node: TAIL_MID
+    channel: rz
+    scale: -1
+    maxDegrees: 20
+  '14':
+  - node: TAIL_TOP
+    channel: rx
+    scale: -1
+    maxDegrees: 20
+  - node: TAIL_SIDE_L
+    channel: rx
+    scale: 1
+    maxDegrees: 15
+  - node: TAIL_SIDE_R
+    channel: rx
+    scale: -1
+    maxDegrees: 15
+  '15':
+  - node: TAIL_TOP
+    channel: rx
+    scale: 1
+    maxDegrees: 15
+  - node: TAIL_SIDE_L
+    channel: rx
+    scale: -1
+    maxDegrees: 12
+  - node: TAIL_SIDE_R
+    channel: rx
+    scale: 1
+    maxDegrees: 12
+  '20':
+  - node: PECTORAL_L_ROOT
+    channel: rz
+    scale: 1
+    maxDegrees: 40
+  - node: PECTORAL_L_CHAIN1
+    channel: rz
+    scale: 1
+    maxDegrees: 20
+  - node: PECTORAL_L_CHAIN2
+    channel: rz
+    scale: 1
+    maxDegrees: 20
+  '21':
+  - node: PECTORAL_L_ROOT
+    channel: rz
+    scale: -1
+    maxDegrees: 40
+  - node: PECTORAL_L_CHAIN1
+    channel: rz
+    scale: -1
+    maxDegrees: 20
+  - node: PECTORAL_L_CHAIN2
+    channel: rz
+    scale: -1
+    maxDegrees: 20
+  '22':
+  - node: PECTORAL_R_ROOT
+    channel: rz
+    scale: -1
+    maxDegrees: 40
+  - node: PECTORAL_R_CHAIN1
+    channel: rz
+    scale: -1
+    maxDegrees: 20
+  - node: PECTORAL_R_ROOT2
+    channel: rz
+    scale: -1
+    maxDegrees: 40
+  '23':
+  - node: PECTORAL_R_ROOT
+    channel: rz
+    scale: 1
+    maxDegrees: 40
+  - node: PECTORAL_R_CHAIN1
+    channel: rz
+    scale: 1
+    maxDegrees: 20
+  - node: PECTORAL_R_ROOT2
+    channel: rz
+    scale: 1
+    maxDegrees: 40
+  '24':
+  - node: PECTORAL_L_ROOT
+    channel: ry
+    scale: 1
+    maxDegrees: 30
+  '25':
+  - node: PECTORAL_L_ROOT
+    channel: ry
+    scale: -1
+    maxDegrees: 30
+  '26':
+  - node: PECTORAL_R_ROOT
+    channel: ry
+    scale: -1
+    maxDegrees: 30
+  '27':
+  - node: PECTORAL_R_ROOT
+    channel: ry
+    scale: 1
+    maxDegrees: 30
+  '30':
+  - node: VENTRAL_L
+    channel: rz
+    scale: 1
+    maxDegrees: 30
+  - node: VENTRAL_L_MID
+    channel: rz
+    scale: 1
+    maxDegrees: 15
+  '31':
+  - node: VENTRAL_L
+    channel: rz
+    scale: -1
+    maxDegrees: 30
+  - node: VENTRAL_L_MID
+    channel: rz
+    scale: -1
+    maxDegrees: 15
+  '32':
+  - node: VENTRAL_R
+    channel: rz
+    scale: -1
+    maxDegrees: 30
+  - node: VENTRAL_R_MID
+    channel: rz
+    scale: -1
+    maxDegrees: 15
+  '33':
+  - node: VENTRAL_R
+    channel: rz
+    scale: 1
+    maxDegrees: 30
+  - node: VENTRAL_R_MID
+    channel: rz
+    scale: 1
+    maxDegrees: 15
+  '45':
+  - node: GILL_L
+    channel: rz
+    scale: 1
+    maxDegrees: 40
+  - node: GILL_L_MID
+    channel: rz
+    scale: 1
+    maxDegrees: 20
+  '46':
+  - node: GILL_R
+    channel: rz
+    scale: -1
+    maxDegrees: 40
+  - node: GILL_R_MID
+    channel: rz
+    scale: -1
+    maxDegrees: 20
+  '51':
+  - node: HEAD
+    channel: ry
+    scale: 1
+    maxDegrees: 30
+  - node: BODY_FRONT
+    channel: ry
+    scale: 1
+    maxDegrees: 14
+  - node: BODY_MID
+    channel: ry
+    scale: 1
+    maxDegrees: 5
+  '52':
+  - node: HEAD
+    channel: ry
+    scale: -1
+    maxDegrees: 30
+  - node: BODY_FRONT
+    channel: ry
+    scale: -1
+    maxDegrees: 14
+  - node: BODY_MID
+    channel: ry
+    scale: -1
+    maxDegrees: 5
+  '53':
+  - node: DORSAL_ROOT
+    channel: rx
+    scale: -1
+    maxDegrees: 25
+  - node: DORSAL_L
+    channel: rx
+    scale: -1
+    maxDegrees: 15
+  - node: DORSAL_R
+    channel: rx
+    scale: -1
+    maxDegrees: 15
+  '54':
+  - node: DORSAL_ROOT
+    channel: rx
+    scale: 1
+    maxDegrees: 25
+  - node: DORSAL_L
+    channel: rx
+    scale: 1
+    maxDegrees: 15
+  - node: DORSAL_R
+    channel: rx
+    scale: 1
+    maxDegrees: 15
+  '61':
+  - node: EYE_L
+    channel: ry
+    scale: 1
+    maxDegrees: 25
+  '62':
+  - node: EYE_L
+    channel: ry
+    scale: -1
+    maxDegrees: 25
+  '63':
+  - node: EYE_L
+    channel: rx
+    scale: -1
+    maxDegrees: 20
+  '64':
+  - node: EYE_L
+    channel: rx
+    scale: 1
+    maxDegrees: 20
+boneNodes:
+  ROOT: Armature_rootJoint
+  BODY_ROOT: Bone_Armature
+  HEAD: '001'
+  BODY_FRONT: '002'
+  BODY_MID: '003'
+  BODY_BACK: '004'
+  TAIL_BASE: '005'
+  GILL_L: '046'
+  GILL_L_MID: 048
+  GILL_L_TIP: '050'
+  GILL_R: '047'
+  GILL_R_MID: 049
+  GILL_R_TIP: '051'
+  DORSAL_ROOT: '006'
+  DORSAL_L: '007'
+  DORSAL_R: 008
+  VENTRAL_L: 018
+  VENTRAL_L_MID: '021'
+  VENTRAL_L_TIP: '022'
+  VENTRAL_R: '033'
+  VENTRAL_R_MID: '035'
+  VENTRAL_R_TIP: '037'
+  PECTORAL_L_ROOT: 009
+  PECTORAL_L_CHAIN1: '027'
+  PECTORAL_L_CHAIN1_MID: 029
+  PECTORAL_L_CHAIN1_TIP: '031'
+  PECTORAL_L_CHAIN2: 028
+  PECTORAL_L_CHAIN2_MID: '030'
+  PECTORAL_L_CHAIN2_TIP: '032'
+  PECTORAL_R_ROOT: '010'
+  PECTORAL_R_CHAIN1: '012'
+  PECTORAL_R_CHAIN1_A: '014'
+  PECTORAL_R_CHAIN1_B: '016'
+  PECTORAL_R_ROOT2: '011'
+  PECTORAL_R_CHAIN2: '013'
+  PECTORAL_R_CHAIN2_A: '015'
+  PECTORAL_R_CHAIN2_B: '017'
+  EYE_L: EYES_0
+  EYE_R: EYES_0
+  TAIL_TOP: '020'
+  TAIL_TOP_MID: '025'
+  TAIL_TOP_TIP: '026'
+  TAIL_MID: 039
+  TAIL_MID_A: '040'
+  TAIL_MID_A_TIP: '041'
+  TAIL_MID_B: '042'
+  TAIL_MID_B_TIP: '043'
+  TAIL_MID_C: '044'
+  TAIL_MID_C_TIP: '045'
+  TAIL_SIDE_L: 019
+  TAIL_SIDE_L_MID: '023'
+  TAIL_SIDE_L_TIP: '024'
+  TAIL_SIDE_R: '034'
+  TAIL_SIDE_R_MID: '036'
+  TAIL_SIDE_R_TIP: 038
+bonePrefix: Bone.
+boneSuffix: _Armature
+suffixPattern: _\d+$|\.\d+$
+auToMorphs: {}
+morphToMesh: {}
+visemeKeys: []
+auInfo:
+  '2':
+    id: '2'
+    name: Turn Left
+    facePart: Body Orientation
+    muscularBasis: Myomere muscles
+    links:
+    - https://en.wikipedia.org/wiki/Myomere
+  '3':
+    id: '3'
+    name: Turn Right
+    facePart: Body Orientation
+    muscularBasis: Myomere muscles
+    links:
+    - https://en.wikipedia.org/wiki/Myomere
+  '4':
+    id: '4'
+    name: Pitch Up
+    facePart: Body Orientation
+    muscularBasis: Epaxial muscles
+    links:
+    - https://en.wikipedia.org/wiki/Epaxial_muscles
+  '5':
+    id: '5'
+    name: Pitch Down
+    facePart: Body Orientation
+    muscularBasis: Hypaxial muscles
+    links:
+    - https://en.wikipedia.org/wiki/Hypaxial_muscles
+  '6':
+    id: '6'
+    name: Roll Left
+    facePart: Body Orientation
+    muscularBasis: Lateral body muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_locomotion
+  '7':
+    id: '7'
+    name: Roll Right
+    facePart: Body Orientation
+    muscularBasis: Lateral body muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_locomotion
+  '12':
+    id: '12'
+    name: Tail Sweep Left
+    facePart: Caudal Fin
+    muscularBasis: Caudal fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Caudal_fin
+  '13':
+    id: '13'
+    name: Tail Sweep Right
+    facePart: Caudal Fin
+    muscularBasis: Caudal fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Caudal_fin
+  '14':
+    id: '14'
+    name: Tail Fin Spread
+    facePart: Caudal Fin
+    muscularBasis: Fin ray muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Caudal_fin
+  '15':
+    id: '15'
+    name: Tail Fin Close
+    facePart: Caudal Fin
+    muscularBasis: Fin ray muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Caudal_fin
+  '20':
+    id: '20'
+    name: Pectoral L Up
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '21':
+    id: '21'
+    name: Pectoral L Down
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '22':
+    id: '22'
+    name: Pectoral R Up
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '23':
+    id: '23'
+    name: Pectoral R Down
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '24':
+    id: '24'
+    name: Pectoral L Forward
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '25':
+    id: '25'
+    name: Pectoral L Back
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '26':
+    id: '26'
+    name: Pectoral R Forward
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '27':
+    id: '27'
+    name: Pectoral R Back
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '30':
+    id: '30'
+    name: Ventral L Up
+    facePart: Pelvic Fins
+    muscularBasis: Pelvic fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pelvic_fins
+  '31':
+    id: '31'
+    name: Ventral L Down
+    facePart: Pelvic Fins
+    muscularBasis: Pelvic fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pelvic_fins
+  '32':
+    id: '32'
+    name: Ventral R Up
+    facePart: Pelvic Fins
+    muscularBasis: Pelvic fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pelvic_fins
+  '33':
+    id: '33'
+    name: Ventral R Down
+    facePart: Pelvic Fins
+    muscularBasis: Pelvic fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pelvic_fins
+  '45':
+    id: '45'
+    name: Gill L
+    facePart: Gills
+    muscularBasis: Opercular muscles
+    links:
+    - https://en.wikipedia.org/wiki/Operculum_(fish)
+  '46':
+    id: '46'
+    name: Gill R
+    facePart: Gills
+    muscularBasis: Opercular muscles
+    links:
+    - https://en.wikipedia.org/wiki/Operculum_(fish)
+  '51':
+    id: '51'
+    name: Head Turn Left
+    facePart: Head
+    muscularBasis: Cranial muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_anatomy#Head
+  '52':
+    id: '52'
+    name: Head Turn Right
+    facePart: Head
+    muscularBasis: Cranial muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_anatomy#Head
+  '53':
+    id: '53'
+    name: Head Up
+    facePart: Head
+    muscularBasis: Cranial muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_anatomy#Head
+  '54':
+    id: '54'
+    name: Head Down
+    facePart: Head
+    muscularBasis: Cranial muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_anatomy#Head
+  '61':
+    id: '61'
+    name: Eyes Left
+    facePart: Eyes
+    muscularBasis: Extraocular muscles
+    links:
+    - https://en.wikipedia.org/wiki/Extraocular_muscles
+  '62':
+    id: '62'
+    name: Eyes Right
+    facePart: Eyes
+    muscularBasis: Extraocular muscles
+    links:
+    - https://en.wikipedia.org/wiki/Extraocular_muscles
+  '63':
+    id: '63'
+    name: Eyes Up
+    facePart: Eyes
+    muscularBasis: Superior rectus
+    links:
+    - https://en.wikipedia.org/wiki/Superior_rectus_muscle
+  '64':
+    id: '64'
+    name: Eyes Down
+    facePart: Eyes
+    muscularBasis: Inferior rectus
+    links:
+    - https://en.wikipedia.org/wiki/Inferior_rectus_muscle
+compositeRotations:
+- node: HEAD
+  pitch:
+    aus:
+    - 4
+    - 5
+    axis: rx
+    negative: 5
+    positive: 4
+  yaw:
+    aus:
+    - 51
+    - 52
+    axis: ry
+    negative: 51
+    positive: 52
+  roll: null
+- node: BODY_FRONT
+  pitch:
+    aus:
+    - 4
+    - 5
+    axis: rx
+    negative: 5
+    positive: 4
+  yaw:
+    aus:
+    - 51
+    - 52
+    axis: ry
+    negative: 51
+    positive: 52
+  roll: null
+- node: BODY_MID
+  pitch: null
+  yaw:
+    aus:
+    - 51
+    - 52
+    axis: ry
+    negative: 51
+    positive: 52
+  roll: null
+- node: BODY_ROOT
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 6
+    - 7
+    axis: rz
+    negative: 6
+    positive: 7
+- node: TAIL_BASE
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 12
+    - 13
+    axis: rz
+    negative: 13
+    positive: 12
+- node: BODY_BACK
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 12
+    - 13
+    axis: rz
+    negative: 13
+    positive: 12
+- node: TAIL_TOP
+  pitch:
+    aus:
+    - 14
+    - 15
+    axis: rx
+    negative: 15
+    positive: 14
+  yaw: null
+  roll:
+    aus:
+    - 12
+    - 13
+    axis: rz
+    negative: 13
+    positive: 12
+- node: TAIL_MID
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 12
+    - 13
+    axis: rz
+    negative: 13
+    positive: 12
+- node: TAIL_SIDE_L
+  pitch:
+    aus:
+    - 14
+    - 15
+    axis: rx
+    negative: 15
+    positive: 14
+  yaw: null
+  roll: null
+- node: TAIL_SIDE_R
+  pitch:
+    aus:
+    - 14
+    - 15
+    axis: rx
+    negative: 15
+    positive: 14
+  yaw: null
+  roll: null
+- node: PECTORAL_L_ROOT
+  pitch: null
+  yaw:
+    aus:
+    - 24
+    - 25
+    axis: ry
+    negative: 25
+    positive: 24
+  roll:
+    aus:
+    - 20
+    - 21
+    axis: rz
+    negative: 21
+    positive: 20
+- node: PECTORAL_L_CHAIN1
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 20
+    - 21
+    axis: rz
+    negative: 21
+    positive: 20
+- node: PECTORAL_L_CHAIN2
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 20
+    - 21
+    axis: rz
+    negative: 21
+    positive: 20
+- node: PECTORAL_R_ROOT
+  pitch: null
+  yaw:
+    aus:
+    - 26
+    - 27
+    axis: ry
+    negative: 27
+    positive: 26
+  roll:
+    aus:
+    - 22
+    - 23
+    axis: rz
+    negative: 23
+    positive: 22
+- node: PECTORAL_R_ROOT2
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 22
+    - 23
+    axis: rz
+    negative: 23
+    positive: 22
+- node: PECTORAL_R_CHAIN1
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 22
+    - 23
+    axis: rz
+    negative: 23
+    positive: 22
+- node: VENTRAL_L
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 30
+    - 31
+    axis: rz
+    negative: 31
+    positive: 30
+- node: VENTRAL_L_MID
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 30
+    - 31
+    axis: rz
+    negative: 31
+    positive: 30
+- node: VENTRAL_R
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 32
+    - 33
+    axis: rz
+    negative: 33
+    positive: 32
+- node: VENTRAL_R_MID
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 32
+    - 33
+    axis: rz
+    negative: 33
+    positive: 32
+- node: DORSAL_ROOT
+  pitch:
+    aus:
+    - 53
+    - 54
+    axis: rx
+    negative: 54
+    positive: 53
+  yaw: null
+  roll: null
+- node: DORSAL_L
+  pitch:
+    aus:
+    - 53
+    - 54
+    axis: rx
+    negative: 54
+    positive: 53
+  yaw: null
+  roll: null
+- node: DORSAL_R
+  pitch:
+    aus:
+    - 53
+    - 54
+    axis: rx
+    negative: 54
+    positive: 53
+  yaw: null
+  roll: null
+- node: GILL_L
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 45
+    axis: rz
+    positive: 45
+- node: GILL_L_MID
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 45
+    axis: rz
+    positive: 45
+- node: GILL_R
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 46
+    axis: rz
+    positive: 46
+- node: GILL_R_MID
+  pitch: null
+  yaw: null
+  roll:
+    aus:
+    - 46
+    axis: rz
+    positive: 46
+- node: EYE_L
+  pitch:
+    aus:
+    - 63
+    - 64
+    axis: rx
+    negative: 64
+    positive: 63
+  yaw:
+    aus:
+    - 61
+    - 62
+    axis: ry
+    negative: 62
+    positive: 61
+  roll: null
+eyeMeshNodes:
+  LEFT: EYES_0
+  RIGHT: EYES_0
+meshes:
+  BODY_0:
+    category: body
+    morphCount: 0
+    material:
+      renderOrder: 20
+      transparent: true
+      opacity: 1
+      depthWrite: true
+      depthTest: true
+      blending: Normal
+  EYES_0:
+    category: eye
+    morphCount: 0
+    material:
+      renderOrder: 17
+      transparent: true
+      opacity: 1
+      depthWrite: true
+      depthTest: true
+      blending: Normal
+  Cube_0:
+    category: body
+    morphCount: 0
+    material:
+      renderOrder: -20
+      transparent: true
+      opacity: 0
+      depthWrite: true
+      depthTest: true
+      blending: Normal
+annotationRegions:
+- name: full_body
+  objects:
+  - '*'
+  paddingFactor: 2.5
+- name: head
+  bones:
+  - HEAD
+  paddingFactor: 1.8
+  children:
+  - left_eye
+  - right_eye
+  - mouth
+  expandAnimation: staggered
+- name: left_eye
+  meshes:
+  - EYES_0
+  parent: head
+  paddingFactor: 1.4
+  cameraAngle: 270
+- name: right_eye
+  meshes:
+  - EYES_0
+  parent: head
+  paddingFactor: 1.4
+  cameraAngle: 90
+- name: mouth
+  bones:
+  - HEAD
+  parent: head
+  paddingFactor: 1.5
+- name: body
+  bones:
+  - BODY_FRONT
+  - BODY_MID
+  - BODY_BACK
+  paddingFactor: 1.8
+- name: tail
+  bones:
+  - TAIL_BASE
+  - TAIL_TOP
+  - TAIL_MID
+  paddingFactor: 1.6
+- name: dorsal_fin
+  bones:
+  - DORSAL_ROOT
+  - DORSAL_L
+  - DORSAL_R
+  paddingFactor: 1.8
+- name: pectoral_fins
+  bones:
+  - PECTORAL_L_ROOT
+  - PECTORAL_R_ROOT
+  paddingFactor: 1.8
+  children:
+  - pectoral_fin_left
+  - pectoral_fin_right
+  expandAnimation: outward
+- name: pectoral_fin_left
+  bones:
+  - PECTORAL_L_ROOT
+  - PECTORAL_L_CHAIN1
+  - PECTORAL_L_CHAIN2
+  parent: pectoral_fins
+  paddingFactor: 1.6
+  cameraAngle: 270
+- name: pectoral_fin_right
+  bones:
+  - PECTORAL_R_ROOT
+  - PECTORAL_R_CHAIN1
+  - PECTORAL_R_ROOT2
+  parent: pectoral_fins
+  paddingFactor: 1.6
+  cameraAngle: 90
+- name: ventral_fins
+  bones:
+  - VENTRAL_L
+  - VENTRAL_R
+  paddingFactor: 1.6
+- name: gills
+  bones:
+  - GILL_L
+  - GILL_R
+  paddingFactor: 1.6
+  children:
+  - gill_left
+  - gill_right
+  expandAnimation: outward
+- name: gill_left
+  bones:
+  - GILL_L
+  - GILL_L_MID
+  - GILL_L_TIP
+  parent: gills
+  paddingFactor: 1.4
+  cameraAngle: 270
+  style:
+    lineDirection: left
+- name: gill_right
+  bones:
+  - GILL_R
+  - GILL_R_MID
+  - GILL_R_TIP
+  parent: gills
+  paddingFactor: 1.4
+  cameraAngle: 90
+  style:
+    lineDirection: right
+auMixDefaults: {}
+continuumPairs:
+  '2':
+    pairId: 3
+    isNegative: true
+    axis: yaw
+    node: HEAD
+  '3':
+    pairId: 2
+    isNegative: false
+    axis: yaw
+    node: HEAD
+  '4':
+    pairId: 5
+    isNegative: false
+    axis: pitch
+    node: HEAD
+  '5':
+    pairId: 4
+    isNegative: true
+    axis: pitch
+    node: HEAD
+  '6':
+    pairId: 7
+    isNegative: true
+    axis: roll
+    node: BODY_ROOT
+  '7':
+    pairId: 6
+    isNegative: false
+    axis: roll
+    node: BODY_ROOT
+  '12':
+    pairId: 13
+    isNegative: true
+    axis: roll
+    node: TAIL_BASE
+  '13':
+    pairId: 12
+    isNegative: false
+    axis: roll
+    node: TAIL_BASE
+  '14':
+    pairId: 15
+    isNegative: false
+    axis: pitch
+    node: TAIL_TOP
+  '15':
+    pairId: 14
+    isNegative: true
+    axis: pitch
+    node: TAIL_TOP
+  '20':
+    pairId: 21
+    isNegative: false
+    axis: roll
+    node: PECTORAL_L_ROOT
+  '21':
+    pairId: 20
+    isNegative: true
+    axis: roll
+    node: PECTORAL_L_ROOT
+  '22':
+    pairId: 23
+    isNegative: false
+    axis: roll
+    node: PECTORAL_R_ROOT
+  '23':
+    pairId: 22
+    isNegative: true
+    axis: roll
+    node: PECTORAL_R_ROOT
+  '24':
+    pairId: 25
+    isNegative: false
+    axis: yaw
+    node: PECTORAL_L_ROOT
+  '25':
+    pairId: 24
+    isNegative: true
+    axis: yaw
+    node: PECTORAL_L_ROOT
+  '26':
+    pairId: 27
+    isNegative: false
+    axis: yaw
+    node: PECTORAL_R_ROOT
+  '27':
+    pairId: 26
+    isNegative: true
+    axis: yaw
+    node: PECTORAL_R_ROOT
+  '30':
+    pairId: 31
+    isNegative: false
+    axis: roll
+    node: VENTRAL_L
+  '31':
+    pairId: 30
+    isNegative: true
+    axis: roll
+    node: VENTRAL_L
+  '32':
+    pairId: 33
+    isNegative: false
+    axis: roll
+    node: VENTRAL_R
+  '33':
+    pairId: 32
+    isNegative: true
+    axis: roll
+    node: VENTRAL_R
+  '51':
+    pairId: 52
+    isNegative: true
+    axis: yaw
+    node: HEAD
+  '52':
+    pairId: 51
+    isNegative: false
+    axis: yaw
+    node: HEAD
+  '53':
+    pairId: 54
+    isNegative: false
+    axis: pitch
+    node: DORSAL_ROOT
+  '54':
+    pairId: 53
+    isNegative: true
+    axis: pitch
+    node: DORSAL_ROOT
+  '61':
+    pairId: 62
+    isNegative: true
+    axis: yaw
+    node: HEAD
+  '62':
+    pairId: 61
+    isNegative: false
+    axis: yaw
+    node: HEAD
+  '63':
+    pairId: 64
+    isNegative: false
+    axis: pitch
+    node: HEAD
+  '64':
+    pairId: 63
+    isNegative: true
+    axis: pitch
+    node: HEAD
+continuumLabels:
+  2-3: Turn — Left ↔ Right
+  5-4: Pitch — Down ↔ Up
+  6-7: Roll — Left ↔ Right
+  12-13: Tail Sweep — Left ↔ Right
+  15-14: Tail Fin — Close ↔ Spread
+  21-20: Pectoral L — Down ↔ Up
+  23-22: Pectoral R — Down ↔ Up
+  25-24: Pectoral L — Back ↔ Forward
+  27-26: Pectoral R — Back ↔ Forward
+  31-30: Ventral L — Down ↔ Up
+  33-32: Ventral R — Down ↔ Up
+  51-52: Head Turn — Left ↔ Right
+  54-53: Head — Down ↔ Up
+  61-62: Eyes — Left ↔ Right
+  64-63: Eyes — Down ↔ Up
+bones:
+- Armature_rootJoint
+- Bone_Armature
+- Bone.001_Armature
+- Bone.009_Armature
+- Bone.027_Armature
+- Bone.029_Armature
+- Bone.031_Armature
+- Bone.028_Armature
+- Bone.030_Armature
+- Bone.032_Armature
+- Bone.010_Armature
+- Bone.012_Armature
+- Bone.014_Armature
+- Bone.016_Armature
+- Bone.011_Armature
+- Bone.013_Armature
+- Bone.015_Armature
+- Bone.017_Armature
+- Bone.002_Armature
+- Bone.003_Armature
+- Bone.004_Armature
+- Bone.005_Armature
+- Bone.020_Armature
+- Bone.025_Armature
+- Bone.026_Armature
+- Bone.039_Armature
+- Bone.040_Armature
+- Bone.041_Armature
+- Bone.042_Armature
+- Bone.043_Armature
+- Bone.044_Armature
+- Bone.045_Armature
+- Bone.019_Armature
+- Bone.023_Armature
+- Bone.024_Armature
+- Bone.034_Armature
+- Bone.036_Armature
+- Bone.038_Armature
+- Bone.018_Armature
+- Bone.021_Armature
+- Bone.022_Armature
+- Bone.033_Armature
+- Bone.035_Armature
+- Bone.037_Armature
+- Bone.046_Armature
+- Bone.048_Armature
+- Bone.050_Armature
+- Bone.047_Armature
+- Bone.049_Armature
+- Bone.051_Armature
+- Bone.006_Armature
+- Bone.007_Armature
+- Bone.008_Armature
+boneBindings:
+  '2':
+  - node: HEAD
+    channel: ry
+    scale: 1
+    maxDegrees: 30
+  - node: BODY_FRONT
+    channel: ry
+    scale: 1
+    maxDegrees: 14
+  - node: BODY_MID
+    channel: ry
+    scale: 1
+    maxDegrees: 5
+  '3':
+  - node: HEAD
+    channel: ry
+    scale: -1
+    maxDegrees: 30
+  - node: BODY_FRONT
+    channel: ry
+    scale: -1
+    maxDegrees: 14
+  - node: BODY_MID
+    channel: ry
+    scale: -1
+    maxDegrees: 5
+  '4':
+  - node: HEAD
+    channel: rx
+    scale: -1
+    maxDegrees: 20
+  - node: BODY_FRONT
+    channel: rx
+    scale: -1
+    maxDegrees: 5
+  '5':
+  - node: HEAD
+    channel: rx
+    scale: 1
+    maxDegrees: 20
+  - node: BODY_FRONT
+    channel: rx
+    scale: 1
+    maxDegrees: 5
+  '6':
+  - node: BODY_ROOT
+    channel: rz
+    scale: -1
+    maxDegrees: 25
+  '7':
+  - node: BODY_ROOT
+    channel: rz
+    scale: 1
+    maxDegrees: 25
+  '12':
+  - node: BODY_BACK
+    channel: rz
+    scale: 1
+    maxDegrees: 15
+  - node: TAIL_BASE
+    channel: rz
+    scale: 1
+    maxDegrees: 30
+  - node: TAIL_TOP
+    channel: rz
+    scale: 1
+    maxDegrees: 20
+  - node: TAIL_MID
+    channel: rz
+    scale: 1
+    maxDegrees: 20
+  '13':
+  - node: BODY_BACK
+    channel: rz
+    scale: -1
+    maxDegrees: 15
+  - node: TAIL_BASE
+    channel: rz
+    scale: -1
+    maxDegrees: 30
+  - node: TAIL_TOP
+    channel: rz
+    scale: -1
+    maxDegrees: 20
+  - node: TAIL_MID
+    channel: rz
+    scale: -1
+    maxDegrees: 20
+  '14':
+  - node: TAIL_TOP
+    channel: rx
+    scale: -1
+    maxDegrees: 20
+  - node: TAIL_SIDE_L
+    channel: rx
+    scale: 1
+    maxDegrees: 15
+  - node: TAIL_SIDE_R
+    channel: rx
+    scale: -1
+    maxDegrees: 15
+  '15':
+  - node: TAIL_TOP
+    channel: rx
+    scale: 1
+    maxDegrees: 15
+  - node: TAIL_SIDE_L
+    channel: rx
+    scale: -1
+    maxDegrees: 12
+  - node: TAIL_SIDE_R
+    channel: rx
+    scale: 1
+    maxDegrees: 12
+  '20':
+  - node: PECTORAL_L_ROOT
+    channel: rz
+    scale: 1
+    maxDegrees: 40
+  - node: PECTORAL_L_CHAIN1
+    channel: rz
+    scale: 1
+    maxDegrees: 20
+  - node: PECTORAL_L_CHAIN2
+    channel: rz
+    scale: 1
+    maxDegrees: 20
+  '21':
+  - node: PECTORAL_L_ROOT
+    channel: rz
+    scale: -1
+    maxDegrees: 40
+  - node: PECTORAL_L_CHAIN1
+    channel: rz
+    scale: -1
+    maxDegrees: 20
+  - node: PECTORAL_L_CHAIN2
+    channel: rz
+    scale: -1
+    maxDegrees: 20
+  '22':
+  - node: PECTORAL_R_ROOT
+    channel: rz
+    scale: -1
+    maxDegrees: 40
+  - node: PECTORAL_R_CHAIN1
+    channel: rz
+    scale: -1
+    maxDegrees: 20
+  - node: PECTORAL_R_ROOT2
+    channel: rz
+    scale: -1
+    maxDegrees: 40
+  '23':
+  - node: PECTORAL_R_ROOT
+    channel: rz
+    scale: 1
+    maxDegrees: 40
+  - node: PECTORAL_R_CHAIN1
+    channel: rz
+    scale: 1
+    maxDegrees: 20
+  - node: PECTORAL_R_ROOT2
+    channel: rz
+    scale: 1
+    maxDegrees: 40
+  '24':
+  - node: PECTORAL_L_ROOT
+    channel: ry
+    scale: 1
+    maxDegrees: 30
+  '25':
+  - node: PECTORAL_L_ROOT
+    channel: ry
+    scale: -1
+    maxDegrees: 30
+  '26':
+  - node: PECTORAL_R_ROOT
+    channel: ry
+    scale: -1
+    maxDegrees: 30
+  '27':
+  - node: PECTORAL_R_ROOT
+    channel: ry
+    scale: 1
+    maxDegrees: 30
+  '30':
+  - node: VENTRAL_L
+    channel: rz
+    scale: 1
+    maxDegrees: 30
+  - node: VENTRAL_L_MID
+    channel: rz
+    scale: 1
+    maxDegrees: 15
+  '31':
+  - node: VENTRAL_L
+    channel: rz
+    scale: -1
+    maxDegrees: 30
+  - node: VENTRAL_L_MID
+    channel: rz
+    scale: -1
+    maxDegrees: 15
+  '32':
+  - node: VENTRAL_R
+    channel: rz
+    scale: -1
+    maxDegrees: 30
+  - node: VENTRAL_R_MID
+    channel: rz
+    scale: -1
+    maxDegrees: 15
+  '33':
+  - node: VENTRAL_R
+    channel: rz
+    scale: 1
+    maxDegrees: 30
+  - node: VENTRAL_R_MID
+    channel: rz
+    scale: 1
+    maxDegrees: 15
+  '45':
+  - node: GILL_L
+    channel: rz
+    scale: 1
+    maxDegrees: 40
+  - node: GILL_L_MID
+    channel: rz
+    scale: 1
+    maxDegrees: 20
+  '46':
+  - node: GILL_R
+    channel: rz
+    scale: -1
+    maxDegrees: 40
+  - node: GILL_R_MID
+    channel: rz
+    scale: -1
+    maxDegrees: 20
+  '51':
+  - node: HEAD
+    channel: ry
+    scale: 1
+    maxDegrees: 30
+  - node: BODY_FRONT
+    channel: ry
+    scale: 1
+    maxDegrees: 14
+  - node: BODY_MID
+    channel: ry
+    scale: 1
+    maxDegrees: 5
+  '52':
+  - node: HEAD
+    channel: ry
+    scale: -1
+    maxDegrees: 30
+  - node: BODY_FRONT
+    channel: ry
+    scale: -1
+    maxDegrees: 14
+  - node: BODY_MID
+    channel: ry
+    scale: -1
+    maxDegrees: 5
+  '53':
+  - node: DORSAL_ROOT
+    channel: rx
+    scale: -1
+    maxDegrees: 25
+  - node: DORSAL_L
+    channel: rx
+    scale: -1
+    maxDegrees: 15
+  - node: DORSAL_R
+    channel: rx
+    scale: -1
+    maxDegrees: 15
+  '54':
+  - node: DORSAL_ROOT
+    channel: rx
+    scale: 1
+    maxDegrees: 25
+  - node: DORSAL_L
+    channel: rx
+    scale: 1
+    maxDegrees: 15
+  - node: DORSAL_R
+    channel: rx
+    scale: 1
+    maxDegrees: 15
+  '61':
+  - node: EYE_L
+    channel: ry
+    scale: 1
+    maxDegrees: 25
+  '62':
+  - node: EYE_L
+    channel: ry
+    scale: -1
+    maxDegrees: 25
+  '63':
+  - node: EYE_L
+    channel: rx
+    scale: -1
+    maxDegrees: 20
+  '64':
+  - node: EYE_L
+    channel: rx
+    scale: 1
+    maxDegrees: 20
+actionInfo:
+  '2':
+    id: '2'
+    name: Turn Left
+    facePart: Body Orientation
+    muscularBasis: Myomere muscles
+    links:
+    - https://en.wikipedia.org/wiki/Myomere
+  '3':
+    id: '3'
+    name: Turn Right
+    facePart: Body Orientation
+    muscularBasis: Myomere muscles
+    links:
+    - https://en.wikipedia.org/wiki/Myomere
+  '4':
+    id: '4'
+    name: Pitch Up
+    facePart: Body Orientation
+    muscularBasis: Epaxial muscles
+    links:
+    - https://en.wikipedia.org/wiki/Epaxial_muscles
+  '5':
+    id: '5'
+    name: Pitch Down
+    facePart: Body Orientation
+    muscularBasis: Hypaxial muscles
+    links:
+    - https://en.wikipedia.org/wiki/Hypaxial_muscles
+  '6':
+    id: '6'
+    name: Roll Left
+    facePart: Body Orientation
+    muscularBasis: Lateral body muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_locomotion
+  '7':
+    id: '7'
+    name: Roll Right
+    facePart: Body Orientation
+    muscularBasis: Lateral body muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_locomotion
+  '12':
+    id: '12'
+    name: Tail Sweep Left
+    facePart: Caudal Fin
+    muscularBasis: Caudal fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Caudal_fin
+  '13':
+    id: '13'
+    name: Tail Sweep Right
+    facePart: Caudal Fin
+    muscularBasis: Caudal fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Caudal_fin
+  '14':
+    id: '14'
+    name: Tail Fin Spread
+    facePart: Caudal Fin
+    muscularBasis: Fin ray muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Caudal_fin
+  '15':
+    id: '15'
+    name: Tail Fin Close
+    facePart: Caudal Fin
+    muscularBasis: Fin ray muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Caudal_fin
+  '20':
+    id: '20'
+    name: Pectoral L Up
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '21':
+    id: '21'
+    name: Pectoral L Down
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '22':
+    id: '22'
+    name: Pectoral R Up
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '23':
+    id: '23'
+    name: Pectoral R Down
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '24':
+    id: '24'
+    name: Pectoral L Forward
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '25':
+    id: '25'
+    name: Pectoral L Back
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '26':
+    id: '26'
+    name: Pectoral R Forward
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '27':
+    id: '27'
+    name: Pectoral R Back
+    facePart: Pectoral Fins
+    muscularBasis: Pectoral fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pectoral_fins
+  '30':
+    id: '30'
+    name: Ventral L Up
+    facePart: Pelvic Fins
+    muscularBasis: Pelvic fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pelvic_fins
+  '31':
+    id: '31'
+    name: Ventral L Down
+    facePart: Pelvic Fins
+    muscularBasis: Pelvic fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pelvic_fins
+  '32':
+    id: '32'
+    name: Ventral R Up
+    facePart: Pelvic Fins
+    muscularBasis: Pelvic fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pelvic_fins
+  '33':
+    id: '33'
+    name: Ventral R Down
+    facePart: Pelvic Fins
+    muscularBasis: Pelvic fin muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_fin#Pelvic_fins
+  '45':
+    id: '45'
+    name: Gill L
+    facePart: Gills
+    muscularBasis: Opercular muscles
+    links:
+    - https://en.wikipedia.org/wiki/Operculum_(fish)
+  '46':
+    id: '46'
+    name: Gill R
+    facePart: Gills
+    muscularBasis: Opercular muscles
+    links:
+    - https://en.wikipedia.org/wiki/Operculum_(fish)
+  '51':
+    id: '51'
+    name: Head Turn Left
+    facePart: Head
+    muscularBasis: Cranial muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_anatomy#Head
+  '52':
+    id: '52'
+    name: Head Turn Right
+    facePart: Head
+    muscularBasis: Cranial muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_anatomy#Head
+  '53':
+    id: '53'
+    name: Head Up
+    facePart: Head
+    muscularBasis: Cranial muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_anatomy#Head
+  '54':
+    id: '54'
+    name: Head Down
+    facePart: Head
+    muscularBasis: Cranial muscles
+    links:
+    - https://en.wikipedia.org/wiki/Fish_anatomy#Head
+  '61':
+    id: '61'
+    name: Eyes Left
+    facePart: Eyes
+    muscularBasis: Extraocular muscles
+    links:
+    - https://en.wikipedia.org/wiki/Extraocular_muscles
+  '62':
+    id: '62'
+    name: Eyes Right
+    facePart: Eyes
+    muscularBasis: Extraocular muscles
+    links:
+    - https://en.wikipedia.org/wiki/Extraocular_muscles
+  '63':
+    id: '63'
+    name: Eyes Up
+    facePart: Eyes
+    muscularBasis: Superior rectus
+    links:
+    - https://en.wikipedia.org/wiki/Superior_rectus_muscle
+  '64':
+    id: '64'
+    name: Eyes Down
+    facePart: Eyes
+    muscularBasis: Inferior rectus
+    links:
+    - https://en.wikipedia.org/wiki/Inferior_rectus_muscle

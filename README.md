@@ -2397,7 +2397,7 @@ This is a compact reference for the public surface exported by `@lovelace_lol/em
 ### Types and lower-level exports
 
 - Configuration/types: `Profile`, `MeshInfo`, `BlendingMode`, `TransitionHandle`, `ClipEvent`, `ClipEventListener`, `ClipHandle`, `Snippet`, `AnimationState`, `AnimationClipInfo`.
-- Standalone implementations: `ThreeAnimationRuntime`, `HairPhysics`, `BLENDING_MODES`.
+- Standalone implementations: `ThreeAnimationRuntime`, `RustHairPhysics`, `BLENDING_MODES`.
 - Region and geometry helpers: `resolveBoneName()`, `resolveBoneNames()`, `resolveFaceCenter()`, `findFaceCenter()`, `getModelForwardDirection()`, `detectFacingDirection()`.
 
 ---

@@ -73,17 +73,11 @@ export {
   numericArrayToNumbers,
 } from './TsClipCompiler';
 export {
-  AU_MORPH_BINDING_STRIDE,
-  VISEME_MORPH_BINDING_STRIDE,
   WasmRuntimeCore,
-  compileMorphBindings,
-  compileBoneBindings,
   unpackMorphFrameDelta,
   unpackBoneFrameDelta,
 } from './WasmRuntimeCore';
 export type {
-  CompiledBoneBindings,
-  MorphBindingSide,
   WasmRuntimeCoreOptions,
 } from './WasmRuntimeCore';
 export type {

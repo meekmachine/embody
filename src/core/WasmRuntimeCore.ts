@@ -1,11 +1,9 @@
 import type {
-  BoneDescriptor,
   BoneFrameDelta,
   BoneId,
   FrameDelta,
   MeshId,
   ModelDescriptor,
-  MorphTargetDescriptor,
   MorphTargetFrameDelta,
   MorphTargetId,
 } from './contracts';
@@ -15,33 +13,9 @@ import {
   PACKED_BONE_FRAME_DELTA_STRIDE,
   PACKED_MORPH_FRAME_DELTA_STRIDE,
 } from './contracts';
-import type { BoneBinding, RotationAxis } from './types';
-import { toAUList } from './compositeAxis';
-import type { MorphTargetRef, Profile } from '../mappings/types';
-import {
-  getMeshNamesForAUProfile,
-  getMeshNamesForVisemeProfile,
-  getProfileVisemeSlots,
-  getVisemeBindingTargets,
-  getVisemeJawAmounts,
-} from '../mappings/visemeSystem';
+import type { Profile } from '../mappings/types';
+import { getProfileVisemeSlots } from '../mappings/visemeSystem';
 import type { EmbodyCoreWasmModule, WasmRuntimeCoreHandle } from '../wasmTypes';
-
-export const AU_MORPH_BINDING_STRIDE = 5;
-export const VISEME_MORPH_BINDING_STRIDE = 4;
-
-export type MorphBindingSide = 0 | 1 | 2;
-
-const AXIS_GROUP_NEGATIVE = 0;
-const AXIS_GROUP_POSITIVE = 1;
-const AXIS_GROUP_PLAIN = 2;
-
-const BONE_SIDE_NONE = 0;
-const BONE_SIDE_LEFT = 1;
-const BONE_SIDE_RIGHT = 2;
-
-const ROTATION_CHANNELS = { rx: 0, ry: 1, rz: 2 } as const;
-const TRANSLATION_CHANNELS = { tx: 0, ty: 1, tz: 2 } as const;
 
 export interface WasmRuntimeCoreOptions {
   readonly profile: Profile;
@@ -51,17 +25,14 @@ export interface WasmRuntimeCoreOptions {
 
 /**
  * Thin TypeScript facade over the Rust Wasm RuntimeCore.
- * Binding compilation helpers live here only to pack host-neutral descriptors
- * into the numeric tables Rust consumes; solving stays in Rust.
+ * Profile/model JSON goes in; packed frame deltas come out. Solving stays in Rust.
  */
 export class WasmRuntimeCore {
-  private readonly wasm: EmbodyCoreWasmModule;
   private readonly core: WasmRuntimeCoreHandle;
   private profile: Profile;
   private model: ModelDescriptor;
 
   constructor(options: WasmRuntimeCoreOptions) {
-    this.wasm = options.wasm;
     this.profile = options.profile;
     this.model = options.model;
     const RuntimeCtor = options.wasm.RuntimeCore;
@@ -130,244 +101,8 @@ export class WasmRuntimeCore {
   }
 
   private reloadBindings(): void {
-    // Binding compilation (mesh/morph/bone name resolution, composites, jaw)
-    // lives in Rust. The TS facade only supplies profile + model JSON.
     this.core.configure(JSON.stringify(this.profile), JSON.stringify(this.model));
   }
-}
-
-export function compileMorphBindings(
-  profile: Profile,
-  model: ModelDescriptor
-): {
-  auBindings: Float32Array;
-  visemeBindings: Float32Array;
-  mixedAus: Uint32Array;
-} {
-  const auRows: number[] = [];
-  const mixed: number[] = [];
-
-  for (const [auIdText, entry] of Object.entries(profile.auToMorphs || {})) {
-    const auId = Number(auIdText);
-    if (Number.isNaN(auId) || !entry) continue;
-
-    const meshNames = getMeshNamesForAUProfile(profile, auId);
-    const hasMorphs = !!(entry.left?.length || entry.right?.length || entry.center?.length);
-    if (hasMorphs && profile.auToBones?.[auId]?.length) {
-      mixed.push(auId);
-    }
-
-    pushAuSide(auRows, auId, 0, entry.left || [], meshNames, model, profile);
-    pushAuSide(auRows, auId, 1, entry.right || [], meshNames, model, profile);
-    pushAuSide(auRows, auId, 2, entry.center || [], meshNames, model, profile);
-  }
-
-  const visemeRows: number[] = [];
-  const visemeMeshNames = getMeshNamesForVisemeProfile(profile);
-  const slotCount = getProfileVisemeSlots(profile).length;
-  for (let index = 0; index < slotCount; index += 1) {
-    for (const bindingTarget of getVisemeBindingTargets(profile, index)) {
-      for (const resolved of resolveMorphTargets(model, profile, bindingTarget.morph, visemeMeshNames)) {
-        visemeRows.push(
-          index,
-          Number(resolved.mesh.id),
-          Number(resolved.morphTarget.id),
-          bindingTarget.weight
-        );
-      }
-    }
-  }
-
-  return {
-    auBindings: Float32Array.from(auRows),
-    visemeBindings: Float32Array.from(visemeRows),
-    mixedAus: Uint32Array.from(mixed),
-  };
-}
-
-export interface CompiledBoneBindings {
-  restTransforms: Float32Array;
-  compositeAxes: Float32Array;
-  translations: Float32Array;
-  jawBinding: Float32Array;
-  visemeJawAmounts: Float32Array;
-}
-
-/**
- * Compile profile bone mappings into the packed tables the Rust RuntimeCore
- * consumes: rest transforms, composite rotation axes (in yaw/pitch/roll
- * application order), AU translations, and the auto viseme jaw binding.
- * Packs profile bone mappings into the numeric tables Rust consumes.
- */
-export function compileBoneBindings(profile: Profile, model: ModelDescriptor): CompiledBoneBindings {
-  const referencedBones = new Map<BoneId, BoneDescriptor>();
-  const findBone = (nodeKey: string): BoneDescriptor | undefined => {
-    const bone = findBoneDescriptor(profile, model, nodeKey);
-    if (bone) referencedBones.set(bone.id, bone);
-    return bone;
-  };
-
-  const boneSideForAU = (auId: number, nodeKey: string): number => {
-    const side = profile.auToBones?.[auId]?.find((candidate) => candidate.node === nodeKey)?.side;
-    if (side === 'left') return BONE_SIDE_LEFT;
-    if (side === 'right') return BONE_SIDE_RIGHT;
-    return BONE_SIDE_NONE;
-  };
-
-  const compositeRows: number[] = [];
-  for (const composite of profile.compositeRotations || []) {
-    const bone = findBone(composite.node);
-    if (!bone) continue;
-
-    // Application order: yaw, pitch, roll.
-    const axes: Array<{ axis: number; config: RotationAxis | null }> = [
-      { axis: 1, config: composite.yaw },
-      { axis: 0, config: composite.pitch },
-      { axis: 2, config: composite.roll },
-    ];
-
-    for (const { axis, config } of axes) {
-      if (!config) continue;
-
-      const negativeAUs = toAUList(config.negative);
-      const positiveAUs = toAUList(config.positive);
-      const hasDirectional = negativeAUs.length > 0 && positiveAUs.length > 0;
-
-      const valueRows: number[][] = [];
-      if (hasDirectional) {
-        for (const auId of negativeAUs) {
-          valueRows.push([auId, AXIS_GROUP_NEGATIVE, boneSideForAU(auId, composite.node)]);
-        }
-        for (const auId of positiveAUs) {
-          valueRows.push([auId, AXIS_GROUP_POSITIVE, boneSideForAU(auId, composite.node)]);
-        }
-      } else {
-        for (const auId of config.aus) {
-          valueRows.push([auId, AXIS_GROUP_PLAIN, boneSideForAU(auId, composite.node)]);
-        }
-      }
-
-      const bindingRows: number[][] = [];
-      const pushBindingRows = (auIds: number[], group: number) => {
-        for (const auId of auIds) {
-          const binding = profile.auToBones?.[auId]?.find(
-            (candidate) => candidate.node === composite.node
-          );
-          if (!binding?.maxDegrees) continue;
-          const channel = ROTATION_CHANNELS[binding.channel as keyof typeof ROTATION_CHANNELS];
-          if (channel === undefined) continue;
-          bindingRows.push([
-            auId,
-            group,
-            boneSideForAU(auId, composite.node),
-            channel,
-            binding.scale,
-            binding.maxDegrees,
-          ]);
-        }
-      };
-      pushBindingRows(negativeAUs, AXIS_GROUP_NEGATIVE);
-      pushBindingRows(positiveAUs, AXIS_GROUP_POSITIVE);
-      pushBindingRows(config.aus, AXIS_GROUP_PLAIN);
-
-      compositeRows.push(
-        Number(bone.id),
-        axis,
-        hasDirectional ? 1 : 0,
-        valueRows.length,
-        bindingRows.length,
-        0,
-        0,
-        0
-      );
-      for (const row of valueRows) compositeRows.push(...row);
-      for (const row of bindingRows) compositeRows.push(...row);
-    }
-  }
-
-  const translationRows: number[] = [];
-  for (const [auIdText, bindings] of Object.entries(profile.auToBones || {})) {
-    const auId = Number(auIdText);
-    if (Number.isNaN(auId)) continue;
-    for (const binding of bindings || []) {
-      const channel = TRANSLATION_CHANNELS[binding.channel as keyof typeof TRANSLATION_CHANNELS];
-      if (channel === undefined || binding.maxUnits === undefined) continue;
-      const bone = findBone(binding.node);
-      if (!bone) continue;
-      translationRows.push(auId, Number(bone.id), channel, binding.scale, binding.maxUnits);
-    }
-  }
-
-  const jawRow: number[] = [];
-  const jawBinding = findAutoVisemeJawBinding(profile, model);
-  if (jawBinding?.maxDegrees) {
-    const bone = findBone(jawBinding.node);
-    const channel = ROTATION_CHANNELS[jawBinding.channel as keyof typeof ROTATION_CHANNELS];
-    if (bone && channel !== undefined) {
-      jawRow.push(Number(bone.id), channel, jawBinding.scale, jawBinding.maxDegrees);
-    }
-  }
-
-  const restRows: number[] = [];
-  for (const bone of referencedBones.values()) {
-    const position = bone.restTransform?.position;
-    const rotation = bone.restTransform?.rotation;
-    restRows.push(
-      Number(bone.id),
-      position?.x ?? 0,
-      position?.y ?? 0,
-      position?.z ?? 0,
-      rotation?.x ?? 0,
-      rotation?.y ?? 0,
-      rotation?.z ?? 0,
-      rotation?.w ?? 1
-    );
-  }
-
-  return {
-    restTransforms: Float32Array.from(restRows),
-    compositeAxes: Float32Array.from(compositeRows),
-    translations: Float32Array.from(translationRows),
-    jawBinding: Float32Array.from(jawRow),
-    visemeJawAmounts: Float32Array.from(getVisemeJawAmounts(profile) ?? []),
-  };
-}
-
-function findBoneDescriptor(
-  profile: Profile,
-  model: ModelDescriptor,
-  nodeKey: string
-): BoneDescriptor | undefined {
-  const configuredName = profile.boneNodes?.[nodeKey] || nodeKey;
-  const prefix = profile.bonePrefix ?? '';
-  const suffix = profile.boneSuffix ?? '';
-  const prefixedName = prefix && !configuredName.startsWith(prefix)
-    ? `${prefix}${configuredName}`
-    : configuredName;
-  const fullName = suffix && !prefixedName.endsWith(suffix)
-    ? `${prefixedName}${suffix}`
-    : prefixedName;
-  const candidates = new Set([nodeKey, configuredName, fullName]);
-  return model.bones.find((bone) => candidates.has(bone.name));
-}
-
-function findAutoVisemeJawBinding(
-  profile: Profile,
-  model: ModelDescriptor
-): (BoneBinding & { channel: 'rx' | 'ry' | 'rz' }) | null {
-  const isRotation = (
-    binding: BoneBinding | undefined
-  ): binding is BoneBinding & { channel: 'rx' | 'ry' | 'rz' } =>
-    binding?.channel === 'rx' || binding?.channel === 'ry' || binding?.channel === 'rz';
-
-  const candidates = [
-    profile.auToBones?.[103]?.find(isRotation),
-    profile.auToBones?.[26]?.find(isRotation),
-  ].filter((binding): binding is BoneBinding & { channel: 'rx' | 'ry' | 'rz' } => !!binding);
-
-  return candidates.find((binding) => !!findBoneDescriptor(profile, model, binding.node))
-    ?? candidates[0]
-    ?? null;
 }
 
 export function unpackBoneFrameDelta(values: ArrayLike<number>): BoneFrameDelta[] {
@@ -414,71 +149,4 @@ export function unpackMorphFrameDelta(values: ArrayLike<number>): MorphTargetFra
     });
   }
   return writes;
-}
-
-function pushAuSide(
-  rows: number[],
-  auId: number,
-  side: MorphBindingSide,
-  morphs: readonly MorphTargetRef[],
-  meshNames: string[],
-  model: ModelDescriptor,
-  profile: Profile
-): void {
-  for (const morph of morphs) {
-    for (const resolved of resolveMorphTargets(model, profile, morph, meshNames)) {
-      rows.push(
-        auId,
-        side,
-        Number(resolved.mesh.id),
-        Number(resolved.morphTarget.id),
-        1
-      );
-    }
-  }
-}
-
-function resolveMorphTargets(
-  model: ModelDescriptor,
-  profile: Profile,
-  morph: MorphTargetRef,
-  meshNames: string[]
-): Array<{ mesh: ModelDescriptor['meshes'][number]; morphTarget: MorphTargetDescriptor }> {
-  const result: Array<{ mesh: ModelDescriptor['meshes'][number]; morphTarget: MorphTargetDescriptor }> = [];
-  for (const meshName of meshNames) {
-    const mesh = model.meshes.find((candidate) => candidate.name === meshName);
-    if (!mesh) continue;
-    const morphTargets = mesh.morphTargetIds
-      .map((id) => model.morphTargets.find((candidate) => candidate.id === id))
-      .filter((target): target is MorphTargetDescriptor => !!target);
-
-    const target = typeof morph === 'number'
-      ? morphTargets.find((candidate) => candidate.hostIndex === morph)
-      : resolveMorphTargetByName(morphTargets, morph, profile);
-    if (target) {
-      result.push({ mesh, morphTarget: target });
-    }
-  }
-  return result;
-}
-
-function resolveMorphTargetByName(
-  targets: readonly MorphTargetDescriptor[],
-  key: string,
-  profile: Profile
-): MorphTargetDescriptor | undefined {
-  const prefix = profile.morphPrefix || '';
-  const suffix = profile.morphSuffix || '';
-  const fullName = prefix + key + suffix;
-  const exact = targets.find((target) => target.name === fullName);
-  if (exact) return exact;
-
-  const suffixRegex = profile.suffixPattern ? new RegExp(profile.suffixPattern) : null;
-  if (!suffixRegex) return undefined;
-
-  return targets.find((target) => {
-    if (!target.name.startsWith(fullName)) return false;
-    const candidateSuffix = target.name.slice(fullName.length);
-    return candidateSuffix === '' || suffixRegex.test(candidateSuffix);
-  });
 }

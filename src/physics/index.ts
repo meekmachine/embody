@@ -3,7 +3,6 @@
  */
 
 export {
-  HairPhysics,
   DEFAULT_HAIR_PHYSICS_CONFIG,
 } from './HairPhysics';
 export {

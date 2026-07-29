@@ -1,6 +1,13 @@
 //! Embedded presets shipped inside the Wasm core.
 //!
-//! Preset JSON is converted to native `ProfileData` on first use (intake).
+//! Authored source of truth is YAML under `assets/presets/*.yaml`.
+//! `build.rs` converts those files to JSON at compile time for embedding.
+//!
+//! Runtime host boundary (LoomLarge / Polymer → Wasm) stays JSON:
+//! - `configure_with_preset(preset_id, override_json, model_json)`
+//! - `configure_exact_profile(profile_json, model_json)`
+//! - `merge_embedded_preset(preset_id, override_json)`
+//!
 //! Hosts pass a preset id + optional override JSON; they do not ship CC4/fish
 //! (or other presets) as TypeScript blobs for the runtime path.
 
@@ -9,8 +16,8 @@ use std::sync::OnceLock;
 use crate::profile::ProfileData;
 use crate::profile_merge::extend_preset_with_profile;
 
-const CC4_PRESET_JSON: &str = include_str!("../assets/presets/cc4.json");
-const FISH_PRESET_JSON: &str = include_str!("../assets/presets/fish.json");
+const CC4_PRESET_JSON: &str = include_str!(concat!(env!("OUT_DIR"), "/preset_cc4.json"));
+const FISH_PRESET_JSON: &str = include_str!(concat!(env!("OUT_DIR"), "/preset_fish.json"));
 
 static CC4_PROFILE: OnceLock<ProfileData> = OnceLock::new();
 static FISH_PROFILE: OnceLock<ProfileData> = OnceLock::new();
@@ -31,6 +38,7 @@ pub fn normalize_preset_id(preset_id: &str) -> Option<&'static str> {
     }
 }
 
+/// Embedded preset as JSON for the host wire format (LoomLarge still speaks JSON).
 pub fn preset_json(preset_id: &str) -> Result<&'static str, String> {
     match normalize_preset_id(preset_id) {
         Some("cc4") => Ok(CC4_PRESET_JSON),
@@ -45,11 +53,11 @@ pub fn load_profile(preset_id: &str) -> Result<&'static ProfileData, String> {
     match normalize_preset_id(preset_id) {
         Some("cc4") => Ok(CC4_PROFILE.get_or_init(|| {
             serde_json::from_str(CC4_PRESET_JSON)
-                .expect("embedded cc4.json must deserialize as ProfileData")
+                .expect("embedded cc4 preset must deserialize as ProfileData")
         })),
         Some("fish") => Ok(FISH_PROFILE.get_or_init(|| {
             serde_json::from_str(FISH_PRESET_JSON)
-                .expect("embedded fish.json must deserialize as ProfileData")
+                .expect("embedded fish preset must deserialize as ProfileData")
         })),
         _ => Err(format!(
             "Unknown preset \"{preset_id}\". Known presets: cc4, fish"

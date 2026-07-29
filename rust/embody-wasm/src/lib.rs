@@ -41,7 +41,10 @@ pub fn has_preset(preset_id: &str) -> bool {
     presets::has_preset(preset_id)
 }
 
-/// Return the embedded preset JSON for a preset id (intake source of truth).
+/// Return the embedded preset as JSON for the host wire format.
+///
+/// Authored source of truth is YAML in the crate; LoomLarge / Polymer still
+/// exchange profile payloads as JSON at runtime.
 #[wasm_bindgen]
 pub fn get_preset_json(preset_id: &str) -> Result<String, JsError> {
     presets::preset_json(preset_id)

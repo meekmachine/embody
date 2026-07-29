@@ -65,6 +65,16 @@ invalid ids.
 Automatic skin binding and weight generation are intentionally tracked as a
 separate research problem. See `docs/HUMANOID_TEMPLATE_SKINNING_TDR.md`.
 
+## Presets and host wire format
+
+- **Authored source of truth:** YAML under `assets/presets/*.yaml`, compiled into
+  the Wasm binary by `build.rs` as Rust `ProfileData`.
+- **Runtime host wire (LoomLarge / Polymer):** JSON. Use
+  `configure_with_preset(preset_id, override_json, model_json)` for sparse
+  overrides on an embedded preset, or `configure_exact_profile(profile_json,
+  model_json)` for a complete custom profile. `get_preset_json` returns JSON for
+  UI/catalog use; it does not make TypeScript the preset owner.
+
 Build locally:
 
 ```sh

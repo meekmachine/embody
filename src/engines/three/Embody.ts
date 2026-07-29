@@ -8,7 +8,6 @@
 
 import {
   BufferAttribute,
-  Quaternion,
   Vector3,
   Box3,
   Clock,
@@ -23,7 +22,6 @@ import type { MeshInfo, MorphTargetRef, Profile } from '../../mappings/types';
 import type {
   TransitionHandle,
   BoneKey,
-  RotationsState,
   AnimationPlayOptions,
   AnimationClipInfo,
   AnimationState,
@@ -35,14 +33,11 @@ import type {
   SnippetChannel,
   TypedSnippet,
   CompositeRotation,
-  RotationAxis,
   AnimationBlendMode,
   MorphTargetDelta,
   AddMorphTargetOptions,
 } from '../../core/types';
-import { getCompositeAxisBinding, getCompositeAxisValue } from '../../core/compositeAxis';
 import { ThreeAnimationRuntime, ThreeAnimationSystem } from './ThreeAnimationRuntime';
-import { getSideScale } from './balanceUtils';
 import { ThreeModelInspector } from './ThreeModelInspector';
 import { ThreeFrameApplier, type ThreeFrameApplierBindings, type ThreeMaterialConfig, type ThreeResolvedMaterialConfig } from './ThreeFrameApplier';
 import { WasmRuntimeCore } from '../../core/WasmRuntimeCore';
@@ -60,38 +55,7 @@ import {
   getVisemeJawAmounts,
   getVisemeSlotIndex,
 } from '../../mappings/visemeSystem';
-import type { NodeBase, ResolvedBones } from './types';
-
-const deg2rad = (d: number) => (d * Math.PI) / 180;
-
-// Axis vectors for quaternion rotation (like stable version)
-const X_AXIS = new Vector3(1, 0, 0);
-const Y_AXIS = new Vector3(0, 1, 0);
-const Z_AXIS = new Vector3(0, 0, 1);
-
-/**
- * Build AU to composite map from composite rotations config.
- * Maps AU ID to { nodes, axis } so we know which semantic axis (pitch/yaw/roll) to use.
- */
-function buildAUToCompositeMap(composites: CompositeRotation[]): Map<number, { nodes: string[]; axis: 'pitch' | 'yaw' | 'roll' }> {
-  const map = new Map<number, { nodes: string[]; axis: 'pitch' | 'yaw' | 'roll' }>();
-  composites.forEach(comp => {
-    (['pitch', 'yaw', 'roll'] as const).forEach(axisName => {
-      const axisConfig = comp[axisName];
-      if (axisConfig) {
-        axisConfig.aus.forEach(auId => {
-          const existing = map.get(auId);
-          if (existing) {
-            existing.nodes.push(comp.node);
-          } else {
-            map.set(auId, { nodes: [comp.node], axis: axisName });
-          }
-        });
-      }
-    });
-  });
-  return map;
-}
+import type { ResolvedBones } from './types';
 
 function clamp01(x: number) {
   return x < 0 ? 0 : x > 1 ? 1 : x;
@@ -164,21 +128,15 @@ export class Embody implements EmbodyRuntime {
     getActiveTransitionCount(): number;
   };
 
-  // Composite rotation mappings (built from config or default CC4)
+  // Composite rotation config (owned by Rust profile; exposed for mixer helpers).
   private compositeRotations: CompositeRotation[];
-  private auToCompositeMap: Map<number, { nodes: string[]; axis: 'pitch' | 'yaw' | 'roll' }>;
 
-  // State
+  // Control mirrors kept for transitions / hair until hosts call Wasm directly.
   private auValues: Record<number, number> = {};
-  private auBalances: Record<number, number> = {};  // Balance values per AU (-1 to 1)
+  private auBalances: Record<number, number> = {};
   private rigReady = false;
   private missingBoneWarnings = new Set<string>();
-
-  // Rotation state
-  private rotations: RotationsState = {};
-  private pendingCompositeNodes = new Set<string>();
   private isPaused = false;
-  private translations: Record<string, { x: number; y: number; z: number }> = {};
 
   // Mesh references
   private faceMesh: Mesh | null = null;
@@ -247,7 +205,6 @@ export class Embody implements EmbodyRuntime {
 
     // Composite rotations come from the Rust-owned profile. No host-side preset fallback.
     this.compositeRotations = this.config.compositeRotations || [];
-    this.auToCompositeMap = buildAUToCompositeMap(this.compositeRotations);
 
     this.animationController = new ThreeAnimationSystem({
       getModel: () => this.model,
@@ -305,7 +262,6 @@ export class Embody implements EmbodyRuntime {
     this.bones = inspection.bones;
     this.rigReady = true;
     this.missingBoneWarnings.clear();
-    this.initBoneRotations();
 
     // Find primary face mesh (use head bone proximity when available)
     this.resolvedFaceMeshes = inspection.resolvedFaceMeshes;
@@ -486,88 +442,16 @@ export class Embody implements EmbodyRuntime {
     }
   }
 
-  private resolveFaceMeshes(meshes: Mesh[]): string[] {
-    const faceMeshNames = this.config.morphToMesh?.face || [];
-    const availableMorphMeshes = meshes.filter((m) => {
-      const dict = m.morphTargetDictionary;
-      const infl = m.morphTargetInfluences;
-      return (dict && Object.keys(dict).length > 0) || (Array.isArray(infl) && infl.length > 0);
-    });
-    const defaultFace = meshes.find((m) => faceMeshNames.includes(m.name));
-    if (defaultFace) {
-      return [defaultFace.name];
-    }
-
-    const candidateByMorph = meshes.find((m) => {
-      const dict = m.morphTargetDictionary;
-      return dict && typeof dict === 'object' && 'Brow_Drop_L' in dict;
-    });
-    if (candidateByMorph) {
-      return [candidateByMorph.name];
-    }
-
-    const head = this.bones[this.getHeadBoneNodeKey()]?.obj ?? this.bones.HEAD?.obj;
-    if (head && availableMorphMeshes.length > 0) {
-      const headPos = new Vector3();
-      (head as any).getWorldPosition?.(headPos);
-      const headCandidates = availableMorphMeshes.map((mesh) => {
-        const box = new Box3().setFromObject(mesh as any);
-        const center = new Vector3();
-        box.getCenter(center);
-        const distance = box.containsPoint(headPos) ? 0 : center.distanceTo(headPos);
-        const morphCount = mesh.morphTargetDictionary
-          ? Object.keys(mesh.morphTargetDictionary).length
-          : 0;
-        const name = mesh.name.toLowerCase();
-        const penalty = /eye|occlusion|tear|teeth|tongue|hair|lash/.test(name) ? 10 : 0;
-        return { name: mesh.name, distance, morphCount, penalty };
-      });
-
-      headCandidates.sort((a, b) => {
-        if (a.distance !== b.distance) return a.distance - b.distance;
-        if (a.penalty !== b.penalty) return a.penalty - b.penalty;
-        return b.morphCount - a.morphCount;
-      });
-
-      const best = headCandidates[0];
-      const extras = headCandidates
-        .filter((entry) => /brow|eyebrow/.test(entry.name.toLowerCase()))
-        .map((entry) => entry.name);
-
-      return [best.name, ...extras].filter((value, index, arr) => arr.indexOf(value) === index);
-    }
-
-    if (availableMorphMeshes.length > 0) {
-      const best = availableMorphMeshes.reduce((prev, current) => {
-        const prevCount = prev.morphTargetDictionary ? Object.keys(prev.morphTargetDictionary).length : 0;
-        const currCount = current.morphTargetDictionary ? Object.keys(current.morphTargetDictionary).length : 0;
-        return currCount > prevCount ? current : prev;
-      });
-      const browExtras = availableMorphMeshes
-        .filter((m) => {
-          const dict = m.morphTargetDictionary || {};
-          const morphKeys = Object.keys(dict);
-          return /brow|eyebrow/i.test(m.name) || morphKeys.some((k) => /brow/i.test(k));
-        })
-        .map((m) => m.name);
-      return [best.name, ...browExtras].filter((value, index, arr) => arr.indexOf(value) === index);
-    }
-
-    return [];
-  }
-
   update(deltaSeconds: number): void {
     const dtSeconds = Math.max(0, deltaSeconds || 0);
     if (dtSeconds <= 0 || this.isPaused) return;
 
     this.animation.tick(dtSeconds);
 
-    // Rust owns live morph/bone solving. Do not let the legacy local composite
-    // flush overwrite Three bone transforms after packed frame application.
+    // Rust owns live morph/bone solving; Three only applies packed frames.
     if (this.wasmRuntimeCore && this.framePathReady) {
       this.applyLiveFrameDelta();
-    } else {
-      this.flushPendingComposites();
+      this.syncHairFromHeadAus();
     }
 
     this.animationController.update(dtSeconds);
@@ -664,8 +548,7 @@ export class Embody implements EmbodyRuntime {
   transitionAU(id: number | string, to: number, durationMs = 200, balance?: number): TransitionHandle {
     const numId = typeof id === 'string' ? Number(id.replace(/[^\d]/g, '')) : id;
 
-    // Handle negative values for continuum pairs:
-    // If to < 0 and this AU has a continuum pair, forward to transitionContinuum
+    // Continuum pairs: negative targets still route through setContinuum.
     if (to < 0 && this.config.continuumPairs) {
       const pairInfo = this.config.continuumPairs[numId];
       if (pairInfo) {
@@ -677,82 +560,26 @@ export class Embody implements EmbodyRuntime {
     }
 
     const target = clamp01(to);
-
     if (balance !== undefined) {
       this.auBalances[numId] = balance;
     }
 
-    // Instant transitions go through the Rust live path; no parallel TS solvers.
+    // Instant and timed transitions both drive Rust via setAU. No parallel
+    // TypeScript morph/bone solvers remain on this path.
     if (durationMs <= 0) {
       this.setAU(numId, target, balance ?? this.auBalances[numId]);
       return { promise: Promise.resolve(), pause: () => {}, resume: () => {}, cancel: () => {} };
     }
 
-    const storedBalance = this.auBalances[numId] ?? 0;
-
-    const { left: leftKeys, right: rightKeys, center: centerKeys } = this.getAUMorphsBySide(numId);
-    const bindings = this.config.auToBones[numId] || [];
-
-    const mixWeight = this.isMixedAU(numId) ? this.getAUMixWeight(numId) : 1.0;
-    const base = target * mixWeight;
-
-    const { left: leftVal, right: rightVal } = this.computeSideValues(base, storedBalance);
-
-    this.auValues[numId] = target;
-
-    const handles: TransitionHandle[] = [];
-    const meshNames = this.getMeshNamesForAU(numId);
-
-    if (leftKeys.length || rightKeys.length) {
-      for (const k of leftKeys) {
-        handles.push(
-          typeof k === 'number'
-            ? this.transitionMorphInfluence(k, leftVal, durationMs, meshNames)
-            : this.transitionMorph(k, leftVal, durationMs, meshNames)
-        );
-      }
-      for (const k of rightKeys) {
-        handles.push(
-          typeof k === 'number'
-            ? this.transitionMorphInfluence(k, rightVal, durationMs, meshNames)
-            : this.transitionMorph(k, rightVal, durationMs, meshNames)
-        );
-      }
-    }
-
-    for (const k of centerKeys) {
-      handles.push(
-        typeof k === 'number'
-          ? this.transitionMorphInfluence(k, base, durationMs, meshNames)
-          : this.transitionMorph(k, base, durationMs, meshNames)
-      );
-    }
-
-    // Handle bone rotations using auToCompositeMap
-    const compositeInfo = this.auToCompositeMap.get(numId);
-    if (compositeInfo) {
-      for (const nodeKey of compositeInfo.nodes) {
-        const config = this.compositeRotations.find((c: CompositeRotation) => c.node === nodeKey);
-        if (!config) continue;
-
-        const axisConfig = config[compositeInfo.axis];
-        if (!axisConfig) continue;
-
-        const axisValue = this.getCompositeAxisValueForNode(nodeKey, axisConfig);
-        handles.push(this.transitionBoneRotation(nodeKey, compositeInfo.axis, axisValue, durationMs));
-      }
-    }
-
-    // Handle translations
-    for (const binding of bindings) {
-      if (binding.channel === 'tx' || binding.channel === 'ty' || binding.channel === 'tz') {
-        if (binding.maxUnits !== undefined) {
-          handles.push(this.transitionBoneTranslation(binding.node, binding.channel, target * binding.scale, binding.maxUnits, durationMs));
-        }
-      }
-    }
-
-    return this.combineHandles(handles);
+    const from = this.auValues[numId] ?? 0;
+    const storedBalance = balance ?? this.auBalances[numId];
+    return this.animation.addTransition(
+      `au_${numId}`,
+      from,
+      target,
+      durationMs,
+      (value) => this.setAU(numId, value, storedBalance)
+    );
   }
 
   getAU(id: number): number {
@@ -1164,68 +991,38 @@ export class Embody implements EmbodyRuntime {
 
   resetToNeutral(): void {
     this.auValues = {};
+    this.auBalances = {};
     const visemeCount = getProfileVisemeSlots(this.config).length;
     this.visemeValues = new Array(visemeCount).fill(0);
     this.visemeJawScales = new Array(visemeCount).fill(1);
-    this.translations = {};
-    this.initBoneRotations();
     this.clearTransitions();
-
-    const morphTargetsToReset: MorphTargetHandle[] = [];
-    for (const m of this.meshes) {
-      const infl = m.morphTargetInfluences;
-      if (!infl) continue;
-      for (let i = 0; i < infl.length; i++) {
-        morphTargetsToReset.push({ infl, idx: i });
-      }
-    }
-    this.frameApplier.resetMorphTargets(morphTargetsToReset);
-
-    Object.values(this.bones).forEach((entry) => {
-      if (!entry) return;
-      this.frameApplier.applyObjectTransform(entry.obj, {
-        position: { x: entry.basePos.x, y: entry.basePos.y, z: entry.basePos.z },
-        rotation: {
-          x: entry.baseQuat.x,
-          y: entry.baseQuat.y,
-          z: entry.baseQuat.z,
-          w: entry.baseQuat.w,
-        },
-      });
-    });
+    this.wasmRuntimeCore?.clear();
+    this.applyLiveFrameDelta();
+    this.syncHairFromHeadAus();
   }
 
   private reinitializeRuntimeStateFromCurrentControls(staleMorphTargets: MorphTargetHandle[] = []): void {
     this.clearTransitions();
     this.resetMorphTargetHandles(staleMorphTargets);
-    this.translations = {};
-    this.initBoneRotations();
-
-    Object.values(this.bones).forEach((entry) => {
-      if (!entry) return;
-      this.frameApplier.applyObjectTransform(entry.obj, {
-        position: { x: entry.basePos.x, y: entry.basePos.y, z: entry.basePos.z },
-        rotation: {
-          x: entry.baseQuat.x,
-          y: entry.baseQuat.y,
-          z: entry.baseQuat.z,
-          w: entry.baseQuat.w,
-        },
-      });
-    });
-
-    for (const [auIdStr, value] of Object.entries(this.auValues)) {
-      if (value <= 0) continue;
-      const auId = Number(auIdStr);
-      if (Number.isNaN(auId)) continue;
-      this.setAU(auId, value, this.auBalances[auId]);
-    }
-
+    this.resyncWasmFromLocalControls();
     this.applyVisemeRuntimeState();
+    this.applyLiveFrameDelta();
+    this.syncHairFromHeadAus();
+    this.model?.updateMatrixWorld(true);
+  }
 
-    if (this.model) {
-      this.flushPendingComposites();
-      this.model.updateMatrixWorld(true);
+  private resyncWasmFromLocalControls(): void {
+    if (!this.wasmRuntimeCore) return;
+    this.wasmRuntimeCore.clear();
+    for (const [auIdText, value] of Object.entries(this.auValues)) {
+      const auId = Number(auIdText);
+      if (Number.isNaN(auId)) continue;
+      this.wasmRuntimeCore.setAU(auId, value, this.auBalances[auId] ?? 0);
+    }
+    for (const [auIdText, weight] of Object.entries(this.mixWeights)) {
+      const auId = Number(auIdText);
+      if (Number.isNaN(auId)) continue;
+      this.wasmRuntimeCore.setAUMixWeight(auId, weight);
     }
   }
 
@@ -1255,7 +1052,8 @@ export class Embody implements EmbodyRuntime {
       return;
     }
 
-    this.flushPendingComposites();
+    this.applyLiveFrameDelta();
+    this.syncHairFromHeadAus();
     this.model.updateMatrixWorld(true);
   }
 
@@ -1366,7 +1164,6 @@ export class Embody implements EmbodyRuntime {
   setProfile(profile: Profile): void {
     this.config = profile;
     this.compositeRotations = this.config.compositeRotations || [];
-    this.auToCompositeMap = buildAUToCompositeMap(this.compositeRotations);
     this.mixWeights = { ...profile.auMixDefaults };
     this.syncVisemeRuntimeState();
     let staleMorphTargets: MorphTargetHandle[] = [];
@@ -1379,7 +1176,12 @@ export class Embody implements EmbodyRuntime {
         entry.obj.quaternion.copy(entry.baseQuat);
         entry.obj.rotation.setFromQuaternion(entry.obj.quaternion, entry.obj.rotation.order);
       }
-      this.bones = this.resolveBones(this.model);
+      const inspection = this.modelInspector.inspectModel(this.model, {
+        meshes: this.meshes,
+        profile: this.config,
+        previousBones: this.bones,
+      });
+      this.bones = inspection.bones;
       this.missingBoneWarnings.clear();
       this.rebuildMorphTargetsCache();
       this.wasmRuntimeCore?.setProfile(this.config);
@@ -1440,16 +1242,14 @@ export class Embody implements EmbodyRuntime {
     return this.hairPhysics.validateHairMorphTargets();
   }
 
-  /** Get head rotation values for hair physics (range -1 to 1) */
+  /** Head pose for hair physics, derived from head continuum AUs (-1..1). */
   getHeadRotation(): { yaw: number; pitch: number; roll: number } {
-    const headNodeKey = this.getHeadBoneNodeKey();
-    const headRotation = this.rotations[headNodeKey] ?? this.rotations.HEAD;
-    return {
-      yaw: headRotation?.yaw ?? 0,
-      pitch: headRotation?.pitch ?? 0,
-      roll: headRotation?.roll ?? 0,
-    };
+    const yaw = (this.auValues[52] ?? 0) - (this.auValues[51] ?? 0);
+    const pitch = (this.auValues[53] ?? 0) - (this.auValues[54] ?? 0);
+    const roll = (this.auValues[56] ?? 0) - (this.auValues[55] ?? 0);
+    return { yaw, pitch, roll };
   }
+
 
   updateHairPhysics(dt: number): void {
     this.hairPhysics.update(dt);
@@ -1517,17 +1317,6 @@ export class Embody implements EmbodyRuntime {
     return { left: base * (1 - b), right: base };
   }
 
-  private getAUMorphsBySide(
-    auId: number
-  ): { left: MorphTargetRef[]; right: MorphTargetRef[]; center: MorphTargetRef[] } {
-    const entry = this.config.auToMorphs[auId];
-    return {
-      left: entry ? [...entry.left] : [],
-      right: entry ? [...entry.right] : [],
-      center: entry ? [...entry.center] : [],
-    };
-  }
-
   private applyMorphTargets(targets: MorphTargetHandle[], val: number): void {
     this.frameApplier.applyMorphTargets(targets, val);
   }
@@ -1546,49 +1335,6 @@ export class Embody implements EmbodyRuntime {
       );
     }
     this.applyLiveFrameDelta();
-  }
-
-  private getJawBoneNodeKey(): BoneKey {
-    const candidates = [
-      this.config.auToBones[103]?.[0]?.node,
-      this.config.auToBones[26]?.[0]?.node,
-      'JAW',
-    ].filter((node): node is BoneKey => !!node);
-    return candidates.find((node) => !!this.bones[node])
-      ?? candidates[0]
-      ?? 'JAW';
-  }
-
-  private getHeadBoneNodeKey(): BoneKey {
-    const candidates = [
-      this.config.auToBones[51]?.[0]?.node,
-      this.config.auToBones[52]?.[0]?.node,
-      this.compositeRotations.find((composite) => (
-        composite.yaw?.aus.includes(51)
-        || composite.yaw?.aus.includes(52)
-        || composite.pitch?.aus.includes(53)
-        || composite.pitch?.aus.includes(54)
-        || composite.roll?.aus.includes(55)
-        || composite.roll?.aus.includes(56)
-      ))?.node
-      ?? null,
-      'HEAD',
-    ].filter((node): node is BoneKey => !!node);
-    return candidates.find((node) => !!this.bones[node])
-      ?? candidates[0]
-      ?? 'HEAD';
-  }
-
-  private getActiveVisemeJawAmount(): number {
-    let jawAmount = 0;
-    for (let index = 0; index < this.visemeValues.length; index += 1) {
-      const value = clamp01(this.visemeValues[index] ?? 0);
-      if (value <= 1e-6) continue;
-      const jawScale = this.visemeJawScales[index] ?? 1;
-      if (Math.abs(jawScale) <= 1e-6) continue;
-      jawAmount = Math.max(jawAmount, this.getVisemeJawAmount(index) * value * jawScale);
-    }
-    return jawAmount;
   }
 
   private getMorphValue(key: string): number {
@@ -1934,321 +1680,10 @@ export class Embody implements EmbodyRuntime {
     return !!(hasMorphs && this.config.auToBones[id]?.length);
   }
 
-  private getEffectiveBoneAUValue(auId: number, nodeKey: string): number {
-    const rawValue = clamp01(this.auValues[auId] ?? 0);
-    if (rawValue <= 1e-6) return 0;
-
-    const binding = this.config.auToBones[auId]?.find((candidate) => candidate.node === nodeKey) ?? null;
-    if (!binding?.side) return rawValue;
-
-    return rawValue * getSideScale(this.auBalances[auId] ?? 0, binding.side);
-  }
-
-  private getCompositeAxisValueForNode(
-    nodeKey: string,
-    axisConfig: RotationAxis | null | undefined
-  ): number {
-    return getCompositeAxisValue(axisConfig, (auId: number) => this.getEffectiveBoneAUValue(auId, nodeKey));
-  }
-
-  private getCompositeAxisBindingForNode(
-    nodeKey: string,
-    axisConfig: RotationAxis | null | undefined,
-    direction: number
-  ) {
-    return getCompositeAxisBinding(
-      nodeKey,
-      axisConfig,
-      direction,
-      (auId: number) => this.getEffectiveBoneAUValue(auId, nodeKey),
-      this.config.auToBones
-    );
-  }
-
-  private initBoneRotations(): void {
-    this.rotations = {};
-    this.pendingCompositeNodes.clear();
-
-    const allBoneKeys = Array.from(
-      new Set(Object.values(this.config.auToBones).flat().map((binding) => binding.node))
-    );
-
-    for (const node of allBoneKeys) {
-      this.rotations[node] = { pitch: 0, yaw: 0, roll: 0 };
-      this.pendingCompositeNodes.add(node);
-    }
-  }
-
-  /** Update rotation state - just stores -1 to 1 value like stable version */
-  private updateBoneRotation(nodeKey: string, axis: 'pitch' | 'yaw' | 'roll', value: number): void {
-    if (!this.rotations[nodeKey]) return;
-    this.rotations[nodeKey][axis] = Math.max(-1, Math.min(1, value));
-    this.pendingCompositeNodes.add(nodeKey);
-  }
-
-  private updateBoneTranslation(nodeKey: string, channel: 'tx' | 'ty' | 'tz', value: number, maxUnits: number): void {
-    if (!this.translations[nodeKey]) this.translations[nodeKey] = { x: 0, y: 0, z: 0 };
-    const clamped = Math.max(-1, Math.min(1, value));
-    const offset = clamped * maxUnits;
-    if (channel === 'tx') this.translations[nodeKey].x = offset;
-    else if (channel === 'ty') this.translations[nodeKey].y = offset;
-    else this.translations[nodeKey].z = offset;
-    this.pendingCompositeNodes.add(nodeKey);
-  }
-
-  private transitionBoneRotation(nodeKey: string, axis: 'pitch' | 'yaw' | 'roll', to: number, durationMs = 200): TransitionHandle {
-    const transitionKey = `bone_${nodeKey}_${axis}`;
-    const from = this.rotations[nodeKey]?.[axis] ?? 0;
-    const target = Math.max(-1, Math.min(1, to));
-    return this.animation.addTransition(transitionKey, from, target, durationMs, (value) => this.updateBoneRotation(nodeKey, axis, value));
-  }
-
-  private transitionBoneTranslation(nodeKey: string, channel: 'tx' | 'ty' | 'tz', to: number, maxUnits: number, durationMs = 200): TransitionHandle {
-    const transitionKey = `boneT_${nodeKey}_${channel}`;
-    const current = this.translations[nodeKey] || { x: 0, y: 0, z: 0 };
-    const currentOffset = channel === 'tx' ? current.x : channel === 'ty' ? current.y : current.z;
-    const from = maxUnits !== 0 ? Math.max(-1, Math.min(1, currentOffset / maxUnits)) : 0;
-    const target = Math.max(-1, Math.min(1, to));
-    return this.animation.addTransition(transitionKey, from, target, durationMs, (value) => this.updateBoneTranslation(nodeKey, channel, value, maxUnits));
-  }
-
-  private flushPendingComposites(): void {
-    if (this.pendingCompositeNodes.size === 0) return;
-
-    const headNodeKey = this.getHeadBoneNodeKey();
-    const headChanged = this.pendingCompositeNodes.has(headNodeKey) || this.pendingCompositeNodes.has('HEAD');
-
-    for (const nodeKey of this.pendingCompositeNodes) {
-      this.applyCompositeRotation(nodeKey as BoneKey);
-    }
-    this.pendingCompositeNodes.clear();
-
-    // Update hair when head rotation changes
-    if (headChanged && this.hairPhysics.isHairPhysicsEnabled()) {
-      const headRotation = this.rotations[headNodeKey] ?? this.rotations.HEAD;
-      this.hairPhysics.onHeadRotationChanged(
-        headRotation?.yaw ?? 0,
-        headRotation?.pitch ?? 0
-      );
-    }
-  }
-
-  /**
-   * Apply composite rotation using quaternion composition like stable version.
-   * Looks up maxDegrees and channel from BONE_AU_TO_BINDINGS.
-   */
-  private applyCompositeRotation(nodeKey: BoneKey): void {
-    const entry = this.bones[nodeKey];
-    if (!entry || !this.model) {
-      if (!entry && this.rigReady && !this.missingBoneWarnings.has(nodeKey)) {
-        this.missingBoneWarnings.add(nodeKey);
-      }
-      return;
-    }
-
-    const { obj, basePos, baseQuat } = entry;
-    const rotState = this.rotations[nodeKey];
-    if (!rotState) {
-      return;
-    }
-
-    // Find the composite rotation config for this node
-    const config = this.compositeRotations.find((c: CompositeRotation) => c.node === nodeKey);
-    if (!config) {
-      return;
-    }
-
-    // Helper to get Vector3 axis from channel
-    const getAxis = (channel: 'rx' | 'ry' | 'rz') =>
-      channel === 'rx' ? X_AXIS : channel === 'ry' ? Y_AXIS : Z_AXIS;
-
-    // Build composite quaternion from base
-    const compositeQ = new Quaternion().copy(baseQuat);
-
-    // Apply yaw rotation
-    if (config.yaw && rotState.yaw !== 0) {
-      const binding = this.getCompositeAxisBindingForNode(nodeKey, config.yaw, rotState.yaw);
-      if (binding?.maxDegrees && binding.channel) {
-        const radians = deg2rad(binding.maxDegrees) * Math.abs(rotState.yaw) * binding.scale;
-        const axis = getAxis(binding.channel as 'rx' | 'ry' | 'rz');
-        const deltaQ = new Quaternion().setFromAxisAngle(axis, radians);
-        compositeQ.multiply(deltaQ);
-      }
-    }
-
-    // Apply pitch rotation
-    if (config.pitch && rotState.pitch !== 0) {
-      const binding = this.getCompositeAxisBindingForNode(nodeKey, config.pitch, rotState.pitch);
-      if (binding?.maxDegrees && binding.channel) {
-        const radians = deg2rad(binding.maxDegrees) * Math.abs(rotState.pitch) * binding.scale;
-        const axis = getAxis(binding.channel as 'rx' | 'ry' | 'rz');
-        const deltaQ = new Quaternion().setFromAxisAngle(axis, radians);
-        compositeQ.multiply(deltaQ);
-      }
-    }
-
-    // Apply roll rotation
-    if (config.roll && rotState.roll !== 0) {
-      const binding = this.getCompositeAxisBindingForNode(nodeKey, config.roll, rotState.roll);
-      if (binding?.maxDegrees && binding.channel) {
-        const radians = deg2rad(binding.maxDegrees) * Math.abs(rotState.roll) * binding.scale;
-        const axis = getAxis(binding.channel as 'rx' | 'ry' | 'rz');
-        const deltaQ = new Quaternion().setFromAxisAngle(axis, radians);
-        compositeQ.multiply(deltaQ);
-      }
-    }
-
-    const t = this.translations[nodeKey];
-    this.frameApplier.applyObjectTransform(obj, {
-      position: {
-        x: basePos.x + (t?.x ?? 0),
-        y: basePos.y + (t?.y ?? 0),
-        z: basePos.z + (t?.z ?? 0),
-      },
-      rotation: {
-        x: compositeQ.x,
-        y: compositeQ.y,
-        z: compositeQ.z,
-        w: compositeQ.w,
-      },
-    });
-    this.model.updateMatrixWorld(true);
-  }
-
-  private resolveBones(root: Object3D): ResolvedBones {
-    const resolved: ResolvedBones = {};
-    const previousBones = this.bones;
-
-    const snapshot = (obj: any): NodeBase => ({
-      obj,
-      basePos: { x: obj.position.x, y: obj.position.y, z: obj.position.z },
-      baseQuat: obj.quaternion.clone(),
-      baseEuler: { x: obj.rotation.x, y: obj.rotation.y, z: obj.rotation.z, order: obj.rotation.order },
-    });
-
-    const snapshotPreservingBasePose = (obj: Object3D): NodeBase => {
-      const existing = Object.values(previousBones).find((entry) => entry?.obj === obj);
-      if (!existing) {
-        return snapshot(obj);
-      }
-
-      return {
-        obj,
-        basePos: { ...existing.basePos },
-        baseQuat: existing.baseQuat.clone(),
-        baseEuler: { ...existing.baseEuler },
-      };
-    };
-
-    // Build suffix regex from config pattern
-    const prefix = this.config.bonePrefix || '';
-    const suffix = this.config.boneSuffix || '';
-    const suffixRegex = this.config.suffixPattern
-      ? new RegExp(this.config.suffixPattern)
-      : null;
-
-    const findNode = (baseName?: string | null): Object3D | undefined => {
-      if (!baseName) return undefined;
-
-      const directMatch = root.getObjectByName(baseName);
-      if (directMatch) return directMatch;
-
-      const prefixedBase = prefix && !baseName.startsWith(prefix)
-        ? `${prefix}${baseName}`
-        : baseName;
-      const fullName = suffix && !prefixedBase.endsWith(suffix)
-        ? `${prefixedBase}${suffix}`
-        : prefixedBase;
-
-      const exactMatch = root.getObjectByName(fullName);
-      if (exactMatch) return exactMatch;
-
-      // Try fuzzy match with suffix pattern if configured
-      if (suffixRegex) {
-        let found: Object3D | undefined;
-        root.traverse((obj: any) => {
-          if (found) return; // Already found
-          if (obj.name && obj.name.startsWith(fullName)) {
-            const suffix = obj.name.slice(fullName.length);
-            // Match if suffix is empty or matches the pattern
-            if (suffix === '' || suffixRegex.test(suffix)) {
-              found = obj;
-            }
-          }
-        });
-        if (found) return found;
-      }
-
-      return undefined;
-    };
-
-    const addResolvedBone = (key: string, node: Object3D) => {
-      const entry = snapshotPreservingBasePose(node);
-      resolved[key] = entry;
-      if (node.name) {
-        resolved[node.name] = entry;
-      }
-    };
-
-    for (const [key, nodeName] of Object.entries(this.config.boneNodes)) {
-      const node = findNode(nodeName);
-      if (node) {
-        addResolvedBone(key, node);
-        if (nodeName) {
-          resolved[nodeName] = resolved[key]!;
-        }
-      }
-    }
-
-    if (!resolved.EYE_L && this.config.eyeMeshNodes) {
-      const node = findNode(this.config.eyeMeshNodes.LEFT);
-      if (node) {
-        addResolvedBone('EYE_L', node);
-      }
-    }
-    if (!resolved.EYE_R && this.config.eyeMeshNodes) {
-      const node = findNode(this.config.eyeMeshNodes.RIGHT);
-      if (node) {
-        addResolvedBone('EYE_R', node);
-      }
-    }
-
-    const referencedNodes = new Set<string>();
-    Object.values(this.config.auToBones ?? {}).forEach((bindings) => {
-      bindings.forEach((binding) => referencedNodes.add(binding.node));
-    });
-    this.compositeRotations.forEach((composite) => referencedNodes.add(composite.node));
-    Object.values(this.config.continuumPairs ?? {}).forEach((pair) => {
-      if (pair?.node) referencedNodes.add(pair.node);
-    });
-    this.config.annotationRegions?.forEach((region) => {
-      region.bones?.forEach((boneName) => referencedNodes.add(boneName));
-    });
-
-    referencedNodes.forEach((nodeKey) => {
-      if (resolved[nodeKey]) return;
-      const configuredName = this.config.boneNodes?.[nodeKey] ?? nodeKey;
-      const node = findNode(configuredName);
-      if (node) {
-        addResolvedBone(nodeKey, node);
-        if (configuredName) {
-          resolved[configuredName] = resolved[nodeKey]!;
-        }
-      }
-    });
-
-    return resolved;
-  }
-
-  private combineHandles(handles: TransitionHandle[]): TransitionHandle {
-    if (handles.length === 0) return { promise: Promise.resolve(), pause: () => {}, resume: () => {}, cancel: () => {} };
-    if (handles.length === 1) return handles[0];
-    return {
-      promise: Promise.all(handles.map((h) => h.promise)).then(() => {}),
-      pause: () => handles.forEach((h) => h.pause()),
-      resume: () => handles.forEach((h) => h.resume()),
-      cancel: () => handles.forEach((h) => h.cancel()),
-    };
+  private syncHairFromHeadAus(): void {
+    if (!this.hairPhysics.isHairPhysicsEnabled()) return;
+    const head = this.getHeadRotation();
+    this.hairPhysics.onHeadRotationChanged(head.yaw, head.pitch);
   }
 
   /**

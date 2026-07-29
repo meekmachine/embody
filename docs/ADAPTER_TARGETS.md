@@ -8,14 +8,25 @@ contracts realistic for Babylon.js, React Three Fiber, and Unity.
 The shared package has three layers:
 
 - **Rust/Wasm core** (`@lovelace_lol/embody/wasm`): required host-neutral engine.
-  Owns preset/profile intake, binding compilation inputs, live AU/viseme/bone
-  solving, clip compilation helpers, hair solvers, and camera/marker math.
-- **`@lovelace_lol/embody/core`**: host-neutral TypeScript contracts (`FrameDelta`,
-  `ClipIR`, `ModelDescriptor`) plus a thin `WasmRuntimeCore` facade that packs
-  descriptors for Rust. There is no TypeScript runtime solver fallback.
-- **`@lovelace_lol/embody/three`**: Three-specific inspection, packed frame
-  application, clip/mixer lifecycle, scene loading, and disposal.
-- **`@lovelace_lol/embody`**: compatibility root for existing imports.
+  Owns preset/profile data (`ProfileData`), YAML-authored embedded presets,
+  binding compilation, live AU/viseme/bone solving, clip IR, hair/camera/math.
+- **`@lovelace_lol/embody/core`**: thin TypeScript contracts + Wasm facade only.
+  No TypeScript runtime solver fallback.
+- **`@lovelace_lol/embody/three`**: Three.js inspection, packed frame writes,
+  mixer/clip actions, scene load/dispose. This is the only intended long-term
+  TypeScript surface besides package/Wasm glue.
+- **`@lovelace_lol/embody`**: compatibility root while the fat facade shrinks.
+
+## Profile ownership and host wire format
+
+- **Authored in Embody:** presets live as YAML under
+  `rust/embody-wasm/assets/presets/*.yaml`, deserialized into Rust `ProfileData`
+  (compile-time embed via `build.rs`).
+- **Runtime from LoomLarge / Polymer:** still JSON. The browser sends either:
+  - `{ presetId, overrideJson, modelJson }` → `RuntimeCore.configure_with_preset`
+  - `{ exactProfileJson, modelJson }` → `RuntimeCore.configure_exact_profile`
+- LoomLarge must not expand TS preset dumps into the Rust host. Sparse DB
+  overrides + embedded preset id, or a complete custom exact profile.
 
 The adapter contract is intentionally numeric:
 

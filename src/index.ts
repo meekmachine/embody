@@ -117,11 +117,7 @@ export {
   numericArrayToNumbers,
 } from './core/TsClipCompiler';
 export {
-  AU_MORPH_BINDING_STRIDE,
-  VISEME_MORPH_BINDING_STRIDE,
   WasmRuntimeCore,
-  compileMorphBindings,
-  compileBoneBindings,
   unpackMorphFrameDelta,
   unpackBoneFrameDelta,
 } from './core/WasmRuntimeCore';
@@ -158,8 +154,6 @@ export type {
   TsClipCurvesInput,
 } from './core/TsClipCompiler';
 export type {
-  CompiledBoneBindings,
-  MorphBindingSide,
   WasmRuntimeCoreOptions,
 } from './core/WasmRuntimeCore';
 export type {
@@ -585,7 +579,6 @@ export type { PresetType } from './presets';
 // ============================================================================
 
 export {
-  HairPhysics,
   DEFAULT_HAIR_PHYSICS_CONFIG,
 } from './physics/HairPhysics';
 export {
