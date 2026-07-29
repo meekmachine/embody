@@ -1,2 +1,1 @@
-export { CC4_PRESET } from '../src/presets/cc4';
-export { BETTA_FISH_PRESET } from '../src/presets/bettaFish';
+export { EMBEDDED_PRESETS } from '../src/presets/registry';

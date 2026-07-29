@@ -85,15 +85,15 @@ fn ease_in_out_quad(t: f32) -> f32 {
     }
 }
 
-fn compile_exact_profile_tables(
+fn compile_resolved_profile_tables(
     profile_json: &str,
     model_json: &str,
 ) -> Result<CompiledTables, String> {
     let profile: ProfileData = serde_json::from_str(profile_json)
-        .map_err(|err| format!("Invalid exact profile JSON: {err}"))?;
+        .map_err(|err| format!("Invalid resolved profile JSON: {err}"))?;
     if !profile.has_runtime_mappings() {
         return Err(
-            "Exact profile is incomplete: expected at least one AU, bone, or viseme mapping"
+            "Resolved profile is incomplete: expected at least one AU, bone, or viseme mapping"
                 .to_string(),
         );
     }
@@ -103,7 +103,7 @@ fn compile_exact_profile_tables(
     let tables = compile_tables(&profile, &model);
     if !tables.has_runtime_bindings() {
         return Err(format!(
-            "Exact profile is incompatible with the model descriptor: no runtime bindings resolved against {} meshes, {} morph targets, and {} bones",
+            "Resolved profile is incompatible with the model descriptor: no runtime bindings resolved against {} meshes, {} morph targets, and {} bones",
             model.meshes.len(),
             model.morph_targets.len(),
             model.bones.len(),
@@ -173,18 +173,18 @@ impl RuntimeCore {
         Ok(())
     }
 
-    /// Configure from a complete profile without applying an embedded preset.
+    /// Configure from a resolved profile without applying an embedded preset.
     ///
     /// This path is intentionally strict so a host cannot accidentally select
-    /// exact mode for an incomplete custom profile and silently get an inert
-    /// runtime. Preset fallback remains an explicit host decision.
+    /// a profile that has no usable runtime bindings. Preset fallback remains
+    /// an explicit host decision.
     #[wasm_bindgen]
-    pub fn configure_exact_profile(
+    pub fn configure_with_profile(
         &mut self,
         profile_json: &str,
         model_json: &str,
     ) -> Result<(), JsError> {
-        let tables = compile_exact_profile_tables(profile_json, model_json)
+        let tables = compile_resolved_profile_tables(profile_json, model_json)
             .map_err(|err| JsError::new(&err))?;
         self.apply_compiled_tables(tables);
         Ok(())
@@ -1072,7 +1072,7 @@ mod tests {
     }
 
     #[test]
-    fn configures_from_embedded_fish_aliases() {
+    fn configures_from_registered_fish_preset() {
         let model = r#"{
             "meshes": [{ "id": 1, "name": "EYES_0", "morphTargetIds": [] }],
             "morphTargets": [],
@@ -1088,12 +1088,10 @@ mod tests {
             ]
         }"#;
 
-        for preset_id in ["fish", "skeletal"] {
-            let mut core = RuntimeCore::new(0);
-            core.configure_with_preset(preset_id, "", model).unwrap();
-            core.set_au(51, 0.5, 0.0);
-            assert!(!core.evaluate_bone_frame_delta().is_empty());
-        }
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_preset("fish", "", model).unwrap();
+        core.set_au(51, 0.5, 0.0);
+        assert!(!core.evaluate_bone_frame_delta().is_empty());
     }
 
     #[test]
@@ -1138,7 +1136,7 @@ mod tests {
     }
 
     #[test]
-    fn exact_profile_is_not_merged_with_an_embedded_preset() {
+    fn resolved_profile_is_not_merged_with_an_embedded_preset() {
         let profile = r#"{
             "auToMorphs": {
                 "900": { "left": [], "right": [], "center": ["OnlyExact"] }
@@ -1155,7 +1153,7 @@ mod tests {
         }"#;
 
         let mut core = RuntimeCore::new(0);
-        core.configure_exact_profile(profile, model).unwrap();
+        core.configure_with_profile(profile, model).unwrap();
         core.set_au(900, 0.75, 0.0);
         core.set_au(12, 1.0, 0.0);
 
@@ -1164,13 +1162,14 @@ mod tests {
     }
 
     #[test]
-    fn exact_profile_rejects_incomplete_or_incompatible_profiles() {
+    fn resolved_profile_rejects_incomplete_or_incompatible_profiles() {
         let empty_model = r#"{"meshes":[],"morphTargets":[],"bones":[]}"#;
         let incomplete =
-            compile_exact_profile_tables(r#"{"name":"metadata only"}"#, empty_model).unwrap_err();
-        assert!(incomplete.contains("Exact profile is incomplete"));
+            compile_resolved_profile_tables(r#"{"name":"metadata only"}"#, empty_model)
+                .unwrap_err();
+        assert!(incomplete.contains("Resolved profile is incomplete"));
 
-        let incompatible = compile_exact_profile_tables(
+        let incompatible = compile_resolved_profile_tables(
             r#"{
                     "auToBones": {
                         "42": [{
@@ -1184,7 +1183,7 @@ mod tests {
             empty_model,
         )
         .unwrap_err();
-        assert!(incompatible.contains("Exact profile is incompatible"));
+        assert!(incompatible.contains("Resolved profile is incompatible"));
     }
 
     #[test]

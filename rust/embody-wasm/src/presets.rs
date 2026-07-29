@@ -1,60 +1,64 @@
 //! Embedded presets shipped inside the Wasm core.
 //!
 //! Preset JSON is converted to native `ProfileData` on first use (intake).
-//! Hosts pass a preset id + optional override JSON; they do not ship CC4/fish
-//! (or other presets) as TypeScript blobs for the runtime path.
+//! Hosts pass a preset id + optional override JSON; they do not ship preset
+//! data as TypeScript blobs for the runtime path.
 
 use std::sync::OnceLock;
 
 use crate::profile::ProfileData;
 use crate::profile_merge::extend_preset_with_profile;
 
-const CC4_PRESET_JSON: &str = include_str!("../assets/presets/cc4.json");
-const FISH_PRESET_JSON: &str = include_str!("../assets/presets/fish.json");
+struct EmbeddedPreset {
+    id: &'static str,
+    json: &'static str,
+    profile: OnceLock<ProfileData>,
+}
 
-static CC4_PROFILE: OnceLock<ProfileData> = OnceLock::new();
-static FISH_PROFILE: OnceLock<ProfileData> = OnceLock::new();
+include!(concat!(env!("OUT_DIR"), "/embedded_presets.rs"));
+
+fn normalized_preset_id(preset_id: &str) -> String {
+    preset_id.trim().to_ascii_lowercase()
+}
+
+fn find_preset(preset_id: &str) -> Option<&'static EmbeddedPreset> {
+    let normalized = normalized_preset_id(preset_id);
+    EMBEDDED_PRESETS
+        .iter()
+        .find(|preset| preset.id == normalized)
+}
+
+fn unknown_preset_error(preset_id: &str) -> String {
+    format!(
+        "Unknown preset \"{preset_id}\". Known presets: {}",
+        list_preset_ids().join(", ")
+    )
+}
 
 pub fn list_preset_ids() -> Vec<&'static str> {
-    vec!["cc4", "fish"]
+    EMBEDDED_PRESETS.iter().map(|preset| preset.id).collect()
 }
 
 pub fn has_preset(preset_id: &str) -> bool {
-    normalize_preset_id(preset_id).is_some()
-}
-
-pub fn normalize_preset_id(preset_id: &str) -> Option<&'static str> {
-    match preset_id.trim().to_ascii_lowercase().as_str() {
-        "" | "cc4" | "default" | "human" => Some("cc4"),
-        "fish" | "skeletal" => Some("fish"),
-        _ => None,
-    }
+    find_preset(preset_id).is_some()
 }
 
 pub fn preset_json(preset_id: &str) -> Result<&'static str, String> {
-    match normalize_preset_id(preset_id) {
-        Some("cc4") => Ok(CC4_PRESET_JSON),
-        Some("fish") => Ok(FISH_PRESET_JSON),
-        _ => Err(format!(
-            "Unknown preset \"{preset_id}\". Known presets: cc4, fish"
-        )),
-    }
+    find_preset(preset_id)
+        .map(|preset| preset.json)
+        .ok_or_else(|| unknown_preset_error(preset_id))
 }
 
 pub fn load_profile(preset_id: &str) -> Result<&'static ProfileData, String> {
-    match normalize_preset_id(preset_id) {
-        Some("cc4") => Ok(CC4_PROFILE.get_or_init(|| {
-            serde_json::from_str(CC4_PRESET_JSON)
-                .expect("embedded cc4.json must deserialize as ProfileData")
-        })),
-        Some("fish") => Ok(FISH_PROFILE.get_or_init(|| {
-            serde_json::from_str(FISH_PRESET_JSON)
-                .expect("embedded fish.json must deserialize as ProfileData")
-        })),
-        _ => Err(format!(
-            "Unknown preset \"{preset_id}\". Known presets: cc4, fish"
-        )),
-    }
+    let preset = find_preset(preset_id).ok_or_else(|| unknown_preset_error(preset_id))?;
+    Ok(preset.profile.get_or_init(|| {
+        serde_json::from_str(preset.json).unwrap_or_else(|error| {
+            panic!(
+                "embedded preset {} must deserialize as ProfileData: {error}",
+                preset.id
+            )
+        })
+    }))
 }
 
 /// Merge an optional override JSON onto an embedded preset and return the
@@ -76,7 +80,8 @@ pub fn merge_preset_with_override_json(
         )
     };
     let merged = extend_preset_with_profile(&base, extension.as_ref());
-    serde_json::to_string(&merged).map_err(|err| format!("Failed to serialize merged profile: {err}"))
+    serde_json::to_string(&merged)
+        .map_err(|err| format!("Failed to serialize merged profile: {err}"))
 }
 
 #[cfg(test)]
@@ -84,16 +89,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn embeds_and_loads_presets_and_aliases() {
+    fn embeds_and_loads_registered_presets() {
         assert!(has_preset("cc4"));
-        assert!(has_preset("default"));
-        assert!(has_preset("human"));
         assert!(has_preset("fish"));
-        assert!(has_preset("skeletal"));
+        assert!(!has_preset("default"));
+        assert!(!has_preset("human"));
+        assert!(!has_preset("skeletal"));
         assert!(!has_preset("custom"));
-        assert_eq!(list_preset_ids(), vec!["cc4", "fish"]);
+        let preset_ids = list_preset_ids();
+        assert!(preset_ids.contains(&"cc4"));
+        assert!(preset_ids.contains(&"fish"));
+        assert!(preset_ids.windows(2).all(|ids| ids[0] < ids[1]));
 
-        let profile = load_profile("human").unwrap();
+        let profile = load_profile("cc4").unwrap();
         assert!(!profile.au_to_morphs.is_empty() || !profile.au_to_bones.is_empty());
         assert!(preset_json("cc4").unwrap().contains("auToMorphs"));
         let preset: serde_json::Value = serde_json::from_str(preset_json("cc4").unwrap()).unwrap();
@@ -103,7 +111,7 @@ mod tests {
             -10
         );
 
-        let fish = load_profile("skeletal").unwrap();
+        let fish = load_profile("fish").unwrap();
         assert!(!fish.au_to_bones.is_empty());
         let fish_preset: serde_json::Value =
             serde_json::from_str(preset_json("fish").unwrap()).unwrap();
