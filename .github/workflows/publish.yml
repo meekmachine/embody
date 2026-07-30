@@ -1,0 +1,134 @@
+name: Publish to NPM
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: publish-npm-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: "${{ github.event_name != 'push' || github.actor != 'github-actions[bot]' }}"
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: "${{ github.ref_name }}"
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: "npm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Verify release push token
+        env:
+          PUBLISH_PUSH_TOKEN: ${{ secrets.PUBLISH_PUSH_TOKEN }}
+        run: |
+          if [ -z "${PUBLISH_PUSH_TOKEN}" ]; then
+            echo "PUBLISH_PUSH_TOKEN is not configured."
+            exit 1
+          fi
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Configure git push auth
+        env:
+          PUBLISH_PUSH_TOKEN: ${{ secrets.PUBLISH_PUSH_TOKEN }}
+        run: |
+          git remote set-url origin "https://x-access-token:${PUBLISH_PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify NPM auth
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "NPM_KEY is not configured for this workflow environment."
+            exit 1
+          fi
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > .npmrc
+          npm whoami
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_KEY }}
+
+      - name: Determine release version
+        id: release
+        run: node scripts/ci/determine-release-version.mjs
+
+      - name: Build
+        run: npm run build
+
+      - name: Run typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Check package exports
+        run: npm run test:exports
+
+      - name: Check if version already exists on NPM
+        id: existing
+        run: |
+          if npm view "${{ steps.release.outputs.package_name }}@${{ steps.release.outputs.version }}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Version ${{ steps.release.outputs.version }} is already published."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Version ${{ steps.release.outputs.version }} is not published yet."
+          fi
+
+      - name: Ensure release tag exists
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          remote_sha="$(git ls-remote --tags origin "refs/tags/${TAG}^{}" | awk '{print $1}')"
+          head_sha="$(git rev-parse HEAD)"
+          if [ -n "${remote_sha}" ] && [ "${remote_sha}" != "${head_sha}" ]; then
+            echo "Tag ${TAG} already exists on ${remote_sha}, expected ${head_sha}."
+            exit 1
+          fi
+          if [ -z "${remote_sha}" ]; then
+            git tag -a "${TAG}" -m "Release ${TAG}"
+            git push origin "refs/tags/${TAG}"
+          fi
+
+      - name: Publish to NPM
+        if: steps.existing.outputs.exists != 'true'
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_KEY }}
+
+      - name: Create or update GitHub release
+        if: ${{ steps.existing.outputs.exists == 'true' || success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          PACKAGE_NAME: ${{ steps.release.outputs.package_name }}
+        run: |
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release edit "${TAG}" --title "${TAG}" --notes "Published ${PACKAGE_NAME} ${VERSION}"
+          else
+            gh release create "${TAG}" --target "${GITHUB_SHA}" --title "${TAG}" --notes "Published ${PACKAGE_NAME} ${VERSION}"
+          fi
