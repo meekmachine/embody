@@ -65,7 +65,7 @@ jobs:
           - name: Test
             command: npm test
             enabled: ${{ needs.changes.outputs.test }}
-            rust: false
+            rust: true
           - name: Package Exports
             command: npm run test:exports
             enabled: ${{ needs.changes.outputs.package-exports }}
