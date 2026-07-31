@@ -20,8 +20,12 @@ export {
 } from '../mappings/extendPresetWithProfile';
 
 // Betta fish preset (skeletal animation, no morphs)
-import { BETTA_FISH_PRESET } from './bettaFish';
 export { BETTA_FISH_PRESET, AU_MAPPING_CONFIG, FISH_AU_MAPPING_CONFIG } from './bettaFish';
+export {
+  EMBEDDED_PRESETS,
+  getEmbeddedPreset,
+} from './registry';
+export type { EmbeddedPresetId } from './registry';
 
 // Re-export fish-specific items with FISH_ prefix to avoid conflicts
 export {
@@ -34,7 +38,12 @@ export {
 /**
  * Preset types that can be passed to Embody
  */
-export type PresetType = 'cc4' | 'skeletal' | 'fish' | 'custom';
+import {
+  getEmbeddedPreset,
+  type EmbeddedPresetId,
+} from './registry';
+
+export type PresetType = EmbeddedPresetId | 'skeletal' | 'custom';
 
 // Import CC4_PRESET at module level for getPreset
 import { CC4_PRESET } from './cc4';
@@ -44,15 +53,10 @@ import { CC4_PRESET } from './cc4';
  * This allows frontend to pass a string instead of importing the full preset.
  */
 export function getPreset(presetType: PresetType | string | undefined) {
-  switch (presetType) {
-    case 'fish':
-    case 'skeletal':
-      return BETTA_FISH_PRESET;
-    case 'cc4':
-    case 'custom':
-    default:
-      return CC4_PRESET;
-  }
+  const compatibilityId = presetType === 'skeletal' ? 'fish' : presetType;
+  return compatibilityId
+    ? getEmbeddedPreset(compatibilityId) ?? CC4_PRESET
+    : CC4_PRESET;
 }
 
 // Backwards-compatible lookup alias retained for LoomLarge consumers.

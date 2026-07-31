@@ -1,8 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { BETTA_FISH_PRESET, FISH_AU_MAPPING_CONFIG, getPreset } from './index';
+import {
+  BETTA_FISH_PRESET,
+  CC4_PRESET,
+  EMBEDDED_PRESETS,
+  FISH_AU_MAPPING_CONFIG,
+  getEmbeddedPreset,
+  getPreset,
+} from './index';
 
 describe('getPreset', () => {
-  it('returns the single Betta fish preset object for fish aliases', () => {
+  it('exposes canonical preset IDs through one authored registry', () => {
+    expect(Object.keys(EMBEDDED_PRESETS)).toEqual(expect.arrayContaining(['cc4', 'fish']));
+    expect(getEmbeddedPreset('CC4')).toBe(CC4_PRESET);
+    expect(getEmbeddedPreset('fish')).toBe(BETTA_FISH_PRESET);
+    expect(getEmbeddedPreset('skeletal')).toBeUndefined();
+  });
+
+  it('keeps skeletal as a TypeScript compatibility alias only', () => {
     expect(getPreset('fish')).toBe(BETTA_FISH_PRESET);
     expect(getPreset('skeletal')).toBe(BETTA_FISH_PRESET);
   });
