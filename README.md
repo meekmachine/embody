@@ -89,6 +89,7 @@ Additional:
 ## 1. Installation & Setup
 
 For Character Loom hosts, install `@lovelace_lol/polymer` (it already includes Embody). Use the direct Embody install below only for Embody-only library work.
+
 Open in LoomLarge: [Animation tab](https://www.characterloom.com/?drawer=open&tab=animation)
 
 ![Project structure with Embody installed](./assets/readme/project-structure.svg)
