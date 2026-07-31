@@ -117,12 +117,14 @@ const core = await initEmbodyCore();
 const [left, right] = core.solve_bilateral_values(0.8, 0.25);
 ```
 
-The Wasm preset registry embeds `cc4` and `fish`. `default` and `human` select
-CC4; `skeletal` selects fish. Hosts can check `core.has_preset(id)` before
-calling `configure_with_preset(id, overrideJson, modelJson)`.
+The Wasm preset registry currently embeds the canonical IDs `cc4` and `fish`.
+It does not interpret compatibility aliases such as `default`, `human`, or
+`skeletal`; application compatibility layers must normalize those values before
+calling `configure_with_preset(id, overrideJson, modelJson)`. Hosts can use
+`core.has_preset(id)` to validate a canonical ID.
 
-Complete custom profiles use
-`configure_exact_profile(profileJson, modelJson)`. Exact mode never merges an
+Complete resolved profiles use
+`configure_with_profile(profileJson, modelJson)`. This path never merges an
 embedded preset, and it rejects profiles that contain no runtime mappings or
 resolve no bindings against the inspected model. Selecting preset fallback for
 an incomplete legacy profile remains an explicit host decision.
@@ -132,9 +134,10 @@ merges overrides, deserializes the runtime projection, compiles model bindings,
 and returns packed numeric frame deltas on the hot path. Three.js object
 inspection and frame application remain host-side concerns.
 
-The package exports the Three.js inspector, frame applier, and clip adapter.
-Character host orchestration belongs in Polymer, so Embody no longer exports a
-separate TypeScript `RustEmbodyHost`.
+The package currently exports the Three.js inspector, frame applier, and clip
+adapter. Polymer owns the public CLJS facade during the Rust migration; runtime
+policy and lifecycle are moving into Rust, while engine-object inspection and
+mutation remain in the Three.js adapter.
 
 ### Template skeleton fit metadata
 

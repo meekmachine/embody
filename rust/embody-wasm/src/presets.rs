@@ -101,6 +101,15 @@ mod tests {
         assert!(preset_ids.contains(&"fish"));
         assert!(preset_ids.windows(2).all(|ids| ids[0] < ids[1]));
 
+        for preset_id in &preset_ids {
+            let profile = load_profile(preset_id)
+                .unwrap_or_else(|error| panic!("embedded preset {preset_id} is invalid: {error}"));
+            assert!(
+                profile.has_runtime_mappings(),
+                "embedded preset {preset_id} has no runtime mappings"
+            );
+        }
+
         let profile = load_profile("cc4").unwrap();
         assert!(!profile.au_to_morphs.is_empty() || !profile.au_to_bones.is_empty());
         assert!(preset_json("cc4").unwrap().contains("auToMorphs"));
