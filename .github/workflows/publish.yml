@@ -126,3 +126,19 @@ jobs:
           else
             gh release create "${TAG}" --target "${GITHUB_SHA}" --title "${TAG}" --notes "Published ${PACKAGE_NAME} ${VERSION}"
           fi
+
+      # Character Loom hosts consume @lovelace_lol/polymer, which vendors Embody at publish time.
+      # Republish Polymer whenever Embody main lands so polymer@latest includes this SHA.
+      - name: Trigger Polymer npm republish
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.PUBLISH_PUSH_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::PUBLISH_PUSH_TOKEN is required to dispatch meekmachine/Polymer Publish to NPM (cross-repo workflow_dispatch)."
+            exit 1
+          fi
+          gh workflow run "Publish to NPM" \
+            --repo meekmachine/Polymer \
+            --ref main \
+            -f embody_sha="${GITHUB_SHA}"

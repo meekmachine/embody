@@ -7,7 +7,9 @@ Embody provides mappings that connect [Facial Action Coding System (FACS)](https
 
 > **Note:** If you previously used the `loomlarge` npm package, it has been renamed to `@lovelace_lol/embody`.
 >
-> Continuous PR releases are published via [pkg.pr.new](https://pkg.pr.new/). Stable npm publishing is deferred until we have a release candidate; until then consumers should use git SHA pins or pkg.pr.new preview URLs. Install the [pkg-pr-new GitHub App](https://github.com/apps/pkg-pr-new) on this repository so PR workflows can publish previews.
+> **Character Loom / LoomLarge hosts should depend on [`@lovelace_lol/polymer`](https://www.npmjs.com/package/@lovelace_lol/polymer), not this package directly.** Polymer publish CI vendors a built Embody (including Wasm) into the Polymer tarball. Merges to Embody `main` trigger a Polymer npm republish so `polymer@latest` picks up the new Embody SHA. Staging/PR work may still pin Embody (or Polymer) by git SHA.
+>
+> Standalone `@lovelace_lol/embody` on npm is deprecated for host apps. Prefer Polymer for production installs.
 
 ![Hero image showing Embody controlling a facial expression](./assets/readme/hero-expressions.webp)
 
@@ -86,6 +88,7 @@ Additional:
 
 ## 1. Installation & Setup
 
+For Character Loom hosts, install `@lovelace_lol/polymer` (it already includes Embody). Use the direct Embody install below only for Embody-only library work.
 Open in LoomLarge: [Animation tab](https://www.characterloom.com/?drawer=open&tab=animation)
 
 ![Project structure with Embody installed](./assets/readme/project-structure.svg)
