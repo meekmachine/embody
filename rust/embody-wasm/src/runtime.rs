@@ -12,8 +12,8 @@ use crate::bones::{
 };
 use crate::math::{clamp01, finite_or};
 use crate::presets;
-use crate::profile::{compile_tables, CompiledTables, ModelData, ProfileData};
-use crate::profile_merge::extend_preset_with_profile;
+use crate::profile::{compile_tables, deserialize_json, CompiledTables, ModelData, ProfileData};
+use crate::profile_merge::{extend_preset_with_profile, parse_profile_patch};
 
 pub const AU_MORPH_BINDING_STRIDE: u32 = 5;
 pub const VISEME_MORPH_BINDING_STRIDE: u32 = 4;
@@ -89,8 +89,7 @@ fn compile_resolved_profile_tables(
     profile_json: &str,
     model_json: &str,
 ) -> Result<CompiledTables, String> {
-    let profile: ProfileData = serde_json::from_str(profile_json)
-        .map_err(|err| format!("Invalid resolved profile JSON: {err}"))?;
+    let profile: ProfileData = deserialize_json(profile_json, "Invalid resolved profile JSON")?;
     if !profile.has_runtime_mappings() {
         return Err(
             "Resolved profile is incomplete: expected at least one AU, bone, or viseme mapping"
@@ -98,8 +97,7 @@ fn compile_resolved_profile_tables(
         );
     }
 
-    let model: ModelData = serde_json::from_str(model_json)
-        .map_err(|err| format!("Invalid model descriptor JSON: {err}"))?;
+    let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")?;
     let tables = compile_tables(&profile, &model);
     if !tables.has_runtime_bindings() {
         return Err(format!(
@@ -165,10 +163,10 @@ impl RuntimeCore {
     /// continuum pairs) happens here, inside the core.
     #[wasm_bindgen]
     pub fn configure(&mut self, profile_json: &str, model_json: &str) -> Result<(), JsError> {
-        let profile: ProfileData = serde_json::from_str(profile_json)
-            .map_err(|err| JsError::new(&format!("Invalid profile JSON: {err}")))?;
-        let model: ModelData = serde_json::from_str(model_json)
-            .map_err(|err| JsError::new(&format!("Invalid model descriptor JSON: {err}")))?;
+        let profile: ProfileData = deserialize_json(profile_json, "Invalid profile JSON")
+            .map_err(|err| JsError::new(&err))?;
+        let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")
+            .map_err(|err| JsError::new(&err))?;
         self.apply_compiled_tables(compile_tables(&profile, &model));
         Ok(())
     }
@@ -200,22 +198,11 @@ impl RuntimeCore {
         override_json: &str,
         model_json: &str,
     ) -> Result<(), JsError> {
-        let profile = if override_json.trim().is_empty() {
-            presets::load_profile(preset_id)
-                .cloned()
-                .map_err(|err| JsError::new(&err))?
-        } else {
-            let base_json = presets::preset_json(preset_id).map_err(|err| JsError::new(&err))?;
-            let base: serde_json::Value = serde_json::from_str(base_json)
-                .map_err(|err| JsError::new(&format!("Invalid embedded preset JSON: {err}")))?;
-            let extension = serde_json::from_str(override_json)
-                .map_err(|err| JsError::new(&format!("Invalid profile override JSON: {err}")))?;
-            let merged = extend_preset_with_profile(&base, Some(&extension));
-            serde_json::from_value(merged)
-                .map_err(|err| JsError::new(&format!("Merged profile is invalid: {err}")))?
-        };
-        let model: ModelData = serde_json::from_str(model_json)
-            .map_err(|err| JsError::new(&format!("Invalid model descriptor JSON: {err}")))?;
+        let base = presets::load_profile(preset_id).map_err(|err| JsError::new(&err))?;
+        let extension = parse_profile_patch(override_json).map_err(|err| JsError::new(&err))?;
+        let profile = extend_preset_with_profile(base, extension);
+        let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")
+            .map_err(|err| JsError::new(&err))?;
         self.apply_compiled_tables(compile_tables(&profile, &model));
         Ok(())
     }

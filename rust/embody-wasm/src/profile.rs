@@ -8,21 +8,31 @@
 use std::collections::HashMap;
 
 use regex_lite::Regex;
-use serde::Deserialize;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use crate::bones::{
     AXIS_PITCH, AXIS_ROLL, AXIS_YAW, GROUP_NEGATIVE, GROUP_PLAIN, GROUP_POSITIVE, SIDE_LEFT,
     SIDE_NONE, SIDE_RIGHT,
 };
 
-#[derive(Deserialize, Debug, Clone)]
+pub(crate) fn deserialize_json<T: DeserializeOwned>(
+    json: &str,
+    context: &str,
+) -> Result<T, String> {
+    let mut deserializer = serde_json::Deserializer::from_str(json);
+    serde_path_to_error::deserialize(&mut deserializer)
+        .map_err(|error| format!("{context}: {error}"))
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum MorphRef {
     Index(i64),
     Name(String),
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum AuSelector {
     One(u32),
@@ -39,45 +49,53 @@ impl AuSelector {
     }
 }
 
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AuMorphEntry {
     pub left: Vec<MorphRef>,
     pub right: Vec<MorphRef>,
     pub center: Vec<MorphRef>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct BoneBindingData {
     pub node: String,
     pub channel: String,
     #[serde(default = "default_scale")]
-    pub scale: f32,
-    #[serde(default)]
-    pub max_degrees: Option<f32>,
-    #[serde(default)]
-    pub max_units: Option<f32>,
-    #[serde(default)]
+    pub scale: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_degrees: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_units: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub side: Option<String>,
+    #[serde(default, flatten)]
+    pub extensions: Map<String, Value>,
 }
 
-fn default_scale() -> f32 {
+fn default_scale() -> f64 {
     1.0
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct RotationAxisData {
     #[serde(default)]
     pub aus: Vec<u32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axis: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub negative: Option<AuSelector>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub positive: Option<AuSelector>,
+    #[serde(default, flatten)]
+    pub extensions: Map<String, Value>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct CompositeRotationData {
     pub node: String,
@@ -87,68 +105,436 @@ pub struct CompositeRotationData {
     pub yaw: Option<RotationAxisData>,
     #[serde(default)]
     pub roll: Option<RotationAxisData>,
+    #[serde(default, flatten)]
+    pub extensions: Map<String, Value>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ContinuumPairData {
     pub pair_id: u32,
     #[serde(default)]
     pub is_negative: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axis: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<String>,
+    #[serde(default, flatten)]
+    pub extensions: Map<String, Value>,
 }
 
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AuInfoData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub muscular_basis: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub face_area: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub face_part: Option<String>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
 }
 
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum ProviderIdData {
+    Integer(i64),
+    Decimal(f64),
+    Text(String),
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VisemeSlotFeaturesData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jaw_open: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lip_closed: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lip_round: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lip_spread: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tongue_tip: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fricative: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nasal: Option<f64>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct VisemeSlotData {
     pub id: String,
-    #[serde(default)]
-    pub order: Option<f32>,
-    #[serde(default)]
-    pub default_jaw_amount: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order: Option<f64>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub provider_ids: HashMap<String, Vec<ProviderIdData>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub phonemes: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub matchers: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub features: Option<VisemeSlotFeaturesData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_jaw_amount: Option<f64>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
 }
 
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct VisemeBindingTargetData {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub morph: Option<MorphRef>,
-    pub weight: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weight: Option<f64>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
 }
 
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct VisemeBindingData {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub morph: Option<MorphRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub targets: Option<Vec<VisemeBindingTargetData>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jaw_amount: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub shared_with: Vec<String>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
 }
 
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MappingSectionData {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub order: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mesh_category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub face_part: Option<String>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MeshMaterialData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub render_order: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transparent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depth_write: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depth_test: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blending: Option<String>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MeshInfoData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visible: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub morph_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub material: Option<MeshMaterialData>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProfileVec3Data {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub z: Option<f64>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum LineDirectionData {
+    Named(String),
+    Vector(ProfileVec3Data),
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LineConfigData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub curve: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arrow_head: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thickness: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub length: Option<f64>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MarkerStyleData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub marker_color: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub marker_radius: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_color: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label_color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label_background: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label_font_size: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_direction: Option<LineDirectionData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<LineConfigData>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AnnotationRegionData {
+    pub name: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub bones: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub meshes: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub objects: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub padding_factor: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera_angle: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera_offset: Option<ProfileVec3Data>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expand_animation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<MarkerStyleData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_fallback: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_position: Option<ProfileVec3Data>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HairDirectionData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub yaw_sign: Option<i8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pitch_sign: Option<i8>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HairMorphTargetData {
+    pub key: String,
+    pub axis: String,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HairMorphTargetValueData {
+    pub value: f64,
+    pub axis: String,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HairMorphTargetsData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sway_left: Option<HairMorphTargetData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sway_right: Option<HairMorphTargetData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sway_front: Option<HairMorphTargetData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fluff_right: Option<HairMorphTargetData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fluff_bottom: Option<HairMorphTargetData>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub head_up: HashMap<String, HairMorphTargetValueData>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub head_down: HashMap<String, HairMorphTargetValueData>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HairPhysicsData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stiffness: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub damping: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inertia: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gravity: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_scale: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idle_sway_amount: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idle_sway_speed: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wind_strength: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wind_direction_x: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wind_direction_z: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wind_turbulence: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wind_frequency: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idle_clip_duration: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impulse_clip_duration: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<HairDirectionData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub morph_targets: Option<HairMorphTargetsData>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProfileData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub animal_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub emoji: Option<String>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub au_to_morphs: HashMap<String, Option<AuMorphEntry>>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub au_to_bones: HashMap<String, Vec<BoneBindingData>>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub bone_nodes: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bone_prefix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bone_suffix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub morph_prefix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub morph_suffix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub suffix_pattern: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub left_morph_suffixes: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub right_morph_suffixes: Vec<String>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub morph_to_mesh: HashMap<String, Vec<String>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mapping_sections: Vec<MappingSectionData>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub au_info: HashMap<String, AuInfoData>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub au_face_part_to_mesh_category: HashMap<String, String>,
-    pub au_mix_defaults: HashMap<String, f32>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub au_mix_defaults: HashMap<String, f64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub composite_rotations: Vec<CompositeRotationData>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub continuum_pairs: HashMap<String, Option<ContinuumPairData>>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub continuum_labels: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub viseme_keys: Vec<MorphRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub viseme_system_id: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub viseme_slots: Vec<VisemeSlotData>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub viseme_bindings: HashMap<String, VisemeBindingData>,
-    pub viseme_jaw_amounts: Vec<f32>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub viseme_jaw_amounts: Vec<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub viseme_mesh_category: Option<String>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub eye_mesh_nodes: HashMap<String, String>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub meshes: HashMap<String, MeshInfoData>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub annotation_regions: Vec<AnnotationRegionData>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub disabled_regions: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hair_physics: Option<HairPhysicsData>,
+    // Typed legacy fish fields retained until that preset schema is normalized.
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub action_info: HashMap<String, AuInfoData>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub bone_bindings: HashMap<String, Vec<BoneBindingData>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub bones: Vec<String>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
 }
 
 impl ProfileData {
@@ -274,7 +660,7 @@ pub fn compile_tables(profile: &ProfileData, model: &ModelData) -> CompiledTable
 
     for (au_text, weight) in &profile.au_mix_defaults {
         if let Ok(au_id) = au_text.parse::<u32>() {
-            tables.mix_defaults.push((au_id, *weight));
+            tables.mix_defaults.push((au_id, *weight as f32));
         }
     }
 
@@ -446,8 +832,8 @@ fn compile_bone_tables(
                         group as f32,
                         side_for_au(*au_id, &composite.node) as f32,
                         channel as f32,
-                        binding.scale,
-                        max_degrees,
+                        binding.scale as f32,
+                        max_degrees as f32,
                     ]);
                 }
             };
@@ -492,8 +878,8 @@ fn compile_bone_tables(
                 au_id as f32,
                 bone.id as f32,
                 axis as f32,
-                binding.scale,
-                max_units,
+                binding.scale as f32,
+                max_units as f32,
             ]);
         }
     }
@@ -506,8 +892,8 @@ fn compile_bone_tables(
                 tables.jaw_binding.extend_from_slice(&[
                     bone.id as f32,
                     channel as f32,
-                    jaw.scale,
-                    max_degrees,
+                    jaw.scale as f32,
+                    max_degrees as f32,
                 ]);
             }
         }
@@ -591,7 +977,7 @@ fn viseme_slots(profile: &ProfileData) -> Vec<VisemeSlot> {
             .iter()
             .map(|slot| VisemeSlot {
                 id: slot.id.clone(),
-                default_jaw_amount: slot.default_jaw_amount,
+                default_jaw_amount: slot.default_jaw_amount.map(|value| value as f32),
             })
             .collect();
     }
@@ -607,7 +993,10 @@ fn viseme_slots(profile: &ProfileData) -> Vec<VisemeSlot> {
             };
             VisemeSlot {
                 id: slot_id_from_label(&label, index),
-                default_jaw_amount: profile.viseme_jaw_amounts.get(index).copied(),
+                default_jaw_amount: profile
+                    .viseme_jaw_amounts
+                    .get(index)
+                    .map(|value| *value as f32),
             }
         })
         .collect()
@@ -635,14 +1024,23 @@ fn slot_id_from_label(label: &str, index: usize) -> String {
 
 fn viseme_jaw_amounts(profile: &ProfileData, slots: &[VisemeSlot]) -> Vec<f32> {
     if slots.is_empty() {
-        return profile.viseme_jaw_amounts.clone();
+        return profile
+            .viseme_jaw_amounts
+            .iter()
+            .map(|value| *value as f32)
+            .collect();
     }
     slots
         .iter()
         .enumerate()
         .map(|(index, slot)| {
             slot.default_jaw_amount
-                .or_else(|| profile.viseme_jaw_amounts.get(index).copied())
+                .or_else(|| {
+                    profile
+                        .viseme_jaw_amounts
+                        .get(index)
+                        .map(|value| *value as f32)
+                })
                 .unwrap_or(0.0)
         })
         .collect()
@@ -669,7 +1067,7 @@ fn viseme_binding_targets(
                         .filter(|value| value.is_finite())
                         .map(|value| value.max(0.0))
                         .unwrap_or(1.0);
-                    Some((morph, weight))
+                    Some((morph, weight as f32))
                 })
                 .collect();
             if !bound.is_empty() {
