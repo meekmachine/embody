@@ -1,6 +1,15 @@
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
-import { AnimationClip, Bone, Object3D, QuaternionKeyframeTrack, VectorKeyframeTrack } from 'three';
+import {
+  AnimationClip,
+  Bone,
+  BufferAttribute,
+  BufferGeometry,
+  Mesh,
+  Object3D,
+  QuaternionKeyframeTrack,
+  VectorKeyframeTrack,
+} from 'three';
 
 const require = createRequire(import.meta.url);
 const root = await import('@lovelace_lol/embody');
@@ -36,6 +45,24 @@ const serialized = three.serializeAnimationClips(sceneRoot, [new AnimationClip('
   new QuaternionKeyframeTrack('Head.quaternion', [0, 1], [0, 0, 0, 1, 0, 0, 0, 1]),
   new VectorKeyframeTrack('Prop.position', [0, 1], [0, 0, 0, 1, 2, 3]),
 ])], inspection)[0];
+const morphGeometry = new BufferGeometry();
+morphGeometry.setAttribute('position', new BufferAttribute(new Float32Array(9), 3));
+morphGeometry.setAttribute('normal', new BufferAttribute(new Float32Array(9), 3));
+morphGeometry.morphTargetsRelative = true;
+morphGeometry.morphAttributes.position = [new BufferAttribute(new Float32Array(9), 3)];
+morphGeometry.morphAttributes.normal = [new BufferAttribute(new Float32Array(9), 3)];
+const morphMesh = new Mesh(morphGeometry);
+morphMesh.name = 'CC_Base_Body_1';
+morphMesh.morphTargetDictionary = { Existing: 0 };
+morphMesh.morphTargetInfluences = [0];
+const morphRoot = new Object3D();
+morphRoot.add(morphMesh);
+new three.ThreeFrameApplier().addMorphTarget(morphRoot, {
+  meshName: morphMesh.name,
+  name: 'Authored_Position_Only',
+  relative: true,
+  position: new Float32Array(9),
+});
 
 const checks = [
   ['root ESM Three adapter', typeof root.ThreeModelInspector === 'function'],
@@ -53,6 +80,9 @@ const checks = [
   ['Rust runtime constructor', runtime.active_transition_count() === 0],
   ['baked clip channel classification', serialized.channels.map(({ kind }) => kind).join(',') === 'body,scene'],
   ['baked clip channel routing', serialized.tracks.map(({ channelId }) => channelId).join(',') === '1,2'],
+  ['position-only authored morph keeps normal channel aligned', morphMesh.geometry.morphAttributes.normal.length === 2],
+  ['position-only authored morph creates a neutral normal', morphMesh.geometry.morphAttributes.normal[1]?.array.every((value) => value === 0)],
+  ['position-only authored morph keeps influences aligned', morphMesh.morphTargetInfluences.length === 2],
 ];
 
 runtime.free();

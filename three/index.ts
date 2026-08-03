@@ -31,6 +31,31 @@ type BoneEntry = {
   baseEuler: { x: number; y: number; z: number; order: string };
 };
 
+const MORPH_ATTRIBUTE_SEMANTICS = ['position', 'normal', 'tangent', 'color'] as const;
+type MorphAttributeSemantic = typeof MORPH_ATTRIBUTE_SEMANTICS[number];
+
+const createNeutralMorphAttribute = (
+  geometry: Mesh['geometry'],
+  semantic: MorphAttributeSemantic,
+  name: string,
+) => {
+  const base = geometry.getAttribute(semantic);
+  if (!base) throw new Error(`Cannot create ${semantic} morph data without a base attribute`);
+
+  const values = new Float32Array(base.count * base.itemSize);
+  if (!geometry.morphTargetsRelative) {
+    for (let vertexIndex = 0; vertexIndex < base.count; vertexIndex += 1) {
+      for (let component = 0; component < base.itemSize; component += 1) {
+        values[vertexIndex * base.itemSize + component] = base.getComponent(vertexIndex, component);
+      }
+    }
+  }
+
+  const attribute = new BufferAttribute(values, base.itemSize);
+  attribute.name = name;
+  return attribute;
+};
+
 export type ThreeModelInspection = {
   descriptor: Record<string, unknown>;
   meshByName: Map<string, Mesh>;
@@ -396,21 +421,51 @@ export class ThreeFrameApplier {
     if (options.forceGeometryReplacement !== false) mesh.geometry = mesh.geometry.clone();
     const geometry: any = mesh.geometry;
     const dictionary = { ...(mesh.morphTargetDictionary ?? {}) };
-    const existing = dictionary[target.name];
+    const configuredIndex = dictionary[target.name];
+    const existing = Number.isInteger(configuredIndex) && configuredIndex >= 0
+      ? configuredIndex
+      : undefined;
     if (existing !== undefined && !options.replace) throw new Error(`Morph target already exists: ${target.name}`);
-    const index = existing ?? Object.keys(dictionary).length;
-    const set = (key: string, data: ArrayLike<number> | undefined) => {
-      if (!data) return;
-      const base = geometry.attributes[key];
-      if (!base || data.length !== base.array.length) throw new Error(`Invalid ${key} morph data length`);
-      const list = [...(geometry.morphAttributes[key] ?? [])];
-      list[index] = new BufferAttribute(new Float32Array(Array.from(data)), base.itemSize);
-      geometry.morphAttributes[key] = list;
-    };
-    set('position', target.position);
-    set('normal', target.normal);
-    set('tangent', target.tangent);
+
+    const usedIndices = Object.values(dictionary)
+      .filter((value): value is number => Number.isInteger(value) && value >= 0);
+    const currentTargetCount = Math.max(
+      0,
+      ...Object.values(geometry.morphAttributes as Record<string, unknown[]>).map((attributes) => attributes?.length ?? 0),
+      usedIndices.length > 0 ? Math.max(...usedIndices) + 1 : 0,
+      mesh.morphTargetInfluences?.length ?? 0,
+    );
+    const index = existing ?? currentTargetCount;
+    const targetCount = Math.max(currentTargetCount, index + 1);
     geometry.morphTargetsRelative = target.relative !== false;
+
+    for (const semantic of MORPH_ATTRIBUTE_SEMANTICS) {
+      const data = target[semantic] as ArrayLike<number> | undefined;
+      const existingAttributes = geometry.morphAttributes[semantic] as Array<BufferAttribute | undefined> | undefined;
+      if (!data && (!existingAttributes || existingAttributes.length === 0)) continue;
+
+      const base = geometry.getAttribute(semantic);
+      if (!base || (data && data.length !== base.count * base.itemSize)) {
+        throw new Error(`Invalid ${semantic} morph data length`);
+      }
+
+      const attributes = [...(existingAttributes ?? [])];
+      for (let targetIndex = 0; targetIndex < targetCount; targetIndex += 1) {
+        if (targetIndex === index && data) {
+          const attribute = new BufferAttribute(new Float32Array(Array.from(data)), base.itemSize);
+          attribute.name = target.name;
+          attributes[targetIndex] = attribute;
+        } else if (!attributes[targetIndex] || targetIndex === index) {
+          attributes[targetIndex] = createNeutralMorphAttribute(
+            geometry,
+            semantic,
+            targetIndex === index ? target.name : `morph_${targetIndex}`,
+          );
+        }
+      }
+      geometry.morphAttributes[semantic] = attributes;
+    }
+
     dictionary[target.name] = index;
     mesh.morphTargetDictionary = dictionary;
     (geometry as any).morphTargetDictionary = { ...dictionary };
