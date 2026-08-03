@@ -53,8 +53,11 @@ export function resetEmbodyCoreForTests() {
 
 async function load(): Promise<Core> {
   const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<Core>;
-  const moduleUrl = new URL('./wasm/embody_wasm.js', import.meta.url).href;
-  const binaryUrl = new URL('./wasm/embody_wasm_bg.wasm', import.meta.url);
+  // Keep these paths runtime-resolved so host bundlers can relocate the Wasm
+  // siblings without eagerly converting the static URL expressions to assets.
+  const resolveAsset = (path: string) => new URL(path, import.meta.url);
+  const moduleUrl = resolveAsset('./wasm/embody_wasm.js').href;
+  const binaryUrl = resolveAsset('./wasm/embody_wasm_bg.wasm');
   const core = await dynamicImport(moduleUrl);
   if (typeof core.default === 'function') {
     let input: unknown = binaryUrl;
