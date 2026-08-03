@@ -61,9 +61,11 @@ async function load(): Promise<Core> {
   if (typeof core.default === 'function') {
     let input: unknown = binaryUrl;
     if ((globalThis as any).process?.versions?.node && binaryUrl.protocol === 'file:') {
+      const fsSpecifier = 'node:fs/promises';
+      const urlSpecifier = 'node:url';
       const [{ readFile }, { fileURLToPath }] = await Promise.all([
-        import('node:fs/promises'),
-        import('node:url'),
+        import(/* @vite-ignore */ fsSpecifier),
+        import(/* @vite-ignore */ urlSpecifier),
       ]);
       input = await readFile(fileURLToPath(binaryUrl));
     }
