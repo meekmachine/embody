@@ -47,6 +47,14 @@ function expectNeutralLipPose(viseme: ReturnType<typeof makeProfileTestScene>['v
   });
 }
 
+async function waitForWasmRuntime(engine: ReturnType<typeof makeProfileTestScene>['engine']): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if ((engine as unknown as { wasmRuntimeCore?: unknown }).wasmRuntimeCore) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error('Timed out waiting for WasmRuntimeCore');
+}
+
 describe('Three profile test scene', () => {
   it('captures live AU morph writes with balance', () => {
     const { engine, face } = makeProfileTestScene();
@@ -100,6 +108,26 @@ describe('Three profile test scene', () => {
       position: [0, 0, 0],
       rotation: [0, 5, 0],
     });
+  });
+
+  it('applies live Wasm bone frame deltas without legacy bone writes', async () => {
+    const { engine } = makeProfileTestScene();
+    await waitForWasmRuntime(engine);
+
+    const internals = engine as unknown as {
+      updateBoneRotation: () => void;
+    };
+    internals.updateBoneRotation = () => {
+      throw new Error('legacy bone updater should not run when Wasm emits a full frame');
+    };
+
+    engine.setAU(31, 0.5);
+
+    const head = snapshotBones(engine).HEAD;
+    expect(head.position).toEqual([0, 0, 0]);
+    expect(head.rotation[0]).toBe(0);
+    expect(head.rotation[1]).toBeCloseTo(10, 5);
+    expect(head.rotation[2]).toBe(0);
   });
 
   it('captures dynamic clip output in normalized host-readable form', () => {

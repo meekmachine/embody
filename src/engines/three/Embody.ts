@@ -444,15 +444,12 @@ export class Embody implements EmbodyRuntime {
     this.wasmRuntimeCore?.setModelDescriptor(inspection.descriptor);
   }
 
-  private applyLiveMorphFrameDelta(): boolean {
+  private applyLiveFrameDelta(): 'full' | 'morph' | false {
     if (!this.framePathReady || !this.model) return false;
 
     if (this.wasmRuntimeCore) {
-      // Morph influence writes never touch transforms, so no matrix update.
-      this.frameApplier.applyPackedMorphFrameDelta(
-        this.wasmRuntimeCore.evaluatePackedMorphFrameDelta()
-      );
-      return true;
+      this.frameApplier.applyFrameDelta(this.model, this.wasmRuntimeCore.evaluateFrameDelta());
+      return 'full';
     }
 
     if (this.tsRuntimeCore) {
@@ -460,7 +457,7 @@ export class Embody implements EmbodyRuntime {
       this.frameApplier.applyFrameDelta(this.model, {
         morphTargets: frame.morphTargets,
       });
-      return true;
+      return 'morph';
     }
 
     return false;
@@ -678,7 +675,7 @@ export class Embody implements EmbodyRuntime {
     this.tsRuntimeCore?.setAU(id, v, balance);
     this.wasmRuntimeCore?.setAU(id, v, balance ?? this.auBalances[id] ?? 0);
 
-    const appliedViaFrame = this.applyLiveMorphFrameDelta();
+    const appliedViaFrame = this.applyLiveFrameDelta();
     if (!appliedViaFrame) {
       const resolvedMorphTargets = this.resolvedAUMorphTargets.get(id);
       const { left: leftKeys, right: rightKeys, center: centerKeys } = this.getAUMorphsBySide(id);
@@ -718,6 +715,8 @@ export class Embody implements EmbodyRuntime {
         }
       }
     }
+
+    if (appliedViaFrame === 'full') return;
 
     // Check if this AU affects composite rotations
     const compositeInfo = this.auToCompositeMap.get(id);
@@ -1622,7 +1621,8 @@ export class Embody implements EmbodyRuntime {
       this.wasmRuntimeCore?.setViseme(index, this.visemeValues[index] ?? 0);
     }
 
-    if (!this.applyLiveMorphFrameDelta()) {
+    const appliedViaFrame = this.applyLiveFrameDelta();
+    if (!appliedViaFrame) {
       for (const targets of this.resolvedVisemeTargets) {
         this.frameApplier.resetMorphTargets(targets || []);
       }
@@ -1642,7 +1642,9 @@ export class Embody implements EmbodyRuntime {
       }
     }
 
-    this.updateBoneRotation(this.getJawBoneNodeKey(), 'pitch', this.getActiveVisemeJawAmount());
+    if (appliedViaFrame !== 'full') {
+      this.updateBoneRotation(this.getJawBoneNodeKey(), 'pitch', this.getActiveVisemeJawAmount());
+    }
   }
 
   private getJawBoneNodeKey(): BoneKey {
