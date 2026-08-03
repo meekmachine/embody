@@ -372,6 +372,16 @@ export type {
 } from './mappings/visemeSystem';
 
 export {
+  resolveRustEmbeddedProfileView,
+  resolveRustProfileView,
+} from './profiles/rustResolvedProfile';
+
+export type {
+  RustResolvedProfileView,
+  RustResolvedVisemeBindingTarget,
+} from './profiles/rustResolvedProfile';
+
+export {
   applyAUBoneBindingUpdate,
   applyBilateralAxisBindingUpdate,
   applyBoneAxisBindingUpdate,

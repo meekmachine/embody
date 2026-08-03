@@ -67,13 +67,12 @@ export class WasmRuntimeCore {
     if (!RuntimeCtor) {
       throw new Error('Embody Wasm module does not export RuntimeCore');
     }
-    this.core = new RuntimeCtor(getProfileVisemeSlots(options.profile).length);
+    this.core = new RuntimeCtor(0);
     this.reloadBindings();
   }
 
   setProfile(profile: Profile): void {
     this.profile = profile;
-    this.core.set_viseme_slot_count(getProfileVisemeSlots(profile).length);
     this.reloadBindings();
   }
 
@@ -129,17 +128,7 @@ export class WasmRuntimeCore {
   }
 
   private reloadBindings(): void {
-    const { auBindings, mixedAus, visemeBindings } = compileMorphBindings(this.profile, this.model);
-    this.core.load_au_morph_bindings(auBindings);
-    this.core.load_viseme_morph_bindings(visemeBindings);
-    this.core.set_mixed_aus(mixedAus);
-
-    const boneBindings = compileBoneBindings(this.profile, this.model);
-    this.core.load_bone_rest_transforms(boneBindings.restTransforms);
-    this.core.load_composite_axes(boneBindings.compositeAxes);
-    this.core.load_bone_translations(boneBindings.translations);
-    this.core.load_jaw_binding(boneBindings.jawBinding);
-    this.core.load_viseme_jaw_amounts(boneBindings.visemeJawAmounts);
+    this.core.configure_with_profile(JSON.stringify(this.profile), JSON.stringify(this.model));
   }
 }
 
