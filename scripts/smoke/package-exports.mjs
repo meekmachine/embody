@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { readFile } from 'node:fs/promises';
 import { AnimationClip, Bone, Object3D, QuaternionKeyframeTrack, VectorKeyframeTrack } from 'three';
 
 const require = createRequire(import.meta.url);
@@ -11,6 +12,7 @@ const wasmCjs = require('@lovelace_lol/embody/wasm');
 
 const core = await wasm.initEmbodyCore();
 const cjsCore = await wasmCjs.initEmbodyCore();
+const wasmEntrySource = await readFile(new URL('../../dist/wasm.js', import.meta.url), 'utf8');
 const preset = JSON.parse(core.get_preset_json('cc4'));
 const hairPresets = JSON.parse(core.hair_color_presets_json());
 const templates = JSON.parse(core.list_humanoid_skeleton_templates_json());
@@ -42,6 +44,8 @@ const checks = [
   ['Three CJS scene factory', typeof threeCjs.createDefaultCharacterScene === 'function'],
   ['Wasm ESM ABI', core.core_abi_version() === wasm.EMBODY_CORE_ABI_VERSION],
   ['Wasm CJS ABI', cjsCore.core_abi_version() === wasmCjs.EMBODY_CORE_ABI_VERSION],
+  ['Wasm loader avoids eval/new Function', !wasmEntrySource.includes('new Function')],
+  ['Wasm loader uses native dynamic import', wasmEntrySource.includes('import(')],
   ['embedded profile data', preset.meshes.CC_Base_Eye.category === 'eye'],
   ['Rust hair appearance data', hairPresets.natural_brown.baseColor === '#4a3728'],
   ['Rust humanoid template data', templates[0].id === 'jonathan-cc-base'],

@@ -661,6 +661,7 @@ pub struct CompiledTables {
 }
 
 impl CompiledTables {
+    #[cfg(test)]
     pub fn has_runtime_bindings(&self) -> bool {
         !self.au_morph_bindings.is_empty()
             || !self.viseme_morph_bindings.is_empty()
@@ -1326,6 +1327,7 @@ struct NameResolver {
     morph_suffix: String,
     suffix_regex: Option<Regex>,
     mesh_by_name: HashMap<String, (u32, Vec<(u32, String, Option<i64>)>)>,
+    mesh_names: Vec<String>,
 }
 
 impl NameResolver {
@@ -1336,6 +1338,7 @@ impl NameResolver {
             .and_then(|pattern| Regex::new(pattern).ok());
 
         let mut mesh_by_name = HashMap::new();
+        let mut mesh_names = Vec::with_capacity(model.meshes.len());
         for mesh in &model.meshes {
             let morphs: Vec<(u32, String, Option<i64>)> = mesh
                 .morph_target_ids
@@ -1348,6 +1351,7 @@ impl NameResolver {
                         .map(|target| (target.id, target.name.clone(), target.host_index))
                 })
                 .collect();
+            mesh_names.push(mesh.name.clone());
             mesh_by_name.insert(mesh.name.clone(), (mesh.id, morphs));
         }
 
@@ -1356,12 +1360,14 @@ impl NameResolver {
             morph_suffix: profile.morph_suffix.clone().unwrap_or_default(),
             suffix_regex,
             mesh_by_name,
+            mesh_names,
         }
     }
 
     fn resolve_morph(&self, morph: &MorphRef, mesh_names: &[String]) -> Vec<(u32, u32)> {
         let mut result = Vec::new();
-        for mesh_name in mesh_names {
+        let candidate_names = self.resolve_mesh_names(mesh_names);
+        for mesh_name in &candidate_names {
             let Some((mesh_id, morphs)) = self.mesh_by_name.get(mesh_name) else {
                 continue;
             };
@@ -1377,7 +1383,44 @@ impl NameResolver {
                 result.push((*mesh_id, *morph_target_id));
             }
         }
+
+        // Authored profiles can predate GLTFLoader's primitive suffixes or omit
+        // morphToMesh entirely. Preserve the exact profile while resolving its
+        // morph against model content rather than making the host fall back to a
+        // different preset. Configured/family matches always take precedence.
+        if result.is_empty() {
+            for mesh_name in &self.mesh_names {
+                if candidate_names.contains(mesh_name) {
+                    continue;
+                }
+                let Some((mesh_id, morphs)) = self.mesh_by_name.get(mesh_name) else {
+                    continue;
+                };
+                let target = match morph {
+                    MorphRef::Index(host_index) => morphs
+                        .iter()
+                        .find(|(_, _, candidate)| *candidate == Some(*host_index)),
+                    MorphRef::Name(key) => self.resolve_morph_by_name(morphs, key),
+                };
+                if let Some((morph_target_id, _, _)) = target {
+                    result.push((*mesh_id, *morph_target_id));
+                }
+            }
+        }
         result
+    }
+
+    fn resolve_mesh_names(&self, configured_names: &[String]) -> Vec<String> {
+        let mut resolved = Vec::new();
+        for actual_name in &self.mesh_names {
+            if configured_names
+                .iter()
+                .any(|configured| mesh_names_are_variants(configured, actual_name))
+            {
+                resolved.push(actual_name.clone());
+            }
+        }
+        resolved
     }
 
     fn resolve_morph_by_name<'a>(
@@ -1426,6 +1469,36 @@ impl NameResolver {
             .bones
             .iter()
             .find(|bone| bone.name == node_key || bone.name == configured || bone.name == full)
+    }
+}
+
+fn split_mesh_variant(name: &str) -> (&str, Option<u32>) {
+    let digits_start = name
+        .char_indices()
+        .rev()
+        .find(|(_, character)| !character.is_ascii_digit())
+        .map(|(index, character)| index + character.len_utf8())
+        .unwrap_or(0);
+    if digits_start == name.len() {
+        return (name, None);
+    }
+    let number = name[digits_start..].parse::<u32>().ok();
+    let stem = name[..digits_start].trim_end_matches(['.', '_']);
+    (stem, number)
+}
+
+fn mesh_names_are_variants(configured: &str, actual: &str) -> bool {
+    if configured == actual {
+        return true;
+    }
+    let (configured_stem, configured_number) = split_mesh_variant(configured);
+    let (actual_stem, actual_number) = split_mesh_variant(actual);
+    if configured_stem != actual_stem {
+        return false;
+    }
+    match configured_number {
+        Some(number) => actual_number == Some(number),
+        None => actual_number.is_some(),
     }
 }
 
@@ -1591,5 +1664,58 @@ mod tests {
         let tables = compile_tables(&profile, &model);
         assert_eq!(tables.au_morph_bindings.len(), 5);
         assert_eq!(tables.au_morph_bindings[3], 1.0); // morph target id resolved
+    }
+
+    #[test]
+    fn resolves_gltf_primitive_mesh_variants_before_content_fallback() {
+        let profile: ProfileData = serde_json::from_str(
+            r#"{
+                "auToMorphs": { "12": { "left": [], "right": [], "center": ["Smile"] } },
+                "morphToMesh": { "face": ["CC_Base_Body"] }
+            }"#,
+        )
+        .unwrap();
+        let model: ModelData = serde_json::from_str(
+            r#"{
+                "meshes": [
+                    { "id": 1, "name": "CC_Base_Body_1", "morphTargetIds": [1] },
+                    { "id": 2, "name": "CC_Base_Body_2", "morphTargetIds": [2] },
+                    { "id": 3, "name": "Eyebrow_1", "morphTargetIds": [3] }
+                ],
+                "morphTargets": [
+                    { "id": 1, "meshId": 1, "name": "Smile", "hostIndex": 0 },
+                    { "id": 2, "meshId": 2, "name": "Smile", "hostIndex": 0 },
+                    { "id": 3, "meshId": 3, "name": "Smile", "hostIndex": 0 }
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let tables = compile_tables(&profile, &model);
+        assert_eq!(tables.au_morph_bindings.len(), 2 * 5);
+        assert_eq!(tables.au_morph_bindings[2], 1.0);
+        assert_eq!(tables.au_morph_bindings[7], 2.0);
+    }
+
+    #[test]
+    fn resolves_morph_by_content_when_profile_has_no_mesh_mapping() {
+        let profile: ProfileData = serde_json::from_str(
+            r#"{
+                "auToMorphs": { "12": { "left": [], "right": [], "center": ["Smile"] } }
+            }"#,
+        )
+        .unwrap();
+        let model: ModelData = serde_json::from_str(
+            r#"{
+                "meshes": [{ "id": 4, "name": "CustomFace", "morphTargetIds": [9] }],
+                "morphTargets": [{ "id": 9, "meshId": 4, "name": "Smile", "hostIndex": 0 }]
+            }"#,
+        )
+        .unwrap();
+
+        let tables = compile_tables(&profile, &model);
+        assert_eq!(tables.au_morph_bindings.len(), 5);
+        assert_eq!(tables.au_morph_bindings[2], 4.0);
+        assert_eq!(tables.au_morph_bindings[3], 9.0);
     }
 }

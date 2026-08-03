@@ -52,20 +52,18 @@ export function resetEmbodyCoreForTests() {
 }
 
 async function load(): Promise<Core> {
-  const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<Core>;
   // Keep these paths runtime-resolved so host bundlers can relocate the Wasm
   // siblings without eagerly converting the static URL expressions to assets.
   const resolveAsset = (path: string) => new URL(path, import.meta.url);
   const moduleUrl = resolveAsset('./wasm/embody_wasm.js').href;
   const binaryUrl = resolveAsset('./wasm/embody_wasm_bg.wasm');
-  const core = await dynamicImport(moduleUrl);
+  const core = await import(/* @vite-ignore */ moduleUrl) as Core;
   if (typeof core.default === 'function') {
     let input: unknown = binaryUrl;
     if ((globalThis as any).process?.versions?.node && binaryUrl.protocol === 'file:') {
-      const importNode = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>;
       const [{ readFile }, { fileURLToPath }] = await Promise.all([
-        importNode('node:fs/promises'),
-        importNode('node:url'),
+        import('node:fs/promises'),
+        import('node:url'),
       ]);
       input = await readFile(fileURLToPath(binaryUrl));
     }

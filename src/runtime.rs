@@ -228,9 +228,9 @@ impl RuntimeCore {
 
     /// Configure from a resolved profile without applying an embedded preset.
     ///
-    /// This path is intentionally strict so a host cannot accidentally select
-    /// a profile that has no usable runtime bindings. Preset fallback remains
-    /// an explicit host decision.
+    /// The profile must contain runtime mappings, but mappings that do not match
+    /// the current model are non-fatal. The character can still render and be
+    /// repaired in the authoring UI without silently substituting a preset.
     #[wasm_bindgen]
     pub fn configure_with_profile(
         &mut self,
@@ -247,12 +247,6 @@ impl RuntimeCore {
         let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")
             .map_err(|err| JsError::new(&err))?;
         let tables = compile_tables(&profile, &model);
-        if !tables.has_runtime_bindings() {
-            return Err(JsError::new(&format!(
-                "Resolved profile is incompatible with the model descriptor: no runtime bindings resolved against {} meshes, {} morph targets, and {} bones",
-                model.meshes.len(), model.morph_targets.len(), model.bones.len(),
-            )));
-        }
         self.apply_profile_model(profile, model, tables);
         Ok(())
     }
@@ -2510,6 +2504,26 @@ mod tests {
 
         let rows = unpack_rows(&core.evaluate_morph_frame_delta());
         assert_eq!(rows, vec![(1, 7, 0.75)]);
+    }
+
+    #[test]
+    fn resolved_profile_with_stale_bindings_does_not_block_character_loading() {
+        let profile = r#"{
+            "auToMorphs": {
+                "900": { "left": [], "right": [], "center": ["MissingMorph"] }
+            },
+            "morphToMesh": { "face": ["MissingMesh"] }
+        }"#;
+        let model = r#"{
+            "meshes": [{ "id": 1, "name": "ActualMesh", "morphTargetIds": [] }],
+            "morphTargets": [],
+            "bones": []
+        }"#;
+
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(profile, model).unwrap();
+        core.set_au(900, 1.0, 0.0);
+        assert!(core.evaluate_morph_frame_delta().is_empty());
     }
 
     #[test]
