@@ -62,17 +62,12 @@ pub fn merge_embedded_preset(preset_id: &str, override_json: &str) -> Result<Str
 /// using the engine's preset extension rules. Returns the merged profile JSON.
 #[wasm_bindgen]
 pub fn merge_preset_profile(base_json: &str, extension_json: &str) -> Result<String, JsError> {
-    let base: serde_json::Value = serde_json::from_str(base_json)
-        .map_err(|err| JsError::new(&format!("Invalid base profile JSON: {err}")))?;
-    let extension: Option<serde_json::Value> = if extension_json.trim().is_empty() {
-        None
-    } else {
-        Some(
-            serde_json::from_str(extension_json)
-                .map_err(|err| JsError::new(&format!("Invalid profile extension JSON: {err}")))?,
-        )
-    };
-    let merged = profile_merge::extend_preset_with_profile(&base, extension.as_ref());
+    let base: profile::ProfileData =
+        profile::deserialize_json(base_json, "Invalid base profile JSON")
+            .map_err(|err| JsError::new(&err))?;
+    let extension = profile_merge::parse_profile_patch(extension_json)
+        .map_err(|err| JsError::new(&err))?;
+    let merged = profile_merge::extend_preset_with_profile(&base, extension);
     serde_json::to_string(&merged)
         .map_err(|err| JsError::new(&format!("Failed to serialize merged profile: {err}")))
 }

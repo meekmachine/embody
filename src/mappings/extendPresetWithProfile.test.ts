@@ -190,6 +190,39 @@ describe('extendPresetWithProfile', () => {
     });
     expect(result.name).toBe('injected');
   });
+
+  it('preserves Three adapter mesh metadata through the typed embedded-preset ABI', () => {
+    const core = requireInitializedEmbodyCore();
+    const fish = JSON.parse(core.merge_embedded_preset('fish', JSON.stringify({
+      meshes: {
+        EYES_0: { material: { opacity: 0.5 } },
+      },
+    })));
+
+    expect(fish.meshes.EYES_0).toMatchObject({
+      category: 'eye',
+      morphCount: 0,
+      material: {
+        renderOrder: 17,
+        transparent: true,
+        opacity: 0.5,
+        depthWrite: true,
+        depthTest: true,
+        blending: 'Normal',
+      },
+    });
+    expect(fish.meshes.Cube_0.material).toMatchObject({
+      renderOrder: -20,
+      opacity: 0,
+    });
+    expect(fish.compositeRotations[0].yaw.axis).toBe('ry');
+
+    const cc4 = JSON.parse(core.merge_embedded_preset('cc4', ''));
+    expect(cc4.meshes.CC_Base_Eye).toMatchObject({
+      category: 'eye',
+      material: { renderOrder: -10 },
+    });
+  });
 });
 
 describe('extendPresetWithProfile reuse', () => {

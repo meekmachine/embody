@@ -6,8 +6,8 @@
 
 use std::sync::OnceLock;
 
-use crate::profile::ProfileData;
-use crate::profile_merge::extend_preset_with_profile;
+use crate::profile::{deserialize_json, ProfileData};
+use crate::profile_merge::{extend_preset_with_profile, parse_profile_patch};
 
 struct EmbeddedPreset {
     id: &'static str,
@@ -52,7 +52,7 @@ pub fn preset_json(preset_id: &str) -> Result<&'static str, String> {
 pub fn load_profile(preset_id: &str) -> Result<&'static ProfileData, String> {
     let preset = find_preset(preset_id).ok_or_else(|| unknown_preset_error(preset_id))?;
     Ok(preset.profile.get_or_init(|| {
-        serde_json::from_str(preset.json).unwrap_or_else(|error| {
+        deserialize_json(preset.json, "Invalid embedded preset JSON").unwrap_or_else(|error| {
             panic!(
                 "embedded preset {} must deserialize as ProfileData: {error}",
                 preset.id
@@ -68,18 +68,9 @@ pub fn merge_preset_with_override_json(
     preset_id: &str,
     override_json: &str,
 ) -> Result<String, String> {
-    let base_json = preset_json(preset_id)?;
-    let base: serde_json::Value = serde_json::from_str(base_json)
-        .map_err(|err| format!("Invalid embedded preset JSON: {err}"))?;
-    let extension = if override_json.trim().is_empty() {
-        None
-    } else {
-        Some(
-            serde_json::from_str(override_json)
-                .map_err(|err| format!("Invalid profile override JSON: {err}"))?,
-        )
-    };
-    let merged = extend_preset_with_profile(&base, extension.as_ref());
+    let base = load_profile(preset_id)?;
+    let extension = parse_profile_patch(override_json)?;
+    let merged = extend_preset_with_profile(base, extension);
     serde_json::to_string(&merged)
         .map_err(|err| format!("Failed to serialize merged profile: {err}"))
 }
@@ -134,6 +125,43 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&merged).unwrap();
         assert_eq!(value["name"], "Override");
         assert!(value.get("auToMorphs").is_some() || value.get("auToBones").is_some());
+    }
+
+    #[test]
+    fn typed_round_trip_preserves_three_adapter_and_legacy_fish_metadata() {
+        let cc4: serde_json::Value =
+            serde_json::from_str(&merge_preset_with_override_json("cc4", "").unwrap()).unwrap();
+        assert_eq!(cc4["meshes"]["CC_Base_Eye"]["category"], "eye");
+        assert_eq!(
+            cc4["meshes"]["CC_Base_Eye"]["material"]["renderOrder"],
+            -10
+        );
+        assert_eq!(cc4["mappingSections"][0]["kind"], "au");
+        assert_eq!(cc4["visemeSlots"][0]["providerIds"]["azure"][0], 4);
+        assert_eq!(
+            cc4["hairPhysics"]["morphTargets"]["headUp"]["Hairline_High_ALL"]["axis"],
+            "pitch"
+        );
+
+        let fish: serde_json::Value =
+            serde_json::from_str(&merge_preset_with_override_json("fish", "").unwrap()).unwrap();
+        assert_eq!(fish["meshes"]["EYES_0"]["category"], "eye");
+        assert_eq!(fish["meshes"]["EYES_0"]["material"]["renderOrder"], 17);
+        assert_eq!(fish["compositeRotations"][0]["yaw"]["axis"], "ry");
+        assert_eq!(fish["actionInfo"]["2"]["name"], "Turn Left");
+        assert_eq!(fish["boneBindings"]["2"][0]["node"], "HEAD");
+        assert_eq!(fish["bones"][0], "Armature_rootJoint");
+    }
+
+    #[test]
+    fn rejects_invalid_typed_adapter_overrides() {
+        let error = merge_preset_with_override_json(
+            "cc4",
+            r#"{"meshes":{"CC_Base_Eye":{"material":{"opacity":"opaque"}}}}"#,
+        )
+        .unwrap_err();
+        assert!(error.contains("Invalid profile override JSON"));
+        assert!(error.contains("opacity"));
     }
 
     #[test]
