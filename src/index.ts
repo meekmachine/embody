@@ -118,11 +118,7 @@ export {
 } from './core/TsClipCompiler';
 export { TsRuntimeCore } from './core/TsRuntimeCore';
 export {
-  AU_MORPH_BINDING_STRIDE,
-  VISEME_MORPH_BINDING_STRIDE,
   WasmRuntimeCore,
-  compileMorphBindings,
-  compileBoneBindings,
   unpackMorphFrameDelta,
   unpackBoneFrameDelta,
 } from './core/WasmRuntimeCore';
@@ -160,8 +156,6 @@ export type {
 } from './core/TsClipCompiler';
 export type { TsRuntimeCoreOptions } from './core/TsRuntimeCore';
 export type {
-  CompiledBoneBindings,
-  MorphBindingSide,
   WasmRuntimeCoreOptions,
 } from './core/WasmRuntimeCore';
 export type {
