@@ -9,6 +9,6 @@
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["index.ts", "three/**/*.ts", "wasm/**/*.ts"],
+  "include": ["index.ts", "three/**/*.ts", "wasm.ts", "wasm/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
