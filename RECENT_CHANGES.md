@@ -1,31 +1,14 @@
-# Recent Changes (Embody)
+# Recent Changes
 
-## Current release highlights
+## Rust-only core
 
-### Mapping and control updates
-- The Rust/Wasm preset registry now embeds both CC4 and Betta fish profiles;
-  `skeletal` is an alias for fish, while complete custom profiles use strict
-  exact-profile intake with no implicit preset merge.
-- The obsolete public TypeScript `RustEmbodyHost` was removed. Embody keeps the
-  Three.js inspection/application adapters, while Polymer owns character host
-  orchestration.
-- CC4 now includes independent eye AUs 65-72 for both morph and bone mappings.
-- Composite eye axes now evaluate per-node effective values consistently, so shared-eye balance no longer leaks into independent-eye controls.
-- CC4 head yaw/pitch/roll max degrees were increased for wider head turns.
-- Preset-backed profile configs now extend canonical `annotationRegions` into the runtime `regions` mirror, preserving legacy `regions` only as fallback input or non-preset extras.
-- Profile config, region/marker, and camera gaze helpers now live under profile-, region-, and camera-focused modules internally; the public `CharacterConfig` helpers remain as deprecated compatibility aliases.
-- Annotation region profile overrides now merge by region name and preserve nested camera/style fields such as partial `cameraOffset` updates.
-
-### Playback and mixer updates
-- Clip stop now resolves cleanly, so stopping playback does not throw a rejected promise.
-- Clip handles now expose `subscribe()` for keyframe, loop, seek, and completion events during mixer updates.
-- Eye and head tracking clips stay cached on stop to avoid pose resets during continuous tracking.
-- Snippet-to-clip conversion supports UUID-based tracks for bones, which avoids dot-name binding issues.
-- Curves can be played through the mixer via `snippetToClip()` + `playClip()`, including composite bone rotations.
-
-### Morph routing and docs
-- Morph targeting prefers `morphToMesh.face` when present and falls back to scanning meshes for morph keys.
-- Runtime morph authoring can register generated targets after load, with batch preflight and relative/absolute mode guards.
-- README terminology now uses `Embody` as the primary name, with `@lovelace_lol/embody` as the package import.
-- The docs now reflect the current viseme keys, preset extension helpers, and profile fields that the code actually exports.
-- Publish versions are computed by `.github/workflows/publish.yml` from the current npm version or release tag before `npm publish`; the committed `package.json` version is only the baseline used by that workflow.
+- Moved the Rust crate to repository-root `src/`; there is no nested Rust
+  project.
+- Ported profile/preset data, authoring, validation, model analysis, procedural
+  controls, transitions, baked and dynamic clips, playback state, events, hair
+  physics, and appearance normalization to Rust/Wasm.
+- Embedded CC4, fish, and humanoid template JSON as Rust assets.
+- Replaced the TypeScript runtime with a bounded Three.js adapter and Wasm
+  loader. Generated wasm-bindgen JavaScript remains build output only.
+- Removed the old TypeScript implementations and compatibility runtime entry
+  points. Polymer now owns the host API used by LoomLarge.

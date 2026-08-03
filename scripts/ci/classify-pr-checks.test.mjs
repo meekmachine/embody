@@ -26,12 +26,12 @@ test('docs-only changes skip expensive checks', () => {
   );
 });
 
-test('TypeScript and generated preset inputs run host package checks', () => {
+test('Three adapter inputs run host package checks', () => {
   assert.deepEqual(
     classifyChangedPaths([
-      'src/index.ts',
-      'src/types/three-extensions.d.ts',
-      'src/skeletonTemplates/data/jonathan-cc-base.json',
+      'index.ts',
+      'three/index.ts',
+      'wasm/index.ts',
     ]),
     {
       ...allChecks,
@@ -43,8 +43,8 @@ test('TypeScript and generated preset inputs run host package checks', () => {
 test('Rust and Wasm inputs run build, Rust, and package export checks', () => {
   assert.deepEqual(
     classifyChangedPaths([
-      'rust/embody-wasm/src/lib.rs',
-      'rust/embody-wasm/assets/presets/cc4.json',
+      'src/lib.rs',
+      'assets/presets/cc4.json',
       'scripts/build-wasm.mjs',
     ]),
     {
@@ -58,7 +58,7 @@ test('Rust and Wasm inputs run build, Rust, and package export checks', () => {
 
 test('mixed TypeScript and Rust changes run every check', () => {
   assert.deepEqual(
-    classifyChangedPaths(['src/index.ts', 'rust/embody-wasm/src/lib.rs']),
+    classifyChangedPaths(['three/index.ts', 'src/lib.rs']),
     allChecks,
   );
 });

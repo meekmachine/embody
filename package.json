@@ -12,23 +12,13 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
-    "./core": {
-      "types": "./dist/core/index.d.ts",
-      "import": "./dist/core.js",
-      "require": "./dist/core.cjs"
-    },
     "./three": {
-      "types": "./dist/engines/three/index.d.ts",
+      "types": "./dist/three/index.d.ts",
       "import": "./dist/three.js",
       "require": "./dist/three.cjs"
     },
-    "./cljs": {
-      "types": "./dist/cljs.d.ts",
-      "import": "./dist/cljs.js",
-      "require": "./dist/cljs.cjs"
-    },
     "./wasm": {
-      "types": "./dist/wasm.d.ts",
+      "types": "./dist/wasm/index.d.ts",
       "import": "./dist/wasm.js",
       "require": "./dist/wasm.cjs"
     }
@@ -42,20 +32,15 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup --config tsup.wasm.config.ts && tsup --config tsup.config.ts && tsc -p tsconfig.declarations.json && node scripts/export-preset-json.mjs --check && npm run wasm:build",
-    "dev": "tsup --watch",
+    "build": "tsup --config tsup.config.mjs && tsc -p tsconfig.declarations.json && npm run wasm:build",
+    "dev": "tsup --config tsup.config.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "pretest": "npm run wasm:build",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test": "npm run rust:test && npm run typecheck",
     "test:exports": "npm run build && node scripts/smoke/package-exports.mjs && node scripts/smoke/package-declarations.mjs",
     "test:pack": "npm run build && npm pack --dry-run",
-    "preset:export": "tsup --config tsup.config.ts && node scripts/export-preset-json.mjs",
     "extract:humanoid-skeleton-template": "node scripts/extract-humanoid-skeleton-template.cjs",
-    "bench:runtime": "npm run build && node scripts/bench/runtime.mjs",
-    "rust:test": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo test --manifest-path rust/embody-wasm/Cargo.toml",
-    "rust:wasm-build": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo build --manifest-path rust/embody-wasm/Cargo.toml --target wasm32-unknown-unknown --release",
+    "rust:test": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo test",
+    "rust:wasm-build": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo build --target wasm32-unknown-unknown --release",
     "wasm:build": "node scripts/build-wasm.mjs",
     "prepublishOnly": "npm run build"
   },
@@ -65,11 +50,9 @@
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@types/three": "^0.170.0",
-    "@vitest/coverage-v8": "^3.2.4",
     "three": "^0.170.0",
     "tsup": "^8.0.0",
     "typescript": "^5.9.0",
-    "vitest": "^3.2.4",
     "wasm-pack": "^0.15.0"
   },
   "keywords": [
