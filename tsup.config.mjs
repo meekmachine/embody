@@ -21,7 +21,7 @@ export default defineConfig([
     ...shared,
     entry: { wasm: 'wasm/auto.ts' },
     format: ['esm'],
-    target: 'es2020',
+    target: 'es2022',
   },
   {
     ...shared,

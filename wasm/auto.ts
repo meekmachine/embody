@@ -1,7 +1,7 @@
 import { initEmbodyCore } from './index';
 
-// Start the mandatory runtime as soon as the ESM entry is evaluated. Consumers
-// that need synchronous APIs await initEmbodyCore(), which reuses this promise.
-void initEmbodyCore();
+// Embody's ESM runtime is mandatory. Module evaluation does not complete until
+// synchronous profile, authoring, and runtime operations can call into Wasm.
+await initEmbodyCore();
 
 export * from './index';
