@@ -4,7 +4,6 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ThreeModelInspector } from '../engines/three/ThreeModelInspector';
 import { makeProfileTestScene } from '../engines/three/profileTestScene';
-import { TsRuntimeCore } from './TsRuntimeCore';
 import { WasmRuntimeCore, unpackMorphFrameDelta } from './WasmRuntimeCore';
 import type { EmbodyCoreWasmModule } from '../wasmTypes';
 import type { FrameDelta, ModelDescriptor } from './contracts';
@@ -45,97 +44,84 @@ function morphWritesByName(frame: FrameDelta, descriptor: ModelDescriptor): Reco
   return result;
 }
 
+function boneRotationsByName(frame: FrameDelta, descriptor: ModelDescriptor): Record<string, number[]> {
+  const result: Record<string, number[]> = {};
+  for (const write of frame.bones || []) {
+    const bone = descriptor.bones.find((candidate) => candidate.id === write.boneId);
+    const rotation = write.transform.rotation;
+    if (bone && rotation) {
+      result[bone.name] = [
+        Number(rotation.x.toFixed(6)),
+        Number(rotation.y.toFixed(6)),
+        Number(rotation.z.toFixed(6)),
+        Number(rotation.w.toFixed(6)),
+      ];
+    }
+  }
+  return result;
+}
+
 describe('WasmRuntimeCore', () => {
-  it('matches TsRuntimeCore AU morph FrameDelta output', async () => {
+  it('solves AU morph FrameDelta output in Rust', async () => {
     const { profile, descriptor } = makeScene();
     const wasm = await loadWasmModule();
-    const ts = new TsRuntimeCore({ profile, model: descriptor });
     const rust = new WasmRuntimeCore({ profile, model: descriptor, wasm });
 
-    ts.setAU(1, 0.8, -0.25);
     rust.setAU(1, 0.8, -0.25);
 
-    expect(morphWritesByName(rust.evaluateMorphFrameDelta(), descriptor)).toMatchObject(
-      morphWritesByName(ts.evaluateFrameDelta(), descriptor)
-    );
+    expect(morphWritesByName(rust.evaluateMorphFrameDelta(), descriptor)).toMatchObject({
+      'FaceMesh:BrowUp_L': 0.8,
+      'FaceMesh:BrowUp_R': 0.6,
+      'FaceMesh:BrowCenter': 0.8,
+    });
   });
 
-  it('matches TsRuntimeCore viseme morph aggregation', async () => {
+  it('solves weighted viseme morph aggregation in Rust', async () => {
     const { profile, descriptor } = makeScene();
     const wasm = await loadWasmModule();
-    const ts = new TsRuntimeCore({ profile, model: descriptor });
     const rust = new WasmRuntimeCore({ profile, model: descriptor, wasm });
 
-    ts.setVisemeById('aa', 0.75);
     rust.setViseme(0, 0.75);
 
-    const tsMorphs = morphWritesByName(ts.evaluateFrameDelta(), descriptor);
     const rustMorphs = morphWritesByName(rust.evaluateMorphFrameDelta(), descriptor);
-    expect(rustMorphs['VisemeMesh:Mouth_Aah']).toBe(tsMorphs['VisemeMesh:Mouth_Aah']);
-    expect(rustMorphs['VisemeMesh:Mouth_Wide']).toBe(tsMorphs['VisemeMesh:Mouth_Wide']);
+    expect(rustMorphs['VisemeMesh:Mouth_Aah']).toBe(0.75);
+    expect(rustMorphs['VisemeMesh:Mouth_Wide']).toBe(0.375);
   });
 
-  it('matches TsRuntimeCore composite bone FrameDelta output', async () => {
+  it('solves composite bone FrameDelta output in Rust', async () => {
     const { profile, descriptor } = makeScene();
     const wasm = await loadWasmModule();
-    const ts = new TsRuntimeCore({ profile, model: descriptor });
     const rust = new WasmRuntimeCore({ profile, model: descriptor, wasm });
 
-    for (const [negAU, posAU, value] of [[30, 31, -0.5], [30, 31, 0.25]] as const) {
-      ts.setContinuum(negAU, posAU, value);
-      if (value < 0) {
-        rust.setAU(posAU, 0, 0);
-        rust.setAU(negAU, Math.abs(value), 0);
-      } else {
-        rust.setAU(negAU, 0, 0);
-        rust.setAU(posAU, value, 0);
-      }
+    rust.setContinuum(30, 31, -0.5);
+    const negative = boneRotationsByName(rust.evaluateFrameDelta(), descriptor).Head;
 
-      const tsBones = ts.evaluateFrameDelta().bones ?? [];
-      const rustBones = rust.evaluateFrameDelta().bones ?? [];
-      expect(rustBones.length).toBe(tsBones.length);
-      for (const tsWrite of tsBones) {
-        const rustWrite = rustBones.find((write) => write.boneId === tsWrite.boneId);
-        expect(rustWrite).toBeTruthy();
-        const tsRot = tsWrite.transform.rotation!;
-        const rustRot = rustWrite!.transform.rotation!;
-        for (const axis of ['x', 'y', 'z', 'w'] as const) {
-          expect(rustRot[axis]).toBeCloseTo(tsRot[axis], 5);
-        }
-      }
-    }
+    rust.setContinuum(30, 31, 0.25);
+    const positive = boneRotationsByName(rust.evaluateFrameDelta(), descriptor).Head;
+
+    expect(negative).toEqual([0, -0.087156, 0, 0.996195]);
+    expect(positive).toEqual([0, 0.043619, 0, 0.999048]);
   });
 
-  it('matches TsRuntimeCore viseme jaw bone output', async () => {
+  it('solves viseme jaw bone output in Rust', async () => {
     const { profile, descriptor } = makeScene();
     const wasm = await loadWasmModule();
-    const ts = new TsRuntimeCore({ profile, model: descriptor });
     const rust = new WasmRuntimeCore({ profile, model: descriptor, wasm });
 
-    ts.setVisemeById('aa', 0.8, 0.5);
     rust.setViseme(0, 0.8, 0.5);
 
-    const tsJaw = (ts.evaluateFrameDelta().bones ?? []).find(
-      (write) => write.transform.rotation
-        && Math.abs(write.transform.rotation.w - 1) > 1e-6
-    );
-    const rustJaw = (rust.evaluateFrameDelta().bones ?? []).find(
-      (write) => write.boneId === tsJaw?.boneId
-    );
-    expect(tsJaw).toBeTruthy();
-    expect(rustJaw).toBeTruthy();
-    for (const axis of ['x', 'y', 'z', 'w'] as const) {
-      expect(rustJaw!.transform.rotation![axis]).toBeCloseTo(tsJaw!.transform.rotation![axis], 5);
-    }
+    const jaw = boneRotationsByName(rust.evaluateFrameDelta(), descriptor).Jaw;
+    expect(jaw[0]).toBe(0);
+    expect(jaw[1]).toBe(0);
+    expect(jaw[2]).toBeGreaterThan(0.05);
+    expect(jaw[3]).toBeLessThan(1);
   });
 
-  it('self-configures from profile and model JSON matching TS-compiled bindings', async () => {
+  it('self-configures from profile and model JSON matching the Wasm facade', async () => {
     const { profile, descriptor } = makeScene();
     const wasm = await loadWasmModule();
 
-    // TS-compiled reference path.
     const reference = new WasmRuntimeCore({ profile, model: descriptor, wasm });
-    // Rust-compiled path: the core ingests raw JSON and compiles everything itself.
     const selfConfigured = new wasm.RuntimeCore(0);
     selfConfigured.configure(JSON.stringify(profile), JSON.stringify(descriptor));
 

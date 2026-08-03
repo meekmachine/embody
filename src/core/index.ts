@@ -72,7 +72,6 @@ export {
   TsClipCompiler,
   numericArrayToNumbers,
 } from './TsClipCompiler';
-export { TsRuntimeCore } from './TsRuntimeCore';
 export {
   WasmRuntimeCore,
   unpackMorphFrameDelta,
@@ -88,4 +87,3 @@ export type {
   TsClipCurveTarget,
   TsClipCurvesInput,
 } from './TsClipCompiler';
-export type { TsRuntimeCoreOptions } from './TsRuntimeCore';

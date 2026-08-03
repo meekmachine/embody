@@ -1,5 +1,5 @@
 //! Host-neutral bone evaluation: composite rotations, AU translations, and
-//! viseme-driven jaw rotation. Mirrors TsRuntimeCore.collectBoneWrites.
+//! viseme-driven jaw rotation for packed Wasm frame deltas.
 
 pub const BONE_REST_TRANSFORM_STRIDE: usize = 8;
 pub const COMPOSITE_AXIS_HEADER_STRIDE: usize = 8;

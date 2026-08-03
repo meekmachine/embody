@@ -45,10 +45,9 @@ import { ThreeAnimationRuntime, ThreeAnimationSystem } from './ThreeAnimationRun
 import { getSideScale } from './balanceUtils';
 import { ThreeModelInspector } from './ThreeModelInspector';
 import { ThreeFrameApplier, type ThreeFrameApplierBindings, type ThreeMaterialConfig, type ThreeResolvedMaterialConfig } from './ThreeFrameApplier';
-import { TsRuntimeCore } from '../../core/TsRuntimeCore';
 import { WasmRuntimeCore } from '../../core/WasmRuntimeCore';
 import type { ModelDescriptor } from '../../core/contracts';
-import { initEmbodyCore } from '../../wasm';
+import { initEmbodyCore, requireInitializedEmbodyCore } from '../../wasm';
 import { HairPhysicsController, type HairPhysicsConfig, type HairPhysicsConfigUpdate } from './hair/HairPhysicsController';
 import { CC4_PRESET, CC4_MESHES, COMPOSITE_ROTATIONS as CC4_COMPOSITE_ROTATIONS } from '../../presets/cc4';
 import { getPreset } from '../../presets';
@@ -104,6 +103,13 @@ type ResolvedMorphTargetsBySide = {
   left: MorphTargetHandle[];
   right: MorphTargetHandle[];
   center: MorphTargetHandle[];
+};
+
+const RESOLVED_TRANSITION_HANDLE: TransitionHandle = {
+  promise: Promise.resolve(),
+  pause: () => {},
+  resume: () => {},
+  cancel: () => {},
 };
 
 export class Embody implements EmbodyRuntime {
@@ -212,7 +218,6 @@ export class Embody implements EmbodyRuntime {
   private modelInspector = new ThreeModelInspector();
   private frameApplier = new ThreeFrameApplier();
   private modelDescriptor: ModelDescriptor | null = null;
-  private tsRuntimeCore: TsRuntimeCore | null = null;
   private wasmRuntimeCore: WasmRuntimeCore | null = null;
   private framePathReady = false;
 
@@ -355,28 +360,16 @@ export class Embody implements EmbodyRuntime {
   private bindHostNeutralRuntime(inspection: ReturnType<ThreeModelInspector['inspectModel']>): void {
     this.modelDescriptor = inspection.descriptor;
     this.frameApplier.setBindings(buildFrameApplierBindings(inspection));
-    this.tsRuntimeCore = new TsRuntimeCore({
+    const wasm = requireInitializedEmbodyCore();
+    this.attachWasmCore(wasm);
+    this.wasmRuntimeCore = new WasmRuntimeCore({
       profile: this.config,
       model: inspection.descriptor,
+      wasm,
+      allowEmptyBindings: true,
     });
     this.syncRuntimeCoreState();
     this.framePathReady = true;
-
-    void initEmbodyCore()
-      .then((wasm) => {
-        if (!this.modelDescriptor) return;
-        this.attachWasmCore(wasm);
-        this.wasmRuntimeCore = new WasmRuntimeCore({
-          profile: this.config,
-          model: this.modelDescriptor,
-          wasm,
-        });
-        this.syncRuntimeCoreState();
-      })
-      .catch(() => {
-        // Vitest and some hosts cannot resolve the package wasm dynamic import; TsRuntimeCore remains the morph path.
-        this.wasmRuntimeCore = null;
-      });
   }
 
   private attachWasmCore(core: Awaited<ReturnType<typeof initEmbodyCore>>): void {
@@ -384,26 +377,6 @@ export class Embody implements EmbodyRuntime {
   }
 
   private syncRuntimeCoreState(): void {
-    if (this.tsRuntimeCore) {
-      this.tsRuntimeCore.setProfile(this.config);
-      if (this.modelDescriptor) {
-        this.tsRuntimeCore.setModelDescriptor(this.modelDescriptor);
-      }
-      for (const [auIdText, value] of Object.entries(this.auValues)) {
-        const auId = Number(auIdText);
-        if (Number.isNaN(auId)) continue;
-        this.tsRuntimeCore.setAU(auId, value, this.auBalances[auId]);
-      }
-      for (const [auIdText, weight] of Object.entries(this.mixWeights)) {
-        const auId = Number(auIdText);
-        if (Number.isNaN(auId)) continue;
-        this.tsRuntimeCore.setAUMixWeight(auId, weight);
-      }
-      for (let index = 0; index < this.visemeValues.length; index += 1) {
-        this.tsRuntimeCore.setViseme(index, this.visemeValues[index] ?? 0, this.visemeJawScales[index] ?? 1);
-      }
-    }
-
     if (this.wasmRuntimeCore) {
       this.wasmRuntimeCore.setProfile(this.config);
       if (this.modelDescriptor) {
@@ -421,7 +394,7 @@ export class Embody implements EmbodyRuntime {
         this.wasmRuntimeCore.setAUMixWeight(auId, weight);
       }
       for (let index = 0; index < this.visemeValues.length; index += 1) {
-        this.wasmRuntimeCore.setViseme(index, this.visemeValues[index] ?? 0);
+        this.wasmRuntimeCore.setViseme(index, this.visemeValues[index] ?? 0, this.visemeJawScales[index] ?? 1);
       }
     }
   }
@@ -440,30 +413,14 @@ export class Embody implements EmbodyRuntime {
     });
     this.modelDescriptor = inspection.descriptor;
     this.frameApplier.setBindings(buildFrameApplierBindings(inspection));
-    this.tsRuntimeCore?.setModelDescriptor(inspection.descriptor);
     this.wasmRuntimeCore?.setModelDescriptor(inspection.descriptor);
   }
 
-  private applyLiveMorphFrameDelta(): boolean {
-    if (!this.framePathReady || !this.model) return false;
-
-    if (this.wasmRuntimeCore) {
-      // Morph influence writes never touch transforms, so no matrix update.
-      this.frameApplier.applyPackedMorphFrameDelta(
-        this.wasmRuntimeCore.evaluatePackedMorphFrameDelta()
-      );
-      return true;
-    }
-
-    if (this.tsRuntimeCore) {
-      const frame = this.tsRuntimeCore.evaluateFrameDelta();
-      this.frameApplier.applyFrameDelta(this.model, {
-        morphTargets: frame.morphTargets,
-      });
-      return true;
-    }
-
-    return false;
+  private applyLiveFrameDelta(): boolean {
+    if (!this.framePathReady || !this.model || !this.wasmRuntimeCore) return false;
+    this.frameApplier.applyFrameDelta(this.model, this.wasmRuntimeCore.evaluateFrameDelta());
+    this.pendingCompositeNodes.clear();
+    return true;
   }
 
   private rebuildMorphTargetsCache(): void {
@@ -590,6 +547,11 @@ export class Embody implements EmbodyRuntime {
     if (dtSeconds <= 0 || this.isPaused) return;
 
     this.animation.tick(dtSeconds);
+    const wasmTransitionCount = this.wasmRuntimeCore?.activeTransitionCount() ?? 0;
+    const remainingWasmTransitions = this.wasmRuntimeCore?.update(dtSeconds) ?? 0;
+    if (wasmTransitionCount > 0 || remainingWasmTransitions > 0) {
+      this.applyLiveFrameDelta();
+    }
     this.flushPendingComposites();
 
     this.animationController.update(dtSeconds);
@@ -630,7 +592,6 @@ export class Embody implements EmbodyRuntime {
     this.model = null;
     this.bones = {};
     this.modelDescriptor = null;
-    this.tsRuntimeCore = null;
     this.wasmRuntimeCore = null;
     this.framePathReady = false;
   }
@@ -675,10 +636,9 @@ export class Embody implements EmbodyRuntime {
       this.auBalances[id] = balance;
     }
 
-    this.tsRuntimeCore?.setAU(id, v, balance);
     this.wasmRuntimeCore?.setAU(id, v, balance ?? this.auBalances[id] ?? 0);
 
-    const appliedViaFrame = this.applyLiveMorphFrameDelta();
+    const appliedViaFrame = this.applyLiveFrameDelta();
     if (!appliedViaFrame) {
       const resolvedMorphTargets = this.resolvedAUMorphTargets.get(id);
       const { left: leftKeys, right: rightKeys, center: centerKeys } = this.getAUMorphsBySide(id);
@@ -718,6 +678,8 @@ export class Embody implements EmbodyRuntime {
         }
       }
     }
+
+    if (appliedViaFrame) return;
 
     // Check if this AU affects composite rotations
     const compositeInfo = this.auToCompositeMap.get(id);
@@ -781,6 +743,20 @@ export class Embody implements EmbodyRuntime {
     const { left: leftVal, right: rightVal } = this.computeSideValues(base, storedBalance);
 
     this.auValues[numId] = target;
+
+    if (this.wasmRuntimeCore) {
+      this.wasmRuntimeCore.transitionAU(
+        numId,
+        target,
+        durationMs,
+        balance ?? this.auBalances[numId] ?? Number.NaN
+      );
+      this.update(0);
+      if (durationMs <= 0) {
+        this.applyLiveFrameDelta();
+      }
+      return RESOLVED_TRANSITION_HANDLE;
+    }
 
     const handles: TransitionHandle[] = [];
     const meshNames = this.getMeshNamesForAU(numId);
@@ -864,6 +840,19 @@ export class Embody implements EmbodyRuntime {
   setContinuum(negAU: number, posAU: number, continuumValue: number, balance?: number): void {
     const value = Math.max(-1, Math.min(1, continuumValue));
 
+    this.auValues[negAU] = value < 0 ? Math.abs(value) : 0;
+    this.auValues[posAU] = value > 0 ? value : 0;
+    if (balance !== undefined) {
+      this.auBalances[negAU] = balance;
+      this.auBalances[posAU] = balance;
+    }
+
+    if (this.wasmRuntimeCore) {
+      this.wasmRuntimeCore.setContinuum(negAU, posAU, value, balance ?? 0);
+      this.applyLiveFrameDelta();
+      return;
+    }
+
     if (value < 0) {
       this.setAU(posAU, 0, balance);
       this.setAU(negAU, Math.abs(value), balance);
@@ -891,12 +880,37 @@ export class Embody implements EmbodyRuntime {
    */
   transitionContinuum(negAU: number, posAU: number, continuumValue: number, durationMs = 200, balance?: number): TransitionHandle {
     const target = Math.max(-1, Math.min(1, continuumValue));
-    const driverKey = `continuum_${negAU}_${posAU}`;
 
     // Get current continuum value: positive if posAU active, negative if negAU active
     const currentNeg = this.auValues[negAU] ?? 0;
     const currentPos = this.auValues[posAU] ?? 0;
     const currentContinuum = currentPos - currentNeg;
+
+    this.auValues[negAU] = target < 0 ? Math.abs(target) : 0;
+    this.auValues[posAU] = target > 0 ? target : 0;
+    if (balance !== undefined) {
+      this.auBalances[negAU] = balance;
+      this.auBalances[posAU] = balance;
+    }
+
+    if (this.wasmRuntimeCore) {
+      if (target < 0) {
+        this.wasmRuntimeCore.transitionAU(posAU, 0, durationMs, balance ?? this.auBalances[posAU] ?? Number.NaN);
+        this.wasmRuntimeCore.transitionAU(negAU, Math.abs(target), durationMs, balance ?? this.auBalances[negAU] ?? Number.NaN);
+      } else if (target > 0) {
+        this.wasmRuntimeCore.transitionAU(negAU, 0, durationMs, balance ?? this.auBalances[negAU] ?? Number.NaN);
+        this.wasmRuntimeCore.transitionAU(posAU, target, durationMs, balance ?? this.auBalances[posAU] ?? Number.NaN);
+      } else {
+        this.wasmRuntimeCore.transitionAU(negAU, 0, durationMs, balance ?? this.auBalances[negAU] ?? Number.NaN);
+        this.wasmRuntimeCore.transitionAU(posAU, 0, durationMs, balance ?? this.auBalances[posAU] ?? Number.NaN);
+      }
+      if (durationMs <= 0) {
+        this.applyLiveFrameDelta();
+      }
+      return RESOLVED_TRANSITION_HANDLE;
+    }
+
+    const driverKey = `continuum_${negAU}_${posAU}`;
 
     return this.animation.addTransition(driverKey, currentContinuum, target, durationMs, (value) => this.setContinuum(negAU, posAU, value, balance));
   }
@@ -1181,6 +1195,15 @@ export class Embody implements EmbodyRuntime {
     const from = this.visemeValues[visemeIndex] ?? 0;
     this.visemeJawScales[visemeIndex] = jawScale;
 
+    if (this.wasmRuntimeCore) {
+      this.visemeValues[visemeIndex] = target;
+      this.wasmRuntimeCore.transitionViseme(visemeIndex, target, durationMs, jawScale);
+      if (durationMs <= 0) {
+        this.applyLiveFrameDelta();
+      }
+      return RESOLVED_TRANSITION_HANDLE;
+    }
+
     return this.animation.addTransition(
       `viseme_value_${visemeIndex}`,
       from,
@@ -1214,7 +1237,6 @@ export class Embody implements EmbodyRuntime {
 
   setAUMixWeight(id: number, weight: number): void {
     this.mixWeights[id] = clamp01(weight);
-    this.tsRuntimeCore?.setAUMixWeight(id, weight);
     this.wasmRuntimeCore?.setAUMixWeight(id, weight);
     const v = this.auValues[id] ?? 0;
     if (v > 0) this.setAU(id, v);
@@ -1249,8 +1271,13 @@ export class Embody implements EmbodyRuntime {
   pause(): void { this.isPaused = true; }
   resume(): void { this.isPaused = false; }
   getPaused(): boolean { return this.isPaused; }
-  clearTransitions(): void { this.animation.clearTransitions(); }
-  getActiveTransitionCount(): number { return this.animation.getActiveTransitionCount(); }
+  clearTransitions(): void {
+    this.animation.clearTransitions();
+    this.wasmRuntimeCore?.clearTransitions();
+  }
+  getActiveTransitionCount(): number {
+    return this.animation.getActiveTransitionCount() + (this.wasmRuntimeCore?.activeTransitionCount() ?? 0);
+  }
 
   resetToNeutral(): void {
     this.auValues = {};
@@ -1260,6 +1287,7 @@ export class Embody implements EmbodyRuntime {
     this.translations = {};
     this.initBoneRotations();
     this.clearTransitions();
+    this.wasmRuntimeCore?.clear();
 
     const morphTargetsToReset: MorphTargetHandle[] = [];
     for (const m of this.meshes) {
@@ -1465,7 +1493,18 @@ export class Embody implements EmbodyRuntime {
       this.bones = this.resolveBones(this.model);
       this.missingBoneWarnings.clear();
       this.rebuildMorphTargetsCache();
-      this.tsRuntimeCore?.setProfile(this.config);
+      Object.values(this.bones).forEach((entry) => {
+        if (!entry) return;
+        this.frameApplier.applyObjectTransform(entry.obj, {
+          position: { x: entry.basePos.x, y: entry.basePos.y, z: entry.basePos.z },
+          rotation: {
+            x: entry.baseQuat.x,
+            y: entry.baseQuat.y,
+            z: entry.baseQuat.z,
+            w: entry.baseQuat.w,
+          },
+        });
+      });
       this.wasmRuntimeCore?.setProfile(this.config);
       this.refreshHostNeutralModelDescriptor();
     }
@@ -1618,11 +1657,11 @@ export class Embody implements EmbodyRuntime {
 
   private applyVisemeRuntimeState(): void {
     for (let index = 0; index < this.visemeValues.length; index += 1) {
-      this.tsRuntimeCore?.setViseme(index, this.visemeValues[index] ?? 0, this.visemeJawScales[index] ?? 1);
-      this.wasmRuntimeCore?.setViseme(index, this.visemeValues[index] ?? 0);
+      this.wasmRuntimeCore?.setViseme(index, this.visemeValues[index] ?? 0, this.visemeJawScales[index] ?? 1);
     }
 
-    if (!this.applyLiveMorphFrameDelta()) {
+    const appliedViaFrame = this.applyLiveFrameDelta();
+    if (!appliedViaFrame) {
       for (const targets of this.resolvedVisemeTargets) {
         this.frameApplier.resetMorphTargets(targets || []);
       }
@@ -1642,7 +1681,9 @@ export class Embody implements EmbodyRuntime {
       }
     }
 
-    this.updateBoneRotation(this.getJawBoneNodeKey(), 'pitch', this.getActiveVisemeJawAmount());
+    if (!appliedViaFrame) {
+      this.updateBoneRotation(this.getJawBoneNodeKey(), 'pitch', this.getActiveVisemeJawAmount());
+    }
   }
 
   private getJawBoneNodeKey(): BoneKey {

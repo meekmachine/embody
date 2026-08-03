@@ -691,9 +691,9 @@ impl RuntimeCore {
     }
 
     /// Packed bone FrameDelta rows: `[bone_id, px, py, pz, qx, qy, qz, qw, flags] * N`
-    /// flags: bit0 = has_position, bit1 = has_rotation. Mirrors
-    /// TsRuntimeCore.collectBoneWrites: composite rotations relative to rest,
-    /// AU-driven translations added to rest position, and viseme jaw rotation.
+    /// flags: bit0 = has_position, bit1 = has_rotation. Composite rotations are
+    /// relative to rest, AU-driven translations are added to rest position, and
+    /// viseme jaw rotation is applied as an absolute packed frame write.
     #[wasm_bindgen]
     pub fn evaluate_bone_frame_delta(&self) -> Box<[f32]> {
         let mut order: Vec<u32> = Vec::new();

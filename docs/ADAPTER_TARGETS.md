@@ -8,7 +8,7 @@ contracts realistic for Babylon.js, React Three Fiber, and Unity.
 The shared package now has three layers:
 
 - `@lovelace_lol/embody/core`: host-neutral descriptors, frame deltas, ClipIR,
-  `TsRuntimeCore`, and `TsClipCompiler`.
+  `WasmRuntimeCore`, and `TsClipCompiler`.
 - `@lovelace_lol/embody/three`: Three-specific inspection, frame application,
   ClipIR conversion, and mixer lifecycle.
 - `@lovelace_lol/embody`: compatibility root that keeps existing Embody imports.
@@ -93,7 +93,7 @@ Primary risk:
 
 ## Recommended Order
 
-1. Finish routing Three live runtime through `TsRuntimeCore` and
+1. Finish routing Three live runtime through `WasmRuntimeCore` and
    `ThreeFrameApplier`.
 2. Route Three dynamic clips through `TsClipCompiler` and `ThreeClipAdapter`.
 3. Add a small R3F wrapper because it reuses the Three adapter.
