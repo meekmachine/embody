@@ -375,6 +375,7 @@ export type SnippetChannelTarget =
   | { type: 'au'; id: number; balance?: number }
   | { type: 'viseme'; id: number; meshNames?: string[] }
   | { type: 'lipSync'; id: number }
+  | { type: 'bodyOrientation'; id: number }
   | { type: 'morph'; id: string | number; meshNames?: string[] }
   | {
       type: 'bone';
@@ -389,7 +390,7 @@ export type SnippetChannelTarget =
  * A typed snippet channel names the target namespace explicitly. This avoids
  * the legacy curve-map ambiguity where numeric key "1" can mean AU 1 or
  * viseme slot 1 depending on snippetCategory, and it keeps speech-only
- * lip-sync controls out of FACS AU space.
+ * lip-sync and body-orientation controls out of FACS AU space.
  */
 export interface SnippetChannel {
   target: SnippetChannelTarget;

@@ -1050,12 +1050,27 @@ mod tests {
         let model = r#"{
             "meshes": [{ "id": 1, "name": "CC_Base_Body", "morphTargetIds": [] }],
             "morphTargets": [],
-            "bones": [{ "id": 1, "name": "CC_Base_JawRoot" }]
+            "bones": [
+                { "id": 1, "name": "CC_Base_JawRoot" },
+                { "id": 2, "name": "CC_Base_Spine01" },
+                { "id": 3, "name": "CC_Base_Spine02" }
+            ]
         }"#;
         let mut core = RuntimeCore::new(0);
         // Override empty is fine; embedded CC4 must merge + compile without error.
         core.configure_with_preset("cc4", "", model).unwrap();
         assert!(core.viseme_slot_index("aa") >= -1);
+
+        // Body-yaw control 104 is profile data, so both spine joints must be
+        // evaluated by the Rust core without a JavaScript mapping fallback.
+        core.set_au(104, 0.5, 0.0);
+        let frame = core.evaluate_bone_frame_delta();
+        let ids: Vec<u32> = frame
+            .chunks_exact(PACKED_BONE_FRAME_DELTA_STRIDE as usize)
+            .map(|row| row[0] as u32)
+            .collect();
+        assert!(ids.contains(&2));
+        assert!(ids.contains(&3));
     }
 
     #[test]
