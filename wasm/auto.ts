@@ -1,7 +1,7 @@
 import { initEmbodyCore } from './index';
 
-// Embody's ESM runtime is mandatory. Importers do not need a separate startup
-// phase before calling synchronous profile and authoring operations.
-await initEmbodyCore();
+// Start the mandatory runtime as soon as the ESM entry is evaluated. Consumers
+// that need synchronous APIs await initEmbodyCore(), which reuses this promise.
+void initEmbodyCore();
 
 export * from './index';
