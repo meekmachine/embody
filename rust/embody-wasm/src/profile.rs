@@ -5,7 +5,7 @@
 //! rotation axes, bone translations, jaw binding, and rest transforms. Hosts
 //! only pass data in; no mapping resolution happens in JavaScript.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use regex_lite::Regex;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -640,7 +640,70 @@ impl CompiledTables {
 
 struct VisemeSlot {
     id: String,
-    default_jaw_amount: Option<f32>,
+    default_jaw_amount: Option<f64>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedVisemeBindingTarget {
+    pub morph: MorphRef,
+    pub weight: f64,
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedProfileView {
+    pub viseme_slots: Vec<VisemeSlotData>,
+    pub viseme_jaw_amounts: Vec<f64>,
+    pub viseme_binding_targets: Vec<Vec<ResolvedVisemeBindingTarget>>,
+    pub viseme_mesh_category: String,
+    pub viseme_mesh_names: Vec<String>,
+    pub au_mesh_names: BTreeMap<String, Vec<String>>,
+    pub meshes: HashMap<String, MeshInfoData>,
+    pub mapping_sections: Vec<MappingSectionData>,
+    pub au_face_part_to_mesh_category: HashMap<String, String>,
+    pub au_mix_defaults: HashMap<String, f64>,
+    pub bone_nodes: HashMap<String, String>,
+    pub au_to_bones: HashMap<String, Vec<BoneBindingData>>,
+    pub composite_rotations: Vec<CompositeRotationData>,
+    pub continuum_pairs: HashMap<String, Option<ContinuumPairData>>,
+    pub hair_physics: Option<HairPhysicsData>,
+}
+
+pub fn resolve_profile_view(profile: &ProfileData) -> ResolvedProfileView {
+    let runtime_slots = viseme_slots(profile);
+    let full_slots = resolved_viseme_slots(profile);
+    let au_mesh_names = resolved_au_mesh_names(profile);
+
+    ResolvedProfileView {
+        viseme_slots: full_slots,
+        viseme_jaw_amounts: resolved_viseme_jaw_amounts(profile, &runtime_slots),
+        viseme_binding_targets: runtime_slots
+            .iter()
+            .enumerate()
+            .map(|(index, slot)| {
+                viseme_binding_targets(profile, slot, index)
+                    .into_iter()
+                    .map(|(morph, weight)| ResolvedVisemeBindingTarget {
+                        morph,
+                        weight: weight as f64,
+                    })
+                    .collect()
+            })
+            .collect(),
+        viseme_mesh_category: viseme_mesh_category(profile),
+        viseme_mesh_names: mesh_names_for_visemes(profile),
+        au_mesh_names,
+        meshes: profile.meshes.clone(),
+        mapping_sections: profile.mapping_sections.clone(),
+        au_face_part_to_mesh_category: profile.au_face_part_to_mesh_category.clone(),
+        au_mix_defaults: profile.au_mix_defaults.clone(),
+        bone_nodes: profile.bone_nodes.clone(),
+        au_to_bones: profile.au_to_bones.clone(),
+        composite_rotations: profile.composite_rotations.clone(),
+        continuum_pairs: profile.continuum_pairs.clone(),
+        hair_physics: profile.hair_physics.clone(),
+    }
 }
 
 pub fn compile_tables(profile: &ProfileData, model: &ModelData) -> CompiledTables {
@@ -728,7 +791,7 @@ fn compile_viseme_morph_bindings(
                     index as f32,
                     mesh_id as f32,
                     morph_target_id as f32,
-                    weight,
+                    weight as f32,
                 ]);
             }
         }
@@ -977,7 +1040,7 @@ fn viseme_slots(profile: &ProfileData) -> Vec<VisemeSlot> {
             .iter()
             .map(|slot| VisemeSlot {
                 id: slot.id.clone(),
-                default_jaw_amount: slot.default_jaw_amount.map(|value| value as f32),
+                default_jaw_amount: slot.default_jaw_amount,
             })
             .collect();
     }
@@ -996,7 +1059,38 @@ fn viseme_slots(profile: &ProfileData) -> Vec<VisemeSlot> {
                 default_jaw_amount: profile
                     .viseme_jaw_amounts
                     .get(index)
-                    .map(|value| *value as f32),
+                    .copied(),
+            }
+        })
+        .collect()
+}
+
+fn resolved_viseme_slots(profile: &ProfileData) -> Vec<VisemeSlotData> {
+    if !profile.viseme_slots.is_empty() {
+        let mut slots = profile.viseme_slots.clone();
+        slots.sort_by(|a, b| {
+            (a.order.unwrap_or(0.0))
+                .partial_cmp(&b.order.unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        return slots;
+    }
+
+    profile
+        .viseme_keys
+        .iter()
+        .enumerate()
+        .map(|(index, key)| {
+            let label = match key {
+                MorphRef::Name(name) if !name.is_empty() => name.clone(),
+                _ => format!("Viseme {index}"),
+            };
+            VisemeSlotData {
+                id: slot_id_from_label(&label, index),
+                label: Some(label),
+                order: Some(index as f64),
+                default_jaw_amount: profile.viseme_jaw_amounts.get(index).copied(),
+                ..Default::default()
             }
         })
         .collect()
@@ -1035,6 +1129,7 @@ fn viseme_jaw_amounts(profile: &ProfileData, slots: &[VisemeSlot]) -> Vec<f32> {
         .enumerate()
         .map(|(index, slot)| {
             slot.default_jaw_amount
+                .map(|value| value as f32)
                 .or_else(|| {
                     profile
                         .viseme_jaw_amounts
@@ -1046,16 +1141,31 @@ fn viseme_jaw_amounts(profile: &ProfileData, slots: &[VisemeSlot]) -> Vec<f32> {
         .collect()
 }
 
+fn resolved_viseme_jaw_amounts(profile: &ProfileData, slots: &[VisemeSlot]) -> Vec<f64> {
+    if slots.is_empty() {
+        return profile.viseme_jaw_amounts.clone();
+    }
+    slots
+        .iter()
+        .enumerate()
+        .map(|(index, slot)| {
+            slot.default_jaw_amount
+                .or_else(|| profile.viseme_jaw_amounts.get(index).copied())
+                .unwrap_or(0.0)
+        })
+        .collect()
+}
+
 fn viseme_binding_targets(
     profile: &ProfileData,
     slot: &VisemeSlot,
     index: usize,
-) -> Vec<(MorphRef, f32)> {
+) -> Vec<(MorphRef, f64)> {
     let binding = profile.viseme_bindings.get(&slot.id);
 
     if let Some(binding) = binding {
         if let Some(targets) = &binding.targets {
-            let bound: Vec<(MorphRef, f32)> = targets
+            let bound: Vec<(MorphRef, f64)> = targets
                 .iter()
                 .filter_map(|target| {
                     let morph = target.morph.clone()?;
@@ -1067,7 +1177,7 @@ fn viseme_binding_targets(
                         .filter(|value| value.is_finite())
                         .map(|value| value.max(0.0))
                         .unwrap_or(1.0);
-                    Some((morph, weight as f32))
+                    Some((morph, weight))
                 })
                 .collect();
             if !bound.is_empty() {
@@ -1109,16 +1219,7 @@ fn mesh_names_for_au(profile: &ProfileData, au_id: u32) -> Vec<String> {
 }
 
 fn mesh_names_for_visemes(profile: &ProfileData) -> Vec<String> {
-    let category = profile
-        .viseme_mesh_category
-        .clone()
-        .unwrap_or_else(|| {
-            if profile.morph_to_mesh.contains_key("viseme") {
-                "viseme".to_string()
-            } else {
-                "face".to_string()
-            }
-        });
+    let category = viseme_mesh_category(profile);
     if let Some(names) = profile.morph_to_mesh.get(&category) {
         return names.clone();
     }
@@ -1126,6 +1227,39 @@ fn mesh_names_for_visemes(profile: &ProfileData) -> Vec<String> {
         return Vec::new();
     }
     profile.morph_to_mesh.get("face").cloned().unwrap_or_default()
+}
+
+fn viseme_mesh_category(profile: &ProfileData) -> String {
+    profile.viseme_mesh_category.clone().unwrap_or_else(|| {
+        if profile.morph_to_mesh.contains_key("viseme") {
+            "viseme".to_string()
+        } else {
+            "face".to_string()
+        }
+    })
+}
+
+fn resolved_au_mesh_names(profile: &ProfileData) -> BTreeMap<String, Vec<String>> {
+    let mut au_ids: Vec<u32> = Vec::new();
+    for key in profile
+        .au_to_morphs
+        .keys()
+        .chain(profile.au_to_bones.keys())
+        .chain(profile.au_info.keys())
+    {
+        let Ok(au_id) = key.parse::<u32>() else {
+            continue;
+        };
+        if !au_ids.contains(&au_id) {
+            au_ids.push(au_id);
+        }
+    }
+    au_ids.sort_unstable();
+
+    au_ids
+        .into_iter()
+        .map(|au_id| (au_id.to_string(), mesh_names_for_au(profile, au_id)))
+        .collect()
 }
 
 /// Resolves morph/bone names with the profile prefix/suffix conventions,
@@ -1307,6 +1441,73 @@ mod tests {
         assert_eq!(tables.continuum_pairs.get(&30), Some(&(31, true)));
         // Rest transforms for both referenced bones.
         assert_eq!(tables.rest_transforms.len(), 2 * 8);
+    }
+
+    #[test]
+    fn resolves_profile_view_without_javascript_profile_helpers() {
+        let profile: ProfileData = serde_json::from_str(
+            r#"{
+                "auToMorphs": {
+                    "1": { "left": [], "right": [], "center": ["EyeBlink"] },
+                    "12": { "left": [], "right": [], "center": ["Smile"] }
+                },
+                "auToBones": {
+                    "51": [{ "node": "HEAD", "channel": "ry", "scale": 1, "maxDegrees": 30 }]
+                },
+                "boneNodes": { "HEAD": "Head" },
+                "morphToMesh": {
+                    "face": ["FaceMesh"],
+                    "eye": ["EyeMesh"],
+                    "viseme": ["MouthMesh"]
+                },
+                "auInfo": {
+                    "1": { "facePart": "Eye" },
+                    "12": { "facePart": "Mouth" }
+                },
+                "auFacePartToMeshCategory": {
+                    "Eye": "eye"
+                },
+                "visemeSlots": [
+                    { "id": "bmp", "label": "BMP", "order": 2, "defaultJawAmount": 0.1 },
+                    { "id": "aa", "label": "AA", "order": 1, "defaultJawAmount": 0.8 }
+                ],
+                "visemeBindings": {
+                    "aa": { "targets": [{ "morph": "Aah", "weight": 0.75 }] },
+                    "bmp": { "morph": "BMP" }
+                },
+                "meshes": {
+                    "EyeMesh": {
+                        "category": "eye",
+                        "morphCount": 8,
+                        "material": {
+                            "renderOrder": -10,
+                            "transparent": true,
+                            "depthWrite": false
+                        }
+                    }
+                },
+                "mappingSections": [
+                    { "id": "Eye", "label": "Eye", "kind": "au", "order": 1, "meshCategory": "eye" }
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let view = serde_json::to_value(resolve_profile_view(&profile)).unwrap();
+
+        assert_eq!(view["visemeSlots"][0]["id"], "aa");
+        assert_eq!(view["visemeJawAmounts"], serde_json::json!([0.8, 0.1]));
+        assert_eq!(
+            view["visemeBindingTargets"][0],
+            serde_json::json!([{ "morph": "Aah", "weight": 0.75 }])
+        );
+        assert_eq!(view["visemeMeshCategory"], "viseme");
+        assert_eq!(view["visemeMeshNames"], serde_json::json!(["MouthMesh"]));
+        assert_eq!(view["auMeshNames"]["1"], serde_json::json!(["EyeMesh"]));
+        assert_eq!(view["auMeshNames"]["12"], serde_json::json!(["FaceMesh"]));
+        assert_eq!(view["meshes"]["EyeMesh"]["category"], "eye");
+        assert_eq!(view["meshes"]["EyeMesh"]["material"]["renderOrder"], -10);
+        assert_eq!(view["mappingSections"][0]["meshCategory"], "eye");
     }
 
     #[test]

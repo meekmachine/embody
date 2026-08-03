@@ -72,6 +72,38 @@ pub fn merge_preset_profile(base_json: &str, extension_json: &str) -> Result<Str
         .map_err(|err| JsError::new(&format!("Failed to serialize merged profile: {err}")))
 }
 
+/// Resolve profile routing/metadata answers that hosts need without making
+/// hosts duplicate profile semantics in JavaScript.
+#[wasm_bindgen]
+pub fn resolve_profile_view(profile_json: &str) -> Result<String, JsError> {
+    let profile: profile::ProfileData =
+        profile::deserialize_json(profile_json, "Invalid profile JSON")
+            .map_err(|err| JsError::new(&err))?;
+    serde_json::to_string(&profile::resolve_profile_view(&profile)).map_err(|err| {
+        JsError::new(&format!(
+            "Failed to serialize resolved profile view: {err}"
+        ))
+    })
+}
+
+/// Merge an embedded preset with sparse overrides, then return the resolved
+/// routing/metadata view for host adapters.
+#[wasm_bindgen]
+pub fn resolve_embedded_profile_view(
+    preset_id: &str,
+    override_json: &str,
+) -> Result<String, JsError> {
+    let base = presets::load_profile(preset_id).map_err(|err| JsError::new(&err))?;
+    let extension = profile_merge::parse_profile_patch(override_json)
+        .map_err(|err| JsError::new(&err))?;
+    let profile = profile_merge::extend_preset_with_profile(base, extension);
+    serde_json::to_string(&profile::resolve_profile_view(&profile)).map_err(|err| {
+        JsError::new(&format!(
+            "Failed to serialize resolved embedded profile view: {err}"
+        ))
+    })
+}
+
 /// Compile a clip track input (JSON) into host-neutral ClipIR JSON.
 #[wasm_bindgen]
 pub fn compile_clip(input_json: &str) -> Result<String, JsError> {

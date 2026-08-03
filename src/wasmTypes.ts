@@ -126,6 +126,8 @@ export interface EmbodyCoreWasmModule {
   ): Float32Array;
   default_hair_physics_config_values(): Float32Array;
   merge_preset_profile(baseJson: string, extensionJson: string): string;
+  resolve_profile_view(profileJson: string): string;
+  resolve_embedded_profile_view(presetId: string, overrideJson: string): string;
   list_presets(): string[];
   has_preset(presetId: string): boolean;
   get_preset_json(presetId: string): string;
