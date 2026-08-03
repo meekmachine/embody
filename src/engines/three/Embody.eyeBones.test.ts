@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Object3D } from 'three';
 import { CC4_BONES } from '../../presets/cc4';
+import type { Profile } from '../../mappings/types';
 import { Embody } from './Embody';
 
 const INDEPENDENT_EYE_CASES = [
@@ -23,10 +24,46 @@ function makeEyeRig() {
   return { model, leftEye, rightEye };
 }
 
+function makeEyeProfile(): Profile {
+  return {
+    auToMorphs: {},
+    auToBones: {
+      65: [{ node: CC4_BONES.EYE_L, channel: 'rz', scale: 1, maxDegrees: 25 }],
+      66: [{ node: CC4_BONES.EYE_L, channel: 'rz', scale: -1, maxDegrees: 25 }],
+      67: [{ node: CC4_BONES.EYE_L, channel: 'rx', scale: 1, maxDegrees: 25 }],
+      68: [{ node: CC4_BONES.EYE_L, channel: 'rx', scale: -1, maxDegrees: 25 }],
+      69: [{ node: CC4_BONES.EYE_R, channel: 'rz', scale: 1, maxDegrees: 25 }],
+      70: [{ node: CC4_BONES.EYE_R, channel: 'rz', scale: -1, maxDegrees: 25 }],
+      71: [{ node: CC4_BONES.EYE_R, channel: 'rx', scale: 1, maxDegrees: 25 }],
+      72: [{ node: CC4_BONES.EYE_R, channel: 'rx', scale: -1, maxDegrees: 25 }],
+    },
+    boneNodes: {
+      [CC4_BONES.EYE_L]: 'CC_Base_L_Eye',
+      [CC4_BONES.EYE_R]: 'CC_Base_R_Eye',
+    },
+    morphToMesh: { face: [] },
+    visemeKeys: [],
+    compositeRotations: [
+      {
+        node: CC4_BONES.EYE_L,
+        pitch: { aus: [67, 68], axis: 'rx', negative: 68, positive: 67 },
+        yaw: { aus: [65, 66], axis: 'rz', negative: 66, positive: 65 },
+        roll: null,
+      },
+      {
+        node: CC4_BONES.EYE_R,
+        pitch: { aus: [71, 72], axis: 'rx', negative: 72, positive: 71 },
+        yaw: { aus: [69, 70], axis: 'rz', negative: 70, positive: 69 },
+        roll: null,
+      },
+    ],
+  };
+}
+
 describe('Embody independent eye bone rotations', () => {
   it.each(INDEPENDENT_EYE_CASES)('setAU drives only the intended eye for $label', ({ auA, auB, node, otherNode, axisIndex }) => {
     const { model } = makeEyeRig();
-    const engine = new Embody({ presetType: 'cc4' });
+    const engine = new Embody({ profile: makeEyeProfile() });
 
     engine.onReady({ model, meshes: [] });
 
@@ -49,7 +86,7 @@ describe('Embody independent eye bone rotations', () => {
 
   it.each(INDEPENDENT_EYE_CASES)('transitionAU drives only the intended eye for $label', ({ auA, auB, node, otherNode, axisIndex }) => {
     const { model } = makeEyeRig();
-    const engine = new Embody({ presetType: 'cc4' });
+    const engine = new Embody({ profile: makeEyeProfile() });
 
     engine.onReady({ model, meshes: [] });
 

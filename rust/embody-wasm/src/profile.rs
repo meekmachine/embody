@@ -813,11 +813,18 @@ fn compile_bone_tables(
         Some(bone)
     };
 
-    let side_for_au = |au_id: u32, node_key: &str| -> u8 {
+    let side_for_au = |au_id: u32, bone_id: u32| -> u8 {
         let side = profile
             .au_to_bones
             .get(&au_id.to_string())
-            .and_then(|bindings| bindings.iter().find(|candidate| candidate.node == node_key))
+            .and_then(|bindings| {
+                bindings.iter().find(|candidate| {
+                    resolver
+                        .resolve_bone(model, profile, &candidate.node)
+                        .map(|bone| bone.id == bone_id)
+                        .unwrap_or(false)
+                })
+            })
             .and_then(|binding| binding.side.as_deref());
         match side {
             Some("left") => SIDE_LEFT,
@@ -852,14 +859,14 @@ fn compile_bone_tables(
                     value_rows.push([
                         *au_id as f32,
                         GROUP_NEGATIVE as f32,
-                        side_for_au(*au_id, &composite.node) as f32,
+                        side_for_au(*au_id, bone_id) as f32,
                     ]);
                 }
                 for au_id in &positive {
                     value_rows.push([
                         *au_id as f32,
                         GROUP_POSITIVE as f32,
-                        side_for_au(*au_id, &composite.node) as f32,
+                        side_for_au(*au_id, bone_id) as f32,
                     ]);
                 }
             } else {
@@ -867,7 +874,7 @@ fn compile_bone_tables(
                     value_rows.push([
                         *au_id as f32,
                         GROUP_PLAIN as f32,
-                        side_for_au(*au_id, &composite.node) as f32,
+                        side_for_au(*au_id, bone_id) as f32,
                     ]);
                 }
             }
@@ -879,7 +886,12 @@ fn compile_bone_tables(
                         .au_to_bones
                         .get(&au_id.to_string())
                         .and_then(|bindings| {
-                            bindings.iter().find(|candidate| candidate.node == composite.node)
+                            bindings.iter().find(|candidate| {
+                                resolver
+                                    .resolve_bone(model, profile, &candidate.node)
+                                    .map(|bone| bone.id == bone_id)
+                                    .unwrap_or(false)
+                            })
                         })
                     else {
                         continue;
@@ -893,7 +905,7 @@ fn compile_bone_tables(
                     binding_rows.push([
                         *au_id as f32,
                         group as f32,
-                        side_for_au(*au_id, &composite.node) as f32,
+                        side_for_au(*au_id, bone_id) as f32,
                         channel as f32,
                         binding.scale as f32,
                         max_degrees as f32,

@@ -20,6 +20,7 @@ export interface WasmRuntimeCoreOptions {
   readonly profile: Profile;
   readonly model: ModelDescriptor;
   readonly wasm: EmbodyCoreWasmModule;
+  readonly allowEmptyBindings?: boolean;
 }
 
 /**
@@ -29,6 +30,7 @@ export interface WasmRuntimeCoreOptions {
 export class WasmRuntimeCore {
   private readonly wasm: EmbodyCoreWasmModule;
   private readonly core: WasmRuntimeCoreHandle;
+  private readonly allowEmptyBindings: boolean;
   private profile: Profile;
   private model: ModelDescriptor;
 
@@ -36,6 +38,7 @@ export class WasmRuntimeCore {
     this.wasm = options.wasm;
     this.profile = options.profile;
     this.model = options.model;
+    this.allowEmptyBindings = options.allowEmptyBindings ?? false;
     const RuntimeCtor = options.wasm.RuntimeCore;
     if (!RuntimeCtor) {
       throw new Error('Embody Wasm module does not export RuntimeCore');
@@ -56,6 +59,30 @@ export class WasmRuntimeCore {
 
   setAU(id: number, value: number, balance = 0): void {
     this.core.set_au(id >>> 0, value, balance);
+  }
+
+  setContinuum(negativeAU: number, positiveAU: number, value: number, balance = 0): void {
+    this.core.set_continuum(negativeAU >>> 0, positiveAU >>> 0, value, balance);
+  }
+
+  transitionAU(id: number, to: number, durationMs: number, balance = Number.NaN): void {
+    this.core.transition_au(id >>> 0, to, durationMs, balance);
+  }
+
+  transitionViseme(visemeIndex: number, to: number, durationMs: number, jawScale = 1): void {
+    this.core.transition_viseme(visemeIndex >>> 0, to, durationMs, jawScale);
+  }
+
+  update(deltaSeconds: number): number {
+    return this.core.update(deltaSeconds);
+  }
+
+  activeTransitionCount(): number {
+    return this.core.active_transition_count();
+  }
+
+  clearTransitions(): void {
+    this.core.clear_transitions();
   }
 
   getAU(id: number): number {
@@ -101,7 +128,13 @@ export class WasmRuntimeCore {
   }
 
   private reloadBindings(): void {
-    this.core.configure_with_profile(JSON.stringify(this.profile), JSON.stringify(this.model));
+    const profileJson = JSON.stringify(this.profile);
+    const modelJson = JSON.stringify(this.model);
+    if (this.allowEmptyBindings) {
+      this.core.configure(profileJson, modelJson);
+    } else {
+      this.core.configure_with_profile(profileJson, modelJson);
+    }
   }
 }
 
