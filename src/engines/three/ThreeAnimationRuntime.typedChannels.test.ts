@@ -238,4 +238,48 @@ describe('AnimationController typed snippet channels', () => {
     expect(values.slice(0, 4)).toEqual([0, 0, 0, 1]);
     expect(Math.abs(values[6])).toBeGreaterThan(0.1);
   });
+
+  it('routes body-orientation controls through profile composites without direct bone channels', () => {
+    const spineOne = makeBone('Spine01');
+    const spineTwo = makeBone('Spine02');
+    const bones: ResolvedBones = { SPINE_01: spineOne, SPINE_02: spineTwo };
+    const profile: Profile = {
+      auToMorphs: {},
+      auToBones: {
+        104: [
+          { node: 'SPINE_01', channel: 'ry', scale: 1, maxDegrees: 6 },
+          { node: 'SPINE_02', channel: 'ry', scale: 1, maxDegrees: 10 },
+        ],
+        105: [
+          { node: 'SPINE_01', channel: 'ry', scale: -1, maxDegrees: 6 },
+          { node: 'SPINE_02', channel: 'ry', scale: -1, maxDegrees: 10 },
+        ],
+      },
+      boneNodes: { SPINE_01: 'Spine01', SPINE_02: 'Spine02' },
+      morphToMesh: {},
+      visemeKeys: [],
+    };
+    const composites: CompositeRotation[] = ['SPINE_01', 'SPINE_02'].map((node) => ({
+      node,
+      pitch: null,
+      yaw: { aus: [104, 105], axis: 'ry', negative: 104, positive: 105 },
+      roll: null,
+    }));
+    const controller = new AnimationController(makeHost(profile, [], bones, composites));
+
+    const clip = controller.typedSnippetToClip('typed-body-yaw', [
+      {
+        target: { type: 'bodyOrientation', id: 104 },
+        keyframes: [{ time: 0, intensity: 0, inherit: true }, { time: 0.4, intensity: 0.8 }],
+      },
+    ]);
+
+    expect(clip).toBeTruthy();
+    expect(clip!.tracks).toHaveLength(2);
+    expect(clip!.tracks.map((track) => track.name)).toEqual(expect.arrayContaining([
+      `${(spineOne.obj as any).uuid}.quaternion`,
+      `${(spineTwo.obj as any).uuid}.quaternion`,
+    ]));
+    expect(clip!.tracks.some((track) => track.name.includes('morphTargetInfluences'))).toBe(false);
+  });
 });

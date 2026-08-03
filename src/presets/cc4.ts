@@ -621,10 +621,58 @@ export const LIP_SYNC_CONTROL_TO_BINDINGS: Record<number, BoneBinding[]> = {
   103: [{ node: CC4_BONES.JAW, channel: 'rz', scale: 1, maxDegrees: 30 }],
 };
 
+// ============================================================================
+// BODY-ORIENTATION SUPPORT CONTROL BINDINGS
+// ============================================================================
+
+/**
+ * Semantic body-orientation controls are intentionally separate from FACS AUs.
+ * Agencies target these stable ids while this preset decides which rig bones,
+ * axes, signs, and ranges realize the requested movement. Splitting the range
+ * across both spine joints produces a distributed torso motion without leaking
+ * CC4 node names into callers.
+ */
+export const BODY_ORIENTATION_CONTROLS = {
+  YAW_LEFT: 104,
+  YAW_RIGHT: 105,
+  PITCH_FORWARD: 106,
+  PITCH_BACK: 107,
+  ROLL_LEFT: 108,
+  ROLL_RIGHT: 109,
+} as const;
+
+export const BODY_ORIENTATION_CONTROL_TO_BINDINGS: Record<number, BoneBinding[]> = {
+  [BODY_ORIENTATION_CONTROLS.YAW_LEFT]: [
+    { node: CC4_BONES.SPINE_01, channel: 'ry', scale: 1, maxDegrees: 6 },
+    { node: CC4_BONES.SPINE_02, channel: 'ry', scale: 1, maxDegrees: 10 },
+  ],
+  [BODY_ORIENTATION_CONTROLS.YAW_RIGHT]: [
+    { node: CC4_BONES.SPINE_01, channel: 'ry', scale: -1, maxDegrees: 6 },
+    { node: CC4_BONES.SPINE_02, channel: 'ry', scale: -1, maxDegrees: 10 },
+  ],
+  [BODY_ORIENTATION_CONTROLS.PITCH_FORWARD]: [
+    { node: CC4_BONES.SPINE_01, channel: 'rx', scale: 1, maxDegrees: 4 },
+    { node: CC4_BONES.SPINE_02, channel: 'rx', scale: 1, maxDegrees: 8 },
+  ],
+  [BODY_ORIENTATION_CONTROLS.PITCH_BACK]: [
+    { node: CC4_BONES.SPINE_01, channel: 'rx', scale: -1, maxDegrees: 4 },
+    { node: CC4_BONES.SPINE_02, channel: 'rx', scale: -1, maxDegrees: 8 },
+  ],
+  [BODY_ORIENTATION_CONTROLS.ROLL_LEFT]: [
+    { node: CC4_BONES.SPINE_01, channel: 'rz', scale: -1, maxDegrees: 3 },
+    { node: CC4_BONES.SPINE_02, channel: 'rz', scale: -1, maxDegrees: 6 },
+  ],
+  [BODY_ORIENTATION_CONTROLS.ROLL_RIGHT]: [
+    { node: CC4_BONES.SPINE_01, channel: 'rz', scale: 1, maxDegrees: 3 },
+    { node: CC4_BONES.SPINE_02, channel: 'rz', scale: 1, maxDegrees: 6 },
+  ],
+};
+
 /** Legacy compatibility map consumed by the current runtime profile shape. */
 export const CC4_PROFILE_BONE_BINDINGS: Record<number, BoneBinding[]> = {
   ...BONE_AU_TO_BINDINGS,
   ...LIP_SYNC_CONTROL_TO_BINDINGS,
+  ...BODY_ORIENTATION_CONTROL_TO_BINDINGS,
 };
 
 // ============================================================================
@@ -898,6 +946,48 @@ export const COMPOSITE_ROTATIONS: CompositeRotation[] = [
     pitch: { aus: [38, 37], axis: 'rz', negative: 38, positive: 37 },  // Tongue down/up
     yaw: { aus: [39, 40], axis: 'ry', negative: 39, positive: 40 },    // Tongue left/right
     roll: { aus: [41, 42], axis: 'rx', negative: 41, positive: 42 }    // Tongue tilt left/right
+  },
+  {
+    node: CC4_BONES.SPINE_01,
+    pitch: {
+      aus: [BODY_ORIENTATION_CONTROLS.PITCH_FORWARD, BODY_ORIENTATION_CONTROLS.PITCH_BACK],
+      axis: 'rx',
+      negative: BODY_ORIENTATION_CONTROLS.PITCH_FORWARD,
+      positive: BODY_ORIENTATION_CONTROLS.PITCH_BACK,
+    },
+    yaw: {
+      aus: [BODY_ORIENTATION_CONTROLS.YAW_LEFT, BODY_ORIENTATION_CONTROLS.YAW_RIGHT],
+      axis: 'ry',
+      negative: BODY_ORIENTATION_CONTROLS.YAW_LEFT,
+      positive: BODY_ORIENTATION_CONTROLS.YAW_RIGHT,
+    },
+    roll: {
+      aus: [BODY_ORIENTATION_CONTROLS.ROLL_LEFT, BODY_ORIENTATION_CONTROLS.ROLL_RIGHT],
+      axis: 'rz',
+      negative: BODY_ORIENTATION_CONTROLS.ROLL_LEFT,
+      positive: BODY_ORIENTATION_CONTROLS.ROLL_RIGHT,
+    }
+  },
+  {
+    node: CC4_BONES.SPINE_02,
+    pitch: {
+      aus: [BODY_ORIENTATION_CONTROLS.PITCH_FORWARD, BODY_ORIENTATION_CONTROLS.PITCH_BACK],
+      axis: 'rx',
+      negative: BODY_ORIENTATION_CONTROLS.PITCH_FORWARD,
+      positive: BODY_ORIENTATION_CONTROLS.PITCH_BACK,
+    },
+    yaw: {
+      aus: [BODY_ORIENTATION_CONTROLS.YAW_LEFT, BODY_ORIENTATION_CONTROLS.YAW_RIGHT],
+      axis: 'ry',
+      negative: BODY_ORIENTATION_CONTROLS.YAW_LEFT,
+      positive: BODY_ORIENTATION_CONTROLS.YAW_RIGHT,
+    },
+    roll: {
+      aus: [BODY_ORIENTATION_CONTROLS.ROLL_LEFT, BODY_ORIENTATION_CONTROLS.ROLL_RIGHT],
+      axis: 'rz',
+      negative: BODY_ORIENTATION_CONTROLS.ROLL_LEFT,
+      positive: BODY_ORIENTATION_CONTROLS.ROLL_RIGHT,
+    }
   }
 ];
 
@@ -956,6 +1046,45 @@ export const CONTINUUM_PAIRS_MAP: Record<number, {
   74: { pairId: 73, isNegative: false, axis: 'yaw', node: CC4_BONES.TONGUE },
   76: { pairId: 77, isNegative: false, axis: 'pitch', node: CC4_BONES.TONGUE }, // Tongue Tip Up/Down
   77: { pairId: 76, isNegative: true, axis: 'pitch', node: CC4_BONES.TONGUE },
+  // Body orientation. SPINE_02 is the primary authoring node; the profile
+  // bindings and composite rotations distribute each control across both
+  // spine joints at playback time.
+  [BODY_ORIENTATION_CONTROLS.YAW_LEFT]: {
+    pairId: BODY_ORIENTATION_CONTROLS.YAW_RIGHT,
+    isNegative: true,
+    axis: 'yaw',
+    node: CC4_BONES.SPINE_02,
+  },
+  [BODY_ORIENTATION_CONTROLS.YAW_RIGHT]: {
+    pairId: BODY_ORIENTATION_CONTROLS.YAW_LEFT,
+    isNegative: false,
+    axis: 'yaw',
+    node: CC4_BONES.SPINE_02,
+  },
+  [BODY_ORIENTATION_CONTROLS.PITCH_FORWARD]: {
+    pairId: BODY_ORIENTATION_CONTROLS.PITCH_BACK,
+    isNegative: true,
+    axis: 'pitch',
+    node: CC4_BONES.SPINE_02,
+  },
+  [BODY_ORIENTATION_CONTROLS.PITCH_BACK]: {
+    pairId: BODY_ORIENTATION_CONTROLS.PITCH_FORWARD,
+    isNegative: false,
+    axis: 'pitch',
+    node: CC4_BONES.SPINE_02,
+  },
+  [BODY_ORIENTATION_CONTROLS.ROLL_LEFT]: {
+    pairId: BODY_ORIENTATION_CONTROLS.ROLL_RIGHT,
+    isNegative: true,
+    axis: 'roll',
+    node: CC4_BONES.SPINE_02,
+  },
+  [BODY_ORIENTATION_CONTROLS.ROLL_RIGHT]: {
+    pairId: BODY_ORIENTATION_CONTROLS.ROLL_LEFT,
+    isNegative: false,
+    axis: 'roll',
+    node: CC4_BONES.SPINE_02,
+  },
 };
 
 /**
@@ -979,6 +1108,9 @@ export const CONTINUUM_LABELS: Record<string, string> = {
   '41-42': 'Tongue — Tilt',
   '73-74': 'Tongue — Width',
   '76-77': 'Tongue Tip — Vertical',
+  '104-105': 'Body — Horizontal',
+  '106-107': 'Body — Forward / Back',
+  '108-109': 'Body — Lean',
 };
 
 export const CC4_EYE_MESH_NODES = {
@@ -1190,7 +1322,8 @@ export const CC4_MAPPING_SECTIONS: MappingEditorSection[] = [
   { id: 'Hair', label: 'Hair', kind: 'hair', order: 12, meshCategory: 'hair' },
   { id: 'Visemes', label: 'Visemes', kind: 'viseme', order: 13, meshCategory: 'viseme' },
   { id: 'LipSync', label: 'Lip Sync', kind: 'lipSync', order: 14, meshCategory: 'face' },
-  { id: 'Unmapped', label: 'Unmapped', kind: 'unmapped', order: 15, meshCategory: 'face' },
+  { id: 'BodyOrientation', label: 'Body Orientation', kind: 'bodyOrientation', order: 15 },
+  { id: 'Unmapped', label: 'Unmapped', kind: 'unmapped', order: 16, meshCategory: 'face' },
 ];
 
 // ============================================================================
@@ -1257,6 +1390,10 @@ export const CC4_PRESET: Profile = {
   auMixDefaults: AU_MIX_DEFAULTS,
   auInfo: AU_INFO,
   eyeMeshNodes: CC4_EYE_MESH_NODES,
+  // Keep composite control semantics in profile data so the TypeScript adapter
+  // and Rust/Wasm core compile the same bone rotations. The adapter still has
+  // its historical CC4 fallback for older external profiles.
+  compositeRotations: COMPOSITE_ROTATIONS,
   meshes: CC4_MESHES,
   continuumPairs: CONTINUUM_PAIRS_MAP,
   continuumLabels: CONTINUUM_LABELS,

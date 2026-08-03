@@ -2281,13 +2281,15 @@ export class ThreeAnimationSystem {
     const bones = this.host.getBones();
     type ProfileMappedTarget =
       | Extract<SnippetChannel['target'], { type: 'au' }>
-      | Extract<SnippetChannel['target'], { type: 'lipSync' }>;
+      | Extract<SnippetChannel['target'], { type: 'lipSync' }>
+      | Extract<SnippetChannel['target'], { type: 'bodyOrientation' }>;
     const isProfileMappedTarget = (target: SnippetChannel['target']): target is ProfileMappedTarget =>
-      target.type === 'au' || target.type === 'lipSync';
+      target.type === 'au' || target.type === 'lipSync' || target.type === 'bodyOrientation';
     const isProfileMappedChannel = (channel: SnippetChannel): channel is SnippetChannel & { target: ProfileMappedTarget } =>
       isProfileMappedTarget(channel.target);
     const visemeChannels = channels.filter((channel) => channel.target.type === 'viseme');
     const lipSyncChannels = channels.filter((channel) => channel.target.type === 'lipSync');
+    const bodyOrientationChannels = channels.filter((channel) => channel.target.type === 'bodyOrientation');
     const auChannels = channels.filter((channel) => channel.target.type === 'au');
     const profileMappedChannels = channels.filter(isProfileMappedChannel);
     let maxTime = 0;
@@ -2297,6 +2299,7 @@ export class ThreeAnimationSystem {
       channelCount: channels.length,
       visemeChannels: visemeChannels.map(summarizeTypedChannel),
       lipSyncChannels: lipSyncChannels.map(summarizeTypedChannel),
+      bodyOrientationChannels: bodyOrientationChannels.map(summarizeTypedChannel),
       auChannels: auChannels.map(summarizeTypedChannel),
       options: {
         source: options?.source,
@@ -2699,6 +2702,7 @@ export class ThreeAnimationSystem {
       durationSec: maxTime,
       visemeIds: visemeChannels.map((channel) => channel.target.type === 'viseme' ? channel.target.id : null),
       lipSyncIds: lipSyncChannels.map((channel) => channel.target.type === 'lipSync' ? channel.target.id : null),
+      bodyOrientationIds: bodyOrientationChannels.map((channel) => channel.target.type === 'bodyOrientation' ? channel.target.id : null),
       auIds: auChannels.map((channel) => channel.target.type === 'au' ? channel.target.id : null),
     });
     this.debugClipLog(`[Embody] typedSnippetToClip: Created clip "${clipName}" with ${tracks.length} tracks, duration ${maxTime.toFixed(2)}s`);

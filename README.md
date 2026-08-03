@@ -2404,6 +2404,7 @@ This is a compact reference for the public surface exported by `@lovelace_lol/em
 
 ![Reference cards for FACS, Paul Ekman Group, Character Creator 4, and Three.js](./assets/readme/resources-cards.svg)
 
+- [Profile-driven body orientation controls](./docs/BODY_ORIENTATION_CONTROLS.md)
 - [FACS on Wikipedia](https://en.wikipedia.org/wiki/Facial_Action_Coding_System)
 - [Paul Ekman Group - FACS](https://www.paulekman.com/facial-action-coding-system/)
 - [Character Creator 4](https://www.reallusion.com/character-creator/)

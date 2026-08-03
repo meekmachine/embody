@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   AU_TO_MORPHS,
   BONE_AU_TO_BINDINGS,
+  BODY_ORIENTATION_CONTROLS,
+  BODY_ORIENTATION_CONTROL_TO_BINDINGS,
   CC4_PROFILE_BONE_BINDINGS,
   CC4_PRESET,
   COMPOSITE_ROTATIONS,
@@ -195,6 +197,25 @@ describe('CC4 Preset', () => {
       expect(CC4_PROFILE_BONE_BINDINGS[103]).toEqual(LIP_SYNC_CONTROL_TO_BINDINGS[103]);
       expect(CC4_PRESET.auToBones[103]).toEqual(LIP_SYNC_CONTROL_TO_BINDINGS[103]);
       expect(COMPOSITE_ROTATIONS.find(c => c.node === CC4_BONES.JAW)?.pitch?.aus).toContain(103);
+    });
+
+    it('keeps semantic body-orientation controls outside FACS and distributes them across the spine', () => {
+      const left = BODY_ORIENTATION_CONTROLS.YAW_LEFT;
+      expect(AU_TO_MORPHS[left]).toBeUndefined();
+      expect(CC4_PRESET.auInfo?.[String(left)]).toBeUndefined();
+      expect(BONE_AU_TO_BINDINGS[left]).toBeUndefined();
+      expect(BODY_ORIENTATION_CONTROL_TO_BINDINGS[left]).toEqual([
+        expect.objectContaining({ node: CC4_BONES.SPINE_01, channel: 'ry', scale: 1 }),
+        expect.objectContaining({ node: CC4_BONES.SPINE_02, channel: 'ry', scale: 1 }),
+      ]);
+      expect(CC4_PRESET.auToBones[left]).toEqual(BODY_ORIENTATION_CONTROL_TO_BINDINGS[left]);
+      expect(COMPOSITE_ROTATIONS.find(c => c.node === CC4_BONES.SPINE_01)?.yaw?.aus).toContain(left);
+      expect(COMPOSITE_ROTATIONS.find(c => c.node === CC4_BONES.SPINE_02)?.yaw?.aus).toContain(left);
+      expect(CONTINUUM_PAIRS_MAP[left]).toMatchObject({
+        pairId: BODY_ORIENTATION_CONTROLS.YAW_RIGHT,
+        isNegative: true,
+        axis: 'yaw',
+      });
     });
   });
 
