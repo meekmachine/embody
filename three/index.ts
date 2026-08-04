@@ -442,7 +442,11 @@ export class ThreeFrameApplier {
     for (const semantic of MORPH_ATTRIBUTE_SEMANTICS) {
       const data = target[semantic] as ArrayLike<number> | undefined;
       const existingAttributes = geometry.morphAttributes[semantic] as Array<BufferAttribute | undefined> | undefined;
-      if (!data && (!existingAttributes || existingAttributes.length === 0)) continue;
+      if (!data && existingAttributes?.length === 0) {
+        delete geometry.morphAttributes[semantic];
+        continue;
+      }
+      if (!data && !existingAttributes) continue;
 
       const base = geometry.getAttribute(semantic);
       if (!base || (data && data.length !== base.count * base.itemSize)) {

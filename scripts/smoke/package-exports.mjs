@@ -51,6 +51,7 @@ morphGeometry.setAttribute('normal', new BufferAttribute(new Float32Array(9), 3)
 morphGeometry.morphTargetsRelative = true;
 morphGeometry.morphAttributes.position = [new BufferAttribute(new Float32Array(9), 3)];
 morphGeometry.morphAttributes.normal = [new BufferAttribute(new Float32Array(9), 3)];
+morphGeometry.morphAttributes.color = [];
 const morphMesh = new Mesh(morphGeometry);
 morphMesh.name = 'CC_Base_Body_1';
 morphMesh.morphTargetDictionary = { Existing: 0 };
@@ -83,6 +84,7 @@ const checks = [
   ['position-only authored morph keeps normal channel aligned', morphMesh.geometry.morphAttributes.normal.length === 2],
   ['position-only authored morph creates a neutral normal', morphMesh.geometry.morphAttributes.normal[1]?.array.every((value) => value === 0)],
   ['position-only authored morph keeps influences aligned', morphMesh.morphTargetInfluences.length === 2],
+  ['position-only authored morph removes empty channels', morphMesh.geometry.morphAttributes.color === undefined],
 ];
 
 runtime.free();
