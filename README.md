@@ -7,13 +7,18 @@ host adapter, not the runtime implementation.
 ## Architecture
 
 ```text
-src/                 Rust source and Wasm exports
+src/                 Rust source (the Wasm crate) — hair, clips, profiles, runtime
 assets/presets/      Embedded typed character profiles
 assets/templates/    Embedded humanoid skeleton templates
-three/               Thin Three.js inspection/application adapter
-wasm/                Generated-Wasm loader
+three/               Thin Three.js inspection/application adapter only
+wasm/                Generated-Wasm JS loader + ABI constants
 index.ts             Package re-exports only
 ```
+
+There is no parallel TypeScript hair/physics/runtime core. Hair idle, impulse,
+gravity curves and the spring solver live in `src/hair_curves.rs` /
+`src/hair.rs` and are exported through Wasm. Hosts schedule the resulting
+ClipIR on their mixer; they must not reimplement hair sampling in TS.
 
 The Rust core owns:
 
