@@ -21,10 +21,12 @@
       "types": "./dist/wasm/index.d.ts",
       "import": "./dist/wasm.js",
       "require": "./dist/wasm.cjs"
-    }
+    },
+    "./character-asset-service-worker.js": "./service-worker/character-asset-service-worker.js"
   },
   "files": [
     "dist",
+    "service-worker",
     "README.md",
     "LICENSE"
   ],

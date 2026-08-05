@@ -12,6 +12,10 @@ import {
 } from 'three';
 
 const require = createRequire(import.meta.url);
+const serviceWorkerPath = require.resolve(
+  '@lovelace_lol/embody/character-asset-service-worker.js',
+);
+const serviceWorkerSource = await readFile(serviceWorkerPath, 'utf8');
 const root = await import('@lovelace_lol/embody');
 const three = await import('@lovelace_lol/embody/three');
 const wasm = await import('@lovelace_lol/embody/wasm');
@@ -85,6 +89,11 @@ const checks = [
   ['position-only authored morph creates a neutral normal', morphMesh.geometry.morphAttributes.normal[1]?.array.every((value) => value === 0)],
   ['position-only authored morph keeps influences aligned', morphMesh.morphTargetInfluences.length === 2],
   ['position-only authored morph removes empty channels', morphMesh.geometry.morphAttributes.color === undefined],
+  [
+    'character asset service worker export',
+    serviceWorkerSource.includes("addEventListener('fetch'") &&
+      serviceWorkerSource.includes('embody-character-assets-'),
+  ],
 ];
 
 runtime.free();
