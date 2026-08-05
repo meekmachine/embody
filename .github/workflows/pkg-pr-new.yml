@@ -1,17 +1,24 @@
-name: Continuous Release (pkg.pr.new)
+name: Publish (pkg.pr.new)
+
+# Built package distribution for private consumers. Depends-on / PR tests use
+# git SHAs. This workflow publishes on main and on-demand for staging/prod deploys.
 
 on:
-  pull_request:
+  push:
     branches:
       - main
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref or SHA to publish (default: current ref)
+        required: false
+        type: string
+        default: ""
+  repository_dispatch:
+    types: [publish-pkg-pr-new]
 
 concurrency:
-  group: pkg-pr-new-${{ github.event.pull_request.number || github.ref }}
+  group: pkg-pr-new-${{ github.event.client_payload.sha || github.event.inputs.ref || github.sha }}
   cancel-in-progress: true
 
 permissions:
@@ -20,11 +27,34 @@ permissions:
 
 jobs:
   publish:
-    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve checkout ref
+        id: ref
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            ref="${{ github.event.client_payload.sha }}"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.ref }}" ]]; then
+            ref="${{ github.event.inputs.ref }}"
+          else
+            ref="${{ github.sha }}"
+          fi
+          if [[ -z "${ref}" ]]; then
+            echo "Missing publish ref/sha" >&2
+            exit 1
+          fi
+          echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
+
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -38,12 +68,13 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Publish preview package
+      - name: Publish package to pkg.pr.new
         id: publish
         continue-on-error: true
         run: npx --yes pkg-pr-new publish --no-compact
 
-      - name: Warn if pkg.pr.new is unavailable
+      - name: Fail if pkg.pr.new is unavailable
         if: steps.publish.outcome == 'failure'
         run: |
-          echo "::warning::pkg.pr.new publish failed. Install the GitHub App at https://github.com/apps/pkg-pr-new on meekmachine/embody, then re-run this job. Embody does not track dist or build on Git install, so linked consumers require a built preview package."
+          echo "::error::pkg.pr.new publish failed. Reinstall the GitHub App at https://github.com/apps/pkg-pr-new on meekmachine/embody, then re-run."
+          exit 1
