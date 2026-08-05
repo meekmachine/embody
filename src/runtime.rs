@@ -1015,6 +1015,19 @@ impl RuntimeCore {
     /// Live AU/viseme/direct morph state only — clip playback is host-owned.
     #[wasm_bindgen]
     pub fn evaluate_morph_frame_delta(&self) -> Box<[f32]> {
+        self.morph_frame_writes(false)
+    }
+
+    /// Same rows as `evaluate_morph_frame_delta`, but only channels with a
+    /// non-zero live value. Hosts re-apply this after mixer playback so live
+    /// AU/viseme state wins over clip tracks (Loom3 parity) without resetting
+    /// channels the mixer owns.
+    #[wasm_bindgen]
+    pub fn evaluate_active_morph_frame(&self) -> Box<[f32]> {
+        self.morph_frame_writes(true)
+    }
+
+    fn morph_frame_writes(&self, active_only: bool) -> Box<[f32]> {
         let mut writes: HashMap<(u32, u32), f32> = HashMap::new();
 
         for binding in &self.au_bindings {
@@ -1074,6 +1087,9 @@ impl RuntimeCore {
 
         let mut out = Vec::with_capacity(writes.len() * PACKED_MORPH_FRAME_DELTA_STRIDE as usize);
         for ((mesh_id, morph_target_id), value) in writes {
+            if active_only && value <= 1e-6 {
+                continue;
+            }
             out.push(mesh_id as f32);
             out.push(morph_target_id as f32);
             out.push(value);
@@ -1088,6 +1104,19 @@ impl RuntimeCore {
     /// viseme jaw rotation is applied as an absolute packed frame write.
     #[wasm_bindgen]
     pub fn evaluate_bone_frame_delta(&self) -> Box<[f32]> {
+        self.bone_frame_writes(false)
+    }
+
+    /// Same rows as `evaluate_bone_frame_delta`, but only bones an active AU,
+    /// translation, or viseme jaw value is currently rotating or moving.
+    /// Neutral bones are omitted (no rest reset), so hosts can re-apply this
+    /// after mixer playback without freezing clip-driven bones (Loom3 parity).
+    #[wasm_bindgen]
+    pub fn evaluate_active_bone_frame(&self) -> Box<[f32]> {
+        self.bone_frame_writes(true)
+    }
+
+    fn bone_frame_writes(&self, active_only: bool) -> Box<[f32]> {
         let mut order: Vec<u32> = Vec::new();
         let mut writes: HashMap<u32, BoneWrite> = HashMap::new();
 
@@ -1111,6 +1140,7 @@ impl RuntimeCore {
                 .get(&bone_id)
                 .map(|rest| rest.rotation)
                 .unwrap_or([0.0, 0.0, 0.0, 1.0]);
+            let mut bone_active = false;
 
             while composite_index < self.composite_axes.len()
                 && self.composite_axes[composite_index].bone_id == bone_id
@@ -1120,6 +1150,7 @@ impl RuntimeCore {
                 if direction.abs() > 1e-6 {
                     if let Some(binding) = select_axis_binding(axis, direction, effective_value) {
                         if binding.max_degrees.abs() > 0.0 {
+                            bone_active = true;
                             rotation = multiply_quat(
                                 rotation,
                                 quat_from_channel(
@@ -1135,7 +1166,9 @@ impl RuntimeCore {
                 composite_index += 1;
             }
 
-            upsert_bone_write(&mut writes, &mut order, bone_id, None, Some(rotation));
+            if !active_only || bone_active {
+                upsert_bone_write(&mut writes, &mut order, bone_id, None, Some(rotation));
+            }
         }
 
         // AU translations: per-component offsets against the rest position.
@@ -1158,6 +1191,9 @@ impl RuntimeCore {
             entry.1[row.axis.min(2) as usize] = offset;
         }
         for (bone_id, offset) in offsets {
+            if active_only && offset.iter().all(|component| component.abs() <= 1e-6) {
+                continue;
+            }
             let rest = self
                 .bone_rest_transforms
                 .get(&bone_id)
@@ -1195,10 +1231,11 @@ impl RuntimeCore {
                     ),
                 );
                 upsert_bone_write(&mut writes, &mut order, jaw.bone_id, None, Some(rotation));
-            } else if writes
-                .get(&jaw.bone_id)
-                .and_then(|(_, rotation)| *rotation)
-                .is_none()
+            } else if !active_only
+                && writes
+                    .get(&jaw.bone_id)
+                    .and_then(|(_, rotation)| *rotation)
+                    .is_none()
             {
                 upsert_bone_write(&mut writes, &mut order, jaw.bone_id, None, Some(rest));
             }
@@ -1999,6 +2036,68 @@ mod tests {
         let len = (0.1f32 * 0.1 + 0.2 * 0.2 + 0.3 * 0.3 + 0.9 * 0.9).sqrt();
         assert!((packed[4] - 0.1 / len).abs() < 1e-6);
         assert!((packed[8] - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn active_bone_frame_omits_neutral_bones_but_keeps_active_ones() {
+        let mut core = RuntimeCore::new(2);
+        core.load_bone_rest_transforms(&[
+            1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, // head bone 1
+            3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, // jaw bone 3
+        ]);
+        core.load_composite_axes(&[
+            1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, // head yaw axis
+            51.0, 2.0, 0.0, 51.0, 2.0, 0.0, 1.0, 1.0, 30.0,
+        ]);
+        core.load_jaw_binding(&[3.0, 0.0, 1.0, 30.0]);
+        core.load_viseme_jaw_amounts(&[1.0, 1.0]);
+
+        // Neutral state: full frame resets to rest, active frame emits nothing.
+        assert_eq!(
+            core.evaluate_bone_frame_delta().len(),
+            2 * PACKED_BONE_FRAME_DELTA_STRIDE as usize
+        );
+        assert_eq!(core.evaluate_active_bone_frame().len(), 0);
+
+        // Active AU: both frames agree on the rotated bone; the active frame
+        // omits the still-neutral jaw.
+        core.set_au(51, 0.5, 0.0);
+        let active = core.evaluate_active_bone_frame();
+        assert_eq!(active.len(), PACKED_BONE_FRAME_DELTA_STRIDE as usize);
+        assert_eq!(active[0], 1.0);
+        let expected_half = (15.0f32).to_radians() / 2.0;
+        assert!((active[5] - expected_half.sin()).abs() < 1e-6);
+
+        // Active viseme jaw joins the active frame.
+        core.set_viseme(0, 0.5);
+        let active = core.evaluate_active_bone_frame();
+        assert_eq!(active.len(), 2 * PACKED_BONE_FRAME_DELTA_STRIDE as usize);
+
+        // Back to neutral: active frame is empty again.
+        core.set_au(51, 0.0, 0.0);
+        core.set_viseme(0, 0.0);
+        assert_eq!(core.evaluate_active_bone_frame().len(), 0);
+    }
+
+    #[test]
+    fn active_morph_frame_omits_zero_values() {
+        let mut core = RuntimeCore::new(0);
+        core.load_au_morph_bindings(&[
+            1.0, 2.0, 10.0, 100.0, 1.0, // AU 1 center -> morph 100
+            2.0, 2.0, 10.0, 101.0, 1.0, // AU 2 center -> morph 101, inactive
+        ]);
+        core.set_au(1, 0.8, 0.0);
+
+        let active = unpack_rows(&core.evaluate_active_morph_frame());
+        assert_eq!(active, vec![(10, 100, 0.8)]);
+
+        // The full frame still resets the inactive morph to zero.
+        let full = unpack_rows(&core.evaluate_morph_frame_delta());
+        assert_eq!(full.len(), 2);
+        assert!(full.contains(&(10, 101, 0.0)));
+
+        core.set_au(1, 0.0, 0.0);
+        assert_eq!(core.evaluate_active_morph_frame().len(), 0);
     }
 
     #[test]
