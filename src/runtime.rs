@@ -2057,6 +2057,72 @@ mod tests {
     }
 
     #[test]
+    fn cc4_preset_drives_head_bone_rotation_from_au() {
+        // Regression: CC4 must ship compositeRotations so AU→bone yaw/pitch/roll
+        // activates like morph targets. Loom3 fell back to built-in composites;
+        // Rust has no such fallback when the embedded preset omits them.
+        let model = r#"{
+            "meshes": [{ "id": 1, "name": "CC_Base_Body", "morphTargetIds": [] }],
+            "morphTargets": [],
+            "bones": [
+                {
+                    "id": 2,
+                    "name": "CC_Base_Head",
+                    "restTransform": {
+                        "position": { "x": 0, "y": 1.5, "z": 0 },
+                        "rotation": { "x": 0, "y": 0, "z": 0, "w": 1 }
+                    }
+                },
+                {
+                    "id": 3,
+                    "name": "CC_Base_JawRoot",
+                    "restTransform": {
+                        "position": { "x": 0, "y": 1.4, "z": 0.05 },
+                        "rotation": { "x": 0, "y": 0, "z": 0, "w": 1 }
+                    }
+                }
+            ]
+        }"#;
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_preset("cc4", "", model).unwrap();
+
+        core.set_au(51, 1.0, 0.0);
+        let packed = core.evaluate_bone_frame_delta();
+        assert!(
+            packed.len() >= PACKED_BONE_FRAME_DELTA_STRIDE as usize,
+            "expected packed bone writes from CC4 compositeRotations"
+        );
+
+        let stride = PACKED_BONE_FRAME_DELTA_STRIDE as usize;
+        let head = packed
+            .chunks(stride)
+            .find(|row| row[0] == 2.0)
+            .expect("HEAD bone write missing");
+        assert_eq!(head[8] as u32 & FLAG_HAS_ROTATION, FLAG_HAS_ROTATION);
+        // AU 51 → Head yaw on ry at 60° → quat y = sin(30°)
+        let expected = (60.0f32).to_radians() / 2.0;
+        assert!(
+            (head[5] - expected.sin()).abs() < 1e-4,
+            "expected non-identity head yaw quat, got {:?}",
+            &head[4..8]
+        );
+
+        core.set_au(26, 1.0, 0.0);
+        let jaw_packed = core.evaluate_bone_frame_delta();
+        let jaw = jaw_packed
+            .chunks(stride)
+            .find(|row| row[0] == 3.0)
+            .expect("JAW bone write missing");
+        assert_eq!(jaw[8] as u32 & FLAG_HAS_ROTATION, FLAG_HAS_ROTATION);
+        let jaw_half = (30.0f32).to_radians() / 2.0;
+        assert!(
+            (jaw[6] - jaw_half.sin()).abs() < 1e-4,
+            "expected non-identity jaw pitch quat, got {:?}",
+            &jaw[4..8]
+        );
+    }
+
+    #[test]
     fn configures_from_registered_fish_preset() {
         let model = r#"{
             "meshes": [{ "id": 1, "name": "EYES_0", "morphTargetIds": [] }],
