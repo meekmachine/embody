@@ -101,6 +101,24 @@ struct TypedChannel {
     intensity_scale: Option<f64>,
 }
 
+/// Loom3 parity: `config.compositeRotations || CC4_COMPOSITE_ROTATIONS`.
+///
+/// Saved character profiles carry `auToBones` rotation bindings but rarely
+/// embed a composite rotation table. Loom3 fell back to the built-in CC4
+/// composites; without the same fallback every such profile loses AU bone
+/// rotations in live frames and in compiled snippet clips (only morph tracks
+/// come out of snippet-to-clip). Composite nodes that don't resolve against
+/// the model are skipped during table compilation, so this is safe for
+/// non-CC4 rigs.
+fn apply_composite_rotation_fallback(profile: &mut ProfileData) {
+    if !profile.composite_rotations.is_empty() {
+        return;
+    }
+    if let Ok(cc4) = presets::load_profile("cc4") {
+        profile.composite_rotations = cc4.composite_rotations.clone();
+    }
+}
+
 #[cfg(test)]
 fn compile_resolved_profile_tables(
     profile_json: &str,
@@ -198,8 +216,9 @@ impl RuntimeCore {
     /// continuum pairs) happens here, inside the core.
     #[wasm_bindgen]
     pub fn configure(&mut self, profile_json: &str, model_json: &str) -> Result<(), JsError> {
-        let profile: ProfileData = deserialize_json(profile_json, "Invalid profile JSON")
+        let mut profile: ProfileData = deserialize_json(profile_json, "Invalid profile JSON")
             .map_err(|err| JsError::new(&err))?;
+        apply_composite_rotation_fallback(&mut profile);
         let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")
             .map_err(|err| JsError::new(&err))?;
         let tables = compile_tables(&profile, &model);
@@ -218,13 +237,15 @@ impl RuntimeCore {
         profile_json: &str,
         model_json: &str,
     ) -> Result<(), JsError> {
-        let profile: ProfileData = deserialize_json(profile_json, "Invalid resolved profile JSON")
-            .map_err(|err| JsError::new(&err))?;
+        let mut profile: ProfileData =
+            deserialize_json(profile_json, "Invalid resolved profile JSON")
+                .map_err(|err| JsError::new(&err))?;
         if !profile.has_runtime_mappings() {
             return Err(JsError::new(
                 "Resolved profile is incomplete: expected at least one AU, bone, or viseme mapping",
             ));
         }
+        apply_composite_rotation_fallback(&mut profile);
         let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")
             .map_err(|err| JsError::new(&err))?;
         let tables = compile_tables(&profile, &model);
@@ -244,7 +265,10 @@ impl RuntimeCore {
     ) -> Result<(), JsError> {
         let base = presets::load_profile(preset_id).map_err(|err| JsError::new(&err))?;
         let extension = parse_profile_patch(override_json).map_err(|err| JsError::new(&err))?;
-        let profile = extend_preset_with_profile(base, extension);
+        let mut profile = extend_preset_with_profile(base, extension);
+        // Overrides serialized with `compositeRotations: []` must not wipe the
+        // preset's composite table (bone rotations would silently vanish).
+        apply_composite_rotation_fallback(&mut profile);
         let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")
             .map_err(|err| JsError::new(&err))?;
         let tables = compile_tables(&profile, &model);
@@ -2230,6 +2254,111 @@ mod tests {
         core.configure_with_profile(profile, model).unwrap();
         core.set_au(900, 1.0, 0.0);
         assert!(core.evaluate_morph_frame_delta().is_empty());
+    }
+
+    #[test]
+    fn resolved_profile_without_composites_falls_back_to_cc4_bone_rotations() {
+        // Saved characters store auToBones rotation bindings but usually not
+        // compositeRotations, and serialize unset fields as explicit null.
+        // Loom3 parity: fall back to the CC4 composite table and treat null
+        // like a missing key, so AU bone rotations work in live frames and in
+        // snippet-to-clip decomposition.
+        let profile = r#"{
+            "auToBones": {
+                "51": [{ "node": "CC_Base_Head", "channel": "ry", "scale": 1, "maxDegrees": 60 }],
+                "52": [{ "node": "CC_Base_Head", "channel": "ry", "scale": -1, "maxDegrees": 60 }]
+            },
+            "boneNodes": { "HEAD": "Head" },
+            "bonePrefix": "CC_Base_",
+            "compositeRotations": null,
+            "disabledRegions": null,
+            "annotationRegions": null
+        }"#;
+        let model = r#"{
+            "meshes": [],
+            "morphTargets": [],
+            "bones": [
+                {
+                    "id": 2,
+                    "name": "CC_Base_Head",
+                    "restTransform": {
+                        "position": { "x": 0, "y": 1.5, "z": 0 },
+                        "rotation": { "x": 0, "y": 0, "z": 0, "w": 1 }
+                    }
+                }
+            ]
+        }"#;
+
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(profile, model).unwrap();
+
+        // Live frame path: AU 51 must produce a HEAD rotation write.
+        core.set_au(51, 1.0, 0.0);
+        let stride = PACKED_BONE_FRAME_DELTA_STRIDE as usize;
+        let packed = core.evaluate_bone_frame_delta();
+        let head = packed
+            .chunks(stride)
+            .find(|row| row[0] == 2.0)
+            .expect("HEAD bone write missing without profile compositeRotations");
+        assert_eq!(head[8] as u32 & FLAG_HAS_ROTATION, FLAG_HAS_ROTATION);
+        let expected = (60.0f32).to_radians() / 2.0;
+        assert!(
+            (head[5] - expected.sin()).abs() < 1e-4,
+            "expected non-identity head yaw quat, got {:?}",
+            &head[4..8]
+        );
+
+        // Snippet-to-clip path: the compiled clip must decompose the AU curve
+        // into a boneTransform quaternion track, not just morph tracks.
+        let clip_json = core
+            .build_clip(
+                "head-turn",
+                r#"{"51": [{"time": 0, "intensity": 0}, {"time": 0.5, "intensity": 1}]}"#,
+                "{}",
+            )
+            .unwrap();
+        let clip: serde_json::Value = serde_json::from_str(&clip_json).unwrap();
+        let tracks = clip["tracks"].as_array().unwrap();
+        let bone_track = tracks
+            .iter()
+            .find(|track| track["target"]["kind"] == "boneTransform")
+            .expect("compiled snippet clip is missing bone rotation tracks");
+        assert_eq!(bone_track["valueType"], "quat");
+        assert_eq!(bone_track["target"]["boneId"], 2);
+        let values = bone_track["values"].as_array().unwrap();
+        let last_y = values[values.len() - 3].as_f64().unwrap();
+        assert!(
+            (last_y - f64::from(expected.sin())).abs() < 1e-4,
+            "expected final keyframe head yaw quat, got {last_y}"
+        );
+    }
+
+    #[test]
+    fn preset_override_with_empty_composites_keeps_preset_bone_rotations() {
+        let model = r#"{
+            "meshes": [{ "id": 1, "name": "CC_Base_Body", "morphTargetIds": [] }],
+            "morphTargets": [],
+            "bones": [
+                {
+                    "id": 2,
+                    "name": "CC_Base_Head",
+                    "restTransform": {
+                        "position": { "x": 0, "y": 1.5, "z": 0 },
+                        "rotation": { "x": 0, "y": 0, "z": 0, "w": 1 }
+                    }
+                }
+            ]
+        }"#;
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_preset("cc4", r#"{"compositeRotations": []}"#, model)
+            .unwrap();
+        core.set_au(51, 1.0, 0.0);
+        let stride = PACKED_BONE_FRAME_DELTA_STRIDE as usize;
+        let packed = core.evaluate_bone_frame_delta();
+        assert!(
+            packed.chunks(stride).any(|row| row[0] == 2.0),
+            "empty compositeRotations override must not wipe preset bone rotations"
+        );
     }
 
     #[test]

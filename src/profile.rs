@@ -25,6 +25,17 @@ pub(crate) fn deserialize_json<T: DeserializeOwned>(
         .map_err(|error| format!("{context}: {error}"))
 }
 
+/// Stored profiles serialize unset fields as explicit JSON `null` (the JS
+/// runtime treated them as `field || fallback`). Deserialize `null` exactly
+/// like a missing key so saved characters keep loading.
+fn null_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum MorphRef {
@@ -52,8 +63,11 @@ impl AuSelector {
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AuMorphEntry {
+    #[serde(deserialize_with = "null_default")]
     pub left: Vec<MorphRef>,
+    #[serde(deserialize_with = "null_default")]
     pub right: Vec<MorphRef>,
+    #[serde(deserialize_with = "null_default")]
     pub center: Vec<MorphRef>,
     #[serde(flatten)]
     pub extensions: Map<String, Value>,
@@ -468,11 +482,11 @@ pub struct ProfileData {
     pub animal_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub emoji: Option<String>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub au_to_morphs: HashMap<String, Option<AuMorphEntry>>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub au_to_bones: HashMap<String, Vec<BoneBindingData>>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub bone_nodes: HashMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bone_prefix: Option<String>,
@@ -484,54 +498,54 @@ pub struct ProfileData {
     pub morph_suffix: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suffix_pattern: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_default")]
     pub left_morph_suffixes: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_default")]
     pub right_morph_suffixes: Vec<String>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub morph_to_mesh: HashMap<String, Vec<String>>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_default")]
     pub mapping_sections: Vec<MappingSectionData>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub au_info: HashMap<String, AuInfoData>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub au_face_part_to_mesh_category: HashMap<String, String>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub au_mix_defaults: HashMap<String, f64>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_default")]
     pub composite_rotations: Vec<CompositeRotationData>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub continuum_pairs: HashMap<String, Option<ContinuumPairData>>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub continuum_labels: HashMap<String, String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_default")]
     pub viseme_keys: Vec<MorphRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub viseme_system_id: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_default")]
     pub viseme_slots: Vec<VisemeSlotData>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub viseme_bindings: HashMap<String, VisemeBindingData>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_default")]
     pub viseme_jaw_amounts: Vec<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub viseme_mesh_category: Option<String>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub eye_mesh_nodes: HashMap<String, String>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub meshes: HashMap<String, MeshInfoData>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_default")]
     pub annotation_regions: Vec<AnnotationRegionData>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_default")]
     pub disabled_regions: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hair_physics: Option<HairPhysicsData>,
     // Typed legacy fish fields retained until that preset schema is normalized.
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub action_info: HashMap<String, AuInfoData>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub bone_bindings: HashMap<String, Vec<BoneBindingData>>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_default")]
     pub bones: Vec<String>,
     #[serde(flatten)]
     pub extensions: Map<String, Value>,
@@ -1546,6 +1560,37 @@ mod tests {
                 { "id": 2, "name": "Jaw" }
             ]
         }"#
+    }
+
+    #[test]
+    fn parses_stored_profile_nulls_as_defaults() {
+        // Stored character profiles serialize unset fields as explicit null;
+        // the JS runtime treated them as `field || fallback`.
+        let profile: ProfileData = deserialize_json(
+            r#"{
+                "auToMorphs": { "12": { "left": null, "right": null, "center": ["Smile"] } },
+                "auToBones": null,
+                "boneNodes": null,
+                "morphToMesh": null,
+                "auInfo": null,
+                "auMixDefaults": null,
+                "compositeRotations": null,
+                "continuumPairs": null,
+                "visemeKeys": null,
+                "visemeJawAmounts": null,
+                "meshes": null,
+                "annotationRegions": null,
+                "disabledRegions": null
+            }"#,
+            "Invalid profile JSON",
+        )
+        .unwrap();
+        assert!(profile.disabled_regions.is_empty());
+        assert!(profile.composite_rotations.is_empty());
+        assert!(profile.au_to_bones.is_empty());
+        let entry = profile.au_to_morphs.get("12").unwrap().as_ref().unwrap();
+        assert!(entry.left.is_empty());
+        assert_eq!(entry.center.len(), 1);
     }
 
     #[test]
