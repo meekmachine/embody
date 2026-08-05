@@ -12,13 +12,21 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
 var draco = null;
 var dracoPath = "";
 var gltfLoader = null;
+var gltfLoaderUsesDraco = false;
 var fbxLoader = null;
-var getGltfLoader = (path) => {
-  if (!gltfLoader || path !== dracoPath) {
+var getGltfLoader = (dracoDecoderPath) => {
+  const wantsDraco = typeof dracoDecoderPath === "string" && dracoDecoderPath.length > 0;
+  const normalizedPath = wantsDraco ? dracoDecoderPath.endsWith("/") ? dracoDecoderPath : `${dracoDecoderPath}/` : "";
+  if (!gltfLoader || gltfLoaderUsesDraco !== wantsDraco || wantsDraco && normalizedPath !== dracoPath) {
     draco?.dispose();
-    dracoPath = path;
-    draco = new DRACOLoader_js.DRACOLoader().setDecoderPath(path.endsWith("/") ? path : `${path}/`).setDecoderConfig({ type: "wasm" });
-    gltfLoader = new GLTFLoader_js.GLTFLoader().setDRACOLoader(draco);
+    draco = null;
+    dracoPath = normalizedPath;
+    gltfLoaderUsesDraco = wantsDraco;
+    gltfLoader = new GLTFLoader_js.GLTFLoader();
+    if (wantsDraco) {
+      draco = new DRACOLoader_js.DRACOLoader().setDecoderPath(normalizedPath).setDecoderConfig({ type: "wasm" });
+      gltfLoader.setDRACOLoader(draco);
+    }
   }
   return gltfLoader;
 };
@@ -68,11 +76,11 @@ function loadCharacterModel(url, options = {}) {
     fbxLoader ?? (fbxLoader = new FBXLoader_js.FBXLoader());
     return new Promise((resolve, reject) => fbxLoader.load(url, (model) => resolve(done(model, model.animations ?? [], null)), progress(options.onProgress), reject));
   }
-  const loader = getGltfLoader(options.dracoDecoderPath ?? "/draco-gltf/");
+  const loader = getGltfLoader(options.dracoDecoderPath);
   return new Promise((resolve, reject) => loader.load(url, (gltf) => resolve(done(gltf.scene, gltf.animations ?? [], gltf)), progress(options.onProgress), reject));
 }
 function parseCharacterModel(data, resourcePath = "", options = {}) {
-  const loader = getGltfLoader(options.dracoDecoderPath ?? "/draco-gltf/");
+  const loader = getGltfLoader(options.dracoDecoderPath);
   return new Promise((resolve, reject) => loader.parse(data, resourcePath, (gltf) => resolve({ model: gltf.scene, meshes: prepare(gltf.scene, options.castShadows), animations: gltf.animations ?? [], gltf }), reject));
 }
 var DEFAULT_CHARACTER_LIGHTING_PRESETS = {
