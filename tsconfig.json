@@ -23,6 +23,6 @@
     "declaration": true,
     "declarationMap": true
   },
-  "include": ["src"],
+  "include": ["index.ts", "three/**/*.ts", "wasm/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

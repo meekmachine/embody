@@ -30,11 +30,12 @@ try {
   const packageJson = JSON.parse(
     await readFile(join(packageRoot, 'package.json'), 'utf8'),
   );
-  const declarationEntries = [...new Set(
-    Object.values(packageJson.exports)
+  const declarationEntries = [...new Set([
+    ...Object.values(packageJson.exports)
       .filter((entry) => entry && typeof entry === 'object' && entry.types)
       .map((entry) => join(packageRoot, entry.types)),
-  )];
+    join(packageRoot, 'dist', 'wasm.d.ts'),
+  ])];
 
   if (declarationEntries.length === 0) {
     throw new Error('Packed Embody package does not declare any typed exports.');

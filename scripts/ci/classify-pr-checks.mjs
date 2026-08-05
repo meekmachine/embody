@@ -18,19 +18,21 @@ const DOCUMENTATION_PATHS = [
 ];
 
 const RUST_PATHS = [
-  /^rust\//,
+  /^src\//,
+  /^assets\/(?:presets|templates)\//,
+  /^Cargo\.(?:toml|lock)$/,
+  /^build\.rs$/,
   /^scripts\/build-wasm\.mjs$/,
 ];
 
 const TYPESCRIPT_PATHS = [
-  /^src\//,
-  /^scripts\/export-preset-json\.mjs$/,
+  /^index\.ts$/,
+  /^three\//,
+  /^wasm\//,
   /^scripts\/extract-humanoid-skeleton-template\.cjs$/,
-  /^scripts\/preset-entry\.ts$/,
   /^scripts\/smoke\//,
   /^tsconfig(?:\.[^/]+)?\.json$/,
-  /^tsup(?:\.[^/]+)?\.ts$/,
-  /^vitest\.config\.ts$/,
+  /^tsup(?:\.[^/]+)?\.mjs$/,
 ];
 
 const FORCE_ALL_PATHS = [
@@ -88,7 +90,7 @@ export function classifyChangedPaths(paths) {
       continue;
     }
 
-    // Distribution files, declarations outside src, new build inputs, and any
+    // Distribution files, declarations outside the adapter, new build inputs, and any
     // future path category default to all checks until deliberately classified.
     enableAll(selection);
     return selection;

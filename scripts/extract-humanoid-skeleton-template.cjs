@@ -9,7 +9,7 @@ function usage() {
     '  node scripts/extract-humanoid-skeleton-template.cjs <input.glb> <output.json> --id <template-id> --source-character-id <character-id> [--skin-name <name> | --skin-index <index>]',
     '',
     'Example:',
-    '  node scripts/extract-humanoid-skeleton-template.cjs ../LoomLarge/frontend/public/characters/jonathan_new.glb src/skeletonTemplates/data/jonathan-cc-base.json --id jonathan-cc-base --source-character-id jonathan --skin-name Armature',
+    '  node scripts/extract-humanoid-skeleton-template.cjs ../LoomLarge/frontend/public/characters/cc4_rig.glb assets/templates/cc4-humanoid.json --id cc4-humanoid --source-character-id cc4 --skin-name Armature',
   ].join('\n'));
 }
 

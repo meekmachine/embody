@@ -22,11 +22,11 @@ const result = spawnSync(
   existsSync(wasmPack) ? wasmPack : 'wasm-pack',
   [
     'build',
-    'rust/embody-wasm',
+    '.',
     '--target',
     'web',
     '--out-dir',
-    '../../dist/wasm',
+    'dist/wasm',
     '--out-name',
     'embody_wasm',
     '--release',

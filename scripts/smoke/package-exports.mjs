@@ -1,174 +1,106 @@
 import { createRequire } from 'node:module';
+import { readFile } from 'node:fs/promises';
+import {
+  AnimationClip,
+  Bone,
+  BufferAttribute,
+  BufferGeometry,
+  Mesh,
+  Object3D,
+  QuaternionKeyframeTrack,
+  VectorKeyframeTrack,
+} from 'three';
 
 const require = createRequire(import.meta.url);
-
+const serviceWorkerPath = require.resolve(
+  '@lovelace_lol/embody/character-asset-service-worker.js',
+);
+const serviceWorkerSource = await readFile(serviceWorkerPath, 'utf8');
 const root = await import('@lovelace_lol/embody');
-const core = await import('@lovelace_lol/embody/core');
 const three = await import('@lovelace_lol/embody/three');
-const cljs = await import('@lovelace_lol/embody/cljs');
 const wasm = await import('@lovelace_lol/embody/wasm');
-
 const rootCjs = require('@lovelace_lol/embody');
-const coreCjs = require('@lovelace_lol/embody/core');
 const threeCjs = require('@lovelace_lol/embody/three');
-const cljsCjs = require('@lovelace_lol/embody/cljs');
 const wasmCjs = require('@lovelace_lol/embody/wasm');
 
-const wasmCore = await wasm.initEmbodyCore();
-const wasmCoreFromCjs = await wasmCjs.initEmbodyCore();
-const smokePreset = root.getPreset('cc4');
-const smokeRegion = smokePreset.annotationRegions?.[0];
-const smokePaddingFactor = (smokeRegion?.paddingFactor ?? 1) + 0.1;
-const mergedSmokeProfile = smokeRegion
-  ? await root.extendPresetWithProfile(smokePreset, {
-      annotationRegions: [{ name: smokeRegion.name, paddingFactor: smokePaddingFactor }],
-    })
-  : null;
-const presetMergeUsesPresetData =
-  mergedSmokeProfile?.annotationRegions?.some(
-    (region) =>
-      region?.name === smokeRegion?.name &&
-      region?.paddingFactor === smokePaddingFactor &&
-      JSON.stringify(region?.bones) === JSON.stringify(smokeRegion?.bones),
-  ) ?? false;
-const explicitCoreMergeOk = smokeRegion
-  ? root.mergePresetWithProfile(wasmCore, smokePreset, {
-      annotationRegions: [{ name: smokeRegion.name, paddingFactor: smokePaddingFactor }],
-    }).annotationRegions?.some(
-      (region) => region?.name === smokeRegion.name && region?.paddingFactor === smokePaddingFactor,
-    )
-  : false;
-const skeletonFitTransform = wasmCore.compose_template_skeleton_fit_transform(
-  1.2,
-  new Float32Array([0.1, 0.2, -0.1]),
-  1.05,
-  new Float32Array([0.01, -0.02, 0.03]),
-);
-const fitVertices = new Float32Array([
-  -0.5, 0.0, -0.2,
-  0.5, 0.0, 0.2,
-  -0.45, 1.0, -0.18,
-  0.45, 1.0, 0.18,
-  -0.35, 1.8, -0.15,
-  0.35, 1.8, 0.15,
-]);
-const meshProportions = wasmCore.analyze_mesh_proportions(fitVertices, 1);
-const skeletonFitSolution = wasmCore.solve_template_skeleton_fit(
-  fitVertices,
-  new Float32Array([-10.0, 0.0, -5.0, 10.0, 100.0, 5.0]),
-  1,
-  0,
-);
-const rustHair = await root.createRustHairPhysics();
-const annotationCamera = await root.createRustAnnotationCameraCore();
-const focusFraming = annotationCamera.solveFocusFraming({
-  focusBounds: { center: { x: 0, y: 0.9, z: 0 }, size: { x: 0.8, y: 1.8, z: 0.4 } },
-  fovDegrees: 45,
-  aspect: 1,
-  minDistance: 0.5,
-  closeUpPaddingFactor: 1.2,
-  zoomPaddingFactor: 1.5,
-  fullBodyPaddingFactor: 2.0,
+const core = await wasm.initEmbodyCore();
+const cjsCore = await wasmCjs.initEmbodyCore();
+const wasmEntrySource = await readFile(new URL('../../dist/wasm.js', import.meta.url), 'utf8');
+const preset = JSON.parse(core.get_preset_json('cc4'));
+const hairPresets = JSON.parse(core.hair_color_presets_json());
+const templates = JSON.parse(core.list_humanoid_skeleton_templates_json());
+const model = {
+  meshes: [{ id: 1, name: 'Face', morphTargetIds: [1], visible: true }],
+  morphTargets: [{ id: 1, meshId: 1, name: 'Smile', hostIndex: 0 }],
+  bones: [{ id: 1, name: 'Head', parentName: null, worldPosition: { x: 0, y: 1, z: 0 }, depth: 0 }],
+  objects: [],
+};
+const extracted = JSON.parse(core.extract_model_data_json(JSON.stringify(model), '[]'));
+const runtime = new core.RuntimeCore(0);
+runtime.configure_with_preset('cc4', '', JSON.stringify(model));
+const sceneRoot = new Object3D();
+const animatedBone = new Bone();
+const animatedProp = new Object3D();
+animatedBone.name = 'Head';
+animatedProp.name = 'Prop';
+sceneRoot.add(animatedBone, animatedProp);
+const inspection = new three.ThreeModelInspector().inspectModel(sceneRoot);
+const serialized = three.serializeAnimationClips(sceneRoot, [new AnimationClip('mixed', 1, [
+  new QuaternionKeyframeTrack('Head.quaternion', [0, 1], [0, 0, 0, 1, 0, 0, 0, 1]),
+  new VectorKeyframeTrack('Prop.position', [0, 1], [0, 0, 0, 1, 2, 3]),
+])], inspection)[0];
+const morphGeometry = new BufferGeometry();
+morphGeometry.setAttribute('position', new BufferAttribute(new Float32Array(9), 3));
+morphGeometry.setAttribute('normal', new BufferAttribute(new Float32Array(9), 3));
+morphGeometry.morphTargetsRelative = true;
+morphGeometry.morphAttributes.position = [new BufferAttribute(new Float32Array(9), 3)];
+morphGeometry.morphAttributes.normal = [new BufferAttribute(new Float32Array(9), 3)];
+morphGeometry.morphAttributes.color = [];
+const morphMesh = new Mesh(morphGeometry);
+morphMesh.name = 'CC_Base_Body_1';
+morphMesh.morphTargetDictionary = { Existing: 0 };
+morphMesh.morphTargetInfluences = [0];
+const morphRoot = new Object3D();
+morphRoot.add(morphMesh);
+new three.ThreeFrameApplier().addMorphTarget(morphRoot, {
+  meshName: morphMesh.name,
+  name: 'Authored_Position_Only',
+  relative: true,
+  position: new Float32Array(9),
 });
-const markerLineScale = annotationCamera.resolveViewportConstrainedLineScale({
-  startClip: [0, 0, 0, 1],
-  endClip: [2, 0, 0, 1],
-  safeX: 0.8,
-  safeY: 0.9,
-});
-const separatedMarkerEndpoints = annotationCamera.separateOverlappingMarkerEndpoints({
-  starts: [0, 0, 1, 0.02, 0, 1],
-  ends: [0, 0, 2, 0.02, 0, 2],
-  modelCenter: { x: 0, y: 0, z: 0 },
-  modelHeight: 1.8,
-});
-const cameraFlight = annotationCamera.createCameraFlight(
-  { x: 0, y: 1, z: 3 },
-  { x: 0, y: 1, z: 0 },
-  { x: 2, y: 1.4, z: 0 },
-  { x: 0.1, y: 1.2, z: 0 },
-  500,
-);
-const cameraFlightEnd = cameraFlight.sample(500);
-cameraFlight.dispose();
-const rustHairOutput = rustHair.update(0.016, {
-  yaw: 0,
-  pitch: 0,
-  roll: 0,
-  yawVelocity: 1,
-  pitchVelocity: 0,
-});
-rustHair.dispose();
 
 const checks = [
-  ['root Embody ESM', typeof root.Embody === 'function'],
-  ['root Embody CJS', typeof rootCjs.Embody === 'function'],
-  ['root createCharacterHost ESM', typeof root.createCharacterHost === 'function'],
-  ['root createCharacterHost CJS', typeof rootCjs.createCharacterHost === 'function'],
-  ['root createDefaultCharacterScene ESM', typeof root.createDefaultCharacterScene === 'function'],
-  ['root CHARACTER_SCENE_TYPES ESM', typeof root.CHARACTER_SCENE_TYPES === 'object' && root.CHARACTER_SCENE_TYPES !== null],
-  ['root loadCharacterModel ESM', typeof root.loadCharacterModel === 'function'],
-  ['root normalizeDefaultCharacterLightingSettings ESM', typeof root.normalizeDefaultCharacterLightingSettings === 'function'],
-  ['root HairPhysicsController ESM', typeof root.HairPhysicsController === 'function'],
-  ['root HairPhysicsController CJS', typeof rootCjs.HairPhysicsController === 'function'],
-  ['three Embody ESM', typeof three.Embody === 'function'],
-  ['three Embody CJS', typeof threeCjs.Embody === 'function'],
-  ['three HairPhysicsController ESM', typeof three.HairPhysicsController === 'function'],
-  ['three HairPhysicsController CJS', typeof threeCjs.HairPhysicsController === 'function'],
-  ['three createCharacterHost ESM', typeof three.createCharacterHost === 'function'],
-  ['three createDefaultCharacterScene ESM', typeof three.createDefaultCharacterScene === 'function'],
-  ['three loadCharacterModel ESM', typeof three.loadCharacterModel === 'function'],
-  ['three normalizeDefaultCharacterLightingSettings ESM', typeof three.normalizeDefaultCharacterLightingSettings === 'function'],
-  ['three inspector ESM', typeof three.ThreeModelInspector === 'function'],
-  ['three clip adapter ESM', typeof three.ThreeClipAdapter === 'function'],
-  ['three applier CJS', typeof threeCjs.ThreeFrameApplier === 'function'],
-
-  ['cljs runtime ESM', typeof cljs.createAnimationRuntime === 'function'],
-  ['cljs runtime CJS', typeof cljsCjs.createAnimationRuntime === 'function'],
-  ['wasm init ESM', typeof wasm.initEmbodyCore === 'function'],
-  ['wasm init CJS', typeof wasmCjs.initEmbodyCore === 'function'],
-  ['wasm core ABI ESM', wasmCore.core_abi_version() === wasm.EMBODY_CORE_ABI_VERSION],
-  ['wasm core ABI CJS', wasmCoreFromCjs.core_abi_version() === wasmCjs.EMBODY_CORE_ABI_VERSION],
-  ['Rust preset merge preserves preset-owned region data', presetMergeUsesPresetData],
-  ['explicit-core preset merge works', explicitCoreMergeOk],
-  ['wasm bilateral helper', Array.from(wasmCore.solve_bilateral_values(0.8, 0.25)).join(',') === '0.6000000238418579,0.800000011920929'],
-  ['wasm skeleton fit helper', Math.abs(skeletonFitTransform[0] - 1.26) < 1e-6 && Math.abs(skeletonFitTransform[3] - -0.07) < 1e-6],
-  ['wasm mesh proportions helper', meshProportions.length === wasm.MESH_PROPORTIONS_STRIDE && meshProportions[15] > 0.7],
-  ['wasm skeleton fit solver', skeletonFitSolution.length === wasm.TEMPLATE_SKELETON_FIT_SOLUTION_STRIDE && Math.abs(skeletonFitSolution[0] - 0.018) < 1e-6 && skeletonFitSolution[9] === 1],
-  ['root Rust hair factory', typeof root.createRustHairPhysics === 'function'],
-  ['root Rust hair output', rustHairOutput.L_Hair_Left > 0 && rustHairOutput.R_Hair_Left > 0],
-  ['root Rust annotation camera factory', typeof root.createRustAnnotationCameraCore === 'function'],
-  ['wasm annotation focus framing', focusFraming.distance > 0 && Math.abs(focusFraming.target.y - 0.9) < 1e-5],
-  ['wasm marker line clipping', markerLineScale.visible && Math.abs(markerLineScale.lineScale - 0.4) < 1e-5],
-  ['wasm marker angle gate', annotationCamera.passesMarkerCameraAngleGate({ markerAngle: 350, currentCameraAngle: 10 })
-    && !annotationCamera.shouldShowMarker({ hiddenChild: false, solo: 'other-soloed' })],
-  ['wasm marker endpoint separation', separatedMarkerEndpoints.length === 6
-    && Math.hypot(
-      separatedMarkerEndpoints[0] - separatedMarkerEndpoints[3],
-      separatedMarkerEndpoints[1] - separatedMarkerEndpoints[4],
-      separatedMarkerEndpoints[2] - separatedMarkerEndpoints[5],
-    ) > 0.15],
-  ['wasm camera flight endpoint', cameraFlightEnd.done && Math.abs(cameraFlightEnd.position.x - 2) < 1e-5],
-  ['core compiler ESM', typeof core.TsClipCompiler === 'function'],
-  ['core Wasm runtime ESM', typeof core.WasmRuntimeCore === 'function'],
-  ['root compiler CJS', typeof rootCjs.TsClipCompiler === 'function'],
-  ['root Wasm runtime CJS', typeof rootCjs.WasmRuntimeCore === 'function'],
-  ['root humanoid skeleton template ESM', root.JONATHAN_HUMANOID_SKELETON_TEMPLATE?.id === 'jonathan-cc-base'],
-  ['root humanoid skeleton template CJS', rootCjs.JONATHAN_HUMANOID_SKELETON_TEMPLATE?.id === 'jonathan-cc-base'],
-  ['root humanoid skeleton template lookup ESM', typeof root.getHumanoidSkeletonTemplate === 'function'],
-  ['root humanoid skeleton template lookup CJS', typeof rootCjs.getHumanoidSkeletonTemplate === 'function'],
-  ['root humanoid skeleton template extractor ESM', typeof root.extractHumanoidSkeletonTemplateFromModel === 'function'],
-  ['root humanoid skeleton template extractor CJS', typeof rootCjs.extractHumanoidSkeletonTemplateFromModel === 'function'],
-  ['core ESM object', typeof core === 'object'],
-  ['core CJS object', typeof coreCjs === 'object'],
+  ['root ESM Three adapter', typeof root.ThreeModelInspector === 'function'],
+  ['root CJS Three adapter', typeof rootCjs.ThreeModelInspector === 'function'],
+  ['Three ESM frame applier', typeof three.ThreeFrameApplier === 'function'],
+  ['Three CJS scene factory', typeof threeCjs.createDefaultCharacterScene === 'function'],
+  ['Wasm ESM ABI', core.core_abi_version() === wasm.EMBODY_CORE_ABI_VERSION],
+  ['Wasm CJS ABI', cjsCore.core_abi_version() === wasmCjs.EMBODY_CORE_ABI_VERSION],
+  ['Wasm loader avoids eval/new Function', !wasmEntrySource.includes('new Function')],
+  ['Wasm loader uses native dynamic import', wasmEntrySource.includes('import(')],
+  ['embedded profile data', preset.meshes.CC_Base_Eye.category === 'eye'],
+  ['Rust hair appearance data', hairPresets.natural_brown.baseColor === '#4a3728'],
+  ['CC4 preset owns hair color swatches', preset.hairColorPresets?.natural_brown?.baseColor === '#4a3728'],
+  ['Rust humanoid template data', templates[0].id === 'cc4-humanoid'],
+  ['Rust model extraction', extracted.morphs[0].meshName === 'Face'],
+  ['Rust runtime constructor', runtime.active_transition_count() === 0],
+  ['baked clip channel classification', serialized.channels.map(({ kind }) => kind).join(',') === 'body,scene'],
+  ['baked clip channel routing', serialized.tracks.map(({ channelId }) => channelId).join(',') === '1,2'],
+  ['position-only authored morph keeps normal channel aligned', morphMesh.geometry.morphAttributes.normal.length === 2],
+  ['position-only authored morph creates a neutral normal', morphMesh.geometry.morphAttributes.normal[1]?.array.every((value) => value === 0)],
+  ['position-only authored morph keeps influences aligned', morphMesh.morphTargetInfluences.length === 2],
+  ['position-only authored morph removes empty channels', morphMesh.geometry.morphAttributes.color === undefined],
+  [
+    'character asset service worker export',
+    serviceWorkerSource.includes("addEventListener('fetch'") &&
+      serviceWorkerSource.includes('embody-character-assets-'),
+  ],
 ];
 
+runtime.free();
 const failures = checks.filter(([, passed]) => !passed);
-if (failures.length > 0) {
-  for (const [label] of failures) {
-    console.error(`Package export smoke failed: ${label}`);
-  }
+if (failures.length) {
+  failures.forEach(([label]) => console.error(`Package export smoke failed: ${label}`));
   process.exit(1);
 }
-
 console.log('Package export smoke passed');

@@ -1,6 +1,6 @@
 node_modules
 dist
-rust/embody-wasm/target
+target
 .DS_Store
 .claude
 .vscode
