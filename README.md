@@ -7,7 +7,7 @@ Embody provides mappings that connect [Facial Action Coding System (FACS)](https
 
 > **Note:** If you previously used the `loomlarge` npm package, it has been renamed to `@lovelace_lol/embody`.
 >
-> Stable releases publish to npm as `@lovelace_lol/embody`. Consumers should depend on the published npm package (or an exact git SHA only when the package is installable from source).
+> Built packages publish to [pkg.pr.new](https://pkg.pr.new/) on `main` and on-demand for staging/prod deploys. Install the [pkg-pr-new GitHub App](https://github.com/apps/pkg-pr-new) on this repository. LoomLarge Depends-on / PR pins use git SHAs; deployed staging and production hosts install the pkg.pr.new tarball for the same SHA.
 
 ![Hero image showing Embody controlling a facial expression](./assets/readme/hero-expressions.webp)
 
