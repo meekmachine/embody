@@ -7,7 +7,7 @@ Embody provides mappings that connect [Facial Action Coding System (FACS)](https
 
 > **Note:** If you previously used the `loomlarge` npm package, it has been renamed to `@lovelace_lol/embody`.
 >
-> Continuous PR releases are published via [pkg.pr.new](https://pkg.pr.new/). Stable npm publishing is deferred until we have a release candidate; until then consumers should use git SHA pins or pkg.pr.new preview URLs. Install the [pkg-pr-new GitHub App](https://github.com/apps/pkg-pr-new) on this repository so PR workflows can publish previews.
+> Stable releases publish to npm as `@lovelace_lol/embody`. Consumers should depend on the published npm package (or an exact git SHA only when the package is installable from source).
 
 ![Hero image showing Embody controlling a facial expression](./assets/readme/hero-expressions.webp)
 
