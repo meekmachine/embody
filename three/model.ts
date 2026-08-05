@@ -12,12 +12,27 @@ export type CharacterModelTransform = { modelOffset?: { x?: number; y?: number; 
 let draco: DRACOLoader | null = null;
 let dracoPath = '';
 let gltfLoader: GLTFLoader | null = null;
+let gltfLoaderUsesDraco = false;
 let fbxLoader: FBXLoader | null = null;
 
-const getGltfLoader = (path: string) => {
-  if (!gltfLoader || path !== dracoPath) {
-    draco?.dispose(); dracoPath = path; draco = new DRACOLoader().setDecoderPath(path.endsWith('/') ? path : `${path}/`).setDecoderConfig({ type: 'wasm' });
-    gltfLoader = new GLTFLoader().setDRACOLoader(draco);
+const getGltfLoader = (dracoDecoderPath?: string) => {
+  const wantsDraco = typeof dracoDecoderPath === 'string' && dracoDecoderPath.length > 0;
+  const normalizedPath = wantsDraco
+    ? (dracoDecoderPath!.endsWith('/') ? dracoDecoderPath! : `${dracoDecoderPath!}/`)
+    : '';
+
+  // Rebuild only when Draco enablement/path changes. Non-Draco assets must not
+  // pay for constructing/attaching DRACOLoader at all.
+  if (!gltfLoader || gltfLoaderUsesDraco !== wantsDraco || (wantsDraco && normalizedPath !== dracoPath)) {
+    draco?.dispose();
+    draco = null;
+    dracoPath = normalizedPath;
+    gltfLoaderUsesDraco = wantsDraco;
+    gltfLoader = new GLTFLoader();
+    if (wantsDraco) {
+      draco = new DRACOLoader().setDecoderPath(normalizedPath).setDecoderConfig({ type: 'wasm' });
+      gltfLoader.setDRACOLoader(draco);
+    }
   }
   return gltfLoader;
 };
@@ -65,11 +80,11 @@ export function loadCharacterModel(url: string, options: CharacterModelLoadOptio
     fbxLoader ??= new FBXLoader();
     return new Promise((resolve, reject) => fbxLoader!.load(url, (model) => resolve(done(model, model.animations ?? [], null)), progress(options.onProgress), reject));
   }
-  const loader = getGltfLoader(options.dracoDecoderPath ?? '/draco-gltf/');
+  const loader = getGltfLoader(options.dracoDecoderPath);
   return new Promise((resolve, reject) => loader.load(url, (gltf) => resolve(done(gltf.scene, gltf.animations ?? [], gltf)), progress(options.onProgress), reject));
 }
 
 export function parseCharacterModel(data: ArrayBuffer, resourcePath = '', options: CharacterModelLoadOptions = {}): Promise<CharacterModelLoadResult> {
-  const loader = getGltfLoader(options.dracoDecoderPath ?? '/draco-gltf/');
+  const loader = getGltfLoader(options.dracoDecoderPath);
   return new Promise((resolve, reject) => loader.parse(data, resourcePath, (gltf) => resolve({ model: gltf.scene, meshes: prepare(gltf.scene, options.castShadows), animations: gltf.animations ?? [], gltf }), reject));
 }
