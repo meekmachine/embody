@@ -1,15 +1,18 @@
 import {
   AdditiveBlending,
+  AnimationClip,
   BufferAttribute,
   InterpolateDiscrete,
   MultiplyBlending,
   NoBlending,
   NormalBlending,
+  NumberKeyframeTrack,
   PropertyBinding,
+  QuaternionKeyframeTrack,
   SubtractiveBlending,
+  VectorKeyframeTrack,
 } from 'three';
 import type {
-  AnimationClip,
   KeyframeTrack,
   Material,
   Mesh,
@@ -214,6 +217,82 @@ const findTrackTarget = (model: Object3D, track: KeyframeTrack) => {
     return null;
   }
 };
+
+export type ClipIRTrack = {
+  id?: number;
+  channelId?: number;
+  target: {
+    kind?: string;
+    meshId?: number;
+    morphTargetId?: number;
+    boneId?: number;
+    objectId?: number;
+    property?: string;
+  };
+  valueType: string;
+  times: number[];
+  values: number[];
+  interpolation?: string;
+  sourceName?: string;
+};
+
+export type ClipIR = {
+  name: string;
+  durationSeconds?: number;
+  tracks: ClipIRTrack[];
+};
+
+/**
+ * Convert host-neutral ClipIR (concrete morph/bone tracks) into a Three.js
+ * AnimationClip. The host AnimationMixer owns playback and lerping.
+ */
+export function createAnimationClipFromClipIR(
+  clip: ClipIR,
+  inspection: ThreeModelInspection,
+): AnimationClip {
+  const tracks: KeyframeTrack[] = [];
+  for (const track of clip.tracks ?? []) {
+    const kind = track.target?.kind;
+    const times = Array.from(track.times ?? []);
+    const values = Array.from(track.values ?? []);
+    if (!times.length || !values.length) continue;
+
+    if (kind === 'morphTarget') {
+      const binding = inspection.morphBindings.get(Number(track.target.morphTargetId));
+      if (!binding?.mesh) continue;
+      const trackName = `${binding.mesh.uuid}.morphTargetInfluences[${binding.index}]`;
+      tracks.push(new NumberKeyframeTrack(trackName, times, values));
+      continue;
+    }
+
+    if (kind === 'boneTransform' || kind === 'objectTransform') {
+      const object = kind === 'boneTransform'
+        ? inspection.boneBindings.get(Number(track.target.boneId))
+        : inspection.objectBindings.get(Number(track.target.objectId));
+      if (!object) continue;
+      const property = track.target.property ?? 'rotation';
+      if (property === 'rotation' || property === 'quaternion') {
+        tracks.push(new QuaternionKeyframeTrack(`${object.uuid}.quaternion`, times, values));
+      } else if (property === 'position') {
+        tracks.push(new VectorKeyframeTrack(`${object.uuid}.position`, times, values));
+      } else if (property === 'scale') {
+        tracks.push(new VectorKeyframeTrack(`${object.uuid}.scale`, times, values));
+      }
+      continue;
+    }
+
+    if (kind === 'meshVisibility') {
+      const mesh = inspection.meshBindings.get(Number(track.target.meshId));
+      if (!mesh) continue;
+      tracks.push(new NumberKeyframeTrack(`${mesh.uuid}.visible`, times, values));
+    }
+  }
+
+  const duration = Number.isFinite(clip.durationSeconds)
+    ? Number(clip.durationSeconds)
+    : -1;
+  return new AnimationClip(clip.name || 'clip', duration, tracks);
+}
 
 export function serializeAnimationClips(
   model: Object3D,

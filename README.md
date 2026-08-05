@@ -18,17 +18,22 @@ index.ts             Package re-exports only
 The Rust core owns:
 
 - preset and profile parsing, typed merge rules, validation, and corrections
-- AU, viseme, morph, bone, continuum, and transition state
-- dynamic and baked clip compilation, playback, blending, looping, seeking,
-  crossfades, inherited keyframes, and events
+- AU, viseme, morph, bone, continuum, and live control state
+- compiling AU/viseme/named-morph snippets into concrete ClipIR
+  (`morphTarget` / `boneTransform` tracks) for the host mixer to schedule
 - mesh-category routing and material profile data
 - hair curves, hair physics, and appearance normalization
 - annotation camera/marker math and humanoid template fitting
-- renderer-neutral model analysis and packed frame generation
+- renderer-neutral model analysis and packed live frame generation
+
+The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
+clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
+not sample or lerp clips on the hot path.
 
 The TypeScript adapter is intentionally limited to operations that require
-Three.js objects: scene traversal, model/clip serialization, frame application,
-material writes, model loading/disposal, and default scene construction.
+Three.js objects: scene traversal, ClipIR ↔ `AnimationClip` conversion, frame
+application, material writes, model loading/disposal, and default scene
+construction.
 
 ## Runtime Use
 
@@ -37,9 +42,12 @@ Initialize the Wasm module before constructing a runtime:
 ```ts
 import { initEmbodyCore } from '@lovelace_lol/embody/wasm';
 import {
+  AnimationMixer,
+} from 'three';
+import {
   ThreeFrameApplier,
   ThreeModelInspector,
-  serializeAnimationClips,
+  createAnimationClipFromClipIR,
 } from '@lovelace_lol/embody/three';
 
 const wasm = await initEmbodyCore();
@@ -47,6 +55,7 @@ const inspector = new ThreeModelInspector();
 const applier = new ThreeFrameApplier();
 const inspection = inspector.inspectModel(model, { profile });
 const runtime = new wasm.RuntimeCore(0);
+const mixer = new AnimationMixer(model);
 
 applier.setBindings(inspection);
 runtime.configure_with_preset(
@@ -54,15 +63,20 @@ runtime.configure_with_preset(
   JSON.stringify(profileOverrides ?? {}),
   JSON.stringify(inspection.descriptor),
 );
-runtime.load_animation_clips(
-  JSON.stringify(serializeAnimationClips(model, animations, inspection)),
-);
+
+const clipIR = JSON.parse(runtime.build_clip(
+  'smile',
+  JSON.stringify(curves),
+  JSON.stringify({ intensityScale: 1 }),
+));
+const clip = createAnimationClipFromClipIR(clipIR, inspection);
+mixer.clipAction(clip).play();
 
 function update(dtSeconds: number) {
-  runtime.update(dtSeconds);
+  // Live AU/viseme packed frames, then host mixer owns clip lerp.
   applier.applyPackedMorphFrameDelta(runtime.evaluate_morph_frame_delta());
   applier.applyPackedBoneFrameDelta(runtime.evaluate_bone_frame_delta());
-  applier.applySceneFrame(runtime.evaluate_scene_frame());
+  mixer.update(dtSeconds);
 }
 ```
 

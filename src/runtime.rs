@@ -1,10 +1,10 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
 
 use crate::abi::{PACKED_BONE_FRAME_DELTA_STRIDE, PACKED_MORPH_FRAME_DELTA_STRIDE};
-use crate::animation::{AnimationCore, BlendMode, LoopMode, PlayOptions};
+use crate::animation::{AnimationCore, BlendMode, LoopMode};
 use crate::bones::{
     composite_axis_value, multiply_quat, quat_from_channel, select_axis_binding, side_scale,
     AxisBindingRow, AxisValueRow, CompositeAxis, JawBinding, RestTransform, TranslationRow,
@@ -17,6 +17,11 @@ use crate::math::{clamp01, finite_or};
 use crate::presets;
 use crate::profile::{compile_tables, deserialize_json, CompiledTables, ModelData, ProfileData};
 use crate::profile_merge::{extend_preset_with_profile, parse_profile_patch};
+use crate::snippet_compile::{
+    compile_snippet_tracks, AuMorphBinding as SnippetAuMorphBinding,
+    CurvePoint as SnippetCurvePoint, SnippetCompileInput, SnippetCompileOptions,
+    VisemeMorphBinding as SnippetVisemeMorphBinding,
+};
 
 pub const AU_MORPH_BINDING_STRIDE: u32 = 5;
 pub const VISEME_MORPH_BINDING_STRIDE: u32 = 4;
@@ -63,24 +68,6 @@ struct VisemeMorphBinding {
     weight: f32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum TransitionTarget {
-    Au(u32),
-    Viseme(u32),
-    Morph(u32, u32),
-}
-
-#[derive(Clone, Copy, Debug)]
-struct Transition {
-    target: TransitionTarget,
-    from: f32,
-    to: f32,
-    duration: f32,
-    elapsed: f32,
-    balance: Option<f32>,
-    jaw_scale: f32,
-}
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RuntimeCurvePoint {
@@ -99,6 +86,10 @@ struct ClipBuildOptions {
     mesh_names: Vec<String>,
     snippet_category: Option<String>,
     source: Option<String>,
+    #[serde(default)]
+    auto_viseme_jaw: Option<bool>,
+    #[serde(default)]
+    jaw_scale: Option<f32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -108,14 +99,6 @@ struct TypedChannel {
     keyframes: Vec<RuntimeCurvePoint>,
     #[serde(default)]
     intensity_scale: Option<f64>,
-}
-
-fn ease_in_out_quad(t: f32) -> f32 {
-    if t < 0.5 {
-        2.0 * t * t
-    } else {
-        -1.0 + (4.0 - 2.0 * t) * t
-    }
 }
 
 #[cfg(test)]
@@ -164,7 +147,6 @@ pub struct RuntimeCore {
     viseme_jaw_amounts: Vec<f32>,
     continuum_pairs: HashMap<u32, (u32, bool)>,
     viseme_slot_ids: Vec<String>,
-    transitions: Vec<Transition>,
     profile: Option<ProfileData>,
     model: Option<ModelData>,
     direct_morph_values: HashMap<(u32, u32), f32>,
@@ -197,7 +179,6 @@ impl RuntimeCore {
             viseme_jaw_amounts: Vec::new(),
             continuum_pairs: HashMap::new(),
             viseme_slot_ids: Vec::new(),
-            transitions: Vec::new(),
             profile: None,
             model: None,
             direct_morph_values: HashMap::new(),
@@ -463,133 +444,38 @@ impl RuntimeCore {
         }
     }
 
-    /// Start (or replace) an eased AU transition. Advanced by `update`.
+    /// Set an AU immediately. Duration is ignored — host mixers own timed fades.
     #[wasm_bindgen]
-    pub fn transition_au(&mut self, id: u32, to: f32, duration_ms: f32, balance: f32) {
-        let from = if to < 0.0 && self.continuum_pairs.contains_key(&id) {
-            let (pair_id, is_negative) = self.continuum_pairs[&id];
-            let (neg_au, pos_au) = if is_negative {
-                (id, pair_id)
-            } else {
-                (pair_id, id)
-            };
-            let current = self.get_continuum(neg_au, pos_au);
-            if is_negative {
-                -current
-            } else {
-                current
-            }
+    pub fn transition_au(&mut self, id: u32, to: f32, _duration_ms: f32, balance: f32) {
+        let resolved_balance = if balance.is_finite() {
+            balance
         } else {
-            self.get_au(id)
+            *self.au_balances.get(&id).unwrap_or(&0.0)
         };
-        self.start_transition(Transition {
-            target: TransitionTarget::Au(id),
-            from,
-            to,
-            duration: duration_ms / 1000.0,
-            elapsed: 0.0,
-            balance: if balance.is_finite() {
-                Some(balance)
-            } else {
-                None
-            },
-            jaw_scale: 1.0,
-        });
+        self.set_au_signed(id, to, resolved_balance);
     }
 
+    /// Set a viseme immediately. Duration is ignored — host mixers own timed fades.
     #[wasm_bindgen]
-    pub fn transition_viseme(&mut self, index: u32, to: f32, duration_ms: f32, jaw_scale: f32) {
-        let from = self
-            .viseme_values
-            .get(index as usize)
-            .copied()
-            .unwrap_or(0.0);
-        self.start_transition(Transition {
-            target: TransitionTarget::Viseme(index),
-            from,
-            to: clamp01(to),
-            duration: duration_ms / 1000.0,
-            elapsed: 0.0,
-            balance: None,
-            jaw_scale: finite_or(jaw_scale, 1.0),
-        });
+    pub fn transition_viseme(&mut self, index: u32, to: f32, _duration_ms: f32, jaw_scale: f32) {
+        self.set_viseme(index, to);
+        self.set_viseme_jaw_scale(index, finite_or(jaw_scale, 1.0));
     }
 
-    /// Advance all running transitions by `dt` seconds and write the eased
-    /// values into the core state. Returns the number of still-active
-    /// transitions so hosts know whether a frame delta re-evaluation is due.
+    /// Tick hook for hosts. Clip playback/lerp lives in the host animation
+    /// library; Rust only exposes live AU/viseme state for packed frames.
     #[wasm_bindgen]
-    pub fn update(&mut self, dt_seconds: f32) -> u32 {
-        if dt_seconds <= 0.0 {
-            return self.transitions.len() as u32;
-        }
-
-        let mut transitions = std::mem::take(&mut self.transitions);
-        transitions.retain_mut(|transition| {
-            transition.elapsed += dt_seconds;
-            let progress = (transition.elapsed / transition.duration).min(1.0);
-            let value =
-                transition.from + (transition.to - transition.from) * ease_in_out_quad(progress);
-            match transition.target {
-                TransitionTarget::Au(id) => {
-                    let balance = transition
-                        .balance
-                        .unwrap_or_else(|| *self.au_balances.get(&id).unwrap_or(&0.0));
-                    self.set_au_signed(id, value, balance);
-                }
-                TransitionTarget::Viseme(index) => {
-                    self.set_viseme(index, value);
-                    self.set_viseme_jaw_scale(index, transition.jaw_scale);
-                }
-                TransitionTarget::Morph(mesh_id, morph_target_id) => {
-                    self.direct_morph_values
-                        .insert((mesh_id, morph_target_id), clamp01(value));
-                }
-            }
-            progress < 1.0
-        });
-        self.transitions = transitions;
-        self.animation.update(dt_seconds);
-        (self.transitions.len() + self.animation.playing().len()) as u32
+    pub fn update(&mut self, _dt_seconds: f32) -> u32 {
+        0
     }
 
     #[wasm_bindgen]
     pub fn active_transition_count(&self) -> u32 {
-        self.transitions.len() as u32
+        0
     }
 
     #[wasm_bindgen]
-    pub fn clear_transitions(&mut self) {
-        self.transitions.clear();
-    }
-
-    fn start_transition(&mut self, transition: Transition) {
-        self.transitions
-            .retain(|existing| existing.target != transition.target);
-        if transition.duration <= 0.0 || (transition.to - transition.from).abs() < 1e-6 {
-            let mut instant = transition;
-            instant.elapsed = instant.duration.max(1e-6);
-            let value = instant.to;
-            match instant.target {
-                TransitionTarget::Au(id) => {
-                    let balance = instant
-                        .balance
-                        .unwrap_or_else(|| *self.au_balances.get(&id).unwrap_or(&0.0));
-                    self.set_au_signed(id, value, balance);
-                }
-                TransitionTarget::Viseme(index) => {
-                    self.set_viseme(index, value);
-                    self.set_viseme_jaw_scale(index, instant.jaw_scale);
-                }
-                TransitionTarget::Morph(mesh_id, morph_target_id) => {
-                    self.direct_morph_values
-                        .insert((mesh_id, morph_target_id), clamp01(value));
-                }
-            }
-            return;
-        }
-        self.transitions.push(transition);
-    }
+    pub fn clear_transitions(&mut self) {}
 
     #[wasm_bindgen]
     pub fn get_au(&self, id: u32) -> f32 {
@@ -647,7 +533,6 @@ impl RuntimeCore {
         for scale in &mut self.viseme_jaw_scales {
             *scale = 1.0;
         }
-        self.transitions.clear();
         self.direct_morph_values.clear();
         self.animation.stop_all();
     }
@@ -670,52 +555,28 @@ impl RuntimeCore {
         targets.len() as u32
     }
 
+    /// Set morph(s) immediately. Duration is ignored — host mixers own timed fades.
     #[wasm_bindgen]
     pub fn transition_morph(
         &mut self,
         morph_name: &str,
         to: f32,
-        duration_ms: f32,
+        _duration_ms: f32,
         mesh_names_json: &str,
     ) -> u32 {
-        let targets = self.resolve_morph_targets(morph_name, None, mesh_names_json);
-        for (mesh_id, morph_target_id) in &targets {
-            let from = self.current_morph_value(*mesh_id, *morph_target_id);
-            self.start_transition(Transition {
-                target: TransitionTarget::Morph(*mesh_id, *morph_target_id),
-                from,
-                to: clamp01(to),
-                duration: duration_ms / 1000.0,
-                elapsed: 0.0,
-                balance: None,
-                jaw_scale: 1.0,
-            });
-        }
-        targets.len() as u32
+        self.set_morph(morph_name, to, mesh_names_json)
     }
 
+    /// Set morph index target(s) immediately. Duration is ignored.
     #[wasm_bindgen]
     pub fn transition_morph_index(
         &mut self,
         morph_index: i32,
         to: f32,
-        duration_ms: f32,
+        _duration_ms: f32,
         mesh_names_json: &str,
     ) -> u32 {
-        let targets = self.resolve_morph_targets("", Some(morph_index), mesh_names_json);
-        for (mesh_id, morph_target_id) in &targets {
-            let from = self.current_morph_value(*mesh_id, *morph_target_id);
-            self.start_transition(Transition {
-                target: TransitionTarget::Morph(*mesh_id, *morph_target_id),
-                from,
-                to: clamp01(to),
-                duration: duration_ms / 1000.0,
-                elapsed: 0.0,
-                balance: None,
-                jaw_scale: 1.0,
-            });
-        }
-        targets.len() as u32
+        self.set_morph_index(morph_index, to, mesh_names_json)
     }
 
     #[wasm_bindgen]
@@ -863,42 +724,31 @@ impl RuntimeCore {
         self.animation.remove_clip(clip_name)
     }
 
+    /// Registry lookup only. Host animation libraries own play/lerp; this returns
+    /// a host-owned action id marker when the clip exists in the registry.
     #[wasm_bindgen]
     pub fn play_animation(
         &mut self,
         clip_name: &str,
-        options_json: &str,
+        _options_json: &str,
     ) -> Result<String, JsError> {
-        let options: PlayOptions = parse_runtime_json(options_json, "animation play options")?;
-        let current = self.capture_inherited_values(clip_name)?;
-        self.animation
-            .play(clip_name, options, |target| {
-                current
-                    .get(&target.to_string())
-                    .cloned()
-                    .unwrap_or_default()
-            })
-            .map_err(|error| JsError::new(&error))
+        if self.animation.clip(clip_name).is_none() {
+            return Err(JsError::new(&format!(
+                "Unknown animation clip \"{clip_name}\"."
+            )));
+        }
+        Ok(format!("host:{clip_name}"))
     }
 
+    /// Host-owned crossfade marker. Rust does not lerp; the host mixer should fade.
     #[wasm_bindgen]
     pub fn crossfade_to(
         &mut self,
         clip_name: &str,
-        duration: f32,
+        _duration: f32,
         options_json: &str,
     ) -> Result<String, JsError> {
-        let mut options: PlayOptions = parse_runtime_json(options_json, "animation play options")?;
-        options.crossfade_duration = Some(duration.max(0.0));
-        let current = self.capture_inherited_values(clip_name)?;
-        self.animation
-            .play(clip_name, options, |target| {
-                current
-                    .get(&target.to_string())
-                    .cloned()
-                    .unwrap_or_default()
-            })
-            .map_err(|error| JsError::new(&error))
+        self.play_animation(clip_name, options_json)
     }
 
     #[wasm_bindgen]
@@ -1138,24 +988,14 @@ impl RuntimeCore {
     }
 
     /// Packed morph FrameDelta rows: `[mesh_id, morph_target_id, value, mode] * N`
+    /// Live AU/viseme/direct morph state only — clip playback is host-owned.
     #[wasm_bindgen]
     pub fn evaluate_morph_frame_delta(&self) -> Box<[f32]> {
-        let animation = self.animation.sample();
         let mut writes: HashMap<(u32, u32), f32> = HashMap::new();
 
         for binding in &self.au_bindings {
-            let base_value = *self.au_values.get(&binding.au_id).unwrap_or(&0.0);
-            let value = animation
-                .aus
-                .get(&binding.au_id)
-                .map(|blend| blend.resolve(base_value))
-                .unwrap_or(base_value);
-            let balance = animation
-                .au_balances
-                .get(&binding.au_id)
-                .or_else(|| self.au_balances.get(&binding.au_id))
-                .copied()
-                .unwrap_or(0.0);
+            let value = *self.au_values.get(&binding.au_id).unwrap_or(&0.0);
+            let balance = self.au_balances.get(&binding.au_id).copied().unwrap_or(0.0);
             let mix_weight = if self.mixed_aus.contains_key(&binding.au_id) {
                 *self.mix_weights.get(&binding.au_id).unwrap_or(&1.0)
             } else {
@@ -1183,16 +1023,11 @@ impl RuntimeCore {
         let mut viseme_writes: HashMap<(u32, u32), f32> = HashMap::new();
         for binding in &self.viseme_bindings {
             let index = binding.viseme_index as usize;
-            let base_value = if index < self.viseme_values.len() {
+            let value = if index < self.viseme_values.len() {
                 self.viseme_values[index]
             } else {
                 0.0
             };
-            let value = animation
-                .visemes
-                .get(&binding.viseme_index)
-                .map(|blend| blend.resolve(base_value))
-                .unwrap_or(base_value);
             let weighted = clamp01(clamp01(value) * binding.weight);
             let key = (binding.mesh_id, binding.morph_target_id);
             match viseme_writes.get(&key) {
@@ -1212,13 +1047,6 @@ impl RuntimeCore {
         for (target, value) in &self.direct_morph_values {
             writes.insert(*target, clamp01(*value));
         }
-        for (target, blend) in &animation.morphs {
-            let base = writes
-                .get(target)
-                .copied()
-                .unwrap_or_else(|| self.current_morph_value(target.0, target.1));
-            writes.insert(*target, blend.resolve(base));
-        }
 
         let mut out = Vec::with_capacity(writes.len() * PACKED_MORPH_FRAME_DELTA_STRIDE as usize);
         for ((mesh_id, morph_target_id), value) in writes {
@@ -1236,28 +1064,15 @@ impl RuntimeCore {
     /// viseme jaw rotation is applied as an absolute packed frame write.
     #[wasm_bindgen]
     pub fn evaluate_bone_frame_delta(&self) -> Box<[f32]> {
-        let animation = self.animation.sample();
         let mut order: Vec<u32> = Vec::new();
         let mut writes: HashMap<u32, BoneWrite> = HashMap::new();
 
         let effective_value = |au_id: u32, side: u8| -> f32 {
-            let base = *self.au_values.get(&au_id).unwrap_or(&0.0);
-            let raw = clamp01(
-                animation
-                    .aus
-                    .get(&au_id)
-                    .map(|blend| blend.resolve(base))
-                    .unwrap_or(base),
-            );
+            let raw = clamp01(*self.au_values.get(&au_id).unwrap_or(&0.0));
             if raw <= 1e-6 {
                 return 0.0;
             }
-            let balance = animation
-                .au_balances
-                .get(&au_id)
-                .or_else(|| self.au_balances.get(&au_id))
-                .copied()
-                .unwrap_or(0.0);
+            let balance = self.au_balances.get(&au_id).copied().unwrap_or(0.0);
             raw * side_scale(balance, side)
         };
 
@@ -1311,14 +1126,7 @@ impl RuntimeCore {
                 offsets.push((row.bone_id, [0.0, 0.0, 0.0]));
                 offsets.last_mut().unwrap()
             };
-            let base = *self.au_values.get(&row.au_id).unwrap_or(&0.0);
-            let value = clamp01(
-                animation
-                    .aus
-                    .get(&row.au_id)
-                    .map(|blend| blend.resolve(base))
-                    .unwrap_or(base),
-            );
+            let value = clamp01(*self.au_values.get(&row.au_id).unwrap_or(&0.0));
             if value <= 1e-6 {
                 continue;
             }
@@ -1347,7 +1155,7 @@ impl RuntimeCore {
         // Viseme-driven jaw rotation. When no viseme is active, emit rest if
         // no composite rotation already owns the jaw so the previous frame
         // cannot leave the Three.js bone open.
-        let jaw_amount = self.active_viseme_jaw_amount_with(&animation);
+        let jaw_amount = self.active_viseme_jaw_amount();
         if let Some(jaw) = &self.jaw_binding {
             let rest = self
                 .bone_rest_transforms
@@ -1372,43 +1180,6 @@ impl RuntimeCore {
             }
         }
 
-        for (bone_id, blend) in &animation.bone_positions {
-            let base = writes
-                .get(bone_id)
-                .and_then(|(position, _)| *position)
-                .or_else(|| {
-                    self.bone_rest_transforms
-                        .get(bone_id)
-                        .map(|rest| rest.position)
-                })
-                .unwrap_or([0.0, 0.0, 0.0]);
-            upsert_bone_write(
-                &mut writes,
-                &mut order,
-                *bone_id,
-                Some(blend.resolve(base)),
-                None,
-            );
-        }
-        for (bone_id, blend) in &animation.bone_rotations {
-            let base = writes
-                .get(bone_id)
-                .and_then(|(_, rotation)| *rotation)
-                .or_else(|| {
-                    self.bone_rest_transforms
-                        .get(bone_id)
-                        .map(|rest| rest.rotation)
-                })
-                .unwrap_or([0.0, 0.0, 0.0, 1.0]);
-            upsert_bone_write(
-                &mut writes,
-                &mut order,
-                *bone_id,
-                None,
-                Some(blend.resolve(base)),
-            );
-        }
-
         let mut out = Vec::with_capacity(order.len() * PACKED_BONE_FRAME_DELTA_STRIDE as usize);
         for bone_id in order {
             let (position, rotation) = writes[&bone_id];
@@ -1429,82 +1200,15 @@ impl RuntimeCore {
         out.into_boxed_slice()
     }
 
-    /// JSON writes for transform properties that are not part of the packed
-    /// procedural ABI: bone scale and mesh visibility.
+    /// Scene extras for live state. Clip-driven scale/visibility/object writes
+    /// are owned by the host mixer, so this returns an empty frame.
     #[wasm_bindgen]
     pub fn evaluate_scene_frame(&self) -> Result<String, JsError> {
-        let animation = self.animation.sample();
-        let bone_scales = animation
-            .bone_scales
-            .iter()
-            .map(|(bone_id, blend)| {
-                let base = self
-                    .bone_rest_scales
-                    .get(bone_id)
-                    .copied()
-                    .unwrap_or([1.0, 1.0, 1.0]);
-                serde_json::json!({ "boneId": bone_id, "scale": blend.resolve(base) })
-            })
-            .collect::<Vec<_>>();
-        let meshes = animation
-            .mesh_visibility
-            .iter()
-            .map(|(mesh_id, blend)| {
-                let base = if self.mesh_visibility.get(mesh_id).copied().unwrap_or(true) {
-                    1.0
-                } else {
-                    0.0
-                };
-                serde_json::json!({ "meshId": mesh_id, "visible": blend.resolve(base) >= 0.5 })
-            })
-            .collect::<Vec<_>>();
-        let object_ids = animation
-            .object_positions
-            .keys()
-            .chain(animation.object_rotations.keys())
-            .chain(animation.object_scales.keys())
-            .copied()
-            .collect::<BTreeSet<_>>();
-        let objects = object_ids
-            .into_iter()
-            .map(|object_id| {
-                let position = animation.object_positions.get(&object_id).map(|blend| {
-                    blend.resolve(
-                        self.object_rest_positions
-                            .get(&object_id)
-                            .copied()
-                            .unwrap_or([0.0, 0.0, 0.0]),
-                    )
-                });
-                let rotation = animation.object_rotations.get(&object_id).map(|blend| {
-                    blend.resolve(
-                        self.object_rest_rotations
-                            .get(&object_id)
-                            .copied()
-                            .unwrap_or([0.0, 0.0, 0.0, 1.0]),
-                    )
-                });
-                let scale = animation.object_scales.get(&object_id).map(|blend| {
-                    blend.resolve(
-                        self.object_rest_scales
-                            .get(&object_id)
-                            .copied()
-                            .unwrap_or([1.0, 1.0, 1.0]),
-                    )
-                });
-                serde_json::json!({
-                    "objectId": object_id,
-                    "position": position,
-                    "rotation": rotation,
-                    "scale": scale,
-                })
-            })
-            .collect::<Vec<_>>();
         serialize_runtime_json(
             &serde_json::json!({
-                "boneScales": bone_scales,
-                "objects": objects,
-                "meshes": meshes,
+                "boneScales": [],
+                "objects": [],
+                "meshes": [],
             }),
             "scene frame",
         )
@@ -1566,48 +1270,77 @@ impl RuntimeCore {
         if clip_name.trim().is_empty() {
             return Err(JsError::new("Clip name cannot be empty."));
         }
-        let mut tracks = Vec::new();
-        let mut next_track_id = 1u32;
-        let scale = options.intensity_scale.unwrap_or(1.0);
         let mesh_names_json = serde_json::to_string(&options.mesh_names).unwrap_or_default();
-        for (curve_id, points) in curves {
-            if points.is_empty() {
+        let snippet_curves = curves
+            .iter()
+            .map(|(id, points)| {
+                (
+                    id.clone(),
+                    points
+                        .iter()
+                        .map(|point| SnippetCurvePoint {
+                            time: point.time,
+                            intensity: point.intensity,
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut named_morph_targets = HashMap::new();
+        for curve_id in snippet_curves.keys() {
+            if curve_id.chars().all(|c| c.is_ascii_digit()) {
                 continue;
             }
-            let semantic_target = curve_id.parse::<u32>().ok().map(|id| {
-                if options.snippet_category.as_deref() == Some("visemeSnippet")
-                    && (id as usize) < self.viseme_values.len()
-                {
-                    serde_json::json!({ "kind": "viseme", "id": id })
-                } else {
-                    let balance = options
-                        .balance_map
-                        .get(&curve_id)
-                        .copied()
-                        .or(options.balance)
-                        .unwrap_or(0.0);
-                    serde_json::json!({ "kind": "au", "id": id, "balance": balance })
-                }
-            });
-            let targets = if let Some(target) = semantic_target {
-                vec![target]
-            } else {
-                self.resolve_morph_targets(&curve_id, None, &mesh_names_json)
-                    .into_iter()
-                    .map(|(mesh_id, morph_target_id)| {
-                        serde_json::json!({
-                            "kind": "morphTarget",
-                            "meshId": mesh_id,
-                            "morphTargetId": morph_target_id,
-                        })
-                    })
-                    .collect()
-            };
-            for target in targets {
-                tracks.push(scalar_track(next_track_id, target, &points, scale));
-                next_track_id += 1;
+            let targets = self.resolve_morph_targets(curve_id, None, &mesh_names_json);
+            if !targets.is_empty() {
+                named_morph_targets.insert(curve_id.clone(), targets);
             }
         }
+        let au_bindings = self
+            .au_bindings
+            .iter()
+            .map(|binding| SnippetAuMorphBinding {
+                au_id: binding.au_id,
+                side: binding.side,
+                mesh_id: binding.mesh_id,
+                morph_target_id: binding.morph_target_id,
+                weight: binding.weight,
+            })
+            .collect::<Vec<_>>();
+        let viseme_bindings = self
+            .viseme_bindings
+            .iter()
+            .map(|binding| SnippetVisemeMorphBinding {
+                viseme_index: binding.viseme_index,
+                mesh_id: binding.mesh_id,
+                morph_target_id: binding.morph_target_id,
+                weight: binding.weight,
+            })
+            .collect::<Vec<_>>();
+        let mixed_aus = self.mixed_aus.keys().copied().collect::<HashSet<_>>();
+        let compile_options = SnippetCompileOptions {
+            intensity_scale: options.intensity_scale.unwrap_or(1.0),
+            balance: options.balance.unwrap_or(0.0),
+            balance_map: options.balance_map.clone(),
+            snippet_category: options.snippet_category.clone(),
+            auto_viseme_jaw: options.auto_viseme_jaw.unwrap_or(true),
+            jaw_scale: options.jaw_scale.unwrap_or(1.0),
+        };
+        let tracks = compile_snippet_tracks(SnippetCompileInput {
+            curves: &snippet_curves,
+            au_bindings: &au_bindings,
+            viseme_bindings: &viseme_bindings,
+            viseme_slot_count: self.viseme_values.len(),
+            mix_weights: &self.mix_weights,
+            mixed_aus: &mixed_aus,
+            composite_axes: &self.composite_axes,
+            translation_rows: &self.translation_rows,
+            jaw_binding: self.jaw_binding.as_ref(),
+            viseme_jaw_amounts: &self.viseme_jaw_amounts,
+            bone_rest_transforms: &self.bone_rest_transforms,
+            named_morph_targets: &named_morph_targets,
+            options: &compile_options,
+        });
         clip_from_tracks(clip_name, tracks)
     }
 
@@ -1716,6 +1449,13 @@ impl RuntimeCore {
         let mut tracks = Vec::new();
         let mut next_track_id = 1u32;
         let global_scale = options.intensity_scale.unwrap_or(1.0);
+
+        // Batch AU/viseme channels into one concrete ClipIR expansion so composite
+        // bones and jaw tracks are emitted once.
+        let mut semantic_curves: BTreeMap<String, Vec<RuntimeCurvePoint>> = BTreeMap::new();
+        let mut balance_map = options.balance_map.clone();
+        let mut has_viseme = false;
+        let mut remaining = Vec::new();
         for channel in channels {
             if channel.keyframes.is_empty() {
                 continue;
@@ -1733,35 +1473,71 @@ impl RuntimeCore {
                     else {
                         continue;
                     };
-                    let balance = channel
+                    if let Some(balance) = channel
                         .target
                         .get("balance")
                         .and_then(serde_json::Value::as_f64)
                         .map(|value| value as f32)
-                        .or_else(|| options.balance_map.get(&id.to_string()).copied())
-                        .or(options.balance)
-                        .unwrap_or(0.0);
-                    tracks.push(scalar_track(
-                        next_track_id,
-                        serde_json::json!({ "kind": "au", "id": id, "balance": balance }),
-                        &channel.keyframes,
-                        scale,
-                    ));
-                    next_track_id += 1;
+                    {
+                        balance_map.insert(id.to_string(), balance);
+                    }
+                    semantic_curves.insert(
+                        id.to_string(),
+                        channel
+                            .keyframes
+                            .iter()
+                            .map(|point| RuntimeCurvePoint {
+                                time: point.time,
+                                intensity: point.intensity * (scale / global_scale.max(1e-9)),
+                                inherit: point.inherit,
+                            })
+                            .collect(),
+                    );
                 }
                 "viseme" => {
                     let Some(id) = channel.target.get("id").and_then(serde_json::Value::as_u64)
                     else {
                         continue;
                     };
-                    tracks.push(scalar_track(
-                        next_track_id,
-                        serde_json::json!({ "kind": "viseme", "id": id }),
-                        &channel.keyframes,
-                        scale,
-                    ));
-                    next_track_id += 1;
+                    has_viseme = true;
+                    semantic_curves.insert(
+                        id.to_string(),
+                        channel
+                            .keyframes
+                            .iter()
+                            .map(|point| RuntimeCurvePoint {
+                                time: point.time,
+                                intensity: point.intensity * (scale / global_scale.max(1e-9)),
+                                inherit: point.inherit,
+                            })
+                            .collect(),
+                    );
                 }
+                _ => remaining.push((channel, scale)),
+            }
+        }
+        if !semantic_curves.is_empty() {
+            let mut semantic_options = options.clone();
+            semantic_options.balance_map = balance_map;
+            if has_viseme {
+                semantic_options.snippet_category = Some("visemeSnippet".to_string());
+            }
+            let compiled = self.compile_curves(clip_name, semantic_curves, &semantic_options)?;
+            for mut track in compiled.tracks {
+                track.id = next_track_id;
+                next_track_id += 1;
+                tracks.push(track);
+            }
+        }
+
+        for (channel, scale) in remaining {
+            let target_type = channel
+                .target
+                .get("type")
+                .or_else(|| channel.target.get("kind"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            match target_type {
                 "morph" => {
                     let mesh_names = channel
                         .target
@@ -1930,146 +1706,10 @@ impl RuntimeCore {
             .map(|bone| bone.id)
     }
 
-    fn current_morph_value(&self, mesh_id: u32, morph_target_id: u32) -> f32 {
-        self.direct_morph_values
-            .get(&(mesh_id, morph_target_id))
-            .or_else(|| self.initial_morph_values.get(&(mesh_id, morph_target_id)))
-            .copied()
-            .unwrap_or(0.0)
-    }
-
-    fn capture_inherited_values(
-        &self,
-        clip_name: &str,
-    ) -> Result<HashMap<String, Vec<f32>>, JsError> {
-        let clip = self
-            .animation
-            .clip(clip_name)
-            .ok_or_else(|| JsError::new(&format!("Unknown animation clip \"{clip_name}\".")))?;
-        let mut current = HashMap::new();
-        for track in &clip.tracks {
-            let target = &track.target;
-            let kind = target
-                .get("kind")
-                .or_else(|| target.get("type"))
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-            let value = match kind {
-                "au" | "lipSync" => target
-                    .get("id")
-                    .and_then(serde_json::Value::as_u64)
-                    .map(|id| vec![self.get_au(id as u32)])
-                    .unwrap_or_default(),
-                "viseme" => target
-                    .get("id")
-                    .and_then(serde_json::Value::as_u64)
-                    .and_then(|id| self.viseme_values.get(id as usize).copied())
-                    .map(|value| vec![value])
-                    .unwrap_or_default(),
-                "morphTarget" => match (
-                    target.get("meshId").and_then(serde_json::Value::as_u64),
-                    target
-                        .get("morphTargetId")
-                        .and_then(serde_json::Value::as_u64),
-                ) {
-                    (Some(mesh_id), Some(morph_target_id)) => {
-                        vec![self.current_morph_value(mesh_id as u32, morph_target_id as u32)]
-                    }
-                    _ => Vec::new(),
-                },
-                "boneTransform" => {
-                    let bone_id = target
-                        .get("boneId")
-                        .and_then(serde_json::Value::as_u64)
-                        .unwrap_or_default() as u32;
-                    match target
-                        .get("property")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or_default()
-                    {
-                        "position" => self
-                            .bone_rest_transforms
-                            .get(&bone_id)
-                            .map(|rest| rest.position.to_vec())
-                            .unwrap_or_else(|| vec![0.0, 0.0, 0.0]),
-                        "rotation" => self
-                            .bone_rest_transforms
-                            .get(&bone_id)
-                            .map(|rest| rest.rotation.to_vec())
-                            .unwrap_or_else(|| vec![0.0, 0.0, 0.0, 1.0]),
-                        "scale" => self
-                            .bone_rest_scales
-                            .get(&bone_id)
-                            .copied()
-                            .unwrap_or([1.0, 1.0, 1.0])
-                            .to_vec(),
-                        _ => Vec::new(),
-                    }
-                }
-                "objectTransform" => {
-                    let object_id = target
-                        .get("objectId")
-                        .and_then(serde_json::Value::as_u64)
-                        .unwrap_or_default() as u32;
-                    match target
-                        .get("property")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or_default()
-                    {
-                        "position" => self
-                            .object_rest_positions
-                            .get(&object_id)
-                            .copied()
-                            .unwrap_or([0.0, 0.0, 0.0])
-                            .to_vec(),
-                        "rotation" => self
-                            .object_rest_rotations
-                            .get(&object_id)
-                            .copied()
-                            .unwrap_or([0.0, 0.0, 0.0, 1.0])
-                            .to_vec(),
-                        "scale" => self
-                            .object_rest_scales
-                            .get(&object_id)
-                            .copied()
-                            .unwrap_or([1.0, 1.0, 1.0])
-                            .to_vec(),
-                        _ => Vec::new(),
-                    }
-                }
-                "meshVisibility" => target
-                    .get("meshId")
-                    .and_then(serde_json::Value::as_u64)
-                    .map(|mesh_id| {
-                        vec![if self
-                            .mesh_visibility
-                            .get(&(mesh_id as u32))
-                            .copied()
-                            .unwrap_or(true)
-                        {
-                            1.0
-                        } else {
-                            0.0
-                        }]
-                    })
-                    .unwrap_or_default(),
-                _ => Vec::new(),
-            };
-            current.insert(target.to_string(), value);
-        }
-        Ok(current)
-    }
-
-    fn active_viseme_jaw_amount_with(&self, animation: &crate::animation::AnimationSample) -> f32 {
+    fn active_viseme_jaw_amount(&self) -> f32 {
         let mut jaw_amount = 0.0f32;
         for (index, value) in self.viseme_values.iter().enumerate() {
-            let value = clamp01(
-                animation
-                    .visemes
-                    .get(&(index as u32))
-                    .map(|blend| blend.resolve(*value))
-                    .unwrap_or(*value),
-            );
+            let value = clamp01(*value);
             if value <= 1e-6 {
                 continue;
             }
@@ -2552,19 +2192,12 @@ mod tests {
     }
 
     #[test]
-    fn transitions_ease_au_values_via_update() {
+    fn transition_au_applies_instantly_without_rust_lerp() {
         let mut core = RuntimeCore::new(0);
         core.transition_au(12, 1.0, 200.0, f32::NAN);
-        assert_eq!(core.active_transition_count(), 1);
-
-        // Halfway: easeInOutQuad(0.5) = 0.5.
-        core.update(0.1);
-        assert!((core.get_au(12) - 0.5).abs() < 1e-6);
-
-        // Completion clamps at the target and removes the transition.
-        core.update(0.2);
-        assert!((core.get_au(12) - 1.0).abs() < 1e-6);
         assert_eq!(core.active_transition_count(), 0);
+        assert!((core.get_au(12) - 1.0).abs() < 1e-6);
+        assert_eq!(core.update(0.1), 0);
     }
 
     #[test]
