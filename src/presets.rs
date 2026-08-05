@@ -139,6 +139,14 @@ mod tests {
             cc4["hairPhysics"]["morphTargets"]["headUp"]["Hairline_High_ALL"]["axis"],
             "pitch"
         );
+        assert!(
+            cc4["compositeRotations"]
+                .as_array()
+                .is_some_and(|value| !value.is_empty()),
+            "CC4 must embed compositeRotations so AU→bone rotations compile"
+        );
+        assert_eq!(cc4["compositeRotations"][1]["node"], "HEAD");
+        assert_eq!(cc4["compositeRotations"][1]["yaw"]["axis"], "ry");
 
         let fish: serde_json::Value =
             serde_json::from_str(&merge_preset_with_override_json("fish", "").unwrap()).unwrap();
