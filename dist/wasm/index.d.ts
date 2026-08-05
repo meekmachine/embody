@@ -86,7 +86,7 @@ export declare const DEFAULT_HAIR_COLOR_APPEARANCE: {
     emissive: string;
     emissiveIntensity: number;
 };
-export declare const JONATHAN_HUMANOID_SKELETON_TEMPLATE: {
+export declare const CC4_HUMANOID_SKELETON_TEMPLATE: {
     id: string;
     sourceCharacterId: string;
     sourceAsset: string;

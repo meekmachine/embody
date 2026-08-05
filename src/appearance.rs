@@ -16,16 +16,25 @@ pub struct HairColorAppearance {
     pub emissive_intensity: f64,
 }
 
-const HAIR_COLOR_PRESETS_JSON: &str = include_str!(concat!(
+// Hair color swatches live on the CC4 rig preset (and on fish when authored).
+// The Wasm helpers below expose CC4's embedded table for normalize/default;
+// hosts should prefer `profile.hairColorPresets` from the loaded rig.
+const CC4_PRESET_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/assets/appearance/hair-color-presets.json"
+    "/assets/presets/cc4.json"
 ));
 
 fn presets() -> &'static BTreeMap<String, HairColorAppearance> {
     static PRESETS: OnceLock<BTreeMap<String, HairColorAppearance>> = OnceLock::new();
     PRESETS.get_or_init(|| {
+        let preset: Value = deserialize_json(CC4_PRESET_JSON, "Invalid embedded CC4 preset")
+            .expect("embedded CC4 preset must be valid");
+        let hair = preset
+            .get("hairColorPresets")
+            .cloned()
+            .unwrap_or(Value::Object(Default::default()));
         deserialize_json(
-            HAIR_COLOR_PRESETS_JSON,
+            &serde_json::to_string(&hair).expect("hairColorPresets serialize"),
             "Invalid embedded hair color presets",
         )
         .expect("embedded hair color presets must be valid")

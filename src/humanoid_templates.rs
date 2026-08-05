@@ -6,9 +6,9 @@ use wasm_bindgen::prelude::*;
 
 use crate::profile::{deserialize_json, ModelData};
 
-const JONATHAN_TEMPLATE_JSON: &str = include_str!(concat!(
+const CC4_HUMANOID_TEMPLATE_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/assets/templates/jonathan-cc-base.json"
+    "/assets/templates/cc4-humanoid.json"
 ));
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -40,17 +40,17 @@ struct ExtractOptions {
     source_skin_name: String,
 }
 
-fn jonathan_template() -> &'static HumanoidSkeletonTemplate {
+fn cc4_humanoid_template() -> &'static HumanoidSkeletonTemplate {
     static TEMPLATE: OnceLock<HumanoidSkeletonTemplate> = OnceLock::new();
     TEMPLATE.get_or_init(|| {
-        deserialize_json(JONATHAN_TEMPLATE_JSON, "Invalid embedded humanoid template")
+        deserialize_json(CC4_HUMANOID_TEMPLATE_JSON, "Invalid embedded humanoid template")
             .expect("embedded humanoid template must be valid")
     })
 }
 
 fn parse_template(json: &str) -> Result<HumanoidSkeletonTemplate, String> {
     if json.trim().is_empty() {
-        Ok(jonathan_template().clone())
+        Ok(cc4_humanoid_template().clone())
     } else {
         deserialize_json(json, "Invalid humanoid skeleton template JSON")
     }
@@ -110,13 +110,13 @@ fn rest_bounds(template: &HumanoidSkeletonTemplate) -> Result<[f64; 6], String> 
 
 #[wasm_bindgen]
 pub fn list_humanoid_skeleton_templates_json() -> Result<String, JsError> {
-    serde_json::to_string(&[jonathan_template()])
+    serde_json::to_string(&[cc4_humanoid_template()])
         .map_err(|error| JsError::new(&format!("Failed to serialize humanoid templates: {error}")))
 }
 
 #[wasm_bindgen]
 pub fn get_humanoid_skeleton_template_json(id: &str) -> Result<String, JsError> {
-    let value = (id == jonathan_template().id).then(jonathan_template);
+    let value = (id == cc4_humanoid_template().id).then(cc4_humanoid_template);
     serde_json::to_string(&value)
         .map_err(|error| JsError::new(&format!("Failed to serialize humanoid template: {error}")))
 }
@@ -209,8 +209,8 @@ mod tests {
 
     #[test]
     fn loads_embedded_template_and_computes_finite_bounds() {
-        let template = jonathan_template();
-        assert_eq!(template.id, "jonathan-cc-base");
+        let template = cc4_humanoid_template();
+        assert_eq!(template.id, "cc4-humanoid");
         assert!(!template.bones.is_empty());
         assert!(rest_bounds(template)
             .unwrap()

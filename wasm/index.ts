@@ -1,5 +1,5 @@
-import hairColorPresets from '../assets/appearance/hair-color-presets.json';
-import jonathanHumanoidSkeletonTemplate from '../assets/templates/jonathan-cc-base.json';
+import cc4Preset from '../assets/presets/cc4.json';
+import cc4HumanoidSkeletonTemplate from '../assets/templates/cc4-humanoid.json';
 
 export const EMBODY_CORE_ABI_VERSION = 1;
 export const PACKED_MORPH_FRAME_DELTA_STRIDE = 4;
@@ -17,11 +17,12 @@ export const MARKER_VISIBILITY_FACTORS_STRIDE = 3;
 export const MARKER_ENDPOINT_STRIDE = 3;
 
 // Synchronous compatibility data is bundled from the same JSON assets embedded
-// by Rust. Runtime parsing, validation, and transformation remain in Wasm.
-export const HAIR_COLOR_PRESETS = hairColorPresets;
-export const DEFAULT_HAIR_COLOR_APPEARANCE = hairColorPresets.natural_brown;
-export const JONATHAN_HUMANOID_SKELETON_TEMPLATE = jonathanHumanoidSkeletonTemplate;
-export const HUMANOID_SKELETON_TEMPLATES = [JONATHAN_HUMANOID_SKELETON_TEMPLATE];
+// by Rust. Hair color swatches and the CC4 humanoid skeleton live with the
+// CC4 rig preset — not as character-specific side registries.
+export const HAIR_COLOR_PRESETS = cc4Preset.hairColorPresets;
+export const DEFAULT_HAIR_COLOR_APPEARANCE = HAIR_COLOR_PRESETS.natural_brown;
+export const CC4_HUMANOID_SKELETON_TEMPLATE = cc4HumanoidSkeletonTemplate;
+export const HUMANOID_SKELETON_TEMPLATES = [CC4_HUMANOID_SKELETON_TEMPLATE];
 
 type Core = Record<string, any> & { default?: (input?: unknown) => Promise<unknown> };
 
