@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Git ref or SHA to publish (default: current ref)
+        description: "Git ref or SHA to publish (default: current ref)"
         required: false
         type: string
         default: ""
@@ -18,7 +18,7 @@ on:
     types: [publish-pkg-pr-new]
 
 concurrency:
-  group: pkg-pr-new-${{ github.event.client_payload.sha || github.event.inputs.ref || github.sha }}
+  group: pkg-pr-new-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.sha || github.event_name == 'workflow_dispatch' && github.event.inputs.ref || github.sha }}
   cancel-in-progress: true
 
 permissions:
@@ -68,10 +68,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      # --comment=off: push/dispatch publishes do not need PR comments, and comment
+      # writes are a common 403 failure mode when the app/token cannot comment.
       - name: Publish package to pkg.pr.new
         id: publish
         continue-on-error: true
-        run: npx --yes pkg-pr-new publish --no-compact
+        run: npx --yes pkg-pr-new publish --no-compact --comment=off
 
       - name: Fail if pkg.pr.new is unavailable
         if: steps.publish.outcome == 'failure'
