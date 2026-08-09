@@ -430,6 +430,32 @@ struct Action {
     inherited: HashMap<u32, Vec<f32>>,
 }
 
+fn ease_progress(easing: &str, t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    match easing {
+        "easeIn" => t * t,
+        "easeOut" => {
+            let u = 1.0 - t;
+            1.0 - u * u
+        }
+        "easeInOut" => {
+            if t < 0.5 {
+                2.0 * t * t
+            } else {
+                -1.0 + (4.0 - 2.0 * t) * t
+            }
+        }
+        "easeInOutCubic" => {
+            if t < 0.5 {
+                4.0 * t * t * t
+            } else {
+                1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+            }
+        }
+        _ => t, // linear and unknown labels
+    }
+}
+
 impl Action {
     fn effective_weight(&self) -> f32 {
         let factor = self.fade.map_or(1.0, |fade| {
@@ -437,7 +463,8 @@ impl Action {
                 fade.to
             } else {
                 let progress = (fade.elapsed / fade.duration).clamp(0.0, 1.0);
-                fade.from + (fade.to - fade.from) * progress
+                let eased = ease_progress(&self.easing, progress);
+                fade.from + (fade.to - fade.from) * eased
             }
         });
         self.weight * factor
@@ -724,6 +751,15 @@ impl AnimationCore {
     pub fn set_blend_mode(&mut self, name: &str, mode: BlendMode) {
         if let Some(action) = self.actions.get_mut(name) {
             action.blend_mode = mode;
+        }
+    }
+
+    pub fn set_easing(&mut self, name: &str, easing: impl Into<String>) {
+        if let Some(action) = self.actions.get_mut(name) {
+            let next = easing.into();
+            if !next.is_empty() {
+                action.easing = next;
+            }
         }
     }
 
@@ -1347,6 +1383,31 @@ mod tests {
         .unwrap();
         core.seek("pose", 1.0);
         assert!((core.sample().morphs[&(2, 3)].resolve(0.2) - 0.7).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn crossfade_weight_uses_easing_curve() {
+        let mut core = AnimationCore::new();
+        core.insert_clip(morph_clip("fade"), "baked").unwrap();
+        core.play(
+            "fade",
+            PlayOptions {
+                crossfade_duration: Some(1.0),
+                easing: "easeIn".to_string(),
+                loop_mode: Some(LoopMode::Once),
+                weight: Some(1.0),
+                ..PlayOptions::default()
+            },
+            |_| vec![0.0],
+        )
+        .unwrap();
+        // Mid-fade with easeIn(0.5) = 0.25, so resolved morph is 0.5 * 0.25.
+        core.update(0.5);
+        assert!((core.sample().morphs[&(2, 3)].resolve(0.0) - 0.125).abs() < 1.0e-5);
+        core.set_easing("fade", "linear");
+        // Rebuild fade progress by seeking elapsed via another half-second update
+        // would finish the fade; instead verify set_easing stuck on state.
+        assert_eq!(core.state("fade").unwrap().easing, "linear");
     }
 
     #[test]
