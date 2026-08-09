@@ -719,6 +719,9 @@ impl RuntimeCore {
         if let Some(mode) = params.get("blendMode").and_then(serde_json::Value::as_str) {
             self.set_animation_blend_mode(clip_name, mode)?;
         }
+        if let Some(easing) = params.get("easing").and_then(serde_json::Value::as_str) {
+            self.set_animation_easing(clip_name, easing)?;
+        }
         if let Some(mode) = params.get("loopMode").and_then(serde_json::Value::as_str) {
             let repeat_count = params
                 .get("repeatCount")
@@ -866,6 +869,23 @@ impl RuntimeCore {
         };
         self.animation.set_blend_mode(clip_name, mode);
         Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub fn set_animation_easing(
+        &mut self,
+        clip_name: &str,
+        easing: &str,
+    ) -> Result<(), JsError> {
+        match easing {
+            "linear" | "easeIn" | "easeOut" | "easeInOut" | "easeInOutCubic" => {
+                self.animation.set_easing(clip_name, easing);
+                Ok(())
+            }
+            _ => Err(JsError::new(
+                "Animation easing must be linear, easeIn, easeOut, easeInOut, or easeInOutCubic.",
+            )),
+        }
     }
 
     #[wasm_bindgen]
