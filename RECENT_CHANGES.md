@@ -2,6 +2,8 @@
 
 ## Rust-only core
 
+- Made Three.js morph authoring transactional: batches preserve the existing
+  morph mode, roll back on failure, and dispose replaced geometries.
 - Moved the Rust crate to repository-root `src/`; there is no nested Rust
   project.
 - Ported profile/preset data, authoring, validation, model analysis, procedural

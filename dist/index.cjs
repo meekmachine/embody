@@ -602,24 +602,86 @@ var ThreeFrameApplier = class {
     }
   }
   addMorphTarget(root, target, options = {}) {
-    const mesh = root.getObjectByName(target.meshName);
-    if (!mesh || !mesh.isMesh) throw new Error(`Mesh not found: ${target.meshName}`);
-    if (options.forceGeometryReplacement !== false) mesh.geometry = mesh.geometry.clone();
-    const geometry = mesh.geometry;
-    const dictionary = { ...mesh.morphTargetDictionary ?? {} };
+    return this.addMorphTargets(root, [target], options)[`${target.meshName}:${target.name}`];
+  }
+  addMorphTargets(root, targets, options = {}) {
+    if (targets.length === 0) return {};
+    const stages = /* @__PURE__ */ new Map();
+    const result = {};
+    const batchKeys = /* @__PURE__ */ new Set();
+    try {
+      for (const target of targets) {
+        const key = `${target.meshName}:${target.name}`;
+        if (batchKeys.has(key)) throw new Error(`Morph target appears more than once in batch: ${key}`);
+        batchKeys.add(key);
+        let stage = stages.get(target.meshName);
+        if (!stage) {
+          const mesh = root.getObjectByName(target.meshName);
+          if (!mesh || !mesh.isMesh) throw new Error(`Mesh not found: ${target.meshName}`);
+          stage = {
+            mesh,
+            sourceGeometry: mesh.geometry,
+            geometry: mesh.geometry.clone(),
+            dictionary: {
+              ...mesh.morphTargetDictionary ?? mesh.geometry.morphTargetDictionary ?? {}
+            },
+            influences: [...mesh.morphTargetInfluences ?? []]
+          };
+          stages.set(target.meshName, stage);
+        }
+        result[key] = this.applyMorphTargetToStage(stage, target, options);
+      }
+    } catch (error) {
+      for (const stage of stages.values()) stage.geometry.dispose();
+      throw error;
+    }
+    const replaceGeometry = options.forceGeometryReplacement !== false;
+    for (const stage of stages.values()) {
+      const committedGeometry = replaceGeometry ? stage.geometry : stage.sourceGeometry;
+      if (!replaceGeometry) {
+        committedGeometry.morphAttributes = stage.geometry.morphAttributes;
+        committedGeometry.morphTargetsRelative = stage.geometry.morphTargetsRelative;
+        committedGeometry.boundingBox = stage.geometry.boundingBox;
+        committedGeometry.boundingSphere = stage.geometry.boundingSphere;
+      }
+      committedGeometry.morphTargetDictionary = { ...stage.dictionary };
+      stage.mesh.geometry = committedGeometry;
+      stage.mesh.morphTargetDictionary = { ...stage.dictionary };
+      stage.mesh.morphTargetInfluences = [...stage.influences];
+    }
+    if (replaceGeometry) {
+      for (const stage of stages.values()) stage.sourceGeometry.dispose();
+    }
+    return result;
+  }
+  applyMorphTargetToStage(stage, target, options) {
+    const geometry = stage.geometry;
+    const dictionary = stage.dictionary;
+    if (!target.name?.trim()) throw new Error(`Morph target name is required for mesh: ${target.meshName}`);
     const configuredIndex = dictionary[target.name];
     const existing = Number.isInteger(configuredIndex) && configuredIndex >= 0 ? configuredIndex : void 0;
     if (existing !== void 0 && !options.replace) throw new Error(`Morph target already exists: ${target.name}`);
-    const usedIndices = Object.values(dictionary).filter((value) => Number.isInteger(value) && value >= 0);
+    const usedIndices = Object.values(dictionary).map((value) => {
+      if (!Number.isInteger(value) || value < 0) throw new Error(`Invalid morph target index on ${target.meshName}: ${value}`);
+      return value;
+    });
     const currentTargetCount = Math.max(
       0,
       ...Object.values(geometry.morphAttributes).map((attributes) => attributes?.length ?? 0),
       usedIndices.length > 0 ? Math.max(...usedIndices) + 1 : 0,
-      mesh.morphTargetInfluences?.length ?? 0
+      stage.influences.length
     );
+    const targetIsRelative = target.relative !== false;
+    if (currentTargetCount > 0 && geometry.morphTargetsRelative !== targetIsRelative) {
+      const existingMode = geometry.morphTargetsRelative ? "relative" : "absolute";
+      const targetMode = targetIsRelative ? "relative" : "absolute";
+      throw new Error(
+        `Cannot add ${targetMode} morph target "${target.name}" to mesh "${target.meshName}" because existing morph targets are ${existingMode}.`
+      );
+    }
     const index = existing ?? currentTargetCount;
     const targetCount = Math.max(currentTargetCount, index + 1);
-    geometry.morphTargetsRelative = target.relative !== false;
+    if (currentTargetCount === 0) geometry.morphTargetsRelative = targetIsRelative;
     for (const semantic of MORPH_ATTRIBUTE_SEMANTICS) {
       const data = target[semantic];
       const existingAttributes = geometry.morphAttributes[semantic];
@@ -649,12 +711,9 @@ var ThreeFrameApplier = class {
       geometry.morphAttributes[semantic] = attributes;
     }
     dictionary[target.name] = index;
-    mesh.morphTargetDictionary = dictionary;
     geometry.morphTargetDictionary = { ...dictionary };
-    const influences = [...mesh.morphTargetInfluences ?? []];
-    while (influences.length <= index) influences.push(0);
-    if (options.resetInfluence !== false) influences[index] = 0;
-    mesh.morphTargetInfluences = influences;
+    while (stage.influences.length < targetCount) stage.influences.push(0);
+    if (options.resetInfluence !== false) stage.influences[index] = 0;
     geometry.computeBoundingBox?.();
     geometry.computeBoundingSphere?.();
     return index;

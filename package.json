@@ -38,7 +38,7 @@
     "dev": "tsup --config tsup.config.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "npm run rust:test && npm run typecheck",
-    "test:exports": "npm run build && node scripts/smoke/package-exports.mjs && node scripts/smoke/package-declarations.mjs",
+    "test:exports": "npm run build && node scripts/smoke/package-exports.mjs && node scripts/smoke/morph-authoring.mjs && node scripts/smoke/package-declarations.mjs",
     "test:pack": "npm run build && npm pack --dry-run",
     "extract:humanoid-skeleton-template": "node scripts/extract-humanoid-skeleton-template.cjs",
     "rust:test": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo test",
