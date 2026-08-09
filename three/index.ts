@@ -83,6 +83,37 @@ const createNeutralMorphAttribute = (
   return attribute;
 };
 
+const createMorphAttribute = (
+  geometry: Mesh['geometry'],
+  semantic: MorphAttributeSemantic,
+  name: string,
+  data: ArrayLike<number>,
+  sourceIsRelative: boolean,
+) => {
+  const base = geometry.getAttribute(semantic);
+  if (!base || data.length !== base.count * base.itemSize) {
+    throw new Error(`Invalid ${semantic} morph data length`);
+  }
+
+  const values = new Float32Array(Array.from(data));
+  const destinationIsRelative = geometry.morphTargetsRelative;
+  if (sourceIsRelative !== destinationIsRelative) {
+    for (let vertexIndex = 0; vertexIndex < base.count; vertexIndex += 1) {
+      for (let component = 0; component < base.itemSize; component += 1) {
+        const offset = vertexIndex * base.itemSize + component;
+        const baseValue = base.getComponent(vertexIndex, component);
+        values[offset] = destinationIsRelative
+          ? values[offset] - baseValue
+          : values[offset] + baseValue;
+      }
+    }
+  }
+
+  const attribute = new BufferAttribute(values, base.itemSize);
+  attribute.name = name;
+  return attribute;
+};
+
 export type ThreeModelInspection = {
   descriptor: Record<string, unknown>;
   meshByName: Map<string, Mesh>;
@@ -582,9 +613,17 @@ export class ThreeFrameApplier {
       stage.mesh.geometry = committedGeometry;
       stage.mesh.morphTargetDictionary = { ...stage.dictionary };
       stage.mesh.morphTargetInfluences = [...stage.influences];
+      if (!replaceGeometry) stage.geometry.dispose();
     }
     if (replaceGeometry) {
-      for (const stage of stages.values()) stage.sourceGeometry.dispose();
+      const replacedGeometries = new Set(Array.from(stages.values(), (stage) => stage.sourceGeometry));
+      for (const sourceGeometry of replacedGeometries) {
+        let stillInUse = false;
+        root.traverse((object: any) => {
+          if (object.isMesh && object.geometry === sourceGeometry) stillInUse = true;
+        });
+        if (!stillInUse) sourceGeometry.dispose();
+      }
     }
 
     return result;
@@ -615,18 +654,10 @@ export class ThreeFrameApplier {
       usedIndices.length > 0 ? Math.max(...usedIndices) + 1 : 0,
       stage.influences.length,
     );
-    const targetIsRelative = target.relative !== false;
-    if (currentTargetCount > 0 && geometry.morphTargetsRelative !== targetIsRelative) {
-      const existingMode = geometry.morphTargetsRelative ? 'relative' : 'absolute';
-      const targetMode = targetIsRelative ? 'relative' : 'absolute';
-      throw new Error(
-        `Cannot add ${targetMode} morph target "${target.name}" to mesh "${target.meshName}" because existing morph targets are ${existingMode}.`,
-      );
-    }
-
     const index = existing ?? currentTargetCount;
     const targetCount = Math.max(currentTargetCount, index + 1);
-    if (currentTargetCount === 0) geometry.morphTargetsRelative = targetIsRelative;
+    const sourceIsRelative = target.relative !== false;
+    if (currentTargetCount === 0) geometry.morphTargetsRelative = sourceIsRelative;
 
     for (const semantic of MORPH_ATTRIBUTE_SEMANTICS) {
       const data = target[semantic] as ArrayLike<number> | undefined;
@@ -645,9 +676,13 @@ export class ThreeFrameApplier {
       const attributes = [...(existingAttributes ?? [])];
       for (let targetIndex = 0; targetIndex < targetCount; targetIndex += 1) {
         if (targetIndex === index && data) {
-          const attribute = new BufferAttribute(new Float32Array(Array.from(data)), base.itemSize);
-          attribute.name = target.name;
-          attributes[targetIndex] = attribute;
+          attributes[targetIndex] = createMorphAttribute(
+            geometry,
+            semantic,
+            target.name,
+            data,
+            sourceIsRelative,
+          );
         } else if (!attributes[targetIndex] || targetIndex === index) {
           attributes[targetIndex] = createNeutralMorphAttribute(
             geometry,

@@ -45,19 +45,38 @@ const delta = new Float32Array([
   sourceGeometry.addEventListener('dispose', () => { disposeCount += 1; });
   root.add(mesh);
 
-  assert.throws(
-    () => new ThreeFrameApplier().addMorphTarget(root, {
-      meshName: mesh.name,
-      name: 'RelativeOnAbsolute',
-      relative: true,
-      position: delta,
-    }),
-    /existing morph targets are absolute/,
-  );
-  assert.equal(mesh.geometry, sourceGeometry);
+  const index = new ThreeFrameApplier().addMorphTarget(root, {
+    meshName: mesh.name,
+    name: 'RelativeOnAbsolute',
+    relative: true,
+    position: delta,
+  });
+  assert.equal(index, 1);
+  assert.notEqual(mesh.geometry, sourceGeometry);
   assert.equal(mesh.geometry.morphTargetsRelative, false);
   assert.equal(mesh.geometry.morphAttributes.position[0].getX(0), 11);
-  assert.equal(disposeCount, 0);
+  assert.equal(mesh.geometry.morphAttributes.position[1].getX(0), 11);
+  assert.equal(disposeCount, 1);
+}
+
+{
+  const root = new Object3D();
+  const mesh = makeMesh('RelativeFace', { existing: true });
+  root.add(mesh);
+
+  new ThreeFrameApplier().addMorphTarget(root, {
+    meshName: mesh.name,
+    name: 'AbsoluteOnRelative',
+    relative: false,
+    position: new Float32Array([
+      11, 0, 0,
+      11, 1, 0,
+      11, 0, 1,
+    ]),
+  });
+  assert.equal(mesh.geometry.morphTargetsRelative, true);
+  assert.equal(mesh.geometry.morphAttributes.position[0].getX(0), 1);
+  assert.equal(mesh.geometry.morphAttributes.position[1].getX(0), 1);
 }
 
 {
@@ -77,6 +96,35 @@ const delta = new Float32Array([
   assert.equal(index, 1);
   assert.notEqual(mesh.geometry, sourceGeometry);
   assert.equal(disposeCount, 1);
+}
+
+{
+  const root = new Object3D();
+  const sharedGeometry = new BufferGeometry();
+  sharedGeometry.setAttribute('position', new BufferAttribute(new Float32Array([
+    10, 0, 0,
+    10, 1, 0,
+    10, 0, 1,
+  ]), 3));
+  sharedGeometry.morphTargetsRelative = true;
+  const authoredMesh = new Mesh(sharedGeometry, new MeshBasicMaterial());
+  authoredMesh.name = 'SharedAuthored';
+  const untouchedMesh = new Mesh(sharedGeometry, new MeshBasicMaterial());
+  untouchedMesh.name = 'SharedUntouched';
+  let disposeCount = 0;
+  sharedGeometry.addEventListener('dispose', () => { disposeCount += 1; });
+  root.add(authoredMesh, untouchedMesh);
+
+  new ThreeFrameApplier().addMorphTarget(root, {
+    meshName: authoredMesh.name,
+    name: 'Added',
+    relative: true,
+    position: delta,
+  });
+
+  assert.notEqual(authoredMesh.geometry, sharedGeometry);
+  assert.equal(untouchedMesh.geometry, sharedGeometry);
+  assert.equal(disposeCount, 0);
 }
 
 {
