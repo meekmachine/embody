@@ -22,6 +22,20 @@ type BoneEntry = {
         order: string;
     };
 };
+type MorphTargetInput = {
+    meshName: string;
+    name: string;
+    relative?: boolean;
+    position: ArrayLike<number>;
+    normal?: ArrayLike<number>;
+    tangent?: ArrayLike<number>;
+    color?: ArrayLike<number>;
+};
+type AddMorphTargetOptions = {
+    forceGeometryReplacement?: boolean;
+    replace?: boolean;
+    resetInfluence?: boolean;
+};
 export type ThreeModelInspection = {
     descriptor: Record<string, unknown>;
     meshByName: Map<string, Mesh>;
@@ -105,7 +119,9 @@ export declare class ThreeFrameApplier {
     setMeshVisible(root: Object3D, name: string, visible: boolean): void;
     highlightMesh(root: Object3D, name: string | null, color?: number, intensity?: number): void;
     applyHairAppearance(meshes: readonly Mesh[], appearance: any): void;
-    addMorphTarget(root: Object3D, target: any, options?: any): number;
+    addMorphTarget(root: Object3D, target: MorphTargetInput, options?: AddMorphTargetOptions): number;
+    addMorphTargets(root: Object3D, targets: readonly MorphTargetInput[], options?: AddMorphTargetOptions): Record<string, number>;
+    private applyMorphTargetToStage;
     private applyMaterial;
     private visitMesh;
 }

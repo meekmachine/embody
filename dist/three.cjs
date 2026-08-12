@@ -271,6 +271,26 @@ var createNeutralMorphAttribute = (geometry, semantic, name) => {
   attribute.name = name;
   return attribute;
 };
+var createMorphAttribute = (geometry, semantic, name, data, sourceIsRelative) => {
+  const base = geometry.getAttribute(semantic);
+  if (!base || data.length !== base.count * base.itemSize) {
+    throw new Error(`Invalid ${semantic} morph data length`);
+  }
+  const values = new Float32Array(Array.from(data));
+  const destinationIsRelative = geometry.morphTargetsRelative;
+  if (sourceIsRelative !== destinationIsRelative) {
+    for (let vertexIndex = 0; vertexIndex < base.count; vertexIndex += 1) {
+      for (let component = 0; component < base.itemSize; component += 1) {
+        const offset = vertexIndex * base.itemSize + component;
+        const baseValue = base.getComponent(vertexIndex, component);
+        values[offset] = destinationIsRelative ? values[offset] - baseValue : values[offset] + baseValue;
+      }
+    }
+  }
+  const attribute = new three.BufferAttribute(values, base.itemSize);
+  attribute.name = name;
+  return attribute;
+};
 var transform = (obj) => ({
   position: { x: obj.position.x, y: obj.position.y, z: obj.position.z },
   rotation: { x: obj.quaternion.x, y: obj.quaternion.y, z: obj.quaternion.z, w: obj.quaternion.w },
@@ -601,24 +621,87 @@ var ThreeFrameApplier = class {
     }
   }
   addMorphTarget(root, target, options = {}) {
-    const mesh = root.getObjectByName(target.meshName);
-    if (!mesh || !mesh.isMesh) throw new Error(`Mesh not found: ${target.meshName}`);
-    if (options.forceGeometryReplacement !== false) mesh.geometry = mesh.geometry.clone();
-    const geometry = mesh.geometry;
-    const dictionary = { ...mesh.morphTargetDictionary ?? {} };
+    return this.addMorphTargets(root, [target], options)[`${target.meshName}:${target.name}`];
+  }
+  addMorphTargets(root, targets, options = {}) {
+    if (targets.length === 0) return {};
+    const stages = /* @__PURE__ */ new Map();
+    const result = {};
+    const batchKeys = /* @__PURE__ */ new Set();
+    try {
+      for (const target of targets) {
+        const key = `${target.meshName}:${target.name}`;
+        if (batchKeys.has(key)) throw new Error(`Morph target appears more than once in batch: ${key}`);
+        batchKeys.add(key);
+        let stage = stages.get(target.meshName);
+        if (!stage) {
+          const mesh = root.getObjectByName(target.meshName);
+          if (!mesh || !mesh.isMesh) throw new Error(`Mesh not found: ${target.meshName}`);
+          stage = {
+            mesh,
+            sourceGeometry: mesh.geometry,
+            geometry: mesh.geometry.clone(),
+            dictionary: {
+              ...mesh.morphTargetDictionary ?? mesh.geometry.morphTargetDictionary ?? {}
+            },
+            influences: [...mesh.morphTargetInfluences ?? []]
+          };
+          stages.set(target.meshName, stage);
+        }
+        result[key] = this.applyMorphTargetToStage(stage, target, options);
+      }
+    } catch (error) {
+      for (const stage of stages.values()) stage.geometry.dispose();
+      throw error;
+    }
+    const replaceGeometry = options.forceGeometryReplacement !== false;
+    for (const stage of stages.values()) {
+      const committedGeometry = replaceGeometry ? stage.geometry : stage.sourceGeometry;
+      if (!replaceGeometry) {
+        committedGeometry.morphAttributes = stage.geometry.morphAttributes;
+        committedGeometry.morphTargetsRelative = stage.geometry.morphTargetsRelative;
+        committedGeometry.boundingBox = stage.geometry.boundingBox;
+        committedGeometry.boundingSphere = stage.geometry.boundingSphere;
+      }
+      committedGeometry.morphTargetDictionary = { ...stage.dictionary };
+      stage.mesh.geometry = committedGeometry;
+      stage.mesh.morphTargetDictionary = { ...stage.dictionary };
+      stage.mesh.morphTargetInfluences = [...stage.influences];
+      if (!replaceGeometry) stage.geometry.dispose();
+    }
+    if (replaceGeometry) {
+      const replacedGeometries = new Set(Array.from(stages.values(), (stage) => stage.sourceGeometry));
+      for (const sourceGeometry of replacedGeometries) {
+        let stillInUse = false;
+        root.traverse((object) => {
+          if (object.isMesh && object.geometry === sourceGeometry) stillInUse = true;
+        });
+        if (!stillInUse) sourceGeometry.dispose();
+      }
+    }
+    return result;
+  }
+  applyMorphTargetToStage(stage, target, options) {
+    const geometry = stage.geometry;
+    const dictionary = stage.dictionary;
+    if (!target.name?.trim()) throw new Error(`Morph target name is required for mesh: ${target.meshName}`);
     const configuredIndex = dictionary[target.name];
     const existing = Number.isInteger(configuredIndex) && configuredIndex >= 0 ? configuredIndex : void 0;
     if (existing !== void 0 && !options.replace) throw new Error(`Morph target already exists: ${target.name}`);
-    const usedIndices = Object.values(dictionary).filter((value) => Number.isInteger(value) && value >= 0);
+    const usedIndices = Object.values(dictionary).map((value) => {
+      if (!Number.isInteger(value) || value < 0) throw new Error(`Invalid morph target index on ${target.meshName}: ${value}`);
+      return value;
+    });
     const currentTargetCount = Math.max(
       0,
       ...Object.values(geometry.morphAttributes).map((attributes) => attributes?.length ?? 0),
       usedIndices.length > 0 ? Math.max(...usedIndices) + 1 : 0,
-      mesh.morphTargetInfluences?.length ?? 0
+      stage.influences.length
     );
     const index = existing ?? currentTargetCount;
     const targetCount = Math.max(currentTargetCount, index + 1);
-    geometry.morphTargetsRelative = target.relative !== false;
+    const sourceIsRelative = target.relative !== false;
+    if (currentTargetCount === 0) geometry.morphTargetsRelative = sourceIsRelative;
     for (const semantic of MORPH_ATTRIBUTE_SEMANTICS) {
       const data = target[semantic];
       const existingAttributes = geometry.morphAttributes[semantic];
@@ -634,9 +717,13 @@ var ThreeFrameApplier = class {
       const attributes = [...existingAttributes ?? []];
       for (let targetIndex = 0; targetIndex < targetCount; targetIndex += 1) {
         if (targetIndex === index && data) {
-          const attribute = new three.BufferAttribute(new Float32Array(Array.from(data)), base.itemSize);
-          attribute.name = target.name;
-          attributes[targetIndex] = attribute;
+          attributes[targetIndex] = createMorphAttribute(
+            geometry,
+            semantic,
+            target.name,
+            data,
+            sourceIsRelative
+          );
         } else if (!attributes[targetIndex] || targetIndex === index) {
           attributes[targetIndex] = createNeutralMorphAttribute(
             geometry,
@@ -648,12 +735,9 @@ var ThreeFrameApplier = class {
       geometry.morphAttributes[semantic] = attributes;
     }
     dictionary[target.name] = index;
-    mesh.morphTargetDictionary = dictionary;
     geometry.morphTargetDictionary = { ...dictionary };
-    const influences = [...mesh.morphTargetInfluences ?? []];
-    while (influences.length <= index) influences.push(0);
-    if (options.resetInfluence !== false) influences[index] = 0;
-    mesh.morphTargetInfluences = influences;
+    while (stage.influences.length < targetCount) stage.influences.push(0);
+    if (options.resetInfluence !== false) stage.influences[index] = 0;
     geometry.computeBoundingBox?.();
     geometry.computeBoundingSphere?.();
     return index;
