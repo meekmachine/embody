@@ -4,7 +4,7 @@
 //! `ProfilePatch` before any merge rule runs, keeping profile semantics in Rust
 //! and preventing renderer hosts from becoming a second profile engine.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
 
 use serde::Deserialize;
@@ -45,6 +45,7 @@ pub(crate) struct ProfilePatch {
     viseme_slots: Option<Vec<VisemeSlotData>>,
     viseme_bindings: Option<HashMap<String, Option<VisemeBindingData>>>,
     viseme_jaw_amounts: Option<Vec<f64>>,
+    viseme_tongue_targets: Option<Vec<BTreeMap<String, f64>>>,
     viseme_mesh_category: Option<String>,
     eye_mesh_nodes: Option<HashMap<String, String>>,
     meshes: Option<HashMap<String, Option<MeshInfoData>>>,
@@ -129,6 +130,10 @@ pub(crate) fn extend_preset_with_profile(
     replace_vec(&mut merged.viseme_slots, extension.viseme_slots);
     merge_map(&mut merged.viseme_bindings, extension.viseme_bindings);
     replace_vec(&mut merged.viseme_jaw_amounts, extension.viseme_jaw_amounts);
+    replace_vec(
+        &mut merged.viseme_tongue_targets,
+        extension.viseme_tongue_targets,
+    );
     replace_option(
         &mut merged.viseme_mesh_category,
         extension.viseme_mesh_category,
@@ -428,6 +433,27 @@ mod tests {
         assert_eq!(merged["auToMorphs"]["2"]["center"][0], "B2");
         assert_eq!(merged["auToMorphs"]["3"]["center"][0], "C");
         assert_eq!(merged["visemeKeys"], json!(["Ooh"]));
+    }
+
+    #[test]
+    fn preset_articulation_survives_legacy_viseme_slot_overrides() {
+        let base = serde_json::json!({
+            "visemeSlots": [
+                { "id": "ah", "label": "Ah", "order": 0, "defaultJawAmount": 0.8 }
+            ],
+            "visemeJawAmounts": [0.8],
+            "visemeTongueTargets": [{ "37": 0.42, "76": 0.44 }]
+        });
+        let extension = serde_json::json!({
+            "visemeSlots": [
+                { "id": "ah", "label": "Ah", "order": 0, "defaultJawAmount": 0.6 }
+            ]
+        });
+        let merged = merge(base, extension);
+
+        assert_eq!(merged["visemeSlots"][0]["defaultJawAmount"], 0.6);
+        assert_eq!(merged["visemeJawAmounts"], json!([0.8]));
+        assert_eq!(merged["visemeTongueTargets"][0]["37"], 0.42);
     }
 
     #[test]

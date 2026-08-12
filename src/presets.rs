@@ -135,6 +135,10 @@ mod tests {
         assert_eq!(cc4["meshes"]["CC_Base_Eye"]["material"]["renderOrder"], -10);
         assert_eq!(cc4["mappingSections"][0]["kind"], "au");
         assert_eq!(cc4["visemeSlots"][0]["providerIds"]["azure"][0], 4);
+        assert_eq!(cc4["visemeJawAmounts"][1], 0.8);
+        assert_eq!(cc4["visemeTongueTargets"].as_array().unwrap().len(), 15);
+        assert_eq!(cc4["visemeTongueTargets"][12]["37"], 0.42);
+        assert_eq!(cc4["visemeTongueTargets"][13]["76"], 0.52);
         assert_eq!(
             cc4["hairPhysics"]["morphTargets"]["headUp"]["Hairline_High_ALL"]["axis"],
             "pitch"

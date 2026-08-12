@@ -528,6 +528,8 @@ pub struct ProfileData {
     pub viseme_bindings: HashMap<String, VisemeBindingData>,
     #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_default")]
     pub viseme_jaw_amounts: Vec<f64>,
+    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_default")]
+    pub viseme_tongue_targets: Vec<BTreeMap<String, f64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub viseme_mesh_category: Option<String>,
     #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
@@ -702,6 +704,7 @@ pub struct ResolvedVisemeBindingTarget {
 pub struct ResolvedProfileView {
     pub viseme_slots: Vec<VisemeSlotData>,
     pub viseme_jaw_amounts: Vec<f64>,
+    pub viseme_tongue_targets: Vec<BTreeMap<String, f64>>,
     pub viseme_binding_targets: Vec<Vec<ResolvedVisemeBindingTarget>>,
     pub viseme_mesh_category: String,
     pub viseme_mesh_names: Vec<String>,
@@ -725,6 +728,7 @@ pub fn resolve_profile_view(profile: &ProfileData) -> ResolvedProfileView {
     ResolvedProfileView {
         viseme_slots: full_slots,
         viseme_jaw_amounts: resolved_viseme_jaw_amounts(profile, &runtime_slots),
+        viseme_tongue_targets: profile.viseme_tongue_targets.clone(),
         viseme_binding_targets: runtime_slots
             .iter()
             .enumerate()
