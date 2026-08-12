@@ -1,102 +1,123 @@
-name: PR Checks
+name: Verify and publish package
 
 on:
   pull_request:
-    branches:
-      - main
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref or SHA to verify and publish (default: current ref)"
+        required: false
+        type: string
+        default: ""
+  repository_dispatch:
+    types: [publish-pkg-pr-new]
 
 concurrency:
-  group: pr-checks-${{ github.event.pull_request.number || github.ref }}
+  group: embody-package-${{ github.event.pull_request.number || github.event.client_payload.sha || github.event.inputs.ref || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
-  changes:
-    if: ${{ !github.event.pull_request.draft }}
+  verify:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: Verify built package
     runs-on: ubuntu-latest
-    outputs:
-      build: ${{ steps.classify.outputs.build }}
-      rust-test: ${{ steps.classify.outputs.rust-test }}
-      typecheck: ${{ steps.classify.outputs.typecheck }}
-      test: ${{ steps.classify.outputs.test }}
-      package-exports: ${{ steps.classify.outputs.package-exports }}
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: "0"
+      CI: "true"
     steps:
-      - name: Checkout
+      - name: Resolve source ref
+        id: source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DISPATCH_SHA: ${{ github.event.client_payload.sha }}
+          REQUESTED_REF: ${{ github.event.inputs.ref }}
+        run: |
+          set -euo pipefail
+          case "${EVENT_NAME}" in
+            pull_request)
+              ref="${PR_HEAD_SHA}"
+              ;;
+            repository_dispatch)
+              ref="${DISPATCH_SHA}"
+              ;;
+            workflow_dispatch)
+              ref="${REQUESTED_REF:-${EVENT_SHA}}"
+              ;;
+            *)
+              ref="${EVENT_SHA}"
+              ;;
+          esac
+          if [[ -z "${ref}" ]]; then
+            echo "A source ref or SHA is required for ${EVENT_NAME}." >&2
+            exit 1
+          fi
+          echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout source
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          ref: ${{ steps.source.outputs.ref }}
 
-      - name: Test path classifier
-        run: node --test scripts/ci/classify-pr-checks.test.mjs
-
-      - name: Classify changed paths
-        id: classify
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: node scripts/ci/classify-pr-checks.mjs
-
-  verify:
-    needs: changes
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        check:
-          - name: Build
-            command: npm run build
-            enabled: ${{ needs.changes.outputs.build }}
-            rust: true
-          - name: Rust Test
-            command: npm run rust:test
-            enabled: ${{ needs.changes.outputs.rust-test }}
-            rust: true
-          - name: Typecheck
-            command: npm run typecheck
-            enabled: ${{ needs.changes.outputs.typecheck }}
-            rust: false
-          - name: Test
-            command: npm test
-            enabled: ${{ needs.changes.outputs.test }}
-            rust: true
-          - name: Package Exports
-            command: npm run test:exports
-            enabled: ${{ needs.changes.outputs.package-exports }}
-            rust: true
-    name: ${{ matrix.check.name }}
-    steps:
-      - name: Checkout
-        if: matrix.check.enabled == 'true'
-        uses: actions/checkout@v5
+      - name: Reject tracked generated output
+        run: npm run check:generated
 
       - name: Setup Rust
-        if: matrix.check.enabled == 'true' && matrix.check.rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
+      - name: Restore Cargo build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: embody-package
+          cache-on-failure: true
+
       - name: Setup Node.js
-        if: matrix.check.enabled == 'true'
         uses: actions/setup-node@v5
         with:
           node-version: "24"
-          cache: "npm"
+          cache: npm
 
       - name: Install dependencies
-        if: matrix.check.enabled == 'true'
         run: npm ci
 
-      - name: Run ${{ matrix.check.name }}
-        if: matrix.check.enabled == 'true'
-        run: ${{ matrix.check.command }}
+      - name: Test Rust
+        run: npm run rust:test
 
-      - name: Report unchanged area
-        if: matrix.check.enabled != 'true'
-        run: echo "${{ matrix.check.name }} is not required for the changed paths."
+      - name: Typecheck TypeScript
+        run: npm run typecheck
+
+      # This is the only build invocation. Every following step consumes dist/.
+      - name: Build package once
+        run: npm run build
+
+      - name: Verify built exports and package contents
+        run: npm run test:package
+
+      - name: Publish immutable preview
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          args=(
+            publish
+            --commentWithSha
+            --no-compact
+            --previewVersion
+            --no-template
+          )
+          if [[ "${EVENT_NAME}" != "pull_request" ]]; then
+            args+=(--comment=off)
+          fi
+          npx --no-install pkg-pr-new "${args[@]}"

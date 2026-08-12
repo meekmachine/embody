@@ -38,13 +38,17 @@
     "dev": "tsup --config tsup.config.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "npm run rust:test && npm run typecheck",
-    "test:exports": "npm run build && node scripts/smoke/package-exports.mjs && node scripts/smoke/morph-authoring.mjs && node scripts/smoke/package-declarations.mjs",
-    "test:pack": "npm run build && npm pack --dry-run",
+    "test:exports": "node scripts/smoke/package-exports.mjs && node scripts/smoke/morph-authoring.mjs && node scripts/smoke/package-declarations.mjs",
+    "test:pack": "node scripts/smoke/package-contents.mjs",
+    "test:package": "npm run check:dist && npm run test:exports && npm run test:pack",
+    "check:dist": "node scripts/ci/check-built-package.mjs",
+    "check:generated": "node scripts/ci/check-no-tracked-generated.mjs",
     "extract:humanoid-skeleton-template": "node scripts/extract-humanoid-skeleton-template.cjs",
     "rust:test": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo test",
     "rust:wasm-build": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo build --target wasm32-unknown-unknown --release",
     "wasm:build": "node scripts/build-wasm.mjs",
-    "prepublishOnly": "npm run build"
+    "prepack": "npm run check:dist",
+    "prepublishOnly": "npm run check:dist"
   },
   "peerDependencies": {
     "three": ">=0.150.0"
@@ -52,6 +56,7 @@
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@types/three": "^0.170.0",
+    "pkg-pr-new": "0.0.87",
     "three": "^0.170.0",
     "tsup": "^8.0.0",
     "typescript": "^5.9.0",
