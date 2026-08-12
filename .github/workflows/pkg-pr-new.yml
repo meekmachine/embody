@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Git ref or SHA to publish (default: current ref)
+        description: "Git ref or SHA to publish (default: current ref)"
         required: false
         type: string
         default: ""
