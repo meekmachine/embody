@@ -112,6 +112,15 @@ const result = JSON.parse(wasm.embody_request(JSON.stringify({
 This boundary keeps ClojureScript and other hosts independent of Rust struct
 layouts while ensuring profile semantics execute in Rust.
 
+Speech articulation data belongs to the rig preset. The CC4 profile keeps two
+ordered tables beside its canonical `visemeSlots`: `visemeJawAmounts` stores
+the jaw opening for each viseme index, and `visemeTongueTargets` stores the AU
+target map for that same index. Empty tongue maps mean that viseme has no
+tongue overlay. Hosts pass these resolved tables to their lip-sync planner;
+they should not recreate rig-specific jaw or tongue values in application code.
+The live runtime also compiles both tables: `setViseme` applies the viseme morph,
+the mapped jaw opening, and the mapped tongue AUs from the same preset entry.
+
 ## Model Analysis
 
 Three.js models are reduced to a renderer-neutral descriptor by

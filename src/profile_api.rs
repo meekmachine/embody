@@ -37,6 +37,7 @@ const PROFILE_OVERRIDE_KEYS: &[&str] = &[
     "visemeBindings",
     "visemeMeshCategory",
     "visemeJawAmounts",
+    "visemeTongueTargets",
     "auMixDefaults",
     "auInfo",
     "eyeMeshNodes",
