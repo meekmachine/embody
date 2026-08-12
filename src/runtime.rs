@@ -163,6 +163,7 @@ pub struct RuntimeCore {
     translation_rows: Vec<TranslationRow>,
     jaw_binding: Option<JawBinding>,
     viseme_jaw_amounts: Vec<f32>,
+    viseme_tongue_targets: Vec<HashMap<u32, f32>>,
     continuum_pairs: HashMap<u32, (u32, bool)>,
     viseme_slot_ids: Vec<String>,
     profile: Option<ProfileData>,
@@ -195,6 +196,7 @@ impl RuntimeCore {
             translation_rows: Vec::new(),
             jaw_binding: None,
             viseme_jaw_amounts: Vec::new(),
+            viseme_tongue_targets: Vec::new(),
             continuum_pairs: HashMap::new(),
             viseme_slot_ids: Vec::new(),
             profile: None,
@@ -342,6 +344,7 @@ impl RuntimeCore {
         self.set_mixed_aus(&tables.mixed_aus);
         self.set_viseme_slot_count(tables.viseme_slot_count);
         self.load_viseme_jaw_amounts(&tables.viseme_jaw_amounts);
+        self.viseme_tongue_targets = tables.viseme_tongue_targets;
         self.load_bone_rest_transforms(&tables.rest_transforms);
         self.load_composite_axes(&tables.composite_axes);
         self.load_bone_translations(&tables.translations);
@@ -1058,14 +1061,15 @@ impl RuntimeCore {
             } else {
                 1.0
             };
-            let base = clamp01(value) * clamp01(mix_weight);
-            let (left, right) = bilateral_values(base, balance);
-            let side_value = match binding.side {
+            let manual_base = clamp01(value) * clamp01(mix_weight);
+            let (left, right) = bilateral_values(manual_base, balance);
+            let manual_side_value = match binding.side {
                 SIDE_LEFT => left,
                 SIDE_RIGHT => right,
-                SIDE_CENTER => base,
-                _ => base,
+                SIDE_CENTER => manual_base,
+                _ => manual_base,
             };
+            let side_value = manual_side_value.max(self.active_viseme_au_amount(binding.au_id));
             let weighted = clamp01(side_value * binding.weight);
             // Max-combine: several AUs can bind the same morph target; an
             // inactive AU must not clobber an active one.
@@ -1142,11 +1146,8 @@ impl RuntimeCore {
 
         let effective_value = |au_id: u32, side: u8| -> f32 {
             let raw = clamp01(*self.au_values.get(&au_id).unwrap_or(&0.0));
-            if raw <= 1e-6 {
-                return 0.0;
-            }
             let balance = self.au_balances.get(&au_id).copied().unwrap_or(0.0);
-            raw * side_scale(balance, side)
+            (raw * side_scale(balance, side)).max(self.active_viseme_au_amount(au_id))
         };
 
         // Composite rotations: per bone, apply axes in packed order to the
@@ -1203,7 +1204,10 @@ impl RuntimeCore {
                 offsets.push((row.bone_id, [0.0, 0.0, 0.0]));
                 offsets.last_mut().unwrap()
             };
-            let value = clamp01(*self.au_values.get(&row.au_id).unwrap_or(&0.0));
+            let value = clamp01(
+                (*self.au_values.get(&row.au_id).unwrap_or(&0.0))
+                    .max(self.active_viseme_au_amount(row.au_id)),
+            );
             if value <= 1e-6 {
                 continue;
             }
@@ -1803,6 +1807,17 @@ impl RuntimeCore {
         }
         jaw_amount
     }
+
+    fn active_viseme_au_amount(&self, au_id: u32) -> f32 {
+        self.viseme_values
+            .iter()
+            .enumerate()
+            .filter_map(|(index, value)| {
+                let amount = self.viseme_tongue_targets.get(index)?.get(&au_id)?;
+                Some(clamp01(*value) * clamp01(*amount))
+            })
+            .fold(0.0, f32::max)
+    }
 }
 
 fn parse_runtime_json<T>(json: &str, label: &str) -> Result<T, JsError>
@@ -2327,6 +2342,81 @@ mod tests {
         assert_eq!(bones[0], 4.0);
         let expected_half = (30.0f32).to_radians() / 2.0;
         assert!((bones[4] - expected_half.sin()).abs() < 1e-4);
+    }
+
+    #[test]
+    fn configured_viseme_drives_preset_tongue_aus_and_jaw_together() {
+        let profile = r#"{
+            "auToMorphs": {
+                "37": { "left": [], "right": [], "center": ["Tongue_Up"] },
+                "73": { "left": [], "right": [], "center": ["Tongue_Narrow"] },
+                "76": { "left": [], "right": [], "center": ["Tongue_Tip_Up"] }
+            },
+            "auToBones": {
+                "26": [{ "node": "JAW", "channel": "rz", "scale": 1, "maxDegrees": 30 }],
+                "37": [{ "node": "TONGUE", "channel": "rz", "scale": 1, "maxDegrees": 20 }]
+            },
+            "boneNodes": { "JAW": "Jaw", "TONGUE": "Tongue" },
+            "morphToMesh": { "face": ["TongueMesh"] },
+            "compositeRotations": [
+                {
+                    "node": "TONGUE",
+                    "pitch": { "aus": [37], "axis": "rz" },
+                    "yaw": null,
+                    "roll": null
+                }
+            ],
+            "visemeKeys": ["T_L_D_N"],
+            "visemeJawAmounts": [0.3],
+            "visemeTongueTargets": [{ "37": 0.42, "73": 0.36, "76": 0.44 }]
+        }"#;
+        let model = r#"{
+            "meshes": [{ "id": 1, "name": "TongueMesh", "morphTargetIds": [7, 8, 9] }],
+            "morphTargets": [
+                { "id": 7, "meshId": 1, "name": "Tongue_Up", "hostIndex": 0 },
+                { "id": 8, "meshId": 1, "name": "Tongue_Narrow", "hostIndex": 1 },
+                { "id": 9, "meshId": 1, "name": "Tongue_Tip_Up", "hostIndex": 2 }
+            ],
+            "bones": [
+                { "id": 4, "name": "Jaw" },
+                { "id": 5, "name": "Tongue" }
+            ]
+        }"#;
+
+        let mut core = RuntimeCore::new(0);
+        core.configure(profile, model).unwrap();
+        core.set_viseme(0, 0.5);
+
+        let morphs = unpack_rows(&core.evaluate_morph_frame_delta());
+        assert!(morphs.contains(&(1, 7, 0.21)));
+        assert!(morphs.contains(&(1, 8, 0.18)));
+        assert!(morphs.contains(&(1, 9, 0.22)));
+
+        let bones = core.evaluate_bone_frame_delta();
+        let stride = PACKED_BONE_FRAME_DELTA_STRIDE as usize;
+        let jaw = bones
+            .chunks_exact(stride)
+            .find(|row| row[0] == 4.0)
+            .expect("jaw row");
+        let tongue = bones
+            .chunks_exact(stride)
+            .find(|row| row[0] == 5.0)
+            .expect("tongue row");
+        let jaw_half_angle = (30.0f32 * 0.3 * 0.5).to_radians() / 2.0;
+        let tongue_half_angle = (20.0f32 * 0.42 * 0.5).to_radians() / 2.0;
+        assert!((jaw[6] - jaw_half_angle.sin()).abs() < 1e-4);
+        assert!((tongue[6] - tongue_half_angle.sin()).abs() < 1e-4);
+
+        // Explicit AU input and viseme-derived input share the same control
+        // without mutating each other; the stronger value wins.
+        core.set_au(37, 0.6, 0.0);
+        let morphs = unpack_rows(&core.evaluate_morph_frame_delta());
+        assert!(morphs.contains(&(1, 7, 0.6)));
+
+        core.set_au(37, 0.0, 0.0);
+        core.set_viseme(0, 0.0);
+        assert!(core.evaluate_active_morph_frame().is_empty());
+        assert!(core.evaluate_active_bone_frame().is_empty());
     }
 
     #[test]

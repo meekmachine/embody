@@ -15,6 +15,7 @@ use crate::bones::{
     AXIS_PITCH, AXIS_ROLL, AXIS_YAW, GROUP_NEGATIVE, GROUP_PLAIN, GROUP_POSITIVE, SIDE_LEFT,
     SIDE_NONE, SIDE_RIGHT,
 };
+use crate::math::clamp01;
 
 pub(crate) fn deserialize_json<T: DeserializeOwned>(
     json: &str,
@@ -668,6 +669,7 @@ pub struct CompiledTables {
     pub mix_defaults: Vec<(u32, f32)>,
     pub viseme_slot_count: u32,
     pub viseme_jaw_amounts: Vec<f32>,
+    pub viseme_tongue_targets: Vec<HashMap<u32, f32>>,
     pub rest_transforms: Vec<f32>,
     pub composite_axes: Vec<f32>,
     pub translations: Vec<f32>,
@@ -771,6 +773,7 @@ pub fn compile_tables(profile: &ProfileData, model: &ModelData) -> CompiledTable
     compile_viseme_morph_bindings(profile, &resolver, &slots, &mut tables);
     compile_bone_tables(profile, model, &resolver, &mut tables);
     tables.viseme_jaw_amounts = viseme_jaw_amounts(profile, &slots);
+    tables.viseme_tongue_targets = viseme_tongue_targets(profile, slots.len());
 
     for (au_text, weight) in &profile.au_mix_defaults {
         if let Ok(au_id) = au_text.parse::<u32>() {
@@ -1206,6 +1209,33 @@ fn viseme_jaw_amounts(profile: &ProfileData, slots: &[VisemeSlot]) -> Vec<f32> {
                         .map(|value| *value as f32)
                 })
                 .unwrap_or(0.0)
+        })
+        .collect()
+}
+
+fn viseme_tongue_targets(profile: &ProfileData, slot_count: usize) -> Vec<HashMap<u32, f32>> {
+    let target_count = if slot_count == 0 {
+        profile.viseme_tongue_targets.len()
+    } else {
+        slot_count
+    };
+    (0..target_count)
+        .map(|index| {
+            profile
+                .viseme_tongue_targets
+                .get(index)
+                .into_iter()
+                .flat_map(|targets| targets.iter())
+                .filter_map(|(au_text, amount)| {
+                    let au_id = au_text.parse::<u32>().ok()?;
+                    let amount = *amount as f32;
+                    if amount.is_finite() {
+                        Some((au_id, clamp01(amount)))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
         })
         .collect()
 }

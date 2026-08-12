@@ -139,6 +139,14 @@ mod tests {
         assert_eq!(cc4["visemeTongueTargets"].as_array().unwrap().len(), 15);
         assert_eq!(cc4["visemeTongueTargets"][12]["37"], 0.42);
         assert_eq!(cc4["visemeTongueTargets"][13]["76"], 0.52);
+        for targets in cc4["visemeTongueTargets"].as_array().unwrap() {
+            for au_id in targets.as_object().unwrap().keys() {
+                assert!(
+                    cc4["auToMorphs"].get(au_id).is_some(),
+                    "viseme tongue AU {au_id} must have a preset morph mapping"
+                );
+            }
+        }
         assert_eq!(
             cc4["hairPhysics"]["morphTargets"]["headUp"]["Hairline_High_ALL"]["axis"],
             "pitch"

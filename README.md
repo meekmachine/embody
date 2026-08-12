@@ -118,6 +118,8 @@ the jaw opening for each viseme index, and `visemeTongueTargets` stores the AU
 target map for that same index. Empty tongue maps mean that viseme has no
 tongue overlay. Hosts pass these resolved tables to their lip-sync planner;
 they should not recreate rig-specific jaw or tongue values in application code.
+The live runtime also compiles both tables: `setViseme` applies the viseme morph,
+the mapped jaw opening, and the mapped tongue AUs from the same preset entry.
 
 ## Model Analysis
 
