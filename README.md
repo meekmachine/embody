@@ -29,6 +29,7 @@ The Rust core owns:
 - mesh-category routing and material profile data
 - hair curves, hair physics, and appearance normalization
 - annotation camera/marker math and humanoid template fitting
+- profile-aware screen-space gaze geometry for eye/head AU trajectories
 - renderer-neutral model analysis and packed live frame generation
 
 The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns

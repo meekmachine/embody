@@ -1,5 +1,9 @@
 # Recent Changes
 
+- Added a profile-aware screen-space gaze solver that uses the rendered camera
+  pose and projection, the character eye origin, model orientation, and
+  authored eye/head AU limits to return exact eye-contact trajectories.
+
 ## Rust-only core
 
 - Made Three.js morph authoring transactional: batches preserve existing morph
