@@ -14,7 +14,7 @@ export default defineConfig([
       index: 'index.ts',
       three: 'three/index.ts',
     },
-    format: ['cjs', 'esm'],
+    format: ['esm'],
     clean: true,
   },
   {
@@ -22,10 +22,5 @@ export default defineConfig([
     entry: { wasm: 'wasm/auto.ts' },
     format: ['esm'],
     target: 'es2022',
-  },
-  {
-    ...shared,
-    entry: { wasm: 'wasm/index.ts' },
-    format: ['cjs'],
   },
 ]);

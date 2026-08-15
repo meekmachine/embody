@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import {
   AnimationClip,
   Bone,
@@ -15,16 +15,14 @@ const require = createRequire(import.meta.url);
 const serviceWorkerPath = require.resolve(
   '@lovelace_lol/embody/character-asset-service-worker.js',
 );
+const wasmPackagePath = require.resolve('@lovelace_lol/embody/wasm');
 const serviceWorkerSource = await readFile(serviceWorkerPath, 'utf8');
 const root = await import('@lovelace_lol/embody');
 const three = await import('@lovelace_lol/embody/three');
 const wasm = await import('@lovelace_lol/embody/wasm');
-const rootCjs = require('@lovelace_lol/embody');
-const threeCjs = require('@lovelace_lol/embody/three');
-const wasmCjs = require('@lovelace_lol/embody/wasm');
 
 const core = await wasm.initEmbodyCore();
-const cjsCore = await wasmCjs.initEmbodyCore();
+const distEntries = await readdir(new URL('../../dist/', import.meta.url));
 const wasmEntrySource = await readFile(new URL('../../dist/wasm.js', import.meta.url), 'utf8');
 const preset = JSON.parse(core.get_preset_json('cc4'));
 const hairPresets = JSON.parse(core.hair_color_presets_json());
@@ -71,11 +69,10 @@ new three.ThreeFrameApplier().addMorphTarget(morphRoot, {
 
 const checks = [
   ['root ESM Three adapter', typeof root.ThreeModelInspector === 'function'],
-  ['root CJS Three adapter', typeof rootCjs.ThreeModelInspector === 'function'],
   ['Three ESM frame applier', typeof three.ThreeFrameApplier === 'function'],
-  ['Three CJS scene factory', typeof threeCjs.createDefaultCharacterScene === 'function'],
   ['Wasm ESM ABI', core.core_abi_version() === wasm.EMBODY_CORE_ABI_VERSION],
-  ['Wasm CJS ABI', cjsCore.core_abi_version() === wasmCjs.EMBODY_CORE_ABI_VERSION],
+  ['package has no CommonJS bundles', !distEntries.some((entry) => entry.endsWith('.cjs'))],
+  ['Wasm package path resolves to ESM', wasmPackagePath.endsWith('/dist/wasm.js')],
   ['Wasm loader avoids eval/new Function', !wasmEntrySource.includes('new Function')],
   ['Wasm loader uses native dynamic import', wasmEntrySource.includes('import(')],
   ['embedded profile data', preset.meshes.CC_Base_Eye.category === 'eye'],

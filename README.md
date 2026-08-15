@@ -42,6 +42,10 @@ construction.
 
 ## Runtime Use
 
+Embody is an ES module package. Use `import` / dynamic `import()`; CommonJS
+`require()` is not a supported runtime API. Package subpaths remain resolvable
+through Node for tooling that only needs to locate an exported file.
+
 Initialize the Wasm module before constructing a runtime:
 
 ```ts
