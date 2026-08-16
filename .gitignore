@@ -1,6 +1,9 @@
 node_modules
 dist
 target
+.package-declarations-*
+*.tgz
+*.wasm
 .DS_Store
 .claude
 .vscode

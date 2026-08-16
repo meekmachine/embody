@@ -145,15 +145,16 @@ const report = JSON.parse(wasm.analyze_model_descriptor(
 
 ```bash
 npm ci
-npm run rust:test
-npm run typecheck
+npm test
 npm run build
-npm run test:exports
+npm run test:package
+npm run check:generated
 ```
 
 `npm run build` creates the JS adapter bundles, declarations, generated
 wasm-bindgen glue, and `.wasm` binary in `dist/`. Generated output is not source
-and is not committed.
+and is not committed. Package checks consume that existing build, so run the
+build once before `npm run test:package`.
 
 ## License
 
