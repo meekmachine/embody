@@ -3,24 +3,23 @@
   "version": "0.0.0",
   "description": "Renderer-agnostic character animation runtime for facial AUs, visemes, and bone-driven motion",
   "type": "module",
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
+  "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "default": "./dist/index.js"
     },
     "./three": {
       "types": "./dist/three/index.d.ts",
       "import": "./dist/three.js",
-      "require": "./dist/three.cjs"
+      "default": "./dist/three.js"
     },
     "./wasm": {
       "types": "./dist/wasm/index.d.ts",
       "import": "./dist/wasm.js",
-      "require": "./dist/wasm.cjs"
+      "default": "./dist/wasm.js"
     },
     "./character-asset-service-worker.js": "./service-worker/character-asset-service-worker.js"
   },
