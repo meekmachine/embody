@@ -5,6 +5,8 @@ The first curve/keyframe can specify `inherit: true`. Rust preserves this as
 placeholder: `createAnimationClipFromClipIR` replaces it with the current bound
 Three property when it creates the AnimationClip. Remaining authored samples,
 their scaling, and timestamps stay unchanged. Only the first key's flag matters.
+An inherited track is retained even when its effective intensity scale is zero,
+so it can release a nonzero current pose toward zero.
 
 This applies to AU, viseme and named-morph snippet tracks, generic curve targets,
 and explicitly authored morph, bone/object transform and visibility tracks.

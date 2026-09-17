@@ -231,7 +231,9 @@ fn push_scaled_curve_track(
     points: &[CurvePoint],
     effective_scale: f64,
 ) {
-    if effective_scale.abs() <= 1e-9 {
+    let inherit_start = points.first().is_some_and(|point| point.inherit);
+    // Even a zero-scaled curve can release a nonzero inherited live pose.
+    if effective_scale.abs() <= 1e-9 && !inherit_start {
         return;
     }
     let times = points.iter().map(|point| point.time).collect::<Vec<_>>();
@@ -244,7 +246,7 @@ fn push_scaled_curve_track(
         morph_target_json(mesh_id, morph_target_id),
         times,
         values,
-        points.first().is_some_and(|point| point.inherit),
+        inherit_start,
     ));
     *next_id += 1;
 }

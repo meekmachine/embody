@@ -131,6 +131,23 @@ try {
   near(mesh.morphTargetInfluences[0], 0.25, 'authored endpoint retains scaling');
   genericPlaying.stop();
 
+  // Zero intensity still needs a track to release an inherited live pose.
+  mesh.morphTargetInfluences[0] = 0.8;
+  const zeroScale = JSON.parse(core.build_clip('zero-scale', JSON.stringify({ 200: curve() }), '{"intensityScale":0}'));
+  assert.deepEqual(zeroScale.tracks[0].values, [0, 0]);
+  const zeroPlaying = start(zeroScale);
+  near(mesh.morphTargetInfluences[0], 0.8, 'zero-scaled curve inherits live start');
+  mixer.update(0.5);
+  near(mesh.morphTargetInfluences[0], 0.4, 'zero-scaled curve fades inherited pose');
+  mixer.update(0.5);
+  near(mesh.morphTargetInfluences[0], 0, 'zero-scaled curve releases inherited pose');
+  zeroPlaying.stop();
+  assert.throws(
+    () => core.build_clip('zero-authored', JSON.stringify({ 200: curve(0, false) }), '{"intensityScale":0}'),
+    /No runtime tracks could be resolved/,
+    'non-inherited zero-scale tracks remain omitted',
+  );
+
   // Concrete transform tracks use the rendered local transform, not the rest
   // transform saved by model inspection. Test quaternion interpolation too.
   const boneId = [...inspection.boneBindings].find(([, value]) => value === bone)[0];
