@@ -15,6 +15,7 @@ const CHARACTER_CACHE = `embody-character-assets-${SW_VERSION}`;
 const LEGACY_CACHE_PREFIXES = ['embody-character-assets-', 'loomlarge-character-assets-'];
 const SHARED_CACHE_DOMAINS = ['web.app'];
 const STABLE_ASSET_CACHE_ORIGIN = 'https://embody.asset-cache.local';
+const ASSET_SOURCE_HEADER = 'X-Embody-Asset-Source';
 const ASSET_PATH_PREFIXES = [
   'characters',
   'thumbnails',
@@ -60,6 +61,30 @@ function isCacheableResponse(response) {
 
   const contentType = response.headers.get('content-type') || '';
   return !contentType.toLowerCase().includes('text/html');
+}
+
+// Identify the branch that served this response without reading or buffering
+// its body. "network" means fetch(), which can still revalidate the browser's
+// HTTP cache; "cache" means a response from our CacheStorage.
+function withAssetSource(response, source) {
+  // Opaque and error responses have status 0 and cannot be reconstructed.
+  if (response.status < 200 || response.status > 599) {
+    return response;
+  }
+
+  const headers = new Headers(response.headers);
+  headers.set(ASSET_SOURCE_HEADER, source);
+  const exposedHeaders = headers.get('Access-Control-Expose-Headers');
+  headers.set(
+    'Access-Control-Expose-Headers',
+    exposedHeaders ? `${exposedHeaders}, ${ASSET_SOURCE_HEADER}` : ASSET_SOURCE_HEADER,
+  );
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 // `response` must be a dedicated clone: cache.put consumes its body.
@@ -204,12 +229,12 @@ async function cacheFirstAsset(event, url) {
   const cache = await caches.open(CHARACTER_CACHE);
   const cached = await matchCachedAsset(cache, url);
   if (cached) {
-    return cached;
+    return withAssetSource(cached, 'cache');
   }
 
   const response = await fetch(event.request);
   cacheInBackground(event, stableAssetCacheKey(url), response);
-  return response;
+  return withAssetSource(response, 'network');
 }
 
 async function networkFirst(event, url) {
@@ -218,12 +243,12 @@ async function networkFirst(event, url) {
   try {
     const response = await fetch(event.request);
     cacheInBackground(event, cacheKey, response, { skipIfUnchanged: true });
-    return response;
+    return withAssetSource(response, 'network');
   } catch (error) {
     const cache = await caches.open(CHARACTER_CACHE);
     const cached = await cache.match(cacheKey);
     if (cached) {
-      return cached;
+      return withAssetSource(cached, 'cache');
     }
     throw error;
   }
