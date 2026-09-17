@@ -105,8 +105,12 @@ Pass current world camera position/quaternion, character eye midpoint, and
 model quaternion. The viewer solver takes normalized image XY (+Y up) and
 depth behind the virtual camera; depth and all positions must share scene
 units. Convert physical webcam estimates before calling and supply the actual
-source FOV/aspect. The depth guard is 0.2–10 scene units. Mouse and webcam can
-share this contract when they use the same calibration.
+source FOV/aspect. Zero viewer XY extends the character-eye-to-camera bearing,
+so the character looks at the viewer even when scene framing puts its eyes
+away from image center. Offsets retain the camera's right/up axes; when the
+camera coincides with the eyes, its local +Z supplies the fallback bearing.
+The depth guard is 0.2–10 scene units. Mouse and webcam can share this contract
+when they use the same calibration.
 
 The head prefers the camera bearing, with configurable following. The legacy
 `lock_head_to_camera` flag retains this preference but permits head movement

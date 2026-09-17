@@ -503,16 +503,25 @@ fn solve_viewer(
     let camera_quat = quat_or_identity(camera_quaternion);
     let camera_right = rotate_by_quat(camera_quat, [1.0, 0.0, 0.0]);
     let camera_up = rotate_by_quat(camera_quat, [0.0, 1.0, 0.0]);
-    // Three.js cameras look down local -Z. A real viewer is behind the rendered
-    // camera/lens, on local +Z, so webcam image offsets must be placed on that
-    // side of the camera instead of on the rendered image plane.
+    // Zero viewer XY means eye contact with the rendered camera. Extend that
+    // eye-to-camera bearing, not the camera optical axis: scene framing may
+    // put the character's eyes away from the image center. Keep image offsets
+    // in camera-right/up so an oblique or rolled camera retains its convention.
+    // If the camera coincides with the eyes, its local +Z is a finite fallback.
     let camera_back = rotate_by_quat(camera_quat, [0.0, 0.0, 1.0]);
+    let eye_to_camera = sub3(camera, origin);
+    let eye_to_camera_distance = squared_length(eye_to_camera).sqrt();
+    let viewer_bearing = if eye_to_camera_distance > EPSILON {
+        scale3(eye_to_camera, 1.0 / eye_to_camera_distance)
+    } else {
+        camera_back
+    };
     let world_viewer_target = add3(
         add3(
             add3(camera, scale3(camera_right, viewer_x * half_width)),
             scale3(camera_up, viewer_y * half_height),
         ),
-        scale3(camera_back, viewer_depth),
+        scale3(viewer_bearing, viewer_depth),
     );
 
     solution_from_world_target(
@@ -577,9 +586,9 @@ pub fn solve_profile_screen_space_gaze(
 /// Solve a webcam/user target against the rendered camera. `viewer_target` is
 /// x/y in webcam NDC and z as estimated viewer distance behind the rendered
 /// camera in the same units as `camera_position` and `gaze_origin`. Hosts must
-/// convert estimated meters to scene units before calling. Unlike screen-space solve, the target is placed behind the
-/// rendered camera/lens so oblique character-camera angles still converge on
-/// the user's eye position.
+/// convert estimated meters to scene units before calling. Zero x/y extends the
+/// eye-to-camera bearing; camera-right/up offsets retain the viewer projection
+/// without making eye contact depend on where the eyes sit in the image.
 /// `lock_head_to_camera` prefers the camera bearing while eyes can reach; it
 /// allows head overflow correction and follows the viewer with eyes disabled.
 #[wasm_bindgen]
@@ -983,6 +992,117 @@ mod tests {
         assert!((result[11] - 0.5).abs() < 1.0e-4);
         assert!((result[12] - 1.6).abs() < 1.0e-4);
         assert!((result[13] - 4.0).abs() < 1.0e-4);
+    }
+
+    #[test]
+    fn centered_viewer_keeps_eye_contact_when_character_is_off_camera_axis() {
+        let profile = canonical_profile();
+        let mut core = canonical_runtime(&profile);
+        for (origin, camera, camera_angles) in [
+            ([0.25, 1.75, 0.1], [-0.8, 1.4, 2.4], [45.0, -18.0]),
+            ([-0.3, 1.1, -0.2], [1.2, 2.2, 2.8], [-35.0, 25.0]),
+        ] {
+            let camera_quat = gaze_rotation(camera_angles);
+            let eye_to_camera = sub3(camera, origin);
+            let bearing = scale3(eye_to_camera, 1.0 / squared_length(eye_to_camera).sqrt());
+            for depth in [0.2, 0.8, 2.0] {
+                let result = solve_viewer(
+                    &[0.0, 0.0, depth],
+                    &camera,
+                    &camera_quat,
+                    &origin,
+                    &[0.0, 0.0, 0.0, 1.0],
+                    50.0,
+                    4.0 / 3.0,
+                    true,
+                    true,
+                    0.35,
+                    false,
+                    gaze_limits(&profile),
+                );
+                let expected_target = add3(camera, scale3(bearing, depth));
+                for axis in 0..3 {
+                    assert!((result[11 + axis] - expected_target[axis]).abs() < 1.0e-5);
+                }
+                assert!((result[6] - result[8]).abs() < 1.0e-4);
+                assert!((result[7] - result[9]).abs() < 1.0e-4);
+                assert!(
+                    angular_error(runtime_viewing_direction(&mut core, &result), eye_to_camera)
+                        < 0.002
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn viewer_offsets_keep_camera_right_and_up_around_the_eye_contact_bearing() {
+        let profile = canonical_profile();
+        let mut core = canonical_runtime(&profile);
+        let origin = [0.25, 1.75, 0.1];
+        let camera = [-0.8, 1.4, 2.4];
+        let camera_quat = gaze_rotation([30.0, -20.0]);
+        let eye_to_camera = sub3(camera, origin);
+        let bearing = scale3(eye_to_camera, 1.0 / squared_length(eye_to_camera).sqrt());
+        let depth = 0.8;
+        let half_height = depth * (50.0_f32.to_radians() / 2.0).tan();
+        let right = rotate_by_quat(camera_quat, [1.0, 0.0, 0.0]);
+        let up = rotate_by_quat(camera_quat, [0.0, 1.0, 0.0]);
+        for x in [-0.6, 0.6] {
+            for y in [-0.4, 0.4] {
+                let expected_target = add3(
+                    add3(
+                        add3(camera, scale3(bearing, depth)),
+                        scale3(right, x * half_height * 4.0 / 3.0),
+                    ),
+                    scale3(up, y * half_height),
+                );
+                let result = solve_viewer(
+                    &[x, y, depth],
+                    &camera,
+                    &camera_quat,
+                    &origin,
+                    &[0.0, 0.0, 0.0, 1.0],
+                    50.0,
+                    4.0 / 3.0,
+                    true,
+                    true,
+                    0.35,
+                    false,
+                    gaze_limits(&profile),
+                );
+                for axis in 0..3 {
+                    assert!((result[11 + axis] - expected_target[axis]).abs() < 1.0e-5);
+                }
+                assert!(
+                    angular_error(
+                        runtime_viewing_direction(&mut core, &result),
+                        sub3(expected_target, origin)
+                    ) < 0.002
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn coincident_eye_and_camera_uses_camera_back_as_finite_fallback() {
+        let origin = [0.3, 1.6, -0.2];
+        let camera_quat = gaze_rotation([25.0, -12.0]);
+        let expected_target = add3(
+            origin,
+            scale3(rotate_by_quat(camera_quat, [0.0, 0.0, 1.0]), 0.8),
+        );
+        let result = solve_viewer_cc4(
+            &[0.0, 0.0, 0.8],
+            &origin,
+            &camera_quat,
+            &origin,
+            &[0.0, 0.0, 0.0, 1.0],
+            false,
+        );
+        assert!(result.iter().all(|value| value.is_finite()));
+        for axis in 0..3 {
+            assert!((result[11 + axis] - expected_target[axis]).abs() < 1.0e-5);
+        }
     }
 
     #[test]
