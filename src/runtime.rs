@@ -1366,6 +1366,7 @@ impl RuntimeCore {
                         .map(|point| SnippetCurvePoint {
                             time: point.time,
                             intensity: point.intensity,
+                            inherit: point.inherit,
                         })
                         .collect::<Vec<_>>(),
                 )
