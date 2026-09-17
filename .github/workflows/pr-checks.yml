@@ -95,6 +95,9 @@ jobs:
       - name: Test Rust
         run: npm run rust:test
 
+      - name: Test character asset service worker
+        run: npm run test:service-worker
+
       # This is the only build invocation. Every following step consumes dist/.
       # wasm-bindgen declarations must exist before checking the typed loader.
       - name: Build package once

@@ -37,6 +37,7 @@
     "dev": "tsup --config tsup.config.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "npm run rust:test && npm run typecheck",
+    "test:service-worker": "node --test scripts/test/character-asset-service-worker.test.mjs",
     "test:exports": "node scripts/smoke/package-exports.mjs && node scripts/smoke/morph-authoring.mjs && node scripts/smoke/package-declarations.mjs",
     "test:pack": "node scripts/smoke/package-contents.mjs",
     "test:package": "npm run check:dist && npm run test:exports && npm run test:pack",
