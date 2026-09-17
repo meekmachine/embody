@@ -95,6 +95,9 @@ jobs:
       - name: Test Rust
         run: npm run rust:test
 
+      - name: Test character asset service worker
+        run: npm run test:service-worker
+
       - name: Typecheck TypeScript
         run: npm run typecheck
 
