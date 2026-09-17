@@ -8,16 +8,13 @@
 use wasm_bindgen::prelude::*;
 
 use crate::annotation_camera::{distance3, quat_or_identity, read_vec3, rotate_by_quat, sub3};
-use crate::profile::{deserialize_json, ProfileData};
+use crate::bones::{multiply_quat, quat_from_channel};
+use crate::profile::{deserialize_json, AuSelector, ProfileData};
 
 pub const SCREEN_SPACE_GAZE_SOLUTION_STRIDE: u32 = 14;
 
 const DEFAULT_VERTICAL_FOV_DEGREES: f32 = 45.0;
 const DEFAULT_ASPECT: f32 = 1.0;
-const DEFAULT_HEAD_YAW_DEGREES: f32 = 60.0;
-const DEFAULT_HEAD_PITCH_DEGREES: f32 = 30.0;
-const DEFAULT_EYE_YAW_DEGREES: f32 = 25.0;
-const DEFAULT_EYE_PITCH_DEGREES: f32 = 20.0;
 const DEFAULT_VIEWER_VERTICAL_FOV_DEGREES: f32 = 50.0;
 const DEFAULT_VIEWER_ASPECT: f32 = 4.0 / 3.0;
 const DEFAULT_VIEWER_DEPTH: f32 = 0.8;
@@ -28,23 +25,48 @@ pub fn screen_space_gaze_solution_stride() -> u32 {
     SCREEN_SPACE_GAZE_SOLUTION_STRIDE
 }
 
-#[derive(Clone, Copy, Debug)]
-struct GazeLimits {
-    head_yaw: f32,
-    head_pitch: f32,
-    eye_yaw: f32,
-    eye_pitch: f32,
+#[derive(Clone, Copy, Debug, Default)]
+struct AxisLimits {
+    negative: f32,
+    positive: f32,
 }
 
-impl Default for GazeLimits {
-    fn default() -> Self {
-        Self {
-            head_yaw: DEFAULT_HEAD_YAW_DEGREES,
-            head_pitch: DEFAULT_HEAD_PITCH_DEGREES,
-            eye_yaw: DEFAULT_EYE_YAW_DEGREES,
-            eye_pitch: DEFAULT_EYE_PITCH_DEGREES,
+impl AxisLimits {
+    fn clamp(self, value: f32) -> f32 {
+        value.clamp(-self.negative, self.positive)
+    }
+
+    fn capacity(self, value: f32) -> f32 {
+        if value < 0.0 {
+            self.negative
+        } else {
+            self.positive
         }
     }
+
+    fn ratio(self, value: f32) -> f32 {
+        let capacity = self.capacity(value);
+        if capacity > EPSILON {
+            (value / capacity).clamp(-1.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+
+    fn plus(self, other: Self) -> Self {
+        Self {
+            negative: self.negative + other.negative,
+            positive: self.positive + other.positive,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct GazeLimits {
+    head_yaw: AxisLimits,
+    head_pitch: AxisLimits,
+    eye_yaw: AxisLimits,
+    eye_pitch: AxisLimits,
 }
 
 fn finite_positive(value: f32, fallback: f32) -> f32 {
@@ -55,24 +77,126 @@ fn finite_positive(value: f32, fallback: f32) -> f32 {
     }
 }
 
-fn pair_max_degrees(profile: &ProfileData, ids: &[u32], fallback: f32) -> f32 {
-    let maximum = ids
-        .iter()
-        .filter_map(|id| profile.au_to_bones.get(&id.to_string()))
-        .flat_map(|bindings| bindings.iter())
-        .filter_map(|binding| binding.max_degrees)
-        .map(|value| value.abs() as f32)
-        .filter(|value| value.is_finite() && *value > EPSILON)
-        .fold(0.0_f32, f32::max);
-    finite_positive(maximum, fallback)
+fn finite_coordinate(value: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(-1.0e12, 1.0e12)
+    } else {
+        0.0
+    }
+}
+
+fn finite_vec3(values: &[f32]) -> [f32; 3] {
+    read_vec3(values, 0).map(finite_coordinate)
+}
+
+fn normalized_coordinate(values: &[f32], index: usize) -> f32 {
+    finite_coordinate(values.get(index).copied().unwrap_or(0.0)).clamp(-1.0, 1.0)
+}
+
+fn configured_bone_name(profile: &ProfileData, node: &str) -> String {
+    let base = profile
+        .bone_nodes
+        .get(node)
+        .map(String::as_str)
+        .unwrap_or(node);
+    let prefix = profile.bone_prefix.as_deref().unwrap_or("");
+    let suffix = profile.bone_suffix.as_deref().unwrap_or("");
+    format!(
+        "{}{}{}",
+        if base.starts_with(prefix) { "" } else { prefix },
+        base,
+        if base.ends_with(suffix) { "" } else { suffix }
+    )
+}
+
+fn au_capacity(profile: &ProfileData, id: u32) -> f32 {
+    let Some(bindings) = profile.au_to_bones.get(&id.to_string()) else {
+        return 0.0;
+    };
+    // Use the same CC4 composite fallback as RuntimeCore when saved profiles
+    // omit their table. A bone rotation mapping without a matching composite
+    // cannot be driven by the runtime and therefore supplies no capacity.
+    let composites = if profile.composite_rotations.is_empty() {
+        &crate::presets::load_profile("cc4")
+            .expect("embedded CC4 profile")
+            .composite_rotations
+    } else {
+        &profile.composite_rotations
+    };
+    // Runtime selects the first binding for an AU on each bone. Repeated
+    // bindings must not inflate its capacity. A shared binocular command is
+    // limited by its smaller actuator; unequal eyes need per-eye calibration.
+    let mut seen = std::collections::HashSet::new();
+    let mut capacity = f32::INFINITY;
+    for composite in composites {
+        let axis = if [51, 52, 61, 62].contains(&id) {
+            &composite.yaw
+        } else {
+            &composite.pitch
+        };
+        let Some(axis) = axis else {
+            continue;
+        };
+        fn ids(selector: &Option<AuSelector>) -> &[u32] {
+            match selector {
+                Some(AuSelector::One(id)) => std::slice::from_ref(id),
+                Some(AuSelector::Many(ids)) => ids,
+                None => &[],
+            }
+        }
+        let negative = ids(&axis.negative);
+        let positive = ids(&axis.positive);
+        let active = if !negative.is_empty() && !positive.is_empty() {
+            negative.contains(&id) || positive.contains(&id)
+        } else {
+            axis.aus.contains(&id)
+        };
+        if !active {
+            continue;
+        }
+        let node = configured_bone_name(profile, &composite.node);
+        let Some(binding) = bindings
+            .iter()
+            .find(|binding| configured_bone_name(profile, &binding.node) == node)
+        else {
+            continue;
+        };
+        if !seen.insert(node) {
+            continue;
+        }
+        if !matches!(binding.channel.as_str(), "rx" | "ry" | "rz") {
+            continue;
+        }
+        let angle = (binding.max_degrees.unwrap_or(0.0) * binding.scale).abs() as f32;
+        capacity = capacity.min(if angle.is_finite() { angle } else { 0.0 });
+    }
+    if capacity.is_finite() {
+        capacity
+    } else {
+        0.0
+    }
 }
 
 fn gaze_limits(profile: &ProfileData) -> GazeLimits {
     GazeLimits {
-        head_yaw: pair_max_degrees(profile, &[51, 52], DEFAULT_HEAD_YAW_DEGREES),
-        head_pitch: pair_max_degrees(profile, &[53, 54], DEFAULT_HEAD_PITCH_DEGREES),
-        eye_yaw: pair_max_degrees(profile, &[61, 62], DEFAULT_EYE_YAW_DEGREES),
-        eye_pitch: pair_max_degrees(profile, &[63, 64], DEFAULT_EYE_PITCH_DEGREES),
+        // Limits are in geometric (+X yaw / +Y pitch) coordinates. FACS
+        // horizontal output is inverted only at the public result boundary.
+        head_yaw: AxisLimits {
+            negative: au_capacity(profile, 52),
+            positive: au_capacity(profile, 51),
+        },
+        head_pitch: AxisLimits {
+            negative: au_capacity(profile, 54),
+            positive: au_capacity(profile, 53),
+        },
+        eye_yaw: AxisLimits {
+            negative: au_capacity(profile, 62),
+            positive: au_capacity(profile, 61),
+        },
+        eye_pitch: AxisLimits {
+            negative: au_capacity(profile, 64),
+            positive: au_capacity(profile, 63),
+        },
     }
 }
 
@@ -111,85 +235,109 @@ fn shortest_angle_delta_degrees(target: f32, origin: f32) -> f32 {
     delta
 }
 
-fn clamp_signed_ratio(value: f32, maximum: f32) -> f32 {
-    (value / finite_positive(maximum, 1.0)).clamp(-1.0, 1.0)
+fn gaze_rotation([yaw, pitch]: [f32; 2]) -> [f32; 4] {
+    // Same order as RuntimeCore's composite axes: yaw, then local pitch.
+    multiply_quat(
+        quat_from_channel(1, yaw.to_radians()),
+        quat_from_channel(0, -pitch.to_radians()),
+    )
 }
 
-fn allocate_axis(
-    total_degrees: f32,
-    camera_degrees: f32,
-    head_max: f32,
-    eye_max: f32,
-    eyes_enabled: bool,
-    head_enabled: bool,
-    head_follow_fraction: f32,
-    wrap: bool,
-) -> [f32; 2] {
-    if !head_enabled {
-        return [
-            if eyes_enabled {
-                total_degrees.clamp(-eye_max, eye_max)
-            } else {
-                0.0
-            },
-            0.0,
-        ];
-    }
-    if !eyes_enabled {
-        return [0.0, total_degrees.clamp(-head_max, head_max)];
-    }
-
-    // The head first faces the rendered camera. Source motion within the
-    // camera frame is then split: eyes lead while the head follows a smaller
-    // share. Any eye overflow is handed back to the head so the combined
-    // trajectory remains exact until the rig reaches its authored limits.
-    let source_delta = if wrap {
-        shortest_angle_delta_degrees(total_degrees, camera_degrees)
-    } else {
-        total_degrees - camera_degrees
-    };
-    let desired_head = camera_degrees + source_delta * head_follow_fraction.clamp(0.0, 1.0);
-    let mut head = desired_head.clamp(-head_max, head_max);
-    let mut eye = (total_degrees - head).clamp(-eye_max, eye_max);
-    let residual = total_degrees - (head + eye);
-    if residual.abs() > EPSILON {
-        head = (head + residual).clamp(-head_max, head_max);
-        eye = (total_degrees - head).clamp(-eye_max, eye_max);
-    }
-    [eye, head]
+fn eye_angles(direction: [f32; 3], head: [f32; 2]) -> [f32; 2] {
+    direction_angles_degrees([0.0; 3], direction, inverse_unit_quat(&gaze_rotation(head)))
 }
 
-fn allocate_axis_camera_locked(
-    total_degrees: f32,
-    camera_degrees: f32,
-    head_max: f32,
-    eye_max: f32,
-    eyes_enabled: bool,
-    head_enabled: bool,
-    wrap: bool,
-) -> [f32; 2] {
-    if !head_enabled {
-        return [
-            if eyes_enabled {
-                total_degrees.clamp(-eye_max, eye_max)
-            } else {
-                0.0
-            },
-            0.0,
+fn posed_direction(head: [f32; 2], eye: [f32; 2]) -> [f32; 3] {
+    rotate_by_quat(
+        multiply_quat(gaze_rotation(head), gaze_rotation(eye)),
+        [0.0, 0.0, 1.0],
+    )
+}
+
+fn squared_length(v: [f32; 3]) -> f32 {
+    v.iter().map(|component| component * component).sum()
+}
+
+fn clamped_eye(direction: [f32; 3], head: [f32; 2], limits: GazeLimits) -> [f32; 2] {
+    let eye = eye_angles(direction, head);
+    [limits.eye_yaw.clamp(eye[0]), limits.eye_pitch.clamp(eye[1])]
+}
+
+fn allocate_gaze(
+    total: [f32; 2],
+    camera: [f32; 2],
+    follow: f32,
+    limits: GazeLimits,
+) -> ([f32; 2], [f32; 2]) {
+    let direction = rotate_by_quat(gaze_rotation(total), [0.0, 0.0, 1.0]);
+    let head_limits = [limits.head_yaw, limits.head_pitch];
+    let mut head = [
+        limits
+            .head_yaw
+            .clamp(camera[0] + shortest_angle_delta_degrees(total[0], camera[0]) * follow),
+        limits
+            .head_pitch
+            .clamp(camera[1] + (total[1] - camera[1]) * follow),
+    ];
+
+    // Camera-facing is a preference. When the eyes cannot reach the target,
+    // move the head just enough to reduce the remaining angular error. Solve
+    // both axes together: subtracting Euler angles fails on pitched heads.
+    // Damped least squares is bounded, only runs for eye overflow, and retains
+    // the best pose when the requested direction is outside all joint limits.
+    for _ in 0..16 {
+        let eye = clamped_eye(direction, head, limits);
+        let actual = posed_direction(head, eye);
+        let error = sub3(direction, actual);
+        let error_squared = squared_length(error);
+        if error_squared < 1.0e-12 {
+            break;
+        }
+        let mut jacobian = [[0.0; 3]; 2];
+        for axis in 0..2 {
+            // Central differences also work when one side hits a joint limit.
+            let mut below = head;
+            let mut above = head;
+            below[axis] = head_limits[axis].clamp(head[axis] - 0.05);
+            above[axis] = head_limits[axis].clamp(head[axis] + 0.05);
+            let span = above[axis] - below[axis];
+            if span > EPSILON {
+                let low_direction = posed_direction(below, clamped_eye(direction, below, limits));
+                let high_direction = posed_direction(above, clamped_eye(direction, above, limits));
+                jacobian[axis] = scale3(sub3(high_direction, low_direction), 1.0 / span);
+            }
+        }
+        let dot = |a: [f32; 3], b: [f32; 3]| -> f32 { a.iter().zip(b).map(|(x, y)| x * y).sum() };
+        let a = dot(jacobian[0], jacobian[0]) + 1.0e-8;
+        let b = dot(jacobian[0], jacobian[1]);
+        let d = dot(jacobian[1], jacobian[1]) + 1.0e-8;
+        let x = dot(jacobian[0], error);
+        let y = dot(jacobian[1], error);
+        let determinant = a * d - b * b;
+        let step = [
+            ((d * x - b * y) / determinant).clamp(-20.0, 20.0),
+            ((a * y - b * x) / determinant).clamp(-20.0, 20.0),
         ];
+        let mut improved = false;
+        for fraction in [1.0, 0.5, 0.25, 0.125] {
+            let candidate = [
+                head_limits[0].clamp(head[0] + step[0] * fraction),
+                head_limits[1].clamp(head[1] + step[1] * fraction),
+            ];
+            let candidate_eye = clamped_eye(direction, candidate, limits);
+            if squared_length(sub3(direction, posed_direction(candidate, candidate_eye)))
+                < error_squared
+            {
+                head = candidate;
+                improved = true;
+                break;
+            }
+        }
+        if !improved {
+            break;
+        }
     }
-
-    let head = camera_degrees.clamp(-head_max, head_max);
-    if !eyes_enabled {
-        return [0.0, head];
-    }
-
-    let eye_delta = if wrap {
-        shortest_angle_delta_degrees(total_degrees, head)
-    } else {
-        total_degrees - head
-    };
-    [eye_delta.clamp(-eye_max, eye_max), head]
+    (clamped_eye(direction, head, limits), head)
 }
 
 fn solution_from_world_target(
@@ -206,67 +354,57 @@ fn solution_from_world_target(
     let inverse_model = inverse_unit_quat(model_quaternion);
     let [total_yaw, total_pitch] = direction_angles_degrees(origin, viewer_target, inverse_model);
     let [camera_yaw, camera_pitch] = direction_angles_degrees(origin, camera, inverse_model);
-    let [eye_yaw, head_yaw] = if lock_head_to_camera {
-        allocate_axis_camera_locked(
-            total_yaw,
-            camera_yaw,
-            limits.head_yaw,
-            limits.eye_yaw,
-            eyes_enabled,
-            head_enabled,
-            true,
-        )
-    } else {
-        allocate_axis(
-            total_yaw,
-            camera_yaw,
-            limits.head_yaw,
-            limits.eye_yaw,
-            eyes_enabled,
-            head_enabled,
-            head_follow_fraction,
-            true,
-        )
+    let active = GazeLimits {
+        head_yaw: if head_enabled {
+            limits.head_yaw
+        } else {
+            AxisLimits::default()
+        },
+        head_pitch: if head_enabled {
+            limits.head_pitch
+        } else {
+            AxisLimits::default()
+        },
+        eye_yaw: if eyes_enabled {
+            limits.eye_yaw
+        } else {
+            AxisLimits::default()
+        },
+        eye_pitch: if eyes_enabled {
+            limits.eye_pitch
+        } else {
+            AxisLimits::default()
+        },
     };
-    let [eye_pitch, head_pitch] = if lock_head_to_camera {
-        allocate_axis_camera_locked(
-            total_pitch,
-            camera_pitch,
-            limits.head_pitch,
-            limits.eye_pitch,
-            eyes_enabled,
-            head_enabled,
-            false,
-        )
+    let follow = if !eyes_enabled {
+        1.0
+    } else if lock_head_to_camera {
+        0.0
+    } else if head_follow_fraction.is_finite() {
+        head_follow_fraction.clamp(0.0, 1.0)
     } else {
-        allocate_axis(
-            total_pitch,
-            camera_pitch,
-            limits.head_pitch,
-            limits.eye_pitch,
-            eyes_enabled,
-            head_enabled,
-            head_follow_fraction,
-            false,
-        )
+        0.35
     };
-
-    let active_yaw_capacity = (if head_enabled { limits.head_yaw } else { 0.0 })
-        + (if eyes_enabled { limits.eye_yaw } else { 0.0 });
-    let active_pitch_capacity = (if head_enabled { limits.head_pitch } else { 0.0 })
-        + (if eyes_enabled { limits.eye_pitch } else { 0.0 });
+    let ([eye_yaw, eye_pitch], [head_yaw, head_pitch]) = allocate_gaze(
+        [total_yaw, total_pitch],
+        [camera_yaw, camera_pitch],
+        follow,
+        active,
+    );
+    let active_yaw_capacity = active.head_yaw.plus(active.eye_yaw);
+    let active_pitch_capacity = active.head_pitch.plus(active.eye_pitch);
     let distance = distance3(origin, camera).max(EPSILON);
 
     // FACS left/right is subject-relative. With Embody's canonical +Z front,
     // model-local +X is the character's left, so horizontal outputs invert the
     // geometric yaw sign. Positive pitch remains up.
     [
-        -clamp_signed_ratio(total_yaw, active_yaw_capacity),
-        clamp_signed_ratio(total_pitch, active_pitch_capacity),
-        -clamp_signed_ratio(eye_yaw, limits.eye_yaw),
-        clamp_signed_ratio(eye_pitch, limits.eye_pitch),
-        -clamp_signed_ratio(head_yaw, limits.head_yaw),
-        clamp_signed_ratio(head_pitch, limits.head_pitch),
+        -active_yaw_capacity.ratio(total_yaw),
+        active_pitch_capacity.ratio(total_pitch),
+        -active.eye_yaw.ratio(eye_yaw),
+        active.eye_pitch.ratio(eye_pitch),
+        -active.head_yaw.ratio(head_yaw),
+        active.head_pitch.ratio(head_pitch),
         -total_yaw,
         total_pitch,
         -camera_yaw,
@@ -292,25 +430,17 @@ fn solve(
     head_follow_fraction: f32,
     limits: GazeLimits,
 ) -> [f32; SCREEN_SPACE_GAZE_SOLUTION_STRIDE as usize] {
-    let camera = read_vec3(camera_position, 0);
-    let origin = read_vec3(gaze_origin, 0);
+    let camera = finite_vec3(camera_position);
+    let origin = finite_vec3(gaze_origin);
     let distance = distance3(origin, camera).max(EPSILON);
     let fov = finite_positive(vertical_fov_degrees, DEFAULT_VERTICAL_FOV_DEGREES)
         .clamp(1.0, 179.0)
         .to_radians();
-    let aspect = finite_positive(aspect, DEFAULT_ASPECT);
+    let aspect = finite_positive(aspect, DEFAULT_ASPECT).clamp(0.01, 100.0);
     let half_height = distance * (fov / 2.0).tan();
     let half_width = half_height * aspect;
-    let screen_x = screen_target
-        .first()
-        .copied()
-        .unwrap_or(0.0)
-        .clamp(-1.0, 1.0);
-    let screen_y = screen_target
-        .get(1)
-        .copied()
-        .unwrap_or(0.0)
-        .clamp(-1.0, 1.0);
+    let screen_x = normalized_coordinate(screen_target, 0);
+    let screen_y = normalized_coordinate(screen_target, 1);
 
     let camera_quat = quat_or_identity(camera_quaternion);
     let camera_right = rotate_by_quat(camera_quat, [1.0, 0.0, 0.0]);
@@ -348,32 +478,27 @@ fn solve_viewer(
     lock_head_to_camera: bool,
     limits: GazeLimits,
 ) -> [f32; SCREEN_SPACE_GAZE_SOLUTION_STRIDE as usize] {
-    let camera = read_vec3(camera_position, 0);
-    let origin = read_vec3(gaze_origin, 0);
+    let camera = finite_vec3(camera_position);
+    let origin = finite_vec3(gaze_origin);
     let fov = finite_positive(
         viewer_vertical_fov_degrees,
         DEFAULT_VIEWER_VERTICAL_FOV_DEGREES,
     )
     .clamp(1.0, 179.0)
     .to_radians();
-    let aspect = finite_positive(viewer_aspect, DEFAULT_VIEWER_ASPECT);
-    let viewer_depth = viewer_target
-        .get(2)
-        .copied()
-        .unwrap_or(DEFAULT_VIEWER_DEPTH)
-        .clamp(0.2, 10.0);
+    let aspect = finite_positive(viewer_aspect, DEFAULT_VIEWER_ASPECT).clamp(0.01, 100.0);
+    let viewer_depth = finite_positive(
+        viewer_target
+            .get(2)
+            .copied()
+            .unwrap_or(DEFAULT_VIEWER_DEPTH),
+        DEFAULT_VIEWER_DEPTH,
+    )
+    .clamp(0.2, 10.0);
     let half_height = viewer_depth * (fov / 2.0).tan();
     let half_width = half_height * aspect;
-    let viewer_x = viewer_target
-        .first()
-        .copied()
-        .unwrap_or(0.0)
-        .clamp(-1.0, 1.0);
-    let viewer_y = viewer_target
-        .get(1)
-        .copied()
-        .unwrap_or(0.0)
-        .clamp(-1.0, 1.0);
+    let viewer_x = normalized_coordinate(viewer_target, 0);
+    let viewer_y = normalized_coordinate(viewer_target, 1);
 
     let camera_quat = quat_or_identity(camera_quaternion);
     let camera_right = rotate_by_quat(camera_quat, [1.0, 0.0, 0.0]);
@@ -409,6 +534,12 @@ fn solve_viewer(
 /// Output layout (14 floats): combined target x/y, eye target x/y, head target
 /// x/y, total yaw/pitch degrees, camera-center yaw/pitch degrees, eye-to-camera
 /// distance, and viewer-target world x/y/z.
+///
+/// The profile must describe the active rig and calibrated semantic yaw/pitch
+/// axes: neutral forward is model +Z, up is +Y, and head yaw precedes pitch.
+/// Bone availability/rest and optical-axis calibration are not encoded by this
+/// ABI. Missing or morph-only AUs have no inferred angular capacity. Shared eye
+/// outputs cannot represent vergence or independently calibrated eye ranges.
 #[wasm_bindgen]
 #[allow(clippy::too_many_arguments)]
 pub fn solve_profile_screen_space_gaze(
@@ -445,9 +576,12 @@ pub fn solve_profile_screen_space_gaze(
 
 /// Solve a webcam/user target against the rendered camera. `viewer_target` is
 /// x/y in webcam NDC and z as estimated viewer distance behind the rendered
-/// camera in meters. Unlike screen-space solve, the target is placed behind the
+/// camera in the same units as `camera_position` and `gaze_origin`. Hosts must
+/// convert estimated meters to scene units before calling. Unlike screen-space solve, the target is placed behind the
 /// rendered camera/lens so oblique character-camera angles still converge on
 /// the user's eye position.
+/// `lock_head_to_camera` prefers the camera bearing while eyes can reach; it
+/// allows head overflow correction and follows the viewer with eyes disabled.
 #[wasm_bindgen]
 #[allow(clippy::too_many_arguments)]
 pub fn solve_profile_viewer_space_gaze(
@@ -487,9 +621,237 @@ pub fn solve_profile_viewer_space_gaze(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::RuntimeCore;
 
     fn cc4_profile() -> &'static ProfileData {
         crate::presets::load_profile("cc4").expect("cc4 preset")
+    }
+
+    fn canonical_profile() -> ProfileData {
+        let mut profile = cc4_profile().clone();
+        // This fixture has identity eye rests and +Z optical axes. CC4's rz
+        // eye yaw describes a different authored rest frame, so explicitly
+        // calibrate the fixture instead of assuming a CC4 GLB's optical axes.
+        for au in [61, 62, 65, 66, 69, 70] {
+            for binding in profile.au_to_bones.get_mut(&au.to_string()).unwrap() {
+                binding.channel = "ry".into();
+            }
+        }
+        profile
+    }
+
+    fn canonical_runtime(profile: &ProfileData) -> RuntimeCore {
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(
+            &serde_json::to_string(profile).unwrap(),
+            r#"{"meshes":[],"morphTargets":[],"bones":[
+                {"id":1,"name":"CC_Base_Head"},
+                {"id":2,"name":"CC_Base_L_Eye"},
+                {"id":3,"name":"CC_Base_R_Eye"}] }"#,
+        )
+        .unwrap();
+        core
+    }
+
+    fn runtime_viewing_direction(core: &mut RuntimeCore, solution: &[f32]) -> [f32; 3] {
+        for (value, negative, positive) in [
+            (solution[4], 51, 52),
+            (solution[5], 54, 53),
+            (solution[2], 61, 62),
+            (solution[3], 64, 63),
+        ] {
+            core.set_au(negative, (-value).max(0.0), 0.0);
+            core.set_au(positive, value.max(0.0), 0.0);
+        }
+        let rows = core.evaluate_bone_frame_delta();
+        let rotation = |id: f32| -> [f32; 4] {
+            rows.chunks(9)
+                .find(|row| row[0] == id)
+                .map(|row| [row[4], row[5], row[6], row[7]])
+                .unwrap_or([0.0, 0.0, 0.0, 1.0])
+        };
+        // Forward kinematics of the fixture's actual head -> eye chain using
+        // the runtime-produced bone rotations, not the solver's AU arithmetic.
+        rotate_by_quat(multiply_quat(rotation(1.0), rotation(2.0)), [0.0, 0.0, 1.0])
+    }
+
+    fn angular_error(actual: [f32; 3], target: [f32; 3]) -> f32 {
+        let target = scale3(target, 1.0 / squared_length(target).sqrt());
+        let cross = [
+            actual[1] * target[2] - actual[2] * target[1],
+            actual[2] * target[0] - actual[0] * target[2],
+            actual[0] * target[1] - actual[1] * target[0],
+        ];
+        let dot: f32 = actual.iter().zip(target).map(|(a, b)| a * b).sum();
+        squared_length(cross).sqrt().atan2(dot).to_degrees()
+    }
+
+    fn ray(yaw: f32, pitch: f32) -> [f32; 3] {
+        let (yaw, pitch) = (yaw.to_radians(), pitch.to_radians());
+        [
+            yaw.sin() * pitch.cos(),
+            pitch.sin(),
+            yaw.cos() * pitch.cos(),
+        ]
+    }
+
+    #[test]
+    fn runtime_eye_ray_converges_for_coupled_oblique_and_pitched_targets() {
+        let profile = canonical_profile();
+        let mut core = canonical_runtime(&profile);
+        for camera_yaw in [-45.0, 0.0, 45.0] {
+            for camera_pitch in [-25.0, 0.0, 25.0] {
+                for target_yaw in [-75.0, -35.0, 0.0, 35.0, 75.0] {
+                    for target_pitch in [-35.0, -15.0, 0.0, 15.0, 35.0] {
+                        let target = ray(target_yaw, target_pitch);
+                        let result = solution_from_world_target(
+                            target,
+                            ray(camera_yaw, camera_pitch),
+                            [0.0; 3],
+                            &[0.0, 0.0, 0.0, 1.0],
+                            true,
+                            true,
+                            0.35,
+                            true,
+                            gaze_limits(&profile),
+                        );
+                        let actual = runtime_viewing_direction(&mut core, &result);
+                        let error = angular_error(actual, target);
+                        assert!(error < 0.02, "camera {camera_yaw}/{camera_pitch}, target {target_yaw}/{target_pitch}: error {error}, solution {result:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn directional_limits_and_binding_scale_reach_the_authored_rotation() {
+        let mut profile = canonical_profile();
+        profile.au_to_bones.get_mut("51").unwrap()[0].scale = 0.5;
+        profile.au_to_bones.get_mut("53").unwrap()[0].max_degrees = Some(15.0);
+        let mut core = canonical_runtime(&profile);
+        for (yaw, pitch, expected_x, expected_y) in [
+            (30.0, 0.0, -1.0, 0.0),
+            (-60.0, 0.0, 1.0, 0.0),
+            (0.0, 15.0, 0.0, 1.0),
+            (0.0, -30.0, 0.0, -1.0),
+        ] {
+            let target = ray(yaw, pitch);
+            let result = solution_from_world_target(
+                target,
+                [0.0, 0.0, 1.0],
+                [0.0; 3],
+                &[0.0, 0.0, 0.0, 1.0],
+                false,
+                true,
+                0.35,
+                true,
+                gaze_limits(&profile),
+            );
+            assert!((result[4] - expected_x).abs() < 1.0e-5);
+            assert!((result[5] - expected_y).abs() < 1.0e-5);
+            assert!(angular_error(runtime_viewing_direction(&mut core, &result), target) < 0.002);
+        }
+    }
+
+    #[test]
+    fn capacity_uses_selected_composite_binding_and_requires_a_driven_axis() {
+        let mut profile = canonical_profile();
+        let mut unused = profile.au_to_bones["51"][0].clone();
+        unused.max_degrees = Some(180.0);
+        profile
+            .au_to_bones
+            .get_mut("51")
+            .unwrap()
+            .push(unused.clone());
+        unused.node = "NotTheHead".into();
+        profile.au_to_bones.get_mut("51").unwrap().insert(0, unused);
+        assert_eq!(gaze_limits(&profile).head_yaw.positive, 60.0);
+        for composite in &mut profile.composite_rotations {
+            if composite.node == "HEAD" {
+                composite.yaw = None;
+            }
+        }
+        assert_eq!(gaze_limits(&profile).head_yaw.positive, 0.0);
+    }
+
+    #[test]
+    fn disabled_or_unmapped_actuators_do_not_absorb_the_target() {
+        for eyes in [false, true] {
+            let mut profile = canonical_profile();
+            for au in if eyes {
+                [51, 52, 53, 54]
+            } else {
+                [61, 62, 63, 64]
+            } {
+                profile.au_to_bones.remove(&au.to_string());
+            }
+            let mut core = canonical_runtime(&profile);
+            let target = ray(-15.0, 12.0);
+            let result = solution_from_world_target(
+                target,
+                [0.0, 0.0, 1.0],
+                [0.0; 3],
+                &[0.0, 0.0, 0.0, 1.0],
+                true,
+                true,
+                0.35,
+                true,
+                gaze_limits(&profile),
+            );
+            let missing = if eyes { &result[4..6] } else { &result[2..4] };
+            assert!(missing.iter().all(|value| value.abs() < 1.0e-6));
+            assert!(angular_error(runtime_viewing_direction(&mut core, &result), target) < 0.002);
+        }
+        let mut morph_only = canonical_profile();
+        morph_only.au_to_bones.clear();
+        let result = solution_from_world_target(
+            [1.0, 1.0, 1.0],
+            [0.0, 0.0, 1.0],
+            [0.0; 3],
+            &[0.0, 0.0, 0.0, 1.0],
+            true,
+            true,
+            0.35,
+            true,
+            gaze_limits(&morph_only),
+        );
+        assert!(result[..6].iter().all(|value| *value == 0.0));
+    }
+
+    #[test]
+    fn unreachable_and_nonfinite_inputs_remain_bounded() {
+        let profile = canonical_profile();
+        for target in [[1.0, 1.0, -1.0], [-1.0, -1.0, -1.0], [0.0, 0.0, -1.0]] {
+            let result = solution_from_world_target(
+                target,
+                [0.0, 0.0, 1.0],
+                [0.0; 3],
+                &[0.0, 0.0, 0.0, 1.0],
+                true,
+                true,
+                f32::NAN,
+                true,
+                gaze_limits(&profile),
+            );
+            assert!(result.iter().all(|value| value.is_finite()));
+            assert!(result[..6].iter().all(|value| value.abs() <= 1.0));
+        }
+        let result = solve_viewer(
+            &[f32::NAN, f32::INFINITY, f32::NAN],
+            &[f32::NAN, 0.0, 1.0],
+            &[f32::NAN; 4],
+            &[0.0; 3],
+            &[f32::NAN; 4],
+            f32::NAN,
+            f32::INFINITY,
+            true,
+            true,
+            f32::NAN,
+            false,
+            gaze_limits(&profile),
+        );
+        assert!(result.iter().all(|value| value.is_finite()));
     }
 
     fn solve_cc4(
@@ -648,7 +1010,7 @@ mod tests {
     }
 
     #[test]
-    fn camera_locked_viewer_space_does_not_hand_eye_overflow_to_the_head() {
+    fn camera_baseline_allows_eye_overflow_to_turn_the_head() {
         let result = solve_viewer(
             &[1.0, 0.0, 1.0],
             &[0.0, 1.6, 3.0],
@@ -665,7 +1027,8 @@ mod tests {
         );
 
         assert!((result[2] + 1.0).abs() < 1.0e-4);
-        assert!(result[4].abs() < 1.0e-4);
+        assert!(result[4] < -0.1, "head must help eyes reach the user");
+        assert!((result[2] * 25.0 + result[4] * 60.0 - result[6]).abs() < 1.0e-3);
     }
 
     #[test]

@@ -93,6 +93,37 @@ function update(dtSeconds: number) {
 Application-facing JavaScript APIs belong in the host package. Polymer owns
 the CLJS character host used by LoomLarge and calls the Wasm exports directly.
 
+### Gaze geometry contract
+
+`solve_profile_screen_space_gaze` and `solve_profile_viewer_space_gaze` return
+14 floats: combined target XY, eye target XY, head target XY, total yaw/pitch,
+camera yaw/pitch, eye-to-camera distance, and viewer world XYZ. XY outputs are
+signed AU intensities in [-1, 1]; positive Y is up and horizontal direction is
+subject-relative. Angular values are degrees.
+
+Pass current world camera position/quaternion, character eye midpoint, and
+model quaternion. The viewer solver takes normalized image XY (+Y up) and
+depth behind the virtual camera; depth and all positions must share scene
+units. Convert physical webcam estimates before calling and supply the actual
+source FOV/aspect. The depth guard is 0.2–10 scene units. Mouse and webcam can
+share this contract when they use the same calibration.
+
+The head prefers the camera bearing, with configurable following. The legacy
+`lock_head_to_camera` flag retains this preference but permits head movement
+when eyes saturate, or when eyes are disabled. Eye angles are solved in the
+rotated head frame, using yaw then pitch to match runtime composition. Limits
+and AU normalization are directional and include each binding's scale. Missing
+or morph-only mappings contribute no inferred angular capacity.
+
+The profile must describe the active rig with calibrated semantic axes:
+model +Z is forward, +Y is up. This ABI does not include the skeleton's rest
+frames or optical axes, per-eye origins, current animated head pose, or
+webcam-to-display calibration. It solves an endpoint in the assumed calibrated
+basis; it does not provide binocular convergence or compensate intermediate
+head motion. Shared eye commands use the smaller mapped eye capacity; unequal
+left/right ranges need separate calibration. Hosts must compose the requested
+rotations without averaging independent yaw/pitch clips together.
+
 ## Presets And Profiles
 
 `cc4` and `fish` are embedded in the Wasm binary. `skeletal` is accepted as a
