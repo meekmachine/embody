@@ -288,6 +288,8 @@ export type ClipIRTrack = {
   times: number[];
   values: number[];
   interpolation?: string;
+  /** Replace the first sample with the bound property's current value. */
+  inheritStart?: boolean;
   sourceName?: string;
 };
 
@@ -300,6 +302,12 @@ export type ClipIR = {
 /**
  * Convert host-neutral ClipIR (concrete morph/bone tracks) into a Three.js
  * AnimationClip. The host AnimationMixer owns playback and lerping.
+ *
+ * Inherited starts are captured from the current scene during this call. Cache
+ * the ClipIR and call this again immediately before each play/replay, including
+ * utterance replacement. Reusing a returned AnimationClip retains its old start.
+ * The source ClipIR is never modified. A delayed inherited first key holds the
+ * captured pose until that timestamp, matching ordinary Three track sampling.
  */
 export function createAnimationClipFromClipIR(
   clip: ClipIR,
@@ -316,6 +324,9 @@ export function createAnimationClipFromClipIR(
       const binding = inspection.morphBindings.get(Number(track.target.morphTargetId));
       if (!binding?.mesh) continue;
       const trackName = `${binding.mesh.uuid}.morphTargetInfluences[${binding.index}]`;
+      if (track.inheritStart) {
+        values[0] = binding.mesh.morphTargetInfluences?.[binding.index] ?? 0;
+      }
       tracks.push(new NumberKeyframeTrack(trackName, times, values));
       continue;
     }
@@ -327,10 +338,13 @@ export function createAnimationClipFromClipIR(
       if (!object) continue;
       const property = track.target.property ?? 'rotation';
       if (property === 'rotation' || property === 'quaternion') {
+        if (track.inheritStart) object.quaternion.toArray(values, 0);
         tracks.push(new QuaternionKeyframeTrack(`${object.uuid}.quaternion`, times, values));
       } else if (property === 'position') {
+        if (track.inheritStart) object.position.toArray(values, 0);
         tracks.push(new VectorKeyframeTrack(`${object.uuid}.position`, times, values));
       } else if (property === 'scale') {
+        if (track.inheritStart) object.scale.toArray(values, 0);
         tracks.push(new VectorKeyframeTrack(`${object.uuid}.scale`, times, values));
       }
       continue;
@@ -339,6 +353,7 @@ export function createAnimationClipFromClipIR(
     if (kind === 'meshVisibility') {
       const mesh = inspection.meshBindings.get(Number(track.target.meshId));
       if (!mesh) continue;
+      if (track.inheritStart) values[0] = Number(mesh.visible);
       tracks.push(new NumberKeyframeTrack(`${mesh.uuid}.visible`, times, values));
     }
   }

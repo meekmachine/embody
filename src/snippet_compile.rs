@@ -42,6 +42,7 @@ pub struct VisemeMorphBinding {
 pub struct CurvePoint {
     pub time: f64,
     pub intensity: f64,
+    pub inherit: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -142,6 +143,7 @@ fn scalar_track(
     target: serde_json::Value,
     times: Vec<f64>,
     values: Vec<f64>,
+    inherit_start: bool,
 ) -> ClipTrackIR {
     ClipTrackIR {
         id,
@@ -151,7 +153,7 @@ fn scalar_track(
         times,
         values,
         interpolation: Some("linear".to_string()),
-        inherit_start: false,
+        inherit_start,
         source_name: None,
     }
 }
@@ -242,6 +244,7 @@ fn push_scaled_curve_track(
         morph_target_json(mesh_id, morph_target_id),
         times,
         values,
+        points.first().is_some_and(|point| point.inherit),
     ));
     *next_id += 1;
 }
@@ -508,10 +511,12 @@ mod tests {
                 CurvePoint {
                     time: 0.0,
                     intensity: 0.0,
+                    inherit: true,
                 },
                 CurvePoint {
                     time: 0.5,
                     intensity: 1.0,
+                    inherit: false,
                 },
             ],
         )]);
@@ -546,6 +551,7 @@ mod tests {
             options: &options,
         });
         assert_eq!(tracks.len(), 1);
+        assert!(tracks[0].inherit_start);
         assert_eq!(
             tracks[0].target.get("kind").and_then(|v| v.as_str()),
             Some("morphTarget")
@@ -571,6 +577,7 @@ mod tests {
             vec![CurvePoint {
                 time: 0.0,
                 intensity: 1.0,
+                inherit: false,
             }],
         )]);
         let au_bindings = [
