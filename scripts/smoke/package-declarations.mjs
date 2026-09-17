@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,7 +26,11 @@ try {
 
   execFileSync('tar', ['-xzf', archive, '-C', workspace]);
 
-  const packageRoot = join(workspace, 'package');
+  // Resolve the consumer's imports through the real package exports rather
+  // than reaching into its declarations with repository-relative paths.
+  const packageRoot = join(workspace, 'node_modules', '@lovelace_lol', 'embody');
+  await mkdir(dirname(packageRoot), { recursive: true });
+  await rename(join(workspace, 'package'), packageRoot);
   const packageJson = JSON.parse(
     await readFile(join(packageRoot, 'package.json'), 'utf8'),
   );
@@ -41,27 +45,33 @@ try {
     throw new Error('Packed Embody package does not declare any typed exports.');
   }
 
+  const consumer = join(workspace, 'wasm-consumer.mts');
+  await copyFile(join(root, 'scripts', 'fixtures', 'wasm-consumer.mts'), consumer);
+  const consumerConfig = join(workspace, 'tsconfig.json');
+  await writeFile(consumerConfig, JSON.stringify({
+    compilerOptions: {
+      noEmit: true,
+      strict: true,
+      skipLibCheck: false,
+      moduleResolution: 'bundler',
+      module: 'esnext',
+      target: 'es2022',
+      // Browser consumers must not rely on @types/node to supply Symbol.dispose
+      // or any other ambient declarations needed by the generated Wasm types.
+      types: [],
+    },
+    files: [...declarationEntries, consumer],
+  }, null, 2));
+
   const tsc = join(root, 'node_modules', 'typescript', 'bin', 'tsc');
   execFileSync(
     process.execPath,
-    [
-      tsc,
-      '--noEmit',
-      '--skipLibCheck',
-      'false',
-      '--moduleResolution',
-      'bundler',
-      '--module',
-      'esnext',
-      '--target',
-      'es2022',
-      ...declarationEntries,
-    ],
+    [tsc, '--project', consumerConfig],
     { cwd: root, stdio: 'inherit' },
   );
 
   console.log(
-    `Packed declaration contract passed (${declarationEntries.length} entrypoints).`,
+    `Packed declaration contract passed (${declarationEntries.length} entrypoints and typed Wasm consumer).`,
   );
 } finally {
   await rm(workspace, { recursive: true, force: true });
