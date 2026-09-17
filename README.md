@@ -145,8 +145,8 @@ const report = JSON.parse(wasm.analyze_model_descriptor(
 
 ```bash
 npm ci
-npm test
 npm run build
+npm test
 npm run test:package
 npm run check:generated
 ```
@@ -155,6 +155,17 @@ npm run check:generated
 wasm-bindgen glue, and `.wasm` binary in `dist/`. Generated output is not source
 and is not committed. Package checks consume that existing build, so run the
 build once before `npm run test:package`.
+
+The public Wasm loader returns `EmbodyCore`, derived directly from wasm-bindgen's
+generated declarations, including `RuntimeCore` constructors, methods, and
+numeric helpers. Instance types can also be imported with `import type` from
+`@lovelace_lol/embody/wasm`. Rust exports remain the source of truth for these
+signatures; JSON payload contents are still encoded as strings.
+
+Run the build before `npm test` or `npm run typecheck` in a clean checkout, and
+rebuild after changing Rust exports. The build generates the Wasm bindings before
+TypeScript declarations. Neither typechecking nor package verification rebuilds
+the package; CI checks and publishes that same build.
 
 ## License
 

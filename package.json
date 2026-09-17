@@ -33,7 +33,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup --config tsup.config.mjs && tsc -p tsconfig.declarations.json && npm run wasm:build",
+    "build": "tsup --config tsup.config.mjs && npm run wasm:build && tsc -p tsconfig.declarations.json",
     "dev": "tsup --config tsup.config.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "npm run rust:test && npm run typecheck",
