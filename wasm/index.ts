@@ -1,5 +1,13 @@
+/// <reference lib="esnext.disposable" preserve="true" />
+
 import cc4Preset from '../assets/presets/cc4.json';
 import cc4HumanoidSkeletonTemplate from '../assets/templates/cc4-humanoid.json';
+import type { InitInput } from './embody_wasm.js';
+
+// wasm-bindgen generates this module during the package build. TypeScript's
+// rootDirs resolves it from dist/ in source and as a sibling in the package.
+export type EmbodyCore = typeof import('./embody_wasm.js');
+export type { RuntimeCore, HairPhysicsSolver, CameraFlight, CameraOrbit } from './embody_wasm.js';
 
 export const EMBODY_CORE_ABI_VERSION = 1;
 export const PACKED_MORPH_FRAME_DELTA_STRIDE = 4;
@@ -24,12 +32,10 @@ export const DEFAULT_HAIR_COLOR_APPEARANCE = HAIR_COLOR_PRESETS.natural_brown;
 export const CC4_HUMANOID_SKELETON_TEMPLATE = cc4HumanoidSkeletonTemplate;
 export const HUMANOID_SKELETON_TEMPLATES = [CC4_HUMANOID_SKELETON_TEMPLATE];
 
-type Core = Record<string, any> & { default?: (input?: unknown) => Promise<unknown> };
+let pending: Promise<EmbodyCore> | null = null;
+let loaded: EmbodyCore | null = null;
 
-let pending: Promise<Core> | null = null;
-let loaded: Core | null = null;
-
-export async function initEmbodyCore(): Promise<Core> {
+export async function initEmbodyCore(): Promise<EmbodyCore> {
   if (!pending) {
     pending = load().catch((error) => {
       pending = null;
@@ -42,7 +48,7 @@ export async function initEmbodyCore(): Promise<Core> {
 
 export const getEmbodyCore = initEmbodyCore;
 
-export function requireInitializedEmbodyCore(): Core {
+export function requireInitializedEmbodyCore(): EmbodyCore {
   if (!loaded) throw new Error('Embody Wasm core is not initialized. Await initEmbodyCore() first.');
   return loaded;
 }
@@ -52,15 +58,15 @@ export function resetEmbodyCoreForTests() {
   loaded = null;
 }
 
-async function load(): Promise<Core> {
+async function load(): Promise<EmbodyCore> {
   // Keep these paths runtime-resolved so host bundlers can relocate the Wasm
   // siblings without eagerly converting the static URL expressions to assets.
   const resolveAsset = (path: string) => new URL(path, import.meta.url);
   const moduleUrl = resolveAsset('./wasm/embody_wasm.js').href;
   const binaryUrl = resolveAsset('./wasm/embody_wasm_bg.wasm');
-  const core = await import(/* @vite-ignore */ moduleUrl) as Core;
+  const core = await import(/* @vite-ignore */ moduleUrl) as EmbodyCore;
   if (typeof core.default === 'function') {
-    let input: unknown = binaryUrl;
+    let input: InitInput = binaryUrl;
     if ((globalThis as any).process?.versions?.node && binaryUrl.protocol === 'file:') {
       const fsSpecifier = 'node:fs/promises';
       const urlSpecifier = 'node:url';

@@ -9,13 +9,14 @@
 ## Build and package contract
 
 - Install with `npm ci`, then use `npm run build` to generate the complete package in `dist/`. A clean checkout has no `dist/` directory.
+- Build before `npm test` or `npm run typecheck`: the public loader is typed from the wasm-bindgen declarations generated in `dist/wasm/`. Rebuild after changing Rust exports; do not commit or hand-maintain a copy of those signatures.
 - Build once per source SHA. After the build, use `npm run test:package` to validate the existing output; package checks and publishing lifecycle scripts must never invoke another build.
 - `npm run test:exports`, `npm run test:pack`, `npm run check:dist`, `prepack`, and `prepublishOnly` are consumers of the existing `dist/`. If one reports missing output, run `npm run build` explicitly rather than adding a hidden rebuild.
 - Never restore `dist/` from a cache. npm and Cargo caches accelerate dependency downloads and compiler intermediates only; they are not package artifacts or a source of truth.
 
 ## CI and immutable previews
 
-- `.github/workflows/pr-checks.yml` is the only build/publish workflow. Its single job installs once, tests Rust and TypeScript, builds the Rust/Wasm and JavaScript package once, validates that output, then publishes that exact output to pkg.pr.new.
+- `.github/workflows/pr-checks.yml` is the only build/publish workflow. Its single job installs once, tests Rust, builds the Rust/Wasm and JavaScript package once, tests TypeScript against the generated bindings, validates that output, then publishes that exact output to pkg.pr.new.
 - Non-draft pull requests publish a preview whose install URL includes the Embody commit SHA. Main pushes, manual dispatches, and `publish-pkg-pr-new` repository dispatches publish the checked-out SHA without creating a PR comment.
 - Keep preview dependencies immutable: use the pkg.pr.new URL containing the full requested commit SHA. Do not use mutable branch URLs and do not make downstream repositories install Embody from a Git/codeload dependency, because Git installs would need Rust/Wasm build tooling.
 
