@@ -98,12 +98,13 @@ jobs:
       - name: Test character asset service worker
         run: npm run test:service-worker
 
-      - name: Typecheck TypeScript
-        run: npm run typecheck
-
       # This is the only build invocation. Every following step consumes dist/.
+      # wasm-bindgen declarations must exist before checking the typed loader.
       - name: Build package once
         run: npm run build
+
+      - name: Typecheck TypeScript
+        run: npm run typecheck
 
       - name: Verify built exports and package contents
         run: npm run test:package

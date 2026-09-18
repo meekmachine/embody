@@ -10,6 +10,7 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
+    "rootDirs": [".", "dist"],
     "isolatedModules": true,
     "noEmit": true,
 

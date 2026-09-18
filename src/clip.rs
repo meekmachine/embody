@@ -72,6 +72,8 @@ pub struct ClipInput {
 pub struct CurvePoint {
     pub time: f64,
     pub intensity: f64,
+    #[serde(default)]
+    pub inherit: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -278,7 +280,7 @@ pub fn compile_curves(input: CurvesInput) -> Result<ClipIR, String> {
                     .map(|point| KeyframeInput {
                         time: point.time,
                         value: KeyframeValue::Scalar(point.intensity * scale),
-                        inherit: false,
+                        inherit: point.inherit,
                     })
                     .collect(),
             });
