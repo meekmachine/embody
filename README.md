@@ -184,7 +184,12 @@ inside an animation runtime. It has no clock or target-selection policy:
 call `restore()` before evaluating the base animation, then `apply(request,
 controls)` after it. Controls are the current positions of existing motor
 tracks, rather than newly started transitions. `readControlState({worldTarget})`
-provides initial bearings for a continuous handoff from the rendered pose.
+provides initial bearings for a handoff from the rendered pose. When replacing
+legacy head controls at reduced intensity, also provide `headIntensity` and
+the evaluated local `headBaseQuaternion` with those controls excluded. The
+helper inverts gain in joint coordinates and reports `headSeedLimited` if
+the existing pose cannot be represented within the new bounds. Reading the
+seed does not modify the rig.
 
 The helper solves in the actual joint hierarchy, compensates head/neck motion,
 and aims each eye from its own origin. It honors signed actuator limits and

@@ -2,6 +2,7 @@ import { Matrix4, Quaternion, Vector3 } from 'three';
 import type { Object3D } from 'three';
 
 type Point = { x: number; y: number; z: number };
+type Rotation = Point & { w: number };
 type Target = { x: number; y: number; z?: number };
 type Flags = { eyesEnabled?: boolean; headEnabled?: boolean };
 type AxisBinding = { axis: Vector3; radians: number };
@@ -159,20 +160,38 @@ export class ThreeGazeFocus {
   }
 
   /** Seed motor clips from the rendered bearing when enabling pose constraints. */
-  readControlState(options: Flags & { worldTarget?: Point } = {}) {
+  readControlState(options: Flags & { worldTarget?: Point; headIntensity?: number; headBaseQuaternion?: Rotation } = {}) {
     this.model.updateMatrixWorld(true);
     const active = this.controlLimits();
     const gaze = new Vector3();
     for (const eye of this.eyes) gaze.add(this.ray(eye));
     if (gaze.lengthSq() < EPSILON) gaze.copy(this.head ? this.ray(this.head) : this.direction(0, 0));
     const eyes = this.angles(gaze.normalize());
-    const head = this.angles(this.head ? this.ray(this.head) : this.direction(0, 0));
+    let head = this.angles(this.head ? this.ray(this.head) : this.direction(0, 0));
+    let headSeedLimited = false;
+    if (this.head && options.headBaseQuaternion) {
+      const value = options.headBaseQuaternion;
+      const base = new Quaternion(finite(value.x), finite(value.y), finite(value.z), finite(value.w, 1)).normalize();
+      const actual = this.ray(this.head);
+      const excursion = this.solveJoint(this.head, actual, 0, 1, 1, base);
+      const gain = Math.max(0, finite(options.headIntensity, 1));
+      const yaw = gain > EPSILON ? bounded(excursion.yaw / gain) : 0;
+      const pitch = gain > EPSILON ? bounded(excursion.pitch / gain) : 0;
+      const preferred = this.jointPose(this.head, base, yaw, pitch);
+      head = this.angles(preferred.direction);
+      const represented = this.direction(
+        this.degrees(this.ratio(head.yaw, this.limits.headYaw), this.limits.headYaw),
+        this.degrees(this.ratio(head.pitch, this.limits.headPitch), this.limits.headPitch),
+      );
+      headSeedLimited = this.solveJoint(this.head, represented, 0, 1, gain, base).direction.angleTo(actual) > 0.001;
+    }
     const destination = options.worldTarget ? this.angles(vector(options.worldTarget).sub(this.origin())) : undefined;
     return {
       target: destination ? { x: -this.ratio(destination.yaw, active.yaw), y: this.ratio(destination.pitch, active.pitch), z: 0 } : undefined,
       eyeTarget: { x: -this.ratio(eyes.yaw, active.yaw), y: this.ratio(eyes.pitch, active.pitch), z: 0 },
       headTarget: { x: -this.ratio(head.yaw, this.limits.headYaw), y: this.ratio(head.pitch, this.limits.headPitch), z: 0 },
       headRoll: 0,
+      headSeedLimited,
     };
   }
 
@@ -190,16 +209,17 @@ export class ThreeGazeFocus {
     return binding ? new Quaternion().setFromAxisAngle(binding.axis, Math.abs(bounded(value)) * binding.radians) : new Quaternion();
   }
 
-  private solve(joint: Joint, desired: Vector3, roll = 0, limit = 1, intensity = 1) {
+  private jointPose(joint: Joint, base: Quaternion, yaw: number, pitch: number, roll = 0) {
     const object = joint.object;
-    const base = object.quaternion.clone();
     const parent = object.parent?.matrixWorld ?? new Matrix4();
-    const evaluate = (yaw: number, pitch: number, rollValue = roll) => {
-      const quaternion = base.clone().multiply(this.rotation(joint.yaw, yaw))
-        .multiply(this.rotation(joint.pitch, pitch)).multiply(this.rotation(joint.roll, rollValue));
-      const matrix = new Matrix4().multiplyMatrices(parent, new Matrix4().compose(object.position, quaternion, object.scale));
-      return { quaternion, direction: joint.optical.clone().transformDirection(matrix) };
-    };
+    const quaternion = base.clone().multiply(this.rotation(joint.yaw, yaw))
+      .multiply(this.rotation(joint.pitch, pitch)).multiply(this.rotation(joint.roll, roll));
+    const matrix = new Matrix4().multiplyMatrices(parent, new Matrix4().compose(object.position, quaternion, object.scale));
+    return { quaternion, direction: joint.optical.clone().transformDirection(matrix) };
+  }
+
+  private solveJoint(joint: Joint, desired: Vector3, roll = 0, limit = 1, intensity = 1, base = joint.object.quaternion.clone()) {
+    const evaluate = (yaw: number, pitch: number, rollValue = roll) => this.jointPose(joint, base, yaw, pitch, rollValue);
     let yaw = 0;
     let pitch = 0;
     let best = evaluate(yaw, pitch);
@@ -246,10 +266,15 @@ export class ThreeGazeFocus {
       pitch = bounded(pitch * gain);
       best = evaluate(yaw, pitch, bounded(roll * gain));
     }
-    this.saved.set(object, { base, applied: best.quaternion.clone() });
-    object.quaternion.copy(best.quaternion);
-    object.updateMatrixWorld(true);
-    return { limited: best.direction.angleTo(desired) > 0.001, yaw, pitch };
+    return { ...best, limited: best.direction.angleTo(desired) > 0.001, yaw, pitch };
+  }
+
+  private solve(joint: Joint, desired: Vector3, roll = 0, limit = 1, intensity = 1) {
+    const result = this.solveJoint(joint, desired, roll, limit, intensity);
+    this.saved.set(joint.object, { base: joint.object.quaternion.clone(), applied: result.quaternion.clone() });
+    joint.object.quaternion.copy(result.quaternion);
+    joint.object.updateMatrixWorld(true);
+    return result;
   }
 
   apply(request: ThreeGazeFocusRequest, controls: ThreeGazeFocusControls): ThreeGazeFocusDiagnostic {

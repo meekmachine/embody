@@ -118,6 +118,31 @@ for (const intensity of [0, 0.53, 1, 2]) {
   near(test.head.quaternion.angleTo(base), radians(10 * intensity), `head actuator gain ${intensity}`, 1e-4);
 }
 
+// A legacy AU pose is already intensity-adjusted. Invert the gain in joint
+// space against the separately evaluated base before seeding new controls.
+for (const neckTilt of [0, 10]) {
+  const test = rig();
+  test.neck.rotation.x = radians(neckTilt);
+  const base = test.head.quaternion.clone();
+  test.head.quaternion.multiply(new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), radians(18)))
+    .multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), radians(-4)));
+  const actual = test.head.quaternion.clone();
+  test.model.updateMatrixWorld(true);
+  const worldTarget = test.left.getWorldPosition(new Vector3()).add(test.right.getWorldPosition(new Vector3())).multiplyScalar(0.5)
+    .add(new Vector3(0, 0, 2).applyQuaternion(test.head.getWorldQuaternion(new Quaternion())));
+  const options = { worldTarget, headIntensity: 0.53, headBaseQuaternion: { x: base.x, y: base.y, z: base.z, w: base.w } };
+  const seed = test.focus.readControlState(options);
+  assert.equal(seed.headSeedLimited, false, 'legacy pose has a representable inverse-gain seed');
+  near(test.head.quaternion.angleTo(actual), 0, 'reading the inverse seed is pure');
+  test.head.quaternion.copy(base);
+  const value = request(test, worldTarget, { headIntensity: 0.53 });
+  test.focus.apply(value, { eyeYaw: seed.eyeTarget.x, eyePitch: seed.eyeTarget.y, headYaw: seed.headTarget.x, headPitch: seed.headTarget.y });
+  near(test.head.quaternion.angleTo(actual), 0, `gain handoff with neck ${neckTilt}`, 1e-4);
+  test.focus.restore();
+  test.head.quaternion.copy(actual);
+  assert.equal(test.focus.readControlState({ ...options, headIntensity: 0 }).headSeedLimited, true, 'zero gain reports an unrepresentable legacy excursion');
+}
+
 // Limits follow the signed bindings independently on each eye and direction.
 {
   const profile = structuredClone(preset);
