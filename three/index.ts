@@ -2,16 +2,23 @@ import {
   AdditiveBlending,
   AnimationClip,
   BufferAttribute,
+  Euler,
   InterpolateDiscrete,
   MultiplyBlending,
   NoBlending,
   NormalBlending,
   NumberKeyframeTrack,
   PropertyBinding,
+  Quaternion,
   QuaternionKeyframeTrack,
   SubtractiveBlending,
   VectorKeyframeTrack,
 } from 'three';
+import { bindModelReferencePose } from './reference-pose';
+import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
+
+export { captureModelReferencePose, bindModelReferencePose, extendModelReferencePose } from './reference-pose';
+export type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
 import type {
   KeyframeTrack,
   Material,
@@ -132,12 +139,25 @@ const transform = (obj: Object3D) => ({
   scale: { x: obj.scale.x, y: obj.scale.y, z: obj.scale.z },
 });
 
-const snapshot = (obj: Object3D): BoneEntry => ({
-  obj,
-  basePos: { x: obj.position.x, y: obj.position.y, z: obj.position.z },
-  baseQuat: obj.quaternion.clone(),
-  baseEuler: { x: obj.rotation.x, y: obj.rotation.y, z: obj.rotation.z, order: obj.rotation.order },
-});
+const snapshot = (obj: Object3D, reference?: ThreeReferencePoseNode): BoneEntry => {
+  if (!reference) {
+    return {
+      obj,
+      basePos: { x: obj.position.x, y: obj.position.y, z: obj.position.z },
+      baseQuat: obj.quaternion.clone(),
+      baseEuler: { x: obj.rotation.x, y: obj.rotation.y, z: obj.rotation.z, order: obj.rotation.order },
+    };
+  }
+  const { position, rotation } = reference.transform;
+  const baseQuat = new Quaternion(rotation.x, rotation.y, rotation.z, rotation.w);
+  const euler = reference.rotationEuler ?? new Euler().setFromQuaternion(baseQuat, reference.rotationOrder);
+  return {
+    obj,
+    basePos: { ...position },
+    baseQuat,
+    baseEuler: { x: euler.x, y: euler.y, z: euler.z, order: reference.rotationOrder },
+  };
+};
 
 const boneDepth = (obj: Object3D) => {
   let depth = 0;
@@ -161,7 +181,21 @@ const morphEntries = (mesh: Mesh) => {
 };
 
 export class ThreeModelInspector {
-  inspectModel(model: Object3D, options: { meshes?: Mesh[]; profile?: any } = {}): ThreeModelInspection {
+  inspectModel(model: Object3D, options: {
+    meshes?: Mesh[];
+    profile?: any;
+    /** Explicit reference captured before playback; omitted keeps legacy current-pose inspection. */
+    referencePose?: ThreeModelReferencePose;
+  } = {}): ThreeModelInspection {
+    const references = options.referencePose ? bindModelReferencePose(model, options.referencePose) : undefined;
+    const restTransform = (object: Object3D) => {
+      const reference = references?.get(object);
+      return reference ? {
+        position: { ...reference.transform.position },
+        rotation: { ...reference.transform.rotation },
+        scale: { ...reference.transform.scale },
+      } : transform(object);
+    };
     const objects: Object3D[] = [];
     const allMeshes: Mesh[] = [];
     const boneObjects: Object3D[] = [];
@@ -201,7 +235,7 @@ export class ThreeModelInspector {
     }
     const bones: Record<string, BoneEntry> = {};
     for (const bone of boneObjects) {
-      if (bone.name) bones[bone.name] = snapshot(bone);
+      if (bone.name) bones[bone.name] = snapshot(bone, references?.get(bone));
     }
     const profile = options.profile;
     if (profile?.boneNodes) {
@@ -210,7 +244,7 @@ export class ThreeModelInspector {
         const suffix = profile.boneSuffix ?? '';
         const name = `${base.startsWith(prefix) ? '' : prefix}${base}${base.endsWith(suffix) ? '' : suffix}`;
         const object = model.getObjectByName(name) ?? model.getObjectByName(base);
-        if (object) bones[key] = bones[object.name] ?? snapshot(object);
+        if (object) bones[key] = bones[object.name] ?? snapshot(object, references?.get(object));
       }
     }
     return {
@@ -225,7 +259,7 @@ export class ThreeModelInspector {
         })),
         morphTargets,
         bones: boneObjects.map((bone) => {
-          const world = bone.getWorldPosition(bone.position.clone());
+          const world = references?.get(bone)?.worldPosition ?? bone.getWorldPosition(bone.position.clone());
           const parent = bone.parent && ((bone.parent as any).isBone || bone.parent.type === 'Bone')
             ? bone.parent.name || null
             : null;
@@ -235,7 +269,7 @@ export class ThreeModelInspector {
             parentName: parent,
             worldPosition: { x: world.x, y: world.y, z: world.z },
             depth: boneDepth(bone),
-            restTransform: transform(bone),
+            restTransform: restTransform(bone),
           };
         }),
         objects: objects.map((object) => ({
@@ -243,7 +277,7 @@ export class ThreeModelInspector {
           name: object.name,
           isBone: !!((object as any).isBone || object.type === 'Bone'),
           isCamera: !!(object as any).isCamera,
-          restTransform: transform(object),
+          restTransform: restTransform(object),
         })),
       },
       meshByName,
@@ -319,6 +353,9 @@ export function createAnimationClipFromClipIR(
     const times = Array.from(track.times ?? []);
     const values = Array.from(track.values ?? []);
     if (!times.length || !values.length) continue;
+    // Imported step tracks must keep their hold semantics on the host mixer.
+    // Omitted/linear interpolation retains the existing Three default.
+    const interpolation = track.interpolation === 'step' ? InterpolateDiscrete : undefined;
 
     if (kind === 'morphTarget') {
       const binding = inspection.morphBindings.get(Number(track.target.morphTargetId));
@@ -327,7 +364,7 @@ export function createAnimationClipFromClipIR(
       if (track.inheritStart) {
         values[0] = binding.mesh.morphTargetInfluences?.[binding.index] ?? 0;
       }
-      tracks.push(new NumberKeyframeTrack(trackName, times, values));
+      tracks.push(new NumberKeyframeTrack(trackName, times, values, interpolation));
       continue;
     }
 
@@ -339,13 +376,13 @@ export function createAnimationClipFromClipIR(
       const property = track.target.property ?? 'rotation';
       if (property === 'rotation' || property === 'quaternion') {
         if (track.inheritStart) object.quaternion.toArray(values, 0);
-        tracks.push(new QuaternionKeyframeTrack(`${object.uuid}.quaternion`, times, values));
+        tracks.push(new QuaternionKeyframeTrack(`${object.uuid}.quaternion`, times, values, interpolation));
       } else if (property === 'position') {
         if (track.inheritStart) object.position.toArray(values, 0);
-        tracks.push(new VectorKeyframeTrack(`${object.uuid}.position`, times, values));
+        tracks.push(new VectorKeyframeTrack(`${object.uuid}.position`, times, values, interpolation));
       } else if (property === 'scale') {
         if (track.inheritStart) object.scale.toArray(values, 0);
-        tracks.push(new VectorKeyframeTrack(`${object.uuid}.scale`, times, values));
+        tracks.push(new VectorKeyframeTrack(`${object.uuid}.scale`, times, values, interpolation));
       }
       continue;
     }
@@ -354,7 +391,7 @@ export function createAnimationClipFromClipIR(
       const mesh = inspection.meshBindings.get(Number(track.target.meshId));
       if (!mesh) continue;
       if (track.inheritStart) values[0] = Number(mesh.visible);
-      tracks.push(new NumberKeyframeTrack(`${mesh.uuid}.visible`, times, values));
+      tracks.push(new NumberKeyframeTrack(`${mesh.uuid}.visible`, times, values, interpolation));
     }
   }
 
