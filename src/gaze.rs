@@ -463,6 +463,7 @@ fn solve(
     )
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn solve_viewer(
     viewer_target: &[f32],
@@ -478,6 +479,39 @@ fn solve_viewer(
     lock_head_to_camera: bool,
     limits: GazeLimits,
 ) -> [f32; SCREEN_SPACE_GAZE_SOLUTION_STRIDE as usize] {
+    solve_viewer_scaled(
+        viewer_target,
+        camera_position,
+        camera_quaternion,
+        gaze_origin,
+        model_quaternion,
+        viewer_vertical_fov_degrees,
+        viewer_aspect,
+        eyes_enabled,
+        head_enabled,
+        head_follow_fraction,
+        lock_head_to_camera,
+        limits,
+        1.0,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn solve_viewer_scaled(
+    viewer_target: &[f32],
+    camera_position: &[f32],
+    camera_quaternion: &[f32],
+    gaze_origin: &[f32],
+    model_quaternion: &[f32],
+    viewer_vertical_fov_degrees: f32,
+    viewer_aspect: f32,
+    eyes_enabled: bool,
+    head_enabled: bool,
+    head_follow_fraction: f32,
+    lock_head_to_camera: bool,
+    limits: GazeLimits,
+    world_units_per_meter: f32,
+) -> [f32; SCREEN_SPACE_GAZE_SOLUTION_STRIDE as usize] {
     let camera = finite_vec3(camera_position);
     let origin = finite_vec3(gaze_origin);
     let fov = finite_positive(
@@ -487,7 +521,7 @@ fn solve_viewer(
     .clamp(1.0, 179.0)
     .to_radians();
     let aspect = finite_positive(viewer_aspect, DEFAULT_VIEWER_ASPECT).clamp(0.01, 100.0);
-    let viewer_depth = finite_positive(
+    let viewer_depth_meters = finite_positive(
         viewer_target
             .get(2)
             .copied()
@@ -495,6 +529,15 @@ fn solve_viewer(
         DEFAULT_VIEWER_DEPTH,
     )
     .clamp(0.2, 10.0);
+    let world_units_per_meter =
+        if world_units_per_meter.is_finite() && world_units_per_meter > 0.0 {
+            world_units_per_meter
+        } else {
+            1.0
+        };
+    // Depth bounds describe the physical viewer, independent of scene units.
+    // Convert before projecting lateral offsets so XYZ use one common scale.
+    let viewer_depth = viewer_depth_meters * world_units_per_meter;
     let half_height = viewer_depth * (fov / 2.0).tan();
     let half_width = half_height * aspect;
     let viewer_x = normalized_coordinate(viewer_target, 0);
@@ -591,6 +634,8 @@ pub fn solve_profile_screen_space_gaze(
 /// without making eye contact depend on where the eyes sit in the image.
 /// `lock_head_to_camera` prefers the camera bearing while eyes can reach; it
 /// allows head overflow correction and follows the viewer with eyes disabled.
+/// New consumers with metric viewer depth should use
+/// `solve_profile_viewer_space_gaze_scaled` to supply the scene conversion.
 #[wasm_bindgen]
 #[allow(clippy::too_many_arguments)]
 pub fn solve_profile_viewer_space_gaze(
@@ -607,9 +652,49 @@ pub fn solve_profile_viewer_space_gaze(
     head_follow_fraction: f32,
     lock_head_to_camera: bool,
 ) -> Result<Box<[f32]>, JsError> {
+    solve_profile_viewer_space_gaze_scaled(
+        profile_json,
+        viewer_target,
+        camera_position,
+        camera_quaternion,
+        gaze_origin,
+        model_quaternion,
+        viewer_vertical_fov_degrees,
+        viewer_aspect,
+        eyes_enabled,
+        head_enabled,
+        head_follow_fraction,
+        lock_head_to_camera,
+        1.0,
+    )
+}
+
+/// Solve a webcam/user target with an explicit scene-unit conversion.
+/// `viewer_target` x/y are normalized webcam coordinates and z is estimated
+/// viewer distance in meters. `world_units_per_meter` converts both that depth
+/// and its projected lateral offsets into the units of `camera_position` and
+/// `gaze_origin`. Positive finite scales are accepted; malformed scales use 1.
+/// The output layout and head/eye allocation match the unscaled export.
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn solve_profile_viewer_space_gaze_scaled(
+    profile_json: &str,
+    viewer_target: &[f32],
+    camera_position: &[f32],
+    camera_quaternion: &[f32],
+    gaze_origin: &[f32],
+    model_quaternion: &[f32],
+    viewer_vertical_fov_degrees: f32,
+    viewer_aspect: f32,
+    eyes_enabled: bool,
+    head_enabled: bool,
+    head_follow_fraction: f32,
+    lock_head_to_camera: bool,
+    world_units_per_meter: f32,
+) -> Result<Box<[f32]>, JsError> {
     let profile: ProfileData = deserialize_json(profile_json, "Invalid gaze profile JSON")
         .map_err(|error| JsError::new(&error))?;
-    Ok(solve_viewer(
+    Ok(solve_viewer_scaled(
         viewer_target,
         camera_position,
         camera_quaternion,
@@ -622,6 +707,7 @@ pub fn solve_profile_viewer_space_gaze(
         head_follow_fraction,
         lock_head_to_camera,
         gaze_limits(&profile),
+        world_units_per_meter,
     )
     .to_vec()
     .into_boxed_slice())
@@ -992,6 +1078,138 @@ mod tests {
         assert!((result[11] - 0.5).abs() < 1.0e-4);
         assert!((result[12] - 1.6).abs() < 1.0e-4);
         assert!((result[13] - 4.0).abs() < 1.0e-4);
+    }
+
+    #[test]
+    fn scaled_viewer_gaze_is_invariant_under_uniform_scene_unit_changes() {
+        let profile_json = serde_json::to_string(&canonical_profile()).unwrap();
+        for (origin, camera, camera_angles) in [
+            ([0.25, 1.75, 0.1], [-0.8, 1.4, 2.4], [30.0, -20.0]),
+            ([-0.3, 1.1, -0.2], [1.2, 2.2, 2.8], [-35.0, 25.0]),
+        ] {
+            let camera_quat = gaze_rotation(camera_angles);
+            for viewer in [[0.0, 0.0, 0.2], [0.5, -0.4, 0.8], [-0.5, 0.4, 2.0]] {
+                for lock_head in [false, true] {
+                    let solve_at_scale = |scale: f32| {
+                        solve_profile_viewer_space_gaze_scaled(
+                            &profile_json,
+                            &viewer,
+                            &scale3(camera, scale),
+                            &camera_quat,
+                            &scale3(origin, scale),
+                            &[0.0, 0.0, 0.0, 1.0],
+                            50.0,
+                            4.0 / 3.0,
+                            true,
+                            true,
+                            0.35,
+                            lock_head,
+                            scale,
+                        )
+                        .unwrap()
+                    };
+                    let meters = solve_at_scale(1.0);
+                    for scale in [0.001, 0.01, 100.0, 1000.0] {
+                        let scaled = solve_at_scale(scale);
+                        // AU outputs and angles are invariant; distance and
+                        // target position stay in the host's world units.
+                        for index in 0..10 {
+                            assert!(
+                                (scaled[index] - meters[index]).abs() < 1.0e-4,
+                                "scale {scale}, index {index}: {} != {}",
+                                scaled[index],
+                                meters[index]
+                            );
+                        }
+                        for index in 10..14 {
+                            assert!((scaled[index] / scale - meters[index]).abs() < 1.0e-4);
+                        }
+                        if viewer[0] == 0.0 && viewer[1] == 0.0 {
+                            assert!((scaled[6] - scaled[8]).abs() < 1.0e-4);
+                            assert!((scaled[7] - scaled[9]).abs() < 1.0e-4);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn scaled_viewer_depth_bounds_and_xy_projection_are_metric() {
+        let profile_json = serde_json::to_string(cc4_profile()).unwrap();
+        for (depth, expected_depth) in [(0.1, 0.2), (0.8, 0.8), (100.0, 10.0)] {
+            let result = solve_profile_viewer_space_gaze_scaled(
+                &profile_json,
+                &[0.5, -0.25, depth],
+                &[0.0, 160.0, 300.0],
+                &[0.0, 0.0, 0.0, 1.0],
+                &[0.0, 160.0, 0.0],
+                &[0.0, 0.0, 0.0, 1.0],
+                90.0,
+                4.0 / 3.0,
+                true,
+                true,
+                0.35,
+                false,
+                100.0,
+            )
+            .unwrap();
+            // A centimeter scene must retain the viewer's real lateral and
+            // depth offsets, including after the physical depth clamp.
+            let expected = [
+                0.5 * expected_depth * 100.0 * 4.0 / 3.0,
+                160.0 - 0.25 * expected_depth * 100.0,
+                300.0 + expected_depth * 100.0,
+            ];
+            for axis in 0..3 {
+                assert!((result[11 + axis] - expected[axis]).abs() < 1.0e-4);
+            }
+        }
+    }
+
+    #[test]
+    fn scaled_viewer_invalid_units_fall_back_to_the_legacy_export() {
+        let profile_json = serde_json::to_string(cc4_profile()).unwrap();
+        let viewer = [0.3, -0.2, 0.8];
+        let camera = [-0.8, 2.2, 2.4];
+        let camera_quat = gaze_rotation([30.0, -20.0]);
+        let origin = [0.25, 1.75, 0.1];
+        let model_quat = [0.0, 0.0, 0.0, 1.0];
+        let legacy = solve_profile_viewer_space_gaze(
+            &profile_json,
+            &viewer,
+            &camera,
+            &camera_quat,
+            &origin,
+            &model_quat,
+            50.0,
+            4.0 / 3.0,
+            true,
+            true,
+            0.35,
+            false,
+        )
+        .unwrap();
+        for scale in [1.0, 0.0, -1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let result = solve_profile_viewer_space_gaze_scaled(
+                &profile_json,
+                &viewer,
+                &camera,
+                &camera_quat,
+                &origin,
+                &model_quat,
+                50.0,
+                4.0 / 3.0,
+                true,
+                true,
+                0.35,
+                false,
+                scale,
+            )
+            .unwrap();
+            assert!(result.iter().all(|value| value.is_finite()));
+            assert_eq!(result, legacy);
+        }
     }
 
     #[test]

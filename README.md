@@ -177,6 +177,30 @@ const report = JSON.parse(wasm.analyze_model_descriptor(
 ));
 ```
 
+## Pose-aware focus
+
+`ThreeGazeFocus` from `@lovelace_lol/embody/three` applies a focus constraint
+inside an animation runtime. It has no clock or target-selection policy:
+call `restore()` before evaluating the base animation, then `apply(request,
+controls)` after it. Controls are the current positions of existing motor
+tracks, rather than newly started transitions. `readControlState({worldTarget})`
+provides initial bearings for a continuous handoff from the rendered pose.
+
+The helper solves in the actual joint hierarchy, compensates head/neck motion,
+and aims each eye from its own origin. It honors signed actuator limits and
+reports angular residuals for unreachable targets. Head intensity scales joint
+movement from the evaluated base pose; eye intensity bounds the available eye
+excursion. The optional `profile.gazeCalibration` supplies bone-local
+`head`, `leftEye`, and `rightEye` optical axes and `modelUnitsPerMeter`.
+Without explicit optical axes, signed yaw/pitch bindings determine the optical
+frame. Unresolvable joints remain untouched and are reported in diagnostics.
+
+`solve_profile_viewer_space_gaze_scaled` adds `world_units_per_meter` as its
+last argument. Multiply the authored units-per-meter calibration by the
+presentation's uniform root scale. The original viewer solver keeps its
+existing scale-one behavior. Neither solver infers physical webcam/display
+placement from face landmarks.
+
 ## Development
 
 ```bash
