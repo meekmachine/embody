@@ -10,7 +10,7 @@ use std::hash::Hash;
 use serde::Deserialize;
 
 use crate::profile::{
-    deserialize_json, AnnotationRegionData, AuInfoData, AuMorphEntry, BoneBindingData,
+    deserialize_json, AnnotationRegionData, AuInfoData, AuMorphEntry, BoneBindingData, BodyControlData,
     CompositeRotationData, ContinuumPairData, GazeCalibrationData, HairDirectionData,
     HumanoidCharacterizationData,
     HairMorphTargetsData, HairPhysicsData, LineConfigData, MappingSectionData, MarkerStyleData, MeshInfoData,
@@ -55,6 +55,25 @@ pub(crate) struct ProfilePatch {
     hair_physics: Option<HairPhysicsData>,
     gaze_calibration: Option<GazeCalibrationData>,
     humanoid_characterization: Option<HumanoidCharacterizationData>,
+    body_controls: Option<BTreeMap<String, Option<BodyControlPatch>>>,
+}
+
+#[derive(Deserialize, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct BodyControlPatch {
+    label: Option<String>,
+    section: Option<String>,
+    au_id: Option<u32>,
+    #[serde(deserialize_with = "optional_nullable")]
+    negative_au_id: Option<Option<u32>>,
+    bilateral: Option<bool>,
+    roles: Option<Vec<String>>,
+    order: Option<i32>,
+}
+
+fn optional_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where D: serde::Deserializer<'de>, T: Deserialize<'de> {
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -95,6 +114,22 @@ pub(crate) fn extend_preset_with_profile(
     };
 
     let mut merged = base.clone();
+    if let Some(controls) = extension.body_controls {
+        for (id, control) in controls {
+            if let Some(control) = control {
+                let value = merged.body_controls.entry(id).or_insert_with(BodyControlData::default);
+                if let Some(label) = control.label { value.label = label; }
+                if let Some(section) = control.section { value.section = section; }
+                if let Some(au_id) = control.au_id { value.au_id = au_id; }
+                if let Some(negative) = control.negative_au_id { value.negative_au_id = negative; }
+                if let Some(bilateral) = control.bilateral { value.bilateral = bilateral; }
+                if let Some(roles) = control.roles { value.roles = roles; }
+                if let Some(order) = control.order { value.order = order; }
+            } else {
+                merged.body_controls.remove(&id);
+            }
+        }
+    }
     replace_option(&mut merged.name, extension.name);
     replace_option(&mut merged.animal_type, extension.animal_type);
     replace_option(&mut merged.emoji, extension.emoji);
@@ -122,10 +157,29 @@ pub(crate) fn extend_preset_with_profile(
         extension.au_face_part_to_mesh_category,
     );
     merge_map(&mut merged.au_mix_defaults, extension.au_mix_defaults);
-    replace_vec(
-        &mut merged.composite_rotations,
-        extension.composite_rotations,
+    replace_option(
+        &mut merged.humanoid_characterization,
+        extension.humanoid_characterization,
     );
+    if let Some(mut composites) = extension.composite_rotations {
+        let empty_override = composites.is_empty();
+        // Older saved CC4 profiles contain a snapshot of facial composites.
+        // Keep untouched default body nodes while honoring explicit per-node
+        // overrides. General facial composite replacement remains unchanged.
+        for composite in &base.composite_rotations {
+            let is_body = merged.body_controls.values().any(|control|
+                control.roles.iter().any(|role| crate::body_controls::node_key(&merged, role)
+                    == crate::body_controls::node_key(&merged, &composite.node)));
+            let overridden = composites.iter().any(|candidate|
+                crate::body_controls::node_key(&merged, &candidate.node)
+                    == crate::body_controls::node_key(&merged, &composite.node)
+                    || merged.bone_nodes.get(crate::body_controls::node_key(&merged, &candidate.node))
+                        .zip(merged.bone_nodes.get(crate::body_controls::node_key(&merged, &composite.node)))
+                        .is_some_and(|(a, b)| a == b));
+            if (empty_override || is_body) && !overridden { composites.push(composite.clone()); }
+        }
+        merged.composite_rotations = composites;
+    }
     merge_nullable_map(&mut merged.continuum_pairs, extension.continuum_pairs);
     merge_map(&mut merged.continuum_labels, extension.continuum_labels);
     replace_vec(&mut merged.viseme_keys, extension.viseme_keys);
@@ -160,10 +214,6 @@ pub(crate) fn extend_preset_with_profile(
         replace_option(&mut current.left_eye, calibration.left_eye);
         replace_option(&mut current.right_eye, calibration.right_eye);
     }
-    replace_option(
-        &mut merged.humanoid_characterization,
-        extension.humanoid_characterization,
-    );
     merged
 }
 

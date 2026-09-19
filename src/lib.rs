@@ -4,6 +4,7 @@ mod annotation_camera;
 mod annotation_markers;
 mod appearance;
 mod bones;
+mod body_controls;
 mod clip;
 mod gaze;
 mod hair;

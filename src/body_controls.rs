@@ -1,0 +1,178 @@
+//! Body-control descriptors share FACS action bindings and evaluation. This
+//! module resolves authoring metadata; it never applies frame writes.
+
+use serde_json::{json, Value};
+
+use crate::profile::{mesh_names_for_au, AuMorphEntry, ModelData, NameResolver, ProfileData};
+
+/// A binding may target a standard role. The characterization selects its
+/// profile node key, whose existing prefix/suffix mapping selects the rig bone.
+pub(crate) fn node_key<'a>(profile: &'a ProfileData, node: &'a str) -> &'a str {
+    profile.humanoid_characterization.as_ref()
+        .filter(|mapping| mapping.schema_version == 1 && mapping.standard == "VRMC_vrm-1.0")
+        .and_then(|mapping| mapping.roles.get(node))
+        .map(|role| role.node_key.as_str())
+        .unwrap_or(node)
+}
+
+pub(crate) fn configured_bone_name(profile: &ProfileData, node: &str) -> String {
+    let key = node_key(profile, node);
+    let base = profile.bone_nodes.get(key).map(String::as_str).unwrap_or(key);
+    let prefix = profile.bone_prefix.as_deref().unwrap_or("");
+    let suffix = profile.bone_suffix.as_deref().unwrap_or("");
+    format!("{}{}{}", if base.starts_with(prefix) { "" } else { prefix }, base,
+        if base.ends_with(suffix) { "" } else { suffix })
+}
+
+pub(crate) fn resolve(profile: &ProfileData, model: Option<&ModelData>) -> Value {
+    let resolver = model.map(|model| NameResolver::new(profile, model));
+    let mut controls: Vec<_> = profile.body_controls.iter().collect();
+    controls.sort_by(|(id_a, a), (id_b, b)| a.order.cmp(&b.order).then(id_a.cmp(id_b)));
+    Value::Array(controls.into_iter().map(|(id, control)| {
+        let mut au_ids = vec![control.au_id];
+        if let Some(negative) = control.negative_au_id {
+            if negative != control.au_id { au_ids.push(negative); }
+        }
+        let mut diagnostics = Vec::<String>::new();
+        let mut bones = Vec::new();
+        let mut morphs = AuMorphEntry::default();
+        let mut meshes = Vec::new();
+        let mut has_bones = false;
+        let mut has_morphs = false;
+        if control.label.trim().is_empty() { diagnostics.push("Control has no label.".into()); }
+        for role in &control.roles {
+            if node_key(profile, role) == role && !profile.bone_nodes.contains_key(role) {
+                diagnostics.push(format!("Role {role} has no humanoid bone mapping."));
+            }
+        }
+        for au in &au_ids {
+            let key = au.to_string();
+            let mesh_names = mesh_names_for_au(profile, *au);
+            for mesh in &mesh_names { if !meshes.contains(mesh) { meshes.push(mesh.clone()); } }
+            for binding in profile.au_to_bones.get(&key).into_iter().flatten() {
+                let resolved = model.zip(resolver.as_ref())
+                    .and_then(|(model, resolver)| resolver.resolve_bone(model, profile, &binding.node));
+                let mut bound = serde_json::to_value(binding).unwrap_or(Value::Null);
+                bound["auId"] = json!(au);
+                bound["boneName"] = json!(resolved.map(|bone| bone.name.clone())
+                    .unwrap_or_else(|| configured_bone_name(profile, &binding.node)));
+                let rotational = matches!(binding.channel.as_str(), "rx" | "ry" | "rz");
+                let composite_exists = !rotational || profile.composite_rotations.iter().any(|composite| {
+                    node_key(profile, &composite.node) == node_key(profile, &binding.node)
+                        && [&composite.pitch, &composite.yaw, &composite.roll].into_iter().flatten()
+                            .any(|axis| axis.aus.contains(au) || [&axis.negative, &axis.positive].into_iter().flatten().any(|selector| {
+                                match selector { crate::profile::AuSelector::One(id) => id == au,
+                                    crate::profile::AuSelector::Many(ids) => ids.contains(au) }
+                            }))
+                });
+                if !composite_exists { diagnostics.push(format!("Action {au}: {} has no composite rotation.", binding.node)); }
+                if model.is_some() && resolved.is_none() { diagnostics.push(format!("Action {au}: bone {} is absent from the model.", binding.node)); }
+                has_bones |= composite_exists && (model.is_none() || resolved.is_some());
+                bones.push(bound);
+            }
+            if let Some(Some(entry)) = profile.au_to_morphs.get(&key) {
+                for (side, targets) in [("left", &entry.left), ("right", &entry.right), ("center", &entry.center)] {
+                    for target in targets {
+                        let exists = resolver.as_ref().map(|r| !r.resolve_morph(target, &mesh_names).is_empty()).unwrap_or(true);
+                        has_morphs |= exists;
+                        if !exists { diagnostics.push(format!("Action {au}: {side} morph {} is absent from the model.", serde_json::to_string(target).unwrap())); }
+                    }
+                }
+                morphs.left.extend(entry.left.clone()); morphs.right.extend(entry.right.clone()); morphs.center.extend(entry.center.clone());
+            }
+        }
+        if !has_bones && !has_morphs { diagnostics.push("No available bone or morph outputs.".into()); }
+        json!({"id":id, "label":control.label, "section":control.section,
+            "auId":control.au_id, "negativeAuId":control.negative_au_id, "auIds":au_ids,
+            "bilateral":control.bilateral, "roles":control.roles, "order":control.order,
+            "boneBindings":bones, "morphBindings":morphs, "meshNames":meshes,
+            "hasBones":has_bones, "hasMorphs":has_morphs, "isMixed":has_bones && has_morphs,
+            "available":has_bones || has_morphs, "diagnostics":diagnostics})
+    }).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::RuntimeCore;
+    use crate::profile_merge::{extend_preset_with_profile, parse_profile_patch};
+
+    fn preset() -> ProfileData {
+        serde_json::from_str(crate::presets::preset_json("cc4").unwrap()).unwrap()
+    }
+
+    fn model() -> Value {
+        json!({"bones":[
+            {"id":1,"name":"CC_Base_L_Forearm"},
+            {"id":2,"name":"CC_Base_R_Forearm"},
+            {"id":3,"name":"CC_Base_Spine01"}],
+            "meshes":[{"id":5,"name":"CC_Base_Body","morphTargetIds":[10,11]},
+                {"id":6,"name":"Shirt","morphTargetIds":[12]}],
+            "morphTargets":[{"id":10,"meshId":5,"name":"LL_Body_Bicep_Flex_L","hostIndex":0},
+                {"id":11,"meshId":5,"name":"LL_Body_Bicep_Flex_R","hostIndex":1},
+                {"id":12,"meshId":6,"name":"Shirt_Flex_L","hostIndex":0}]})
+    }
+
+    #[test]
+    fn body_action_drives_bones_and_skin_clothing_morphs_with_facs_mix_and_balance() {
+        let mut core = RuntimeCore::new(0);
+        let extension = json!({"auToMorphs":{"1001":{"left":["LL_Body_Bicep_Flex_L","Shirt_Flex_L"],
+            "right":["LL_Body_Bicep_Flex_R"]}},"morphToMesh":{"body":["CC_Base_Body","Shirt"]},
+            "auMixDefaults":{"1001":0.5}});
+        core.configure_with_preset("cc4", &extension.to_string(), &model().to_string()).unwrap();
+        core.set_au(1001, 0.5, -1.0);
+        let morphs = core.evaluate_morph_frame_delta();
+        let rows: Vec<_> = morphs.chunks_exact(4).collect();
+        assert!(rows.iter().any(|row| row[..3] == [5.0, 10.0, 0.25]));
+        assert!(rows.iter().any(|row| row[..3] == [5.0, 11.0, 0.0]));
+        assert!(rows.iter().any(|row| row[..3] == [6.0, 12.0, 0.25]));
+        let bones = core.evaluate_bone_frame_delta();
+        let left = bones.chunks_exact(9).find(|row| row[0] == 1.0).unwrap();
+        let right = bones.chunks_exact(9).find(|row| row[0] == 2.0).unwrap();
+        assert!((left[4] - 0.5).abs() < 1e-5, "120 degrees * .5 is 60 degrees; morph mix does not attenuate bone");
+        assert!(right[4].abs() < 1e-5);
+        core.set_au(1001, 0.5, 1.0);
+        let bones = core.evaluate_bone_frame_delta();
+        assert!(bones.chunks_exact(9).find(|row| row[0] == 1.0).unwrap()[4].abs() < 1e-5);
+        assert!((bones.chunks_exact(9).find(|row| row[0] == 2.0).unwrap()[4] - 0.5).abs() < 1e-5);
+        core.set_au_signed(1004, -0.5, 0.0);
+        assert_eq!(core.get_au(1003), 0.5);
+        assert_eq!(core.get_au(1004), 0.0);
+        core.set_au(1001, 0.0, 0.0);
+        core.set_continuum(1003, 1004, 0.0, 0.0);
+        assert!(core.evaluate_active_bone_frame().is_empty());
+        assert!(core.evaluate_active_morph_frame().is_empty());
+    }
+
+    #[test]
+    fn descriptors_report_missing_outputs_and_role_remapping_reaches_runtime() {
+        let mut profile = preset();
+        let absent: ModelData = serde_json::from_value(json!({"bones":[],"meshes":[],"morphTargets":[]})).unwrap();
+        let result = resolve(&profile, Some(&absent));
+        assert_eq!(result[0]["available"], false);
+        assert!(result[0]["diagnostics"].as_array().unwrap().len() >= 4);
+        let model: ModelData = serde_json::from_value(model()).unwrap();
+        let result = resolve(&profile, Some(&model));
+        assert_eq!(result[0]["isMixed"], true);
+        assert_eq!(result[2]["auIds"], json!([1004,1003]));
+        profile.humanoid_characterization.as_mut().unwrap().roles.get_mut("leftLowerArm").unwrap().node_key = "CUSTOM_ELBOW".into();
+        profile.bone_nodes.insert("CUSTOM_ELBOW".into(), "CC_Base_R_Forearm".into());
+        let result = resolve(&profile, Some(&model));
+        assert_eq!(result[0]["boneBindings"][0]["boneName"], "CC_Base_R_Forearm");
+    }
+
+    #[test]
+    fn sparse_profile_extensions_keep_defaults_and_old_facial_composites_keep_body_axes() {
+        let base = preset();
+        let facial: Vec<_> = base.composite_rotations.iter().filter(|c| !c.node.starts_with("left") && !c.node.starts_with("right") && c.node != "spine").cloned().collect();
+        let patch = json!({"bodyControls":{"body.elbowFlex":{"label":"My biceps"},
+            "body.kneeBend":null,"body.torsoTwist":{"negativeAuId":null}}, "compositeRotations":facial});
+        let result = extend_preset_with_profile(&base, parse_profile_patch(&patch.to_string()).unwrap());
+        let elbow = &result.body_controls["body.elbowFlex"];
+        assert_eq!(elbow.au_id, 1001); assert!(elbow.bilateral); assert_eq!(elbow.label, "My biceps");
+        assert!(!result.body_controls.contains_key("body.kneeBend"));
+        assert_eq!(result.body_controls["body.torsoTwist"].negative_au_id, None);
+        assert!(result.composite_rotations.iter().any(|c| c.node == "leftLowerArm"));
+        assert!(!result.composite_rotations.iter().any(|c| c.node == "leftLowerLeg"));
+    }
+}

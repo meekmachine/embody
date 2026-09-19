@@ -49,6 +49,7 @@ const PROFILE_OVERRIDE_KEYS: &[&str] = &[
     "disabledRegions",
     "hairPhysics",
     "humanoidCharacterization",
+    "bodyControls",
 ];
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -384,6 +385,7 @@ fn fuzzy_name_match(object_name: &str, target_name: &str, pattern: Option<&str>)
 }
 
 fn matches_node(profile: &ProfileData, bone_name: &str, node_key: &str) -> bool {
+    let node_key = crate::body_controls::node_key(profile, node_key);
     let Some(base) = profile.bone_nodes.get(node_key) else {
         return false;
     };
@@ -400,6 +402,13 @@ fn matches_node(profile: &ProfileData, bone_name: &str, node_key: &str) -> bool 
 }
 
 fn find_node_key(profile: &ProfileData, bone_name: &str) -> Option<String> {
+    // Prefer the existing composite's authored target (including a VRM role),
+    // so Skeleton edits update its action instead of creating a second axis
+    // for a different alias of the same bone.
+    if let Some(composite) = profile.composite_rotations.iter()
+        .find(|entry| matches_node(profile, bone_name, &entry.node)) {
+        return Some(composite.node.clone());
+    }
     profile
         .bone_nodes
         .keys()
@@ -429,6 +438,7 @@ fn ensure_node(profile: &mut ProfileData, bone_name: &str) -> String {
 }
 
 fn resolve_bone_name(profile: &ProfileData, node: &str) -> Option<String> {
+    let node = crate::body_controls::node_key(profile, node);
     let base = profile.bone_nodes.get(node)?;
     let prefix = profile.bone_prefix.as_deref().unwrap_or("");
     let suffix = profile.bone_suffix.as_deref().unwrap_or("");
@@ -1137,6 +1147,7 @@ fn bilateral_context(
     let other_resolved = resolve_bone_name(profile, &other_node)
         .or_else(|| profile.bone_nodes.get(&other_node).cloned())
         .unwrap_or(other_name);
+    let other_node = find_node_key(profile, &other_resolved).unwrap_or(other_node);
     let (left_node_key, left_bone_name, right_node_key, right_bone_name, selected_scope) =
         if selected_side == "left" {
             (
@@ -2080,6 +2091,12 @@ fn profile_view(profile: &ProfileData, op: &str, payload: &Value) -> Result<Valu
             crate::humanoid_characterization::resolve(profile),
         )
         .map_err(|error| error.to_string())?),
+        "profile.getBodyControls" => {
+            let model = payload.get("model").filter(|value| !value.is_null())
+                .map(|value| serde_json::from_value(value.clone()))
+                .transpose().map_err(|error| format!("Invalid model descriptor: {error}"))?;
+            Ok(crate::body_controls::resolve(profile, model.as_ref()))
+        },
         _ => Err(format!("Unknown profile query \"{op}\"")),
     }
 }
@@ -2503,6 +2520,18 @@ mod tests {
         assert_eq!(result["leftBoneName"], "L_Hand");
         assert_eq!(result["selectedSide"], "right");
         assert_eq!(result["familyLabel"], "Hand");
+    }
+
+    #[test]
+    fn body_role_axes_are_editable_without_duplicate_bone_composites() {
+        let profile: ProfileData = serde_json::from_str(presets::preset_json("cc4").unwrap()).unwrap();
+        let state = get_axis_state(&profile, "CC_Base_L_Forearm", Axis::Pitch).unwrap();
+        assert_eq!(state.positive_au_id, Some(1001));
+        assert_eq!(bilateral_state(&profile, "CC_Base_L_Forearm", Axis::Pitch).unwrap().shared.positive_au_id, Some(1001));
+        let edited = apply_axis_update(profile, "CC_Base_L_Forearm", Axis::Pitch,
+            json!({"positiveMaxDegrees":90}).as_object().unwrap());
+        assert_eq!(edited.composite_rotations.iter().filter(|entry| matches_node(&edited, "CC_Base_L_Forearm", &entry.node)).count(), 1);
+        assert_eq!(get_axis_state(&edited, "CC_Base_L_Forearm", Axis::Pitch).unwrap().positive_max_degrees, Some(90.0));
     }
 
     #[test]

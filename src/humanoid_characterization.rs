@@ -159,6 +159,12 @@ pub fn resolve(profile: &ProfileData) -> HumanoidCharacterizationResolution {
 
 pub fn validate(profile: &ProfileData, model: &ModelData) -> HumanoidCharacterizationResolution {
     let mut result = resolve(profile);
+    let resolver = crate::profile::NameResolver::new(profile, model);
+    for resolved in result.roles.values_mut() {
+        if let Some(bone) = resolver.resolve_bone(model, profile, &resolved.node_key) {
+            resolved.bone_name = bone.name.clone();
+        }
+    }
     let bone_by_name = model
         .bones
         .iter()
@@ -242,7 +248,7 @@ fn validate_metadata(
                 .push(format!("Role \"{role}\" has an empty nodeKey."));
             continue;
         }
-        let Some(bone_name) = profile.bone_nodes.get(node_key) else {
+        let Some(_) = profile.bone_nodes.get(node_key) else {
             result.errors.push(format!(
                 "Role \"{role}\" refers to nodeKey \"{node_key}\", which is not declared in boneNodes."
             ));
@@ -261,7 +267,7 @@ fn validate_metadata(
             role.clone(),
             ResolvedHumanoidRole {
                 node_key: node_key.to_string(),
-                bone_name: bone_name.clone(),
+                bone_name: crate::body_controls::configured_bone_name(profile, node_key),
                 source: binding.source.clone(),
                 confidence: binding.confidence,
             },
@@ -285,7 +291,11 @@ fn is_descendant(
     expected_ancestor: &str,
     bones: &HashMap<&str, &crate::profile::BoneData>,
 ) -> bool {
+    let mut visited = std::collections::HashSet::new();
     while let Some(name) = parent_name {
+        if !visited.insert(name.clone()) {
+            return false;
+        }
         if name == expected_ancestor {
             return true;
         }
@@ -351,6 +361,21 @@ mod tests {
     #[test]
     fn validates_required_roles_against_model_hierarchy() {
         let resolved = validate(&profile(), &model());
+        assert!(resolved.valid, "{:?}", resolved.errors);
+    }
+
+    #[test]
+    fn validates_bone_affixes_using_the_runtime_resolver() {
+        let mut profile = profile();
+        profile.bone_prefix = Some("Rig_".into());
+        profile.bone_suffix = Some("_Joint".into());
+        let mut model = model();
+        for bone in &mut model.bones {
+            bone.name = format!("Rig_{}_Joint", bone.name);
+            bone.parent_name = bone.parent_name.as_ref().map(|name| format!("Rig_{name}_Joint"));
+        }
+        assert_eq!(resolve(&profile).roles["head"].bone_name, "Rig_Head_Joint");
+        let resolved = validate(&profile, &model);
         assert!(resolved.valid, "{:?}", resolved.errors);
     }
 
