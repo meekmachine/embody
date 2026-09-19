@@ -545,6 +545,10 @@ pub struct ProfileData {
     pub hair_physics: Option<HairPhysicsData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gaze_calibration: Option<GazeCalibrationData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub humanoid_characterization: Option<HumanoidCharacterizationData>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", deserialize_with = "null_default")]
+    pub body_controls: BTreeMap<String, BodyControlData>,
     // Typed legacy fish fields retained until that preset schema is normalized.
     #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub action_info: HashMap<String, AuInfoData>,
@@ -574,6 +578,47 @@ pub struct GazeCalibrationData {
     pub left_eye: Option<GazeOpticalCalibrationData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub right_eye: Option<GazeOpticalCalibrationData>,
+}
+
+/// A VRM humanoid role resolves through an existing profile node key. This
+/// keeps current AU-to-bone bindings on their established evaluation path.
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HumanoidRoleData {
+    pub node_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HumanoidCharacterizationData {
+    pub schema_version: u32,
+    pub standard: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", deserialize_with = "null_default")]
+    pub roles: BTreeMap<String, HumanoidRoleData>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+/// Semantic body controls reuse numeric actions and the same bone/morph
+/// evaluator as FACS. VRM identifies the anatomy, not the action vocabulary.
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BodyControlData {
+    pub label: String,
+    pub section: String,
+    pub au_id: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub negative_au_id: Option<u32>,
+    pub bilateral: bool,
+    pub roles: Vec<String>,
+    pub order: i32,
 }
 
 impl ProfileData {
@@ -742,6 +787,8 @@ pub struct ResolvedProfileView {
     pub composite_rotations: Vec<CompositeRotationData>,
     pub continuum_pairs: HashMap<String, Option<ContinuumPairData>>,
     pub hair_physics: Option<HairPhysicsData>,
+    pub humanoid_characterization: Option<HumanoidCharacterizationData>,
+    pub body_controls: BTreeMap<String, BodyControlData>,
 }
 
 pub fn resolve_profile_view(profile: &ProfileData) -> ResolvedProfileView {
@@ -778,6 +825,8 @@ pub fn resolve_profile_view(profile: &ProfileData) -> ResolvedProfileView {
         composite_rotations: profile.composite_rotations.clone(),
         continuum_pairs: profile.continuum_pairs.clone(),
         hair_physics: profile.hair_physics.clone(),
+        humanoid_characterization: profile.humanoid_characterization.clone(),
+        body_controls: profile.body_controls.clone(),
     }
 }
 
@@ -1322,7 +1371,7 @@ fn viseme_binding_targets(
     Vec::new()
 }
 
-fn mesh_names_for_au(profile: &ProfileData, au_id: u32) -> Vec<String> {
+pub(crate) fn mesh_names_for_au(profile: &ProfileData, au_id: u32) -> Vec<String> {
     let face_part = profile
         .au_info
         .get(&au_id.to_string())
@@ -1392,7 +1441,7 @@ fn resolved_au_mesh_names(profile: &ProfileData) -> BTreeMap<String, Vec<String>
 
 /// Resolves morph/bone names with the profile prefix/suffix conventions,
 /// including the optional suffix regex pattern.
-struct NameResolver {
+pub(crate) struct NameResolver {
     morph_prefix: String,
     morph_suffix: String,
     suffix_regex: Option<Regex>,
@@ -1401,7 +1450,7 @@ struct NameResolver {
 }
 
 impl NameResolver {
-    fn new(profile: &ProfileData, model: &ModelData) -> NameResolver {
+    pub(crate) fn new(profile: &ProfileData, model: &ModelData) -> NameResolver {
         let suffix_regex = profile
             .suffix_pattern
             .as_ref()
@@ -1434,7 +1483,7 @@ impl NameResolver {
         }
     }
 
-    fn resolve_morph(&self, morph: &MorphRef, mesh_names: &[String]) -> Vec<(u32, u32)> {
+    pub(crate) fn resolve_morph(&self, morph: &MorphRef, mesh_names: &[String]) -> Vec<(u32, u32)> {
         let mut result = Vec::new();
         let candidate_names = self.resolve_mesh_names(mesh_names);
         for mesh_name in &candidate_names {
@@ -1511,12 +1560,13 @@ impl NameResolver {
         })
     }
 
-    fn resolve_bone<'a>(
+    pub(crate) fn resolve_bone<'a>(
         &self,
         model: &'a ModelData,
         profile: &ProfileData,
         node_key: &str,
     ) -> Option<&'a BoneData> {
+        let node_key = crate::body_controls::node_key(profile, node_key);
         let configured = profile
             .bone_nodes
             .get(node_key)
