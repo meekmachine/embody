@@ -69,6 +69,10 @@ new three.ThreeFrameApplier().addMorphTarget(morphRoot, {
 
 const checks = [
   ['root ESM Three adapter', typeof root.ThreeModelInspector === 'function'],
+  ['root ESM reference capture', typeof root.captureModelReferencePose === 'function'],
+  ['root ESM reference extension', typeof root.extendModelReferencePose === 'function'],
+  ['Three ESM reference binding', typeof three.bindModelReferencePose === 'function'],
+  ['Three ESM reference extension', typeof three.extendModelReferencePose === 'function'],
   ['Three ESM frame applier', typeof three.ThreeFrameApplier === 'function'],
   ['Wasm ESM ABI', core.core_abi_version() === wasm.EMBODY_CORE_ABI_VERSION],
   ['package has no CommonJS bundles', !distEntries.some((entry) => entry.endsWith('.cjs'))],

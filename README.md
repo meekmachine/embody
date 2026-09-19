@@ -128,6 +128,13 @@ head motion. Shared eye commands use the smaller mapped eye capacity; unequal
 left/right ranges need separate calibration. Hosts must compose the requested
 rotations without averaging independent yaw/pitch clips together.
 
+For import-time inspection, `captureModelReferencePose` provides an explicit,
+immutable transform and morph reference that hosts can reuse after playback.
+`extendModelReferencePose` explicitly adds appended skeletons while preserving
+the captured parent transforms. It does not infer a bind pose or perform retargeting. See
+[Animation reference poses](docs/ANIMATION_REFERENCE_POSES.md) for the contract,
+step/linear clip conversion, and remaining import work.
+
 ## Presets And Profiles
 
 `cc4` and `fish` are embedded in the Wasm binary. `skeletal` is accepted as a
