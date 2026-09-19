@@ -1042,7 +1042,8 @@ impl RuntimeCore {
     }
 
     /// Same rows as `evaluate_morph_frame_delta`, but only channels with a
-    /// non-zero live value. Hosts re-apply this after mixer playback so live
+    /// non-zero live value or an explicit direct override (including zero).
+    /// Hosts re-apply this after mixer playback so live
     /// AU/viseme state wins over clip tracks (Loom3 parity) without resetting
     /// channels the mixer owns.
     #[wasm_bindgen]
@@ -1111,7 +1112,8 @@ impl RuntimeCore {
 
         let mut out = Vec::with_capacity(writes.len() * PACKED_MORPH_FRAME_DELTA_STRIDE as usize);
         for ((mesh_id, morph_target_id), value) in writes {
-            if active_only && value <= 1e-6 {
+            if active_only && value <= 1e-6
+                && !self.direct_morph_values.contains_key(&(mesh_id, morph_target_id)) {
                 continue;
             }
             out.push(mesh_id as f32);
@@ -2072,6 +2074,18 @@ mod tests {
         let len = (0.1f32 * 0.1 + 0.2 * 0.2 + 0.3 * 0.3 + 0.9 * 0.9).sqrt();
         assert!((packed[4] - 0.1 / len).abs() < 1e-6);
         assert!((packed[8] - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn explicit_zero_morph_override_is_active_until_cleared() {
+        let mut core = RuntimeCore::new(0);
+        core.configure(r#"{"auToMorphs":{"12":{"center":["Flex"]}},"morphToMesh":{"face":["Body"]}}"#,
+            r#"{"meshes":[{"id":1,"name":"Body","morphTargetIds":[7]}],"morphTargets":[{"id":7,"meshId":1,"name":"Flex","hostIndex":0}]}"#).unwrap();
+        assert!(core.evaluate_active_morph_frame().is_empty());
+        assert_eq!(core.set_morph("Flex", 0.0, "[]"), 1);
+        assert_eq!(&*core.evaluate_active_morph_frame(), &[1.0, 7.0, 0.0, 0.0]);
+        core.clear();
+        assert!(core.evaluate_active_morph_frame().is_empty());
     }
 
     #[test]
