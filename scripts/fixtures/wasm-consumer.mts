@@ -8,6 +8,13 @@ import {
   type EmbodyCore,
   type RuntimeCore,
 } from '@lovelace_lol/embody/wasm';
+import { Object3D } from 'three';
+import {
+  bindModelReferencePose,
+  captureModelReferencePose,
+  extendModelReferencePose,
+  type ThreeModelReferencePose,
+} from '@lovelace_lol/embody/three';
 
 const core: EmbodyCore = await initEmbodyCore();
 const runtime: RuntimeCore = new core.RuntimeCore(15);
@@ -60,3 +67,20 @@ rootCore.missing_export();
 aliasCore.missing_export();
 // @ts-expect-error The synchronous accessor must not widen the loader return type.
 initializedCore.missing_export();
+
+// The packed Three entrypoint retains the immutable reference contract too.
+const model = new Object3D();
+const reference: ThreeModelReferencePose = captureModelReferencePose(model);
+const extendedReference: ThreeModelReferencePose = extendModelReferencePose(model, reference);
+const referenceNode = bindModelReferencePose(model, extendedReference).get(model);
+if (referenceNode?.morphInfluences) {
+  const influences: readonly number[] = referenceNode.morphInfluences;
+  // @ts-expect-error Captured morph baselines are immutable.
+  referenceNode.morphInfluences[0] = 1;
+}
+if (referenceNode?.rotationEuler) {
+  // @ts-expect-error Authored Euler reference values are immutable.
+  referenceNode.rotationEuler.x = 0;
+}
+// @ts-expect-error Extension requires an explicit prior reference snapshot.
+extendModelReferencePose(model);

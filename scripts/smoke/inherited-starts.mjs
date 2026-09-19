@@ -13,6 +13,7 @@ import {
 } from 'three';
 import { initEmbodyCore } from '../../dist/wasm.js';
 import {
+  captureModelReferencePose,
   createAnimationClipFromClipIR,
   ThreeFrameApplier,
   ThreeModelInspector,
@@ -38,7 +39,11 @@ const profile = {
   morphToMesh: { face: ['Face'] },
   visemeKeys: ['Talk'],
 };
-const inspection = new ThreeModelInspector().inspectModel(model, { profile });
+const referencePose = captureModelReferencePose(model);
+const capturedReference = JSON.stringify(referencePose);
+let inspection = new ThreeModelInspector().inspectModel(model, { profile, referencePose });
+const referenceBones = structuredClone(inspection.descriptor.bones);
+const referenceObjects = structuredClone(inspection.descriptor.objects);
 const core = new wasm.RuntimeCore(0);
 core.configure_with_profile(JSON.stringify(profile), JSON.stringify(inspection.descriptor));
 const applier = new ThreeFrameApplier();
@@ -177,7 +182,61 @@ try {
   bone.quaternion.toArray().forEach((value, i) => near(value, midpoint.toArray()[i], 'quaternion midpoint'));
   assert.deepEqual(object.position.toArray(), [3, 5, 7]);
   assert.deepEqual(object.scale.toArray(), [3, 3, 3]);
+
+  // A profile edit while playback has moved the rig must retain the captured
+  // reference, while newly materialized inherited clips start at the live pose.
+  const editedProfile = { ...profile, boneNodes: { head: 'Head' } };
+  inspection = new ThreeModelInspector().inspectModel(model, { profile: editedProfile, referencePose });
+  assert.deepEqual(inspection.descriptor.bones, referenceBones, 'playback must not become the bone reference');
+  assert.deepEqual(inspection.descriptor.objects, referenceObjects, 'playback must not become the object reference');
+  assert.deepEqual(inspection.bones.head.baseQuat.toArray(), [0, 0, 0, 1], 'new profile alias uses the reference');
+  bone.quaternion.toArray().forEach((value, i) => near(value, midpoint.toArray()[i], 'inspection does not reset live rotation'));
+  assert.deepEqual(object.position.toArray(), [3, 5, 7], 'inspection does not reset live position');
+  const rematerialized = createAnimationClipFromClipIR(transformIR, inspection);
+  rematerialized.tracks[0].values.forEach((value, i) => {
+    if (i < 4) near(value, midpoint.toArray()[i], 'materialization after profile edit inherits the live rotation');
+  });
+  assert.deepEqual(Array.from(rematerialized.tracks[1].values).slice(0, 3), [3, 5, 7]);
+  assert.deepEqual(Array.from(rematerialized.tracks[2].values).slice(0, 3), [3, 3, 3]);
   transforms.stop();
+
+  // Replay covers the interaction between inherited starts and step interpolation
+  // across scalar, vector, quaternion, and visibility tracks in the same clip.
+  bone.quaternion.copy(midpoint);
+  object.position.set(3, 5, 7);
+  object.scale.set(3, 3, 3);
+  mesh.morphTargetInfluences[0] = 0.8;
+  mesh.visible = false;
+  const meshId = [...inspection.meshBindings].find(([, value]) => value === mesh)[0];
+  const stepIR = {
+    name: 'reference-replay-step',
+    duration: 1,
+    tracks: [
+      ...transformIR.tracks,
+      { target: { kind: 'morphTarget', morphTargetId: morphId }, valueType: 'scalar', times: [0, 1], values: [0, 1], inheritStart: true },
+      { target: { kind: 'meshVisibility', meshId }, valueType: 'scalar', times: [0, 1], values: [1, 1], inheritStart: true },
+    ].map((track) => ({ ...track, interpolation: 'step' })),
+  };
+  const unchangedStep = structuredClone(stepIR);
+  const step = start(stepIR);
+  mixer.update(0.5);
+  bone.quaternion.toArray().forEach((value, i) => near(value, midpoint.toArray()[i], 'step replay holds inherited rotation'));
+  assert.deepEqual(object.position.toArray(), [3, 5, 7]);
+  assert.deepEqual(object.scale.toArray(), [3, 3, 3]);
+  near(mesh.morphTargetInfluences[0], 0.8, 'step replay holds inherited morph');
+  near(Number(mesh.visible), 0, 'step replay holds inherited visibility');
+  mixer.update(0.5);
+  bone.quaternion.toArray().forEach((value, i) => near(value, destination.toArray()[i], 'step replay reaches authored rotation'));
+  assert.deepEqual(object.position.toArray(), [4, 6, 8]);
+  assert.deepEqual(object.scale.toArray(), [4, 4, 4]);
+  near(mesh.morphTargetInfluences[0], 1, 'step replay reaches authored morph');
+  near(Number(mesh.visible), 1, 'step replay reaches authored visibility');
+  step.stop();
+  assert.deepEqual(stepIR, unchangedStep, 'replay leaves cached ClipIR unchanged');
+  const afterReplay = new ThreeModelInspector().inspectModel(model, { profile: editedProfile, referencePose });
+  assert.deepEqual(afterReplay.descriptor.bones, referenceBones, 'reference stays stable after replay');
+  assert.deepEqual(afterReplay.descriptor.objects, referenceObjects);
+  assert.equal(JSON.stringify(referencePose), capturedReference, 'playback and profile edits leave the captured pose unchanged');
 } finally {
   mixer.stopAllAction();
   core.free();
