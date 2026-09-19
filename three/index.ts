@@ -26,6 +26,9 @@ import type {
   Object3D,
 } from 'three';
 
+export { ThreeGazeFocus } from './gaze';
+export type { ThreeGazeFocusRequest, ThreeGazeFocusControls, ThreeGazeFocusDiagnostic } from './gaze';
+
 export const THREE_BLENDING_MODES = {
   Normal: NormalBlending,
   Additive: AdditiveBlending,

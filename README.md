@@ -29,6 +29,7 @@ The Rust core owns:
 - mesh-category routing and material profile data
 - hair curves, hair physics, and appearance normalization
 - annotation camera/marker math and humanoid template fitting
+- profile-aware screen-space gaze geometry for eye/head AU trajectories
 - renderer-neutral model analysis and packed live frame generation
 
 The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
@@ -92,6 +93,41 @@ function update(dtSeconds: number) {
 Application-facing JavaScript APIs belong in the host package. Polymer owns
 the CLJS character host used by LoomLarge and calls the Wasm exports directly.
 
+### Gaze geometry contract
+
+`solve_profile_screen_space_gaze` and `solve_profile_viewer_space_gaze` return
+14 floats: combined target XY, eye target XY, head target XY, total yaw/pitch,
+camera yaw/pitch, eye-to-camera distance, and viewer world XYZ. XY outputs are
+signed AU intensities in [-1, 1]; positive Y is up and horizontal direction is
+subject-relative. Angular values are degrees.
+
+Pass current world camera position/quaternion, character eye midpoint, and
+model quaternion. The viewer solver takes normalized image XY (+Y up) and
+depth behind the virtual camera; depth and all positions must share scene
+units. Convert physical webcam estimates before calling and supply the actual
+source FOV/aspect. Zero viewer XY extends the character-eye-to-camera bearing,
+so the character looks at the viewer even when scene framing puts its eyes
+away from image center. Offsets retain the camera's right/up axes; when the
+camera coincides with the eyes, its local +Z supplies the fallback bearing.
+The depth guard is 0.2–10 scene units. Mouse and webcam can share this contract
+when they use the same calibration.
+
+The head prefers the camera bearing, with configurable following. The legacy
+`lock_head_to_camera` flag retains this preference but permits head movement
+when eyes saturate, or when eyes are disabled. Eye angles are solved in the
+rotated head frame, using yaw then pitch to match runtime composition. Limits
+and AU normalization are directional and include each binding's scale. Missing
+or morph-only mappings contribute no inferred angular capacity.
+
+The profile must describe the active rig with calibrated semantic axes:
+model +Z is forward, +Y is up. This ABI does not include the skeleton's rest
+frames or optical axes, per-eye origins, current animated head pose, or
+webcam-to-display calibration. It solves an endpoint in the assumed calibrated
+basis; it does not provide binocular convergence or compensate intermediate
+head motion. Shared eye commands use the smaller mapped eye capacity; unequal
+left/right ranges need separate calibration. Hosts must compose the requested
+rotations without averaging independent yaw/pitch clips together.
+
 For import-time inspection, `captureModelReferencePose` provides an explicit,
 immutable transform and morph reference that hosts can reuse after playback.
 `extendModelReferencePose` explicitly adds appended skeletons while preserving
@@ -147,6 +183,35 @@ const report = JSON.parse(wasm.analyze_model_descriptor(
   JSON.stringify({ suggestCorrections: true }),
 ));
 ```
+
+## Pose-aware focus
+
+`ThreeGazeFocus` from `@lovelace_lol/embody/three` applies a focus constraint
+inside an animation runtime. It has no clock or target-selection policy:
+call `restore()` before evaluating the base animation, then `apply(request,
+controls)` after it. Controls are the current positions of existing motor
+tracks, rather than newly started transitions. `readControlState({worldTarget})`
+provides initial bearings for a handoff from the rendered pose. When replacing
+legacy head controls at reduced intensity, also provide `headIntensity` and
+the evaluated local `headBaseQuaternion` with those controls excluded. The
+helper inverts gain in joint coordinates and reports `headSeedLimited` if
+the existing pose cannot be represented within the new bounds. Reading the
+seed does not modify the rig.
+
+The helper solves in the actual joint hierarchy, compensates head/neck motion,
+and aims each eye from its own origin. It honors signed actuator limits and
+reports angular residuals for unreachable targets. Head intensity scales joint
+movement from the evaluated base pose; eye intensity bounds the available eye
+excursion. The optional `profile.gazeCalibration` supplies bone-local
+`head`, `leftEye`, and `rightEye` optical axes and `modelUnitsPerMeter`.
+Without explicit optical axes, signed yaw/pitch bindings determine the optical
+frame. Unresolvable joints remain untouched and are reported in diagnostics.
+
+`solve_profile_viewer_space_gaze_scaled` adds `world_units_per_meter` as its
+last argument. Multiply the authored units-per-meter calibration by the
+presentation's uniform root scale. The original viewer solver keeps its
+existing scale-one behavior. Neither solver infers physical webcam/display
+placement from face landmarks.
 
 ## Development
 

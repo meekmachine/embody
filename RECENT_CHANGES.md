@@ -1,5 +1,14 @@
 # Recent Changes
 
+- Added a profile-aware screen-space gaze solver that uses the rendered camera
+  pose and projection, the character eye origin, model orientation, and
+  authored eye/head AU limits to return bounded eye/head targets.
+- Added ThreeGazeFocus, a clock-free renderer constraint driven by existing
+  motor controls. It compensates evaluated neck/head pose, converges each eye
+  on the same finite target, and preserves underlying animation and joint limits.
+- Added persistent optical-axis/unit calibration and a scaled viewer projection
+  ABI so equivalent scene scales keep the same gaze direction.
+
 ## Rust-only core
 
 - Made Three.js morph authoring transactional: batches preserve existing morph

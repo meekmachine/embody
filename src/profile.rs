@@ -543,6 +543,8 @@ pub struct ProfileData {
     pub disabled_regions: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hair_physics: Option<HairPhysicsData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gaze_calibration: Option<GazeCalibrationData>,
     // Typed legacy fish fields retained until that preset schema is normalized.
     #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub action_info: HashMap<String, AuInfoData>,
@@ -552,6 +554,26 @@ pub struct ProfileData {
     pub bones: Vec<String>,
     #[serde(flatten)]
     pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GazeOpticalCalibrationData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub optical_axis: Option<ProfileVec3Data>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GazeCalibrationData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_units_per_meter: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub head: Option<GazeOpticalCalibrationData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub left_eye: Option<GazeOpticalCalibrationData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub right_eye: Option<GazeOpticalCalibrationData>,
 }
 
 impl ProfileData {

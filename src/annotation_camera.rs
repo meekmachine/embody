@@ -77,7 +77,7 @@ pub(crate) fn distance3(a: [f32; 3], b: [f32; 3]) -> f32 {
     (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
 }
 
-fn quat_or_identity(values: &[f32]) -> [f32; 4] {
+pub(crate) fn quat_or_identity(values: &[f32]) -> [f32; 4] {
     if values.len() < 4 {
         return [0.0, 0.0, 0.0, 1.0];
     }
@@ -89,7 +89,7 @@ fn quat_or_identity(values: &[f32]) -> [f32; 4] {
     [q[0] / len, q[1] / len, q[2] / len, q[3] / len]
 }
 
-fn rotate_by_quat(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
+pub(crate) fn rotate_by_quat(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
     let [qx, qy, qz, qw] = q;
     // t = 2 * cross(q.xyz, v)
     let tx = 2.0 * (qy * v[2] - qz * v[1]);
