@@ -48,6 +48,7 @@ const PROFILE_OVERRIDE_KEYS: &[&str] = &[
     "annotationRegions",
     "disabledRegions",
     "hairPhysics",
+    "humanoidCharacterization",
 ];
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -2075,6 +2076,10 @@ fn profile_view(profile: &ProfileData, op: &str, payload: &Value) -> Result<Valu
             }
             Ok(json!(result))
         }
+        "profile.resolveHumanoidCharacterization" => Ok(serde_json::to_value(
+            crate::humanoid_characterization::resolve(profile),
+        )
+        .map_err(|error| error.to_string())?),
         _ => Err(format!("Unknown profile query \"{op}\"")),
     }
 }
@@ -2511,6 +2516,37 @@ mod tests {
         );
         assert_eq!(result["nodeKey"], "Jaw.001");
         assert_eq!(result["boneNodes"]["Jaw.001"], "Jaw.001");
+    }
+
+    #[test]
+    fn resolves_humanoid_roles_without_changing_joint_bindings() {
+        let result = request(
+            "profile.resolveHumanoidCharacterization",
+            json!({
+                "profile": {
+                    "boneNodes": {
+                        "HIPS": "Hips", "SPINE": "Spine", "HEAD": "Head",
+                        "UPPERARM_L": "LeftUpperArm", "LOWERARM_L": "LeftLowerArm", "HAND_L": "LeftHand",
+                        "UPPERARM_R": "RightUpperArm", "LOWERARM_R": "RightLowerArm", "HAND_R": "RightHand",
+                        "UPPERLEG_L": "LeftUpperLeg", "LOWERLEG_L": "LeftLowerLeg", "FOOT_L": "LeftFoot",
+                        "UPPERLEG_R": "RightUpperLeg", "LOWERLEG_R": "RightLowerLeg", "FOOT_R": "RightFoot"
+                    },
+                    "humanoidCharacterization": {
+                        "schemaVersion": 1, "standard": "VRMC_vrm-1.0", "status": "characterized",
+                        "roles": {
+                            "hips": { "nodeKey": "HIPS" }, "spine": { "nodeKey": "SPINE" }, "head": { "nodeKey": "HEAD" },
+                            "leftUpperArm": { "nodeKey": "UPPERARM_L" }, "leftLowerArm": { "nodeKey": "LOWERARM_L" }, "leftHand": { "nodeKey": "HAND_L" },
+                            "rightUpperArm": { "nodeKey": "UPPERARM_R" }, "rightLowerArm": { "nodeKey": "LOWERARM_R" }, "rightHand": { "nodeKey": "HAND_R" },
+                            "leftUpperLeg": { "nodeKey": "UPPERLEG_L" }, "leftLowerLeg": { "nodeKey": "LOWERLEG_L" }, "leftFoot": { "nodeKey": "FOOT_L" },
+                            "rightUpperLeg": { "nodeKey": "UPPERLEG_R" }, "rightLowerLeg": { "nodeKey": "LOWERLEG_R" }, "rightFoot": { "nodeKey": "FOOT_R" }
+                        }
+                    }
+                }
+            }),
+        );
+        assert_eq!(result["roles"]["leftUpperArm"]["nodeKey"], "UPPERARM_L");
+        assert_eq!(result["roles"]["leftUpperArm"]["boneName"], "LeftUpperArm");
+        assert!(result["valid"].as_bool().unwrap());
     }
 
     #[test]

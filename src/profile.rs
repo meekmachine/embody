@@ -545,6 +545,8 @@ pub struct ProfileData {
     pub hair_physics: Option<HairPhysicsData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gaze_calibration: Option<GazeCalibrationData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub humanoid_characterization: Option<HumanoidCharacterizationData>,
     // Typed legacy fish fields retained until that preset schema is normalized.
     #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub action_info: HashMap<String, AuInfoData>,
@@ -574,6 +576,32 @@ pub struct GazeCalibrationData {
     pub left_eye: Option<GazeOpticalCalibrationData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub right_eye: Option<GazeOpticalCalibrationData>,
+}
+
+/// A VRM humanoid role resolves through an existing profile node key. This
+/// keeps current AU-to-bone bindings on their established evaluation path.
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HumanoidRoleData {
+    pub node_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HumanoidCharacterizationData {
+    pub schema_version: u32,
+    pub standard: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", deserialize_with = "null_default")]
+    pub roles: BTreeMap<String, HumanoidRoleData>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
 }
 
 impl ProfileData {
@@ -742,6 +770,7 @@ pub struct ResolvedProfileView {
     pub composite_rotations: Vec<CompositeRotationData>,
     pub continuum_pairs: HashMap<String, Option<ContinuumPairData>>,
     pub hair_physics: Option<HairPhysicsData>,
+    pub humanoid_characterization: Option<HumanoidCharacterizationData>,
 }
 
 pub fn resolve_profile_view(profile: &ProfileData) -> ResolvedProfileView {
@@ -778,6 +807,7 @@ pub fn resolve_profile_view(profile: &ProfileData) -> ResolvedProfileView {
         composite_rotations: profile.composite_rotations.clone(),
         continuum_pairs: profile.continuum_pairs.clone(),
         hair_physics: profile.hair_physics.clone(),
+        humanoid_characterization: profile.humanoid_characterization.clone(),
     }
 }
 

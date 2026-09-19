@@ -8,6 +8,7 @@ mod clip;
 mod gaze;
 mod hair;
 mod hair_curves;
+mod humanoid_characterization;
 mod humanoid_fit;
 mod humanoid_templates;
 mod math;
@@ -62,6 +63,24 @@ pub fn validate_profile_model(
     };
     serde_json::to_string(&validation::validate(&profile, &model, &options))
         .map_err(|err| JsError::new(&format!("Failed to serialize validation result: {err}")))
+}
+
+/// Resolve and validate VRM humanoid roles through profile node keys against a
+/// renderer-neutral model descriptor. This is characterization metadata only;
+/// it does not create or apply pose frame writes.
+#[wasm_bindgen]
+pub fn validate_humanoid_characterization(
+    profile_json: &str,
+    model_json: &str,
+) -> Result<String, JsError> {
+    let profile: profile::ProfileData =
+        profile::deserialize_json(profile_json, "Invalid profile JSON")
+            .map_err(|err| JsError::new(&err))?;
+    let model: profile::ModelData =
+        profile::deserialize_json(model_json, "Invalid model descriptor JSON")
+            .map_err(|err| JsError::new(&err))?;
+    serde_json::to_string(&humanoid_characterization::validate(&profile, &model))
+        .map_err(|err| JsError::new(&format!("Failed to serialize humanoid characterization: {err}")))
 }
 
 /// Canonical embedded preset ids available inside the Wasm core.

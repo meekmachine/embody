@@ -12,6 +12,7 @@ use serde::Deserialize;
 use crate::profile::{
     deserialize_json, AnnotationRegionData, AuInfoData, AuMorphEntry, BoneBindingData,
     CompositeRotationData, ContinuumPairData, GazeCalibrationData, HairDirectionData,
+    HumanoidCharacterizationData,
     HairMorphTargetsData, HairPhysicsData, LineConfigData, MappingSectionData, MarkerStyleData, MeshInfoData,
     MeshMaterialData, MorphRef, ProfileData, ProfileVec3Data, VisemeBindingData, VisemeSlotData,
 };
@@ -53,6 +54,7 @@ pub(crate) struct ProfilePatch {
     disabled_regions: Option<Vec<String>>,
     hair_physics: Option<HairPhysicsData>,
     gaze_calibration: Option<GazeCalibrationData>,
+    humanoid_characterization: Option<HumanoidCharacterizationData>,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -158,6 +160,10 @@ pub(crate) fn extend_preset_with_profile(
         replace_option(&mut current.left_eye, calibration.left_eye);
         replace_option(&mut current.right_eye, calibration.right_eye);
     }
+    replace_option(
+        &mut merged.humanoid_characterization,
+        extension.humanoid_characterization,
+    );
     merged
 }
 
@@ -595,5 +601,29 @@ mod tests {
         assert_eq!(merged["gazeCalibration"]["modelUnitsPerMeter"], 1.0);
         assert_eq!(merged["gazeCalibration"]["leftEye"]["opticalAxis"]["y"], -1.0);
         assert_eq!(merged["gazeCalibration"]["rightEye"]["opticalAxis"]["y"], -1.0);
+    }
+
+    #[test]
+    fn humanoid_characterization_replaces_as_one_versioned_contract() {
+        let merged = merge(
+            json!({
+                "humanoidCharacterization": {
+                    "schemaVersion": 1,
+                    "standard": "VRMC_vrm-1.0",
+                    "status": "incomplete",
+                    "roles": { "head": { "nodeKey": "HEAD" } }
+                }
+            }),
+            json!({
+                "humanoidCharacterization": {
+                    "schemaVersion": 1,
+                    "standard": "VRMC_vrm-1.0",
+                    "status": "characterized",
+                    "roles": { "head": { "nodeKey": "HEAD_2" } }
+                }
+            }),
+        );
+        assert_eq!(merged["humanoidCharacterization"]["status"], "characterized");
+        assert_eq!(merged["humanoidCharacterization"]["roles"]["head"]["nodeKey"], "HEAD_2");
     }
 }
