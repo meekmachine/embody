@@ -598,8 +598,11 @@ impl RuntimeCore {
         clip_json: &str,
         source: &str,
     ) -> Result<(), JsError> {
-        let clip: ClipIR = deserialize_json(clip_json, "Invalid animation clip JSON")
+        let mut clip: ClipIR = deserialize_json(clip_json, "Invalid animation clip JSON")
             .map_err(|error| JsError::new(&error))?;
+        if source == "baked" {
+            self.classify_baked_clip(&mut clip);
+        }
         self.animation
             .insert_clip(clip, if source.is_empty() { "clip" } else { source })
             .map_err(|error| JsError::new(&error))
@@ -1942,6 +1945,167 @@ fn clamp_signed(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn mixed_animation_clip(name: &str) -> serde_json::Value {
+        use serde_json::json;
+
+        let targets = [
+            json!({ "kind": "morphTarget", "meshId": 1, "morphTargetId": 7 }),
+            json!({ "kind": "boneTransform", "boneId": 4, "property": "position" }),
+            json!({ "kind": "boneTransform", "boneId": 5, "property": "position" }),
+            json!({ "kind": "boneTransform", "boneId": 6, "property": "position" }),
+            json!({ "kind": "objectTransform", "objectId": 10, "property": "position" }),
+            json!({ "kind": "objectTransform", "objectId": 11, "property": "position" }),
+            json!({ "kind": "objectTransform", "objectId": 12, "property": "position" }),
+            json!({ "kind": "meshVisibility", "meshId": 1 }),
+        ];
+        let tracks = targets
+            .into_iter()
+            .enumerate()
+            .map(|(index, target)| {
+                let transform = matches!(
+                    target["kind"].as_str(),
+                    Some("boneTransform" | "objectTransform")
+                );
+                json!({
+                    "id": index + 1,
+                    "channelId": 42,
+                    "target": target,
+                    "valueType": if transform { "vec3" } else { "scalar" },
+                    "times": [0, 1],
+                    "values": if transform { vec![0, 0, 0, 1, 0, 0] } else { vec![0, 1] },
+                    "sourceName": format!("track-{index}")
+                })
+            })
+            .collect::<Vec<_>>();
+        json!({
+            "name": name,
+            "durationSeconds": 1,
+            "channels": [{ "id": 42, "kind": "custom", "name": "authored channel" }],
+            "tracks": tracks,
+            "metadata": { "author": "saved-animation" }
+        })
+    }
+
+    fn animation_test_runtime() -> RuntimeCore {
+        let mut core = RuntimeCore::new(0);
+        core.configure(
+            "{}",
+            r#"{
+            "bones": [
+                { "id": 4, "name": "Head" },
+                { "id": 5, "name": "UpperArm" },
+                { "id": 6, "name": "CustomControl" }
+            ],
+            "objects": [
+                { "id": 10, "name": "Eye", "isBone": true },
+                { "id": 11, "name": "Prop" },
+                { "id": 12, "name": "Viewpoint", "isCamera": true }
+            ]
+        }"#,
+        )
+        .unwrap();
+        // Nonstandard names still use the configured facial bindings.
+        core.load_jaw_binding(&[6.0, 0.0, 1.0, 30.0]);
+        core
+    }
+
+    #[test]
+    fn additive_baked_registration_matches_bulk_channel_classification() {
+        let clip = mixed_animation_clip("optional");
+        let mut bulk = animation_test_runtime();
+        let mut additive = animation_test_runtime();
+        bulk.load_animation_clips(&serde_json::json!([clip]).to_string())
+            .unwrap();
+        additive
+            .register_animation_clip(&clip.to_string(), "baked")
+            .unwrap();
+
+        let registered = additive.animation.clip("optional").unwrap();
+        assert_eq!(
+            registered
+                .tracks
+                .iter()
+                .map(|track| track.channel_id)
+                .collect::<Vec<_>>(),
+            vec![1, 1, 2, 1, 1, 2, 3, 2]
+        );
+        assert_eq!(
+            serde_json::to_value(registered).unwrap(),
+            serde_json::to_value(bulk.animation.clip("optional").unwrap()).unwrap()
+        );
+        assert_eq!(
+            additive.get_animation_clips().unwrap(),
+            bulk.get_animation_clips().unwrap()
+        );
+        assert_eq!(
+            registered.metadata.as_ref().unwrap()["author"],
+            "saved-animation"
+        );
+    }
+
+    #[test]
+    fn additive_baked_registration_preserves_existing_clips_and_playback() {
+        let mut core = animation_test_runtime();
+        core.load_animation_clips(&serde_json::json!([mixed_animation_clip("idle")]).to_string())
+            .unwrap();
+        core.register_animation_clip(&mixed_animation_clip("gesture").to_string(), "snippet")
+            .unwrap();
+        core.animation
+            .play("idle", Default::default(), |_| vec![])
+            .unwrap();
+        core.animation
+            .play("gesture", Default::default(), |_| vec![])
+            .unwrap();
+        core.animation.update(0.25);
+        let catalog_before = core.animation.list();
+        let playing_before = serde_json::to_value(core.animation.playing()).unwrap();
+        core.animation.drain_events();
+
+        core.register_animation_clip(&mixed_animation_clip("optional").to_string(), "baked")
+            .unwrap();
+
+        let catalog_after = core.animation.list();
+        assert_eq!(catalog_after.len(), 3);
+        for previous in catalog_before {
+            let current = catalog_after
+                .iter()
+                .find(|clip| clip.name == previous.name)
+                .unwrap();
+            assert_eq!(
+                serde_json::to_value(current).unwrap(),
+                serde_json::to_value(previous).unwrap()
+            );
+        }
+        assert_eq!(
+            serde_json::to_value(core.animation.playing()).unwrap(),
+            playing_before
+        );
+        assert!(core.animation.drain_events().is_empty());
+        core.animation.update(0.25);
+        assert_eq!(core.animation.state("idle").unwrap().time, 0.5);
+        assert_eq!(core.animation.state("gesture").unwrap().time, 0.5);
+    }
+
+    #[test]
+    fn non_baked_registration_preserves_authored_channels() {
+        for source in ["snippet", "procedural", ""] {
+            let mut core = animation_test_runtime();
+            let clip = mixed_animation_clip("authored");
+            core.register_animation_clip(&clip.to_string(), source)
+                .unwrap();
+            let stored = core.animation.clip("authored").unwrap();
+            assert_eq!(
+                serde_json::to_value(&stored.channels).unwrap(),
+                clip["channels"]
+            );
+            assert!(stored.tracks.iter().all(|track| track.channel_id == 42));
+            assert_eq!(
+                core.animation.list()[0].source,
+                if source.is_empty() { "clip" } else { source }
+            );
+        }
+    }
 
     #[test]
     fn evaluates_bilateral_au_morph_writes() {

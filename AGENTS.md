@@ -1,5 +1,40 @@
 # Embody contributor instructions
 
+## Engineering writing
+
+- Before drafting issues, implementation plans, design proposals, PR
+  descriptions, or reviews, read `VISION_AND_PRD.md` for product intent,
+  `README.md` for the current architecture and public contracts, and the
+  relevant feature documentation and owning code. Distinguish roadmap goals
+  from implemented capabilities; support current-behavior claims with evidence.
+- Lead with the concrete problem or missing capability, the affected consumer,
+  and the user or developer flow. Name the affected API, profile, model, or
+  runtime behavior and the host surface when known. Explain how a semantic
+  control or rig change affects observable character behavior, or state the
+  engineering constraint it removes when the benefit is indirect.
+- Identify the owning layer: Embody's Rust/Wasm core owns semantic controls and
+  profile/runtime computation; adapters handle renderer objects; host animation
+  libraries own clip playback and blending. Explain any required Polymer or
+  application integration. Do not imply that a library change alone delivers a
+  new authoring UI, character interaction, or released product experience.
+- Separate observed current behavior, proposed decisions, delivered behavior,
+  and follow-on work. Link code or documentation for factual claims, label
+  hypotheses and unresolved choices, and explain what each blocking dependency
+  prevents. Distinguish an interface or scaffold from working runtime behavior.
+- Define completion using concrete inputs and observable outputs or actions,
+  including relevant invalid-input or lifecycle cases. PR descriptions must
+  reflect the final diff and explain why it addresses the linked issue, what
+  changed for consumers, and actual verification with its limits. Identify any
+  acceptance criteria left incomplete; planned checks are not completed checks.
+- Use precise, searchable titles naming the affected behavior or contract, and
+  concise active prose proportional to the change. Define unfamiliar terms and
+  replace claims such as "improve expressiveness" with a specific result. Keep
+  durable design rationale in repository documentation and link it rather than
+  repeating it across tickets.
+- Review findings must explain the triggering condition, failure, consequence,
+  and evidence. Name the concrete consumer or system impact of an architecture
+  violation; a prose preference alone is not a correctness defect.
+
 ## Source-only repository
 
 - Commit Rust, TypeScript, configuration, tests, and documentation. Do not commit `dist/`, `target/`, `node_modules/`, npm tarballs, `.wasm` binaries, or other generated output.
