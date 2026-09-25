@@ -216,3 +216,16 @@ fn clearing_role_disables_raw_and_prefixed_aliases_and_custom_metadata_does_not_
     let result=crate::profile_merge::extend_preset_with_profile(&cc4(),crate::profile_merge::parse_profile_patch(&authored.to_string()).unwrap());
     assert_eq!(result.humanoid_characterization.unwrap().roles.len(),17);
 }
+
+#[test]
+fn humanoid_root_cannot_descend_from_another_role_and_descriptor_ids_must_be_unique() {
+    let mut model=cc4_model();
+    model.bones.iter_mut().find(|bone|bone.name=="CC_Base_Hip").unwrap().parent_name=Some("CC_Base_Head".into());
+    let result=humanoid::validate(&cc4(),&model);
+    assert!(result.errors.iter().any(|error|error.contains("humanoid root")));
+    let mut model=cc4_model();
+    let head=model.bones.iter().find(|bone|bone.name=="CC_Base_Head").unwrap().id;
+    model.bones.iter_mut().find(|bone|bone.name=="CC_Base_L_Eye").unwrap().id=head;
+    let result=humanoid::validate(&cc4(),&model);
+    assert!(result.errors.iter().any(|error|error.contains("same model bone ID")));
+}

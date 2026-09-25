@@ -119,11 +119,18 @@ pub fn validate(profile: &ProfileData, model: &ModelData) -> HumanoidCharacteriz
     }
 
     let mut role_by_bone = HashMap::new();
+    let mut role_by_id = HashMap::new();
     for (role, resolved) in &result.roles {
         if let Some(previous) = role_by_bone.insert(resolved.bone_name.as_str(), role.as_str()) {
             result.errors.push(format!("VRM roles \"{previous}\" and \"{role}\" resolve to the same bone \"{}\".", resolved.bone_name));
         }
         if let Some(bone) = bone_by_name.get(resolved.bone_name.as_str()) {
+            if let Some(previous) = role_by_id.insert(bone.id, role.as_str()) {
+                result.errors.push(format!("VRM roles \"{previous}\" and \"{role}\" resolve to the same model bone ID {}.", bone.id));
+            }
+            if model.bones.iter().filter(|candidate| candidate.name == bone.name).count() > 1 {
+                result.errors.push(format!("Role \"{role}\" has ambiguous model bone name \"{}\".", bone.name));
+            }
             if let Some(scale) = bone.rest_transform.as_ref().and_then(|transform| transform.scale.as_ref()) {
                 if [scale.x, scale.y, scale.z].iter().any(|value| !value.is_finite() || *value <= 0.0) {
                     result.errors.push(format!("VRM role \"{role}\" requires positive, nonzero rest scale components."));
@@ -138,7 +145,6 @@ pub fn validate(profile: &ProfileData, model: &ModelData) -> HumanoidCharacteriz
             if result.roles.contains_key(parent) { break; }
             expected_parent = bone_specification(parent).and_then(|bone| bone.parent.as_deref());
         }
-        let Some(expected_parent) = expected_parent else { continue; };
         let Some(bone) = bone_by_name.get(resolved.bone_name.as_str()) else { continue; };
         // VRM permits intermediate non-humanoid nodes, but the nearest mapped
         // humanoid ancestor must be the prescribed (possibly skipped) parent.
@@ -150,8 +156,11 @@ pub fn validate(profile: &ProfileData, model: &ModelData) -> HumanoidCharacteriz
             if let Some(role) = role_by_bone.get(name) { actual_parent = Some(*role); break; }
             parent = bone_by_name.get(name).and_then(|bone| bone.parent_name.as_deref());
         }
-        if actual_parent != Some(expected_parent) {
-            result.errors.push(format!("VRM hierarchy requires \"{role}\" to descend from \"{expected_parent}\" without another humanoid role in between."));
+        if actual_parent != expected_parent {
+            result.errors.push(match expected_parent {
+                Some(parent) => format!("VRM hierarchy requires \"{role}\" to descend from \"{parent}\" without another humanoid role in between."),
+                None => format!("VRM hierarchy requires \"{role}\" to be the humanoid root without a humanoid ancestor."),
+            });
         }
     }
 
