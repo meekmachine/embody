@@ -153,6 +153,44 @@ mod tests {
     }
 
     #[test]
+    fn neck_actions_reuse_directional_head_morphs_with_face_routing_and_mix() {
+        let base = preset();
+        for (neck, head) in [(1032,53),(1033,54),(1034,52),(1035,51),(1036,55),(1037,56)] {
+            let neck_key = neck.to_string();
+            let head_key = head.to_string();
+            assert_eq!(serde_json::to_value(&base.au_to_morphs[&neck_key]).unwrap(),
+                serde_json::to_value(&base.au_to_morphs[&head_key]).unwrap());
+            let target = base.au_to_morphs[&neck_key].as_ref().unwrap();
+            let name = target.left.iter().chain(&target.right).chain(&target.center).next().unwrap();
+            let name = serde_json::to_value(name).unwrap();
+            let model = json!({"bones":[{"id":1,"name":"CC_Base_NeckTwist01"}],
+                "meshes":[{"id":5,"name":"FaceOnly","morphTargetIds":[10]},
+                    {"id":6,"name":"BodyOnly","morphTargetIds":[11]}],
+                "morphTargets":[{"id":10,"meshId":5,"name":name,"hostIndex":0},
+                    {"id":11,"meshId":6,"name":name,"hostIndex":0}]});
+            let patch = json!({"morphToMesh":{"face":["FaceOnly"],"body":["BodyOnly"]}});
+            let mut core = RuntimeCore::new(0);
+            core.configure_with_preset("cc4", &patch.to_string(), &model.to_string()).unwrap();
+            core.set_au(neck, 0.5, 0.0);
+            let bones = core.evaluate_active_bone_frame();
+            assert!(!bones.is_empty(), "neck {neck} rotates its mapped bone");
+            let frame = core.evaluate_active_morph_frame();
+            let mix = base.au_mix_defaults[&neck_key] as f32;
+            assert_eq!(frame.len(), 4);
+            assert_eq!(&frame[..2], &[5.0,10.0]);
+            assert!((frame[2] - 0.5 * mix).abs() < 1e-5);
+            core.set_au_mix_weight(neck, 0.25);
+            assert!((core.evaluate_active_morph_frame()[2] - 0.125).abs() < 1e-5);
+            assert_eq!(core.evaluate_active_bone_frame(), bones, "morph ratio preserves bone motion");
+        }
+        let absent: ModelData = serde_json::from_value(json!({"bones":[]})).unwrap();
+        let descriptors = resolve(&base, Some(&absent));
+        let neck = descriptors.as_array().unwrap().iter().find(|v| v["id"] == "body.neckTwist").unwrap();
+        assert_eq!(neck["hasMorphs"], false);
+        assert!(neck["diagnostics"].as_array().unwrap().iter().any(|v| v.as_str().unwrap().contains("Head_Turn_L")));
+    }
+
+    #[test]
     fn descriptors_report_missing_outputs_and_role_remapping_reaches_runtime() {
         let mut profile = preset();
         let absent: ModelData = serde_json::from_value(json!({"bones":[],"meshes":[],"morphTargets":[]})).unwrap();

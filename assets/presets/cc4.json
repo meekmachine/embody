@@ -731,6 +731,48 @@
       "left": [],
       "right": [],
       "center": []
+    },
+    "1032": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Head_Turn_Up"
+      ]
+    },
+    "1033": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Head_Turn_Down"
+      ]
+    },
+    "1034": {
+      "left": [],
+      "right": [
+        "Head_Turn_R"
+      ],
+      "center": []
+    },
+    "1035": {
+      "left": [
+        "Head_Turn_L"
+      ],
+      "right": [],
+      "center": []
+    },
+    "1036": {
+      "left": [
+        "Head_Tilt_L"
+      ],
+      "right": [],
+      "center": []
+    },
+    "1037": {
+      "left": [],
+      "right": [
+        "Head_Tilt_R"
+      ],
+      "center": []
     }
   },
   "auToBones": {
@@ -2871,7 +2913,13 @@
     "61": 0.5,
     "62": 0.5,
     "63": 0.5,
-    "64": 0.5
+    "64": 0.5,
+    "1032": 0.7,
+    "1033": 0.7,
+    "1034": 1,
+    "1035": 1,
+    "1036": 0.7,
+    "1037": 0.7
   },
   "auInfo": {
     "1": {
@@ -3651,37 +3699,37 @@
       "id": "1033",
       "name": "Neck bend — Forward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Head"
     },
     "1032": {
       "id": "1032",
       "name": "Neck bend — Back",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Head"
     },
     "1035": {
       "id": "1035",
       "name": "Neck twist — Left",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Head"
     },
     "1034": {
       "id": "1034",
       "name": "Neck twist — Right",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Head"
     },
     "1037": {
       "id": "1037",
       "name": "Neck side bend — Right",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Head"
     },
     "1036": {
       "id": "1036",
       "name": "Neck side bend — Left",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Head"
     },
     "1039": {
       "id": "1039",
