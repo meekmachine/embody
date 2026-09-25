@@ -8,11 +8,16 @@ import {
   type EmbodyCore,
   type RuntimeCore,
 } from '@lovelace_lol/embody/wasm';
-import { Object3D } from 'three';
+import { Object3D, type WebGLRenderer } from 'three';
 import {
   bindModelReferencePose,
   captureModelReferencePose,
   extendModelReferencePose,
+  createDefaultCharacterScene,
+  createDefaultCharacterSceneAsync,
+  type DefaultCharacterScene,
+  type DefaultCharacterSceneAsyncOptions,
+  type ReadyDefaultCharacterScene,
   type ThreeModelReferencePose,
   DPthree,
   DPthreeCameraController,
@@ -109,3 +114,29 @@ if (referenceNode?.rotationEuler) {
 }
 // @ts-expect-error Extension requires an explicit prior reference snapshot.
 extendModelReferencePose(model);
+
+// Scene readiness is additive and cannot accidentally widen to an `any` renderer.
+declare const container: HTMLElement;
+const sceneOptions: DefaultCharacterSceneAsyncOptions = {
+  type: 'studio', signal: new AbortController().signal, lighting: { envMapEnabled: true },
+};
+const pendingScene: Promise<ReadyDefaultCharacterScene> = createDefaultCharacterSceneAsync(container, sceneOptions);
+const readyScene = await pendingScene;
+const backend: 'webgl' = readyScene.backend;
+const renderer: WebGLRenderer = readyScene.renderer;
+readyScene.resize();
+readyScene.dispose();
+const synchronousScene: DefaultCharacterScene = createDefaultCharacterScene(container);
+synchronousScene.dispose();
+// @ts-expect-error Scene construction requires an HTMLElement.
+createDefaultCharacterSceneAsync('container');
+// @ts-expect-error Cancellation requires an AbortSignal, not a flag.
+createDefaultCharacterSceneAsync(container, { signal: true });
+// @ts-expect-error No unimplemented WebGPU selection is exposed.
+createDefaultCharacterSceneAsync(container, { backend: 'webgpu' });
+// @ts-expect-error Lighting values retain their actual type.
+createDefaultCharacterSceneAsync(container, { lighting: { exposure: 'bright' } });
+// @ts-expect-error The caller must await readiness before using the renderer.
+pendingScene.renderer.render(readyScene.scene, readyScene.camera);
+// @ts-expect-error The renderer remains concrete, not an any-typed capability bag.
+readyScene.renderer.nonexistentMethod();

@@ -124,6 +124,26 @@ function update(dtSeconds: number) {
 Application-facing JavaScript APIs belong in the host package. Polymer owns
 the CLJS character host used by LoomLarge and calls the Wasm exports directly.
 
+### Preparing a default scene
+
+`createDefaultCharacterSceneAsync(container, { signal, ...sceneOptions })` from
+`@lovelace_lol/embody/three` creates the existing WebGL scene and awaits
+`renderer.compileAsync(scene, camera)` before attaching its canvas and resize
+listener. Its typed result retains the scene, camera, renderer, lighting,
+`resize()` and `dispose()` handles and reports `backend: 'webgl'`.
+The synchronous `createDefaultCharacterScene` remains available.
+
+Cancellation during compilation waits for Three's uncancellable preparation
+to settle, then releases acquired resources and rejects with `AbortError`.
+Other setup failures preserve their original error after cleanup. Disposal is
+idempotent; after resolution the caller owns it, and later signal cancellation
+does not dispose the scene. This prepares only the initial lights, environment
+and optional shadow plane: subsequently added models, texture upload, first
+render and application readiness require separate host preparation.
+
+See [scene readiness and the WebGPU follow-up](docs/SCENE_READINESS.md) for
+ownership, version requirements and the remaining renderer work.
+
 ### Bilateral snippet channels
 
 AU balance uses the character's left/right: `-1` drives the left side,
