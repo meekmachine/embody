@@ -1646,7 +1646,12 @@ fn remove_au_rotation_bindings(profile: &mut ProfileData, au_id: u32) {
             .continuum_labels
             .remove(&format!("{}-{}", au_id.min(pair), au_id.max(pair)));
     }
-    for composite in &mut profile.composite_rotations {
+    // Removing a mapping must not turn an inherited table into an explicit
+    // empty table and disable unrelated legacy rotations.
+    if profile.composite_rotations.is_unspecified() {
+        return;
+    }
+    for composite in profile.composite_rotations.iter_mut() {
         for axis in [Axis::Pitch, Axis::Yaw, Axis::Roll] {
             if let Some(config) = axis_config_mut(composite, axis) {
                 config.aus.retain(|id| *id != au_id);
@@ -1918,7 +1923,9 @@ fn extract_profile_overrides(config: &Value) -> Value {
         }
         match (nested.get(*key), top.get(*key)) {
             (Some(base), Some(value)) => {
-                let merged = if base.is_object() && value.is_object() {
+                let merged = if *key == "bodyControls" {
+                    merge_json(base, value)
+                } else if base.is_object() && value.is_object() {
                     let mut object = base.as_object().cloned().unwrap_or_default();
                     object.extend(value.as_object().cloned().unwrap_or_default());
                     Value::Object(object)
@@ -1959,6 +1966,8 @@ fn extend_profile_config(config: Value) -> Result<Value, String> {
     let overrides = extract_profile_overrides(&config);
     let patch = parse_profile_patch(&overrides.to_string())?;
     let merged = extend_preset_with_profile(base, patch);
+    let body_controls = serde_json::to_value(&merged.body_controls)
+        .map_err(|error| error.to_string())?;
     let mut merged_value = serde_json::to_value(merged).map_err(|error| error.to_string())?;
     let disabled = overrides
         .get("disabledRegions")
@@ -2019,7 +2028,20 @@ fn extend_profile_config(config: Value) -> Result<Value, String> {
             object.insert("regions".to_string(), ordered);
         }
     }
-    Ok(merge_json(&config, &merged_value))
+    let mut expanded = merge_json(&config, &merged_value);
+    // Config metadata is preserved above, but this catalog is already fully
+    // resolved. A recursive merge would resurrect removed control tombstones,
+    // especially when all controls were removed and serialization omitted it.
+    expanded["bodyControls"] = body_controls;
+    // Keep authored deletion markers in override metadata so expanding a saved
+    // configuration again cannot restore the deleted preset controls/fields.
+    if let Some(controls) = overrides.get("bodyControls") {
+        if !expanded.get("profile").is_some_and(Value::is_object) {
+            expanded["profile"] = json!({});
+        }
+        expanded["profile"]["bodyControls"] = controls.clone();
+    }
+    Ok(expanded)
 }
 
 fn profile_view(profile: &ProfileData, op: &str, payload: &Value) -> Result<Value, String> {
@@ -2484,6 +2506,135 @@ mod tests {
             "morphToMesh": {},
             "visemeKeys": []
         })
+    }
+
+    #[test]
+    fn expanded_body_catalog_removals_reach_queries_and_runtime() {
+        let cases = [
+            json!({"bodyControls": {"body.kneeBend": null}}),
+            json!({"profile": {"bodyControls": {"body.kneeBend": null}}}),
+            json!({"bodyControls": {
+                "body.elbowFlex": null, "body.kneeBend": null, "body.torsoTwist": null
+            }}),
+            json!({"profile": {"bodyControls": {
+                "body.elbowFlex": null, "body.kneeBend": null, "body.torsoTwist": null
+            }}}),
+        ];
+        for (index, mut config) in cases.into_iter().enumerate() {
+            config["auPresetType"] = json!("cc4");
+            config["assetUrl"] = json!("character.glb");
+            let expanded = request("profile.extendConfig", json!({"config": config}));
+            assert_eq!(expanded["assetUrl"], "character.glb");
+            assert!(expanded["bodyControls"].get("body.kneeBend").is_none());
+            let controls = request("profile.getBodyControls", json!({"profile": expanded}));
+            assert_eq!(controls.as_array().unwrap().len(), if index < 2 { 2 } else { 0 });
+            if index >= 2 {
+                assert_eq!(expanded["bodyControls"], json!({}));
+            }
+            let saved: Value = serde_json::from_str(&expanded.to_string()).unwrap();
+            let reexpanded = request("profile.extendConfig", json!({"config": saved}));
+            assert_eq!(reexpanded["bodyControls"], expanded["bodyControls"]);
+            let mut core = crate::runtime::RuntimeCore::new(0);
+            core.configure_with_profile(&expanded.to_string(),
+                r#"{"bones":[{"id":1,"name":"CC_Base_L_Forearm"}]}"#).unwrap();
+            core.set_au(1001, 0.5, 0.0);
+            assert!(!core.evaluate_bone_frame_delta().is_empty(),
+                "catalog removal must leave explicit numeric action bindings intact");
+        }
+    }
+
+    #[test]
+    fn expanded_body_catalog_merges_nested_sparse_metadata_per_field() {
+        let expanded = request("profile.extendConfig", json!({"config": {
+            "auPresetType": "cc4",
+            "profile": {"bodyControls": {
+                "body.elbowFlex": {"label": "My biceps", "order": 20},
+                "body.kneeBend": null
+            }},
+            "bodyControls": {
+                "body.elbowFlex": {"order": 4},
+                "body.torsoTwist": {"negativeAuId": null}
+            }
+        }}));
+        let controls = request("profile.getBodyControls", json!({"profile": expanded}));
+        let elbow = controls.as_array().unwrap().iter()
+            .find(|control| control["id"] == "body.elbowFlex").unwrap();
+        assert_eq!(elbow["label"], "My biceps");
+        assert_eq!(elbow["order"], 4);
+        assert_eq!(elbow["auId"], 1001);
+        assert_eq!(elbow["bilateral"], true);
+        assert_eq!(elbow["roles"], json!(["leftLowerArm", "rightLowerArm"]));
+        assert!(expanded["bodyControls"].get("body.kneeBend").is_none());
+        assert!(expanded["bodyControls"]["body.torsoTwist"].get("negativeAuId").is_none());
+        let reexpanded = request("profile.extendConfig", json!({"config": expanded}));
+        assert_eq!(reexpanded["bodyControls"], expanded["bodyControls"]);
+    }
+
+    #[test]
+    fn explicit_empty_composites_survive_expansion_edits_and_runtime() {
+        for mut config in [
+            json!({"auPresetType": "cc4", "compositeRotations": []}),
+            json!({"auPresetType": "cc4", "profile": {"compositeRotations": []}}),
+        ] {
+            config["auToMorphs"] = json!({"51": {"center": ["HeadEffort"]}});
+            let expanded = request("profile.extendConfig", json!({"config": config}));
+            assert_eq!(expanded["compositeRotations"], json!([]));
+            let edited = request("bone.classifyJointControl", json!({"profile": expanded, "auId": 1001}));
+            assert_eq!(edited["compositeRotations"], json!([]));
+            let controls = request("profile.getBodyControls", json!({"profile": edited}));
+            assert!(controls.as_array().unwrap().iter().all(|control| control["hasBones"] == false));
+            let mut core = crate::runtime::RuntimeCore::new(0);
+            core.configure_with_profile(&edited.to_string(),
+                r#"{"bones":[{"id":1,"name":"CC_Base_Head"},{"id":2,"name":"CC_Base_L_Forearm"}],
+                    "meshes":[{"id":1,"name":"CC_Base_Body","morphTargetIds":[1]}],
+                    "morphTargets":[{"id":1,"meshId":1,"name":"HeadEffort","hostIndex":0}]}"#).unwrap();
+            core.set_au(51, 0.5, 0.0);
+            core.set_au(1001, 0.5, 0.0);
+            assert!(core.evaluate_bone_frame_delta().is_empty());
+            assert!(!core.evaluate_morph_frame_delta().is_empty());
+            let clip: Value = serde_json::from_str(&core.build_clip("disabled-rotation",
+                r#"{"51":[{"time":0,"intensity":0},{"time":1,"intensity":1}]}"#, "{}").unwrap()).unwrap();
+            assert!(clip["tracks"].as_array().unwrap().iter()
+                .all(|track| track["target"]["kind"] != "boneTransform"));
+        }
+    }
+
+    #[test]
+    fn expanded_legacy_facial_snapshot_retains_body_motion() {
+        let mut preset = request("preset.get", json!({"id": "cc4"}));
+        let composites = preset["compositeRotations"].as_array_mut().unwrap();
+        composites.retain(|composite| matches!(composite["node"].as_str(),
+            Some("HEAD" | "EYE_L" | "EYE_R")));
+        assert!(!composites.is_empty());
+        let expanded = request("profile.extendConfig", json!({"config": {
+            "auPresetType": "cc4", "compositeRotations": composites
+        }}));
+        let mut core = crate::runtime::RuntimeCore::new(0);
+        core.configure_with_profile(&expanded.to_string(),
+            r#"{"bones":[{"id":1,"name":"CC_Base_L_Forearm"}]}"#).unwrap();
+        core.set_au(1001, 0.5, 0.0);
+        let frame = core.evaluate_bone_frame_delta();
+        assert!((frame[4] - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn removing_unrelated_bindings_keeps_legacy_composite_fallback() {
+        for omitted in [false, true] {
+            let mut profile = request("preset.get", json!({"id": "cc4"}));
+            profile["compositeRotations"] = Value::Null;
+            if omitted {
+                profile.as_object_mut().unwrap().remove("compositeRotations");
+            }
+            let edited = request("bone.applyAUBindingUpdate", json!({
+                "profile": profile, "auId": 999, "update": {}
+            }));
+            assert!(edited.get("compositeRotations").is_none());
+            let mut core = crate::runtime::RuntimeCore::new(0);
+            core.configure_with_profile(&edited.to_string(),
+                r#"{"bones":[{"id":1,"name":"CC_Base_Head"}]}"#).unwrap();
+            core.set_au(51, 0.5, 0.0);
+            assert!(!core.evaluate_bone_frame_delta().is_empty());
+        }
     }
 
     #[test]

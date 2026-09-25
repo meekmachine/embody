@@ -124,6 +124,40 @@ pub struct CompositeRotationData {
     pub extensions: Map<String, Value>,
 }
 
+/// Missing/null tables inherit legacy defaults; an explicit array, including
+/// an empty one, is authoritative. Keep that distinction across profile edits
+/// and JSON round trips so disabling rotations cannot restore preset motion.
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(transparent)]
+pub struct CompositeRotationTable(Option<Vec<CompositeRotationData>>);
+
+impl CompositeRotationTable {
+    pub fn is_unspecified(&self) -> bool {
+        self.0.is_none()
+    }
+}
+
+impl From<Vec<CompositeRotationData>> for CompositeRotationTable {
+    fn from(value: Vec<CompositeRotationData>) -> Self {
+        Self(Some(value))
+    }
+}
+
+impl std::ops::Deref for CompositeRotationTable {
+    type Target = Vec<CompositeRotationData>;
+
+    fn deref(&self) -> &Self::Target {
+        static EMPTY: Vec<CompositeRotationData> = Vec::new();
+        self.0.as_ref().unwrap_or(&EMPTY)
+    }
+}
+
+impl std::ops::DerefMut for CompositeRotationTable {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.get_or_insert_with(Vec::new)
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ContinuumPairData {
@@ -513,8 +547,8 @@ pub struct ProfileData {
     pub au_face_part_to_mesh_category: HashMap<String, String>,
     #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub au_mix_defaults: HashMap<String, f64>,
-    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_default")]
-    pub composite_rotations: Vec<CompositeRotationData>,
+    #[serde(skip_serializing_if = "CompositeRotationTable::is_unspecified")]
+    pub composite_rotations: CompositeRotationTable,
     #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub continuum_pairs: HashMap<String, Option<ContinuumPairData>>,
     #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
@@ -822,7 +856,7 @@ pub fn resolve_profile_view(profile: &ProfileData) -> ResolvedProfileView {
         au_mix_defaults: profile.au_mix_defaults.clone(),
         bone_nodes: profile.bone_nodes.clone(),
         au_to_bones: profile.au_to_bones.clone(),
-        composite_rotations: profile.composite_rotations.clone(),
+        composite_rotations: profile.composite_rotations.to_vec(),
         continuum_pairs: profile.continuum_pairs.clone(),
         hair_physics: profile.hair_physics.clone(),
         humanoid_characterization: profile.humanoid_characterization.clone(),
@@ -962,7 +996,7 @@ fn compile_bone_tables(
         }
     };
 
-    for composite in &profile.composite_rotations {
+    for composite in profile.composite_rotations.iter() {
         let Some(bone) = find_bone(&composite.node) else {
             continue;
         };

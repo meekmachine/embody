@@ -109,9 +109,9 @@ struct TypedChannel {
 /// rotations in live frames and in compiled snippet clips (only morph tracks
 /// come out of snippet-to-clip). Composite nodes that don't resolve against
 /// the model are skipped during table compilation, so this is safe for
-/// non-CC4 rigs.
+/// non-CC4 rigs. Explicit arrays, including [], never use this fallback.
 fn apply_composite_rotation_fallback(profile: &mut ProfileData) {
-    if !profile.composite_rotations.is_empty() {
+    if !profile.composite_rotations.is_unspecified() {
         return;
     }
     if let Ok(cc4) = presets::load_profile("cc4") {
@@ -268,8 +268,6 @@ impl RuntimeCore {
         let base = presets::load_profile(preset_id).map_err(|err| JsError::new(&err))?;
         let extension = parse_profile_patch(override_json).map_err(|err| JsError::new(&err))?;
         let mut profile = extend_preset_with_profile(base, extension);
-        // Overrides serialized with `compositeRotations: []` must not wipe the
-        // preset's composite table (bone rotations would silently vanish).
         apply_composite_rotation_fallback(&mut profile);
         let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")
             .map_err(|err| JsError::new(&err))?;
@@ -507,6 +505,12 @@ impl RuntimeCore {
     #[wasm_bindgen]
     pub fn get_au(&self, id: u32) -> f32 {
         *self.au_values.get(&id).unwrap_or(&0.0)
+    }
+
+    /// Current manual bilateral balance, shared by both sides of a continuum.
+    #[wasm_bindgen]
+    pub fn get_au_balance(&self, id: u32) -> f32 {
+        *self.au_balances.get(&id).unwrap_or(&0.0)
     }
 
     #[wasm_bindgen]
@@ -2558,7 +2562,7 @@ mod tests {
     }
 
     #[test]
-    fn preset_override_with_empty_composites_keeps_preset_bone_rotations() {
+    fn preset_override_with_empty_composites_disables_preset_bone_rotations() {
         let model = r#"{
             "meshes": [{ "id": 1, "name": "CC_Base_Body", "morphTargetIds": [] }],
             "morphTargets": [],
@@ -2577,12 +2581,36 @@ mod tests {
         core.configure_with_preset("cc4", r#"{"compositeRotations": []}"#, model)
             .unwrap();
         core.set_au(51, 1.0, 0.0);
-        let stride = PACKED_BONE_FRAME_DELTA_STRIDE as usize;
         let packed = core.evaluate_bone_frame_delta();
         assert!(
-            packed.chunks(stride).any(|row| row[0] == 2.0),
-            "empty compositeRotations override must not wipe preset bone rotations"
+            packed.is_empty(),
+            "explicit empty compositeRotations must disable preset bone rotations"
         );
+    }
+
+    #[test]
+    fn au_balance_reports_authoritative_manual_state_across_reconfiguration_and_clear() {
+        let mut core = RuntimeCore::new(0);
+        assert_eq!(core.get_au_balance(1001), 0.0);
+        core.set_au(1001, 0.5, -0.75);
+        assert_eq!(core.get_au_balance(1001), -0.75);
+        core.set_au(1002, 0.4, 2.0);
+        assert_eq!(core.get_au_balance(1002), 1.0);
+        core.set_continuum(1003, 1004, -0.5, 0.25);
+        assert_eq!(core.get_au_balance(1003), 0.25);
+        assert_eq!(core.get_au_balance(1004), 0.25);
+        core.configure_with_preset("cc4", "{}", "{}").unwrap();
+        assert_eq!(core.get_au(1001), 0.5);
+        assert_eq!(core.get_au_balance(1001), -0.75);
+        core.set_au_signed(1004, -0.5, -0.5);
+        assert_eq!(core.get_au_balance(1003), -0.5);
+        assert_eq!(core.get_au_balance(1004), -0.5);
+        core.transition_au(1001, 0.25, 0.0, f32::NAN);
+        assert_eq!(core.get_au_balance(1001), -0.75);
+        core.clear();
+        assert_eq!(core.get_au_balance(1001), 0.0);
+        assert_eq!(core.get_au_balance(1003), 0.0);
+        assert_eq!(core.get_au_balance(1004), 0.0);
     }
 
     #[test]

@@ -166,7 +166,7 @@ pub(crate) fn extend_preset_with_profile(
         // Older saved CC4 profiles contain a snapshot of facial composites.
         // Keep untouched default body nodes while honoring explicit per-node
         // overrides. General facial composite replacement remains unchanged.
-        for composite in &base.composite_rotations {
+        for composite in base.composite_rotations.iter().filter(|_| !empty_override) {
             let is_body = merged.body_controls.values().any(|control|
                 control.roles.iter().any(|role| crate::body_controls::node_key(&merged, role)
                     == crate::body_controls::node_key(&merged, &composite.node)));
@@ -176,9 +176,9 @@ pub(crate) fn extend_preset_with_profile(
                     || merged.bone_nodes.get(crate::body_controls::node_key(&merged, &candidate.node))
                         .zip(merged.bone_nodes.get(crate::body_controls::node_key(&merged, &composite.node)))
                         .is_some_and(|(a, b)| a == b));
-            if (empty_override || is_body) && !overridden { composites.push(composite.clone()); }
+            if is_body && !overridden { composites.push(composite.clone()); }
         }
-        merged.composite_rotations = composites;
+        merged.composite_rotations = composites.into();
     }
     merge_nullable_map(&mut merged.continuum_pairs, extension.continuum_pairs);
     merge_map(&mut merged.continuum_labels, extension.continuum_labels);

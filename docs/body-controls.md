@@ -42,9 +42,26 @@ in its pitch group. Signed controls additionally declare `continuumPairs`.
 Use `auInfo.facePart: "Body"`, `auFacePartToMeshCategory.Body: "body"` and
 `morphToMesh.body` to route body and clothing targets through the same evaluator.
 
-`bodyControls` merges per control and per field. Existing facial composite
-snapshots retain untouched default body composites; explicit entries for the
-same body node override them. `humanoidCharacterization` remains a complete
+`bodyControls` merges per control and per field, including nested `profile`
+overrides followed by top-level overrides. Expanded configurations contain the
+resolved catalog, with deleted entries removed; deleting every control yields
+`bodyControls: {}`. Other character configuration metadata is preserved.
+Authored body overrides are retained under `profile.bodyControls`, so a later
+save/reload and preset expansion preserves deletions without exposing tombstones
+to consumers of the resolved top-level catalog.
+
+Existing nonempty facial composite snapshots retain untouched default body
+composites; explicit entries for the same body node override them. An explicit
+`compositeRotations: []` disables all composite rotations, including facial and
+body rotations, through profile expansion, editing and runtime configuration.
+Missing or `null` tables retain the legacy preset fallback. Morph bindings
+continue to work independently of this table.
+
+`RuntimeCore.get_au_balance(id)` returns the current manual bilateral balance
+(zero when unset). It follows `set_au`, signed/continuum controls and transitions,
+survives profile reconfiguration alongside AU values, and resets with `clear`.
+
+`humanoidCharacterization` remains a complete
 versioned replacement contract: supply its schema, standard, status and full
 roles map when overriding it, or customize existing `boneNodes` names instead.
 
