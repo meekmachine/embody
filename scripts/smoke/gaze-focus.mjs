@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { AnimationClip, AnimationMixer, Bone, Group, Quaternion, QuaternionKeyframeTrack, Vector3 } from 'three';
-import { ThreeGazeFocus } from '../../dist/three.js';
+import { captureModelReferencePose, ThreeGazeFocus } from '../../dist/three.js';
 import { initEmbodyCore } from '../../dist/wasm.js';
 
 const preset = JSON.parse(await readFile(new URL('../../assets/presets/cc4.json', import.meta.url)));
@@ -103,9 +103,9 @@ for (const tilt of [-10, 10]) {
   assert(result.eyes.every((eye) => eye.limited && eye.errorDegrees > 10));
 }
 
-// Head intensity scales the actuator correction from the animated base, not
-// the absolute bearing. Zero must preserve a tilted neck/head pose exactly.
-for (const intensity of [0, 0.53, 1, 2]) {
+// Head contribution leaves authored parent motion visible instead of applying
+// an opposite head rotation. Full eye contribution compensates that motion.
+for (const intensity of [0, 0.53, 1, 2, 4]) {
   const test = rig();
   test.neck.rotation.x = radians(10);
   test.model.updateMatrixWorld(true);
@@ -115,7 +115,91 @@ for (const intensity of [0, 0.53, 1, 2]) {
   const base = test.head.quaternion.clone();
   const result = test.focus.apply(value, controls(value));
   focused(result, `posed head intensity ${intensity}`);
-  near(test.head.quaternion.angleTo(base), radians(10 * intensity), `head actuator gain ${intensity}`, 1e-4);
+  near(test.head.quaternion.angleTo(base), 0, `authored neck preserved at ${intensity}`, 1e-4);
+}
+
+// A real mixer must retain the sign and full amplitude of an authored gesture
+// underneath every gaze contribution. Head and neck motion are both authored.
+for (const node of ['head', 'neck']) for (const intensity of [0, 0.5, 1, 2, 4]) {
+  const test = rig();
+  test.neck.name = 'authored neck';
+  const referencePose = captureModelReferencePose(test.model);
+  const bone = test[node];
+  const gesture = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), radians(5));
+  const clip = new AnimationClip('authored turn', 2, [new QuaternionKeyframeTrack(`${bone.name}.quaternion`,
+    [0, 1, 2], [0, 0, 0, 1, ...gesture.toArray(), ...gesture.toArray()])]);
+  const mixer = new AnimationMixer(test.model);
+  mixer.clipAction(clip).play();
+  const value = request(test, { x: 0.3, y: 1.7, z: 1.7 }, { headIntensity: intensity });
+  const motor = controls(value, -0.2);
+  test.focus.apply(value, motor);
+  const before = test.head.getWorldQuaternion(new Quaternion());
+  test.focus.restore();
+  mixer.setTime(1);
+  // Profile/rebinding during playback must reuse the original import reference.
+  test.focus = new ThreeGazeFocus(test.model, preset, { referencePose });
+  focused(test.focus.apply(value, motor), `${node} gesture at ${intensity}`);
+  const delta = test.head.getWorldQuaternion(new Quaternion()).multiply(before.invert());
+  near(delta.angleTo(gesture), 0, `${node} retains +5 degrees at ${intensity}`, 1e-4);
+  test.focus.restore();
+  near(bone.quaternion.angleTo(gesture), 0, 'authored pose survives restore', 1e-4);
+  mixer.stopAllAction();
+}
+
+// Strength is a continuous share of the solved motion, including small targets
+// that never reached the former intensity-scaled range clamp.
+{
+  const test = rig();
+  const value = request(test, { x: 0.12, y: 1.7, z: 1.7 }, { headEnabled: false });
+  const base = [test.left.quaternion.clone(), test.right.quaternion.clone()];
+  focused(test.focus.apply(value, controls(value)), 'full eye strength');
+  const full = [test.left, test.right].map((eye, i) => eye.quaternion.angleTo(base[i]));
+  for (const intensity of [0, 0.1, 0.25, 0.5, 0.75, 1, 2, 4]) {
+    const result = test.focus.apply({ ...value, eyeIntensity: intensity }, controls(value));
+    for (const [i, eye] of [test.left, test.right].entries()) {
+      near(eye.quaternion.angleTo(base[i]), full[i] * Math.min(1, intensity), `eye ${i} share ${intensity}`, 1e-5);
+    }
+    if (intensity >= 1) focused(result, `legacy eye strength ${intensity}`);
+  }
+}
+
+// Animation samples override request endpoints. Legacy amplification saturates
+// at full participation, and strength-only samples do not enable a motor axis.
+{
+  const test = rig();
+  const value = request(test, { x: 0.3, y: 1.7, z: 1.7 }, { headIntensity: 4, eyeIntensity: 4 });
+  const headBase = test.head.quaternion.clone();
+  const eyeBase = test.left.quaternion.clone();
+  test.focus.apply(value, { ...controls(value, -0.25), headIntensity: 0, eyeIntensity: 0 });
+  near(test.head.quaternion.angleTo(headBase), 0, 'sampled zero head overrides endpoint');
+  near(test.left.quaternion.angleTo(eyeBase), 0, 'sampled zero eyes override endpoint');
+  test.focus.apply(value, { headIntensity: 1, eyeIntensity: 1 });
+  near(test.head.quaternion.angleTo(headBase), 0, 'strength without head axis is inert');
+  near(test.left.quaternion.angleTo(eyeBase), 0, 'strength without eye axis is inert');
+  for (const intensity of [-2, 0, 0.5, 1, 2, 4]) {
+    test.focus.apply(value, { ...controls(value, -0.25), headIntensity: intensity });
+    near(test.head.quaternion.angleTo(headBase), radians(15 * Math.max(0, Math.min(1, intensity))), `bounded head share ${intensity}`, 1e-4);
+  }
+}
+
+// Enabling on an authored pose seeds zero added head correction. Reading an
+// existing overlay inverses its bounded contribution without duplicating it.
+for (const intensity of [0, 0.5, 1, 2, 4]) {
+  const test = rig();
+  test.head.rotation.y = radians(5);
+  test.neck.rotation.x = radians(4);
+  const worldTarget = { x: 0.3, y: 1.8, z: 1.7 };
+  const authored = test.head.quaternion.clone();
+  const seed = test.focus.readControlState({ worldTarget, headIntensity: intensity });
+  const value = request(test, worldTarget, { headIntensity: intensity });
+  test.focus.apply(value, { ...controls(value), headYaw: seed.headTarget.x, headPitch: seed.headTarget.y });
+  near(test.head.quaternion.angleTo(authored), 0, `first seed preserves authored head at ${intensity}`, 1e-4);
+  test.focus.apply(value, controls(value, -0.15, 0.1));
+  const visible = test.head.quaternion.clone();
+  const current = test.focus.readControlState({ worldTarget, headIntensity: intensity });
+  assert.equal(current.headSeedLimited, false, 'existing overlay seed is representable');
+  test.focus.apply(value, { ...controls(value), headYaw: current.headTarget.x, headPitch: current.headTarget.y });
+  near(test.head.quaternion.angleTo(visible), 0, `overlay seed round trip at ${intensity}`, 1e-4);
 }
 
 // A legacy AU pose is already intensity-adjusted. Invert the gain in joint
@@ -143,6 +227,28 @@ for (const neckTilt of [0, 10]) {
   assert.equal(test.focus.readControlState({ ...options, headIntensity: 0 }).headSeedLimited, true, 'zero gain reports an unrepresentable legacy excursion');
 }
 
+// Legacy eye contributions are inverted against their separately evaluated
+// bases. Co-located eyes isolate an exactly representable shared bearing;
+// distinct origins expose the remaining finite-convergence handoff residual.
+for (const separated of [false, true]) for (const intensity of [0.2, 0.5, 1, 4]) {
+  const test = rig();
+  if (!separated) { test.left.position.x = 0; test.right.position.x = 0; }
+  const eyeBaseQuaternions = Object.fromEntries([test.left, test.right].map((eye) => [eye.name, eye.quaternion.clone()]));
+  const gain = Math.min(1, intensity);
+  for (const eye of [test.left, test.right]) eye.quaternion.multiply(
+    new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), radians(10 * gain)));
+  const actual = test.left.quaternion.clone();
+  const worldTarget = { x: 0.4, y: 1.7, z: 1.7 };
+  const seed = test.focus.readControlState({ worldTarget, eyeIntensity: intensity, eyeBaseQuaternions });
+  near(test.left.quaternion.angleTo(actual), 0, 'reading eye seed does not change pose');
+  assert.equal(seed.eyeSeedLimited, separated, 'finite convergence reports unrepresentable parallel eye seed');
+  for (const eye of [test.left, test.right]) eye.quaternion.copy(eyeBaseQuaternions[eye.name]);
+  const value = request(test, worldTarget, { eyeIntensity: intensity, headEnabled: false });
+  test.focus.apply(value, { eyeYaw: seed.eyeTarget.x, eyePitch: seed.eyeTarget.y });
+  if (!separated) near(test.left.quaternion.angleTo(actual), 0, `eye seed inverse at ${intensity}`, 1e-4);
+  else assert(test.left.quaternion.angleTo(actual) < radians(1.2), 'legacy handoff residual is convergence, not double attenuation');
+}
+
 // Limits follow the signed bindings independently on each eye and direction.
 {
   const profile = structuredClone(preset);
@@ -166,6 +272,24 @@ for (const scale of [0.1, 1, 10]) {
   focused(test.focus.apply(value, controls(value)), `transformed scene ${scale}`);
 }
 
+// Nonuniform parent/root scale participates in both reference and live solves.
+// Current scene placement replaces the captured placement after rebinding.
+{
+  const test = rig();
+  test.neck.scale.set(1.1, 0.9, 1.05);
+  test.head.rotation.y = radians(3);
+  const referencePose = captureModelReferencePose(test.model);
+  test.model.scale.set(0.8, 1.2, 1.1);
+  test.model.rotation.set(0.1, 0.3, 0.05);
+  test.model.position.set(2, -1, 3);
+  test.neck.rotation.y = radians(5);
+  test.focus = new ThreeGazeFocus(test.model, preset, { referencePose });
+  test.model.updateMatrixWorld(true);
+  const target = test.model.localToWorld(new Vector3(0.15, 1.55, 1.7));
+  const value = request(test, target);
+  focused(test.focus.apply(value, controls(value, -0.1)), 'nonuniform scale with authored neck');
+}
+
 // A noncanonical head basis still uses the profile's actual signed channels.
 {
   const profile = structuredClone(preset);
@@ -173,6 +297,7 @@ for (const scale of [0.1, 1, 10]) {
   const test = rig(profile);
   test.head.rotation.x = -Math.PI / 2;
   test.left.quaternion.identity(); test.right.quaternion.identity();
+  test.focus = new ThreeGazeFocus(test.model, profile);
   const value = request(test, { x: 0.2, y: 1.75, z: 1.7 });
   focused(test.focus.apply(value, controls(value)), 'noncanonical joint frame');
 }
@@ -198,7 +323,9 @@ for (const scale of [0.1, 1, 10]) {
   const newer = test.head.quaternion.clone();
   test.focus.restore();
   near(test.head.quaternion.angleTo(newer), 0, 'newer authored head survives restore');
-  focused(test.focus.apply(value, controls(value)), 'newly authored base');
+  const result = test.focus.apply(value, controls(value));
+  assert(result.eyes.some((eye) => eye.limited && eye.errorDegrees > 1), 'unreachable gesture reports eye limits');
+  near(test.head.quaternion.angleTo(newer), 0, 'focus preserves even an unreachable authored gesture');
   test.focus.restore();
   near(test.head.quaternion.angleTo(newer), 0, 'newer authored head becomes next base');
 }

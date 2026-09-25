@@ -27,7 +27,7 @@ import type {
 } from 'three';
 
 export { ThreeGazeFocus } from './gaze';
-export type { ThreeGazeFocusRequest, ThreeGazeFocusControls, ThreeGazeFocusDiagnostic } from './gaze';
+export type { ThreeGazeFocusOptions, ThreeGazeFocusRequest, ThreeGazeFocusControls, ThreeGazeFocusDiagnostic } from './gaze';
 
 export const THREE_BLENDING_MODES = {
   Normal: NormalBlending,
