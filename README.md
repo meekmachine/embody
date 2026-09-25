@@ -1,5 +1,10 @@
 # Embody
 
+Explicit profiles may be empty: `RuntimeCore.configure_with_profile('{}', modelJson)`
+loads a static or not-yet-mapped model without selecting an embedded preset.
+Missing mappings remain an authoring/validation concern; malformed JSON still
+fails configuration. Existing mapped profiles retain their runtime behavior.
+
 Embody is a Rust/Wasm character animation core for facial action units,
 visemes, bone controls, baked animation clips, and hair motion. Three.js is a
 host adapter, not the runtime implementation.
