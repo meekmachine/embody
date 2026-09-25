@@ -20,6 +20,13 @@ const serviceWorkerSource = await readFile(serviceWorkerPath, 'utf8');
 const root = await import('@lovelace_lol/embody');
 const three = await import('@lovelace_lol/embody/three');
 const wasm = await import('@lovelace_lol/embody/wasm');
+// The Three adapter must share the auto-initialized public loader, including
+// synchronous calls made immediately after importing the package.
+const markerAngleVisible = three.passesMarkerCameraAngleGate({ markerAngle: 0, currentCameraAngle: 0 });
+const annotationConfig = await three.resolveAnnotationCharacterConfig({ characterId: 'smoke', auPresetType: 'cc4' });
+const annotationMath = await three.createRustAnnotationCameraCore();
+const orbit = annotationMath.createCameraOrbit({ x: 0, y: 0, z: 0 }, 2, 1, 100);
+const orbitPose = orbit.sample(100); orbit.dispose();
 
 const core = await wasm.initEmbodyCore();
 const distEntries = await readdir(new URL('../../dist/', import.meta.url));
@@ -69,6 +76,10 @@ new three.ThreeFrameApplier().addMorphTarget(morphRoot, {
 
 const checks = [
   ['root ESM Three adapter', typeof root.ThreeModelInspector === 'function'],
+  ...['DPthree', 'DPthreeCameraController', 'DPthree3DMarkers', 'DPthreeHTMLMarkers', 'DPthreeMarkers', 'CameraDOMControls', 'createMarkerVisibilityLifecycle', 'createRuntimeAnnotationPreviewLifecycle'].map(name => [`annotation runtime ${name}`, typeof three[name] === 'function']),
+  ['annotation adapter shares initialized Wasm', markerAngleVisible],
+  ['standalone annotation preset resolution', annotationConfig.regions.length > 0 && !!annotationConfig.auToMorphs],
+  ['annotation camera handle samples real Wasm', orbitPose.done && Number.isFinite(orbitPose.position.z)],
   ['root ESM reference capture', typeof root.captureModelReferencePose === 'function'],
   ['root ESM reference extension', typeof root.extendModelReferencePose === 'function'],
   ['Three ESM reference binding', typeof three.bindModelReferencePose === 'function'],
