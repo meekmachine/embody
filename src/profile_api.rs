@@ -216,6 +216,49 @@ fn profile_field(value: &Value) -> Result<ProfileData, String> {
         .map_err(|error| format!("Invalid profile: {error}"))
 }
 
+/// Edit one action rather than moving a target away from every other action.
+/// The returned value keeps host metadata and persists complete per-AU entries,
+/// because preset overrides replace an AU's entry rather than merge its sides.
+fn set_au_morph_targets(payload: &Value) -> Result<Value, String> {
+    let mut original = value_field(payload, "profile")?.clone();
+    if !original.is_object() { return Err("profile must be an object".into()); }
+    let id = value_field(payload, "auId")?.as_u64()
+        .filter(|id| *id <= u32::MAX as u64)
+        .ok_or("auId must be an unsigned 32-bit integer")?.to_string();
+    let side = string_field(payload, "side")?;
+    if !matches!(side.as_str(), "left" | "right" | "center") {
+        return Err("side must be left, right, or center".into());
+    }
+    let targets = value_field(payload, "targets")?.as_array()
+        .ok_or("targets must be an array of morph names or nonnegative indices")?;
+    let mut unique = Vec::new();
+    for target in targets {
+        if !(target.as_str().is_some_and(|name| !name.trim().is_empty())
+            || target.as_i64().is_some_and(|index| index >= 0)) {
+            return Err("targets must contain nonempty names or nonnegative integer indices".into());
+        }
+        if !unique.contains(target) { unique.push(target.clone()); }
+    }
+    let expanded = extend_profile_config(original.clone())?;
+    let effective: ProfileData = serde_json::from_value(extract_profile_overrides(&expanded))
+        .map_err(|error| format!("Invalid profile: {error}"))?;
+    let mut entry = serde_json::to_value(effective.au_to_morphs.get(&id)
+        .and_then(Option::as_ref).cloned().unwrap_or_default())
+        .map_err(|error| error.to_string())?;
+    entry[&side] = Value::Array(unique);
+    if !original.get("auToMorphs").is_some_and(Value::is_object) {
+        original["auToMorphs"] = json!({});
+    }
+    original["auToMorphs"][&id] = entry.clone();
+    if original.get("profile").is_some_and(Value::is_object) {
+        if !original["profile"].get("auToMorphs").is_some_and(Value::is_object) {
+            original["profile"]["auToMorphs"] = json!({});
+        }
+        original["profile"]["auToMorphs"][&id] = entry;
+    }
+    Ok(original)
+}
+
 fn axis_field(value: &Value) -> Result<Axis, String> {
     serde_json::from_value(value_field(value, "axis")?.clone())
         .map_err(|error| format!("Invalid axis: {error}"))
@@ -2177,6 +2220,7 @@ fn execute(request: Request) -> Result<Value, String> {
             &string_field(&payload, "targetName")?,
             payload.get("suffixPattern").and_then(Value::as_str),
         ))),
+        "profile.setAUMorphTargets" => set_au_morph_targets(&payload),
         "profile.setHumanoidRoleBinding" => {
             let mut profile = profile_field(&payload)?;
             let role = string_field(&payload, "role")?;
@@ -2515,6 +2559,55 @@ mod tests {
             "morphToMesh": {},
             "visemeKeys": []
         })
+    }
+
+    #[test]
+    fn action_morph_authoring_preserves_shared_targets_and_other_sides() {
+        let original = json!({"assetUrl":"custom.glb", "auToBones":{"1035":[]},
+            "auToMorphs":{"51":{"left":["Head_Turn_L"]},
+                "1035":{"left":["Head_Turn_L"],"right":["Right"],"center":[7]}}});
+        let edited = request("profile.setAUMorphTargets", json!({"profile":original,
+            "auId":1035,"side":"left","targets":["Head_Turn_L","Muscle",9,"Muscle"]}));
+        assert_eq!(edited["auToMorphs"]["1035"]["left"], json!(["Head_Turn_L","Muscle",9]));
+        assert_eq!(edited["auToMorphs"]["1035"]["right"], json!(["Right"]));
+        assert_eq!(edited["auToMorphs"]["1035"]["center"], json!([7]));
+        assert_eq!(edited["auToMorphs"]["51"], original["auToMorphs"]["51"]);
+        assert_eq!(edited["auToBones"], original["auToBones"]);
+        let cleared = request("profile.setAUMorphTargets", json!({"profile":edited,
+            "auId":1035,"side":"left","targets":[]}));
+        assert_eq!(cleared["auToMorphs"]["1035"]["left"], json!([]));
+        assert_eq!(cleared["auToMorphs"]["51"]["left"], json!(["Head_Turn_L"]));
+        assert_eq!(cleared["assetUrl"], "custom.glb");
+    }
+
+    #[test]
+    fn action_morph_authoring_preserves_explicit_clear_across_preset_reload() {
+        for original in [json!({"auPresetType":"cc4"}),
+            json!({"auPresetType":"cc4","profile":{"auMixDefaults":{"61":0.25}}})] {
+            let edited = request("profile.setAUMorphTargets", json!({"profile":original,
+                "auId":61,"side":"left","targets":[]}));
+            let saved: Value = serde_json::from_str(&edited.to_string()).unwrap();
+            let expanded = request("profile.extendConfig", json!({"config":saved}));
+            assert_eq!(expanded["auToMorphs"]["61"]["left"], json!([]));
+            assert_eq!(expanded["auToMorphs"]["61"]["right"], json!(["Eye_R_Look_L"]));
+            assert_eq!(expanded["auToMorphs"]["1035"]["left"], json!(["Head_Turn_L"]));
+            if edited.get("profile").is_some() {
+                assert_eq!(edited["profile"]["auToMorphs"]["61"], edited["auToMorphs"]["61"]);
+                assert_eq!(expanded["auMixDefaults"]["61"], 0.25);
+            }
+        }
+        let edited = request("profile.setAUMorphTargets", json!({"profile":{},"auId":1,"side":"center","targets":[]}));
+        assert_eq!(edited, json!({"auToMorphs":{"1":{"left":[],"right":[],"center":[]}}}));
+    }
+
+    #[test]
+    fn action_morph_authoring_rejects_invalid_inputs() {
+        for update in [json!({"side":"both"}),json!({"auId":-1}),json!({"auId":4294967296u64}),
+            json!({"targets":[-1]}),json!({"targets":[0.5]}),json!({"targets":[""]}),
+            json!({"targets":[{}]}),json!({"profile":null})] {
+            let payload = merge_json(&json!({"profile":{},"auId":1,"side":"left","targets":[]}), &update);
+            assert!(execute(Request{op:"profile.setAUMorphTargets".into(), payload}).is_err());
+        }
     }
 
     #[test]

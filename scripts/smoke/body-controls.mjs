@@ -83,6 +83,22 @@ const completeModel = {
 };
 const completeControls = request('profile.getBodyControls', { profile: preset, model: completeModel });
 assert(completeControls.every(control => control.hasBones), 'all 58 controls have real skeletal outputs');
+let editedMorphs = request('profile.setAUMorphTargets', {
+  profile: { auPresetType: 'cc4', profile: { auMixDefaults: { 61: 0.25 } } },
+  auId: 61, side: 'left', targets: ['CustomEyeTissue'],
+});
+editedMorphs = expand(JSON.parse(JSON.stringify(editedMorphs)));
+const eyeControl = request('profile.getBodyControls', { profile: editedMorphs })
+  .find(control => control.auIds.includes(61));
+assert(eyeControl.morphBindings.left.includes('CustomEyeTissue'));
+assert.equal(editedMorphs.auMixDefaults[61], 0.25);
+assert.deepEqual(editedMorphs.auToMorphs[61].right, ['Eye_R_Look_L']);
+const clearedNeck = request('profile.setAUMorphTargets', {
+  profile: editedMorphs, auId: 1035, side: 'left', targets: [],
+});
+const reloaded = expand(JSON.parse(JSON.stringify(clearedNeck)));
+assert.deepEqual(reloaded.auToMorphs[1035].left, []);
+assert.deepEqual(reloaded.auToMorphs[51].left, ['Head_Turn_L']);
 const fullRuntime = new wasm.RuntimeCore(0);
 try {
   fullRuntime.configure_with_profile(JSON.stringify(preset), JSON.stringify(completeModel));

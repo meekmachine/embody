@@ -72,6 +72,31 @@ in its pitch group. Signed controls additionally declare `continuumPairs`.
 Use `auInfo.facePart: "Body"`, `auFacePartToMeshCategory.Body: "body"` and
 `morphToMesh.body` to route body and clothing targets through the same evaluator.
 
+Head and eye controls use the original AU IDs (51–56 and 61–64), so their
+facial and semantic editors read and write the same `auToMorphs` and
+`auMixDefaults` entries. Neck actions 1032–1037 use the corresponding CC4
+head-turn/tilt targets as their initial tissue mappings: back/up 1032→53,
+forward/down 1033→54, right turn 1034→52, left turn 1035→51, left tilt
+1036→55 and right tilt 1037→56. These are independently editable neck actions,
+not aliases that overwrite the head action. Neck `faceArea` remains `Body`,
+while `facePart: "Head"` routes these targets through the same face mesh category
+as their source head AUs. Bend and tilt start at morph strength 0.7; turning
+uses the existing full-strength fallback of 1.0. As with FACS, morph strength
+attenuates the tissue target without attenuating bone rotation. Missing authored
+targets remain optional and are reported in model-aware descriptors.
+
+`profile.setAUMorphTargets` accepts `{profile, auId, side, targets}` and returns
+the edited profile/config. `side` is `left`, `right` or `center`; `targets` is
+an array of nonempty morph names or nonnegative integer indices. It replaces
+only that action's selected side, retaining other sides, actions, bone bindings
+and host metadata. Duplicate targets are removed in order. An empty array is
+an explicit clear and survives preset save/reload. Existing nested profile
+overrides receive the same complete AU entry. The operation supports a target
+shared by several actions; assigning neck tissue does not remove the head's
+mapping. An explicit static profile never acquires preset motion defaults.
+Polymer must expose this request and the application must provide the semantic
+mapping editor; Embody owns the edit and runtime behavior, not that UI.
+
 `bodyControls` merges per control and per field, including nested `profile`
 overrides followed by top-level overrides. Expanded configurations contain the
 resolved catalog, with deleted entries removed; deleting every control yields
