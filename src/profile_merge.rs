@@ -105,14 +105,64 @@ pub(crate) fn parse_profile_patch(json: &str) -> Result<Option<ProfilePatch>, St
     deserialize_json(trimmed, "Invalid profile override JSON").map(Some)
 }
 
+// Only the exact previously shipped CC4 role map is a preset snapshot. Explicit
+// partial/custom maps, and maps touched by the role editor, remain authoritative.
+fn is_legacy_cc4_characterization(mapping: &HumanoidCharacterizationData) -> bool {
+    let legacy = [("hips", "HIPS"), ("spine", "SPINE_01"), ("chest", "SPINE_02"),
+        ("neck", "NECK"), ("head", "HEAD"), ("leftUpperArm", "UPPER_ARM_L"),
+        ("rightUpperArm", "UPPER_ARM_R"), ("leftLowerArm", "LOWER_ARM_L"),
+        ("rightLowerArm", "LOWER_ARM_R"), ("leftHand", "HAND_L"), ("rightHand", "HAND_R"),
+        ("leftUpperLeg", "UPPER_LEG_L"), ("rightUpperLeg", "UPPER_LEG_R"),
+        ("leftLowerLeg", "LOWER_LEG_L"), ("rightLowerLeg", "LOWER_LEG_R"),
+        ("leftFoot", "FOOT_L"), ("rightFoot", "FOOT_R")];
+    mapping.schema_version == 1 && mapping.standard == "VRMC_vrm-1.0"
+        && mapping.status == "characterized" && mapping.extensions.is_empty()
+        && mapping.roles.len() == legacy.len()
+        && legacy.iter().all(|(role, key)| mapping.roles.get(*role).is_some_and(|binding|
+            binding.node_key == *key && binding.source.as_deref() == Some("cc4-preset")
+            && binding.exact_bone_name.is_none() && binding.confidence.is_none() && binding.extensions.is_empty()))
+}
+
 pub(crate) fn extend_preset_with_profile(
     base: &ProfileData,
     extension: Option<ProfilePatch>,
 ) -> ProfileData {
-    let Some(extension) = extension else {
+    let Some(mut extension) = extension else {
         return base.clone();
     };
 
+    let legacy_cc4 = extension.humanoid_characterization.as_ref().is_some_and(is_legacy_cc4_characterization)
+        && base.humanoid_characterization.as_ref().is_some_and(|mapping| mapping.roles.len() == 55
+            && mapping.roles.get("spine").is_some_and(|role| role.node_key == "WAIST"));
+    if legacy_cc4 {
+        extension.humanoid_characterization = base.humanoid_characterization.clone();
+        // The old semantic spine was CC4 Spine01. Preserve that actuator when
+        // the completed anatomical map adds the authored Waist below it.
+        if let Some(bindings) = extension.au_to_bones.as_mut() {
+            for au in ["1003", "1004"] {
+                for binding in bindings.get_mut(au).into_iter().flatten().flatten() {
+                    if binding.node == "spine" { binding.node = "SPINE_01".into(); }
+                }
+            }
+        }
+        if let Some(composites) = extension.composite_rotations.as_mut() {
+            for composite in composites {
+                if composite.node == "spine" { composite.node = "SPINE_01".into(); }
+            }
+        }
+        if let Some(pairs) = extension.continuum_pairs.as_mut() {
+            for au in ["1003", "1004"] {
+                if let Some(Some(pair)) = pairs.get_mut(au) {
+                    if pair.node.as_deref() == Some("spine") { pair.node = Some("SPINE_01".into()); }
+                }
+            }
+        }
+        if let Some(Some(control)) = extension.body_controls.as_mut().and_then(|controls| controls.get_mut("body.torsoTwist")) {
+            if control.roles.as_ref().is_some_and(|roles| roles == &["spine".to_string()]) {
+                control.roles = Some(vec!["chest".into()]);
+            }
+        }
+    }
     let mut merged = base.clone();
     if let Some(controls) = extension.body_controls {
         for (id, control) in controls {
@@ -167,16 +217,24 @@ pub(crate) fn extend_preset_with_profile(
         // Keep untouched default body nodes while honoring explicit per-node
         // overrides. General facial composite replacement remains unchanged.
         for composite in base.composite_rotations.iter().filter(|_| !empty_override) {
-            let is_body = merged.body_controls.values().any(|control|
-                control.roles.iter().any(|role| crate::body_controls::node_key(&merged, role)
-                    == crate::body_controls::node_key(&merged, &composite.node)));
-            let overridden = composites.iter().any(|candidate|
-                crate::body_controls::node_key(&merged, &candidate.node)
-                    == crate::body_controls::node_key(&merged, &composite.node)
-                    || merged.bone_nodes.get(crate::body_controls::node_key(&merged, &candidate.node))
-                        .zip(merged.bone_nodes.get(crate::body_controls::node_key(&merged, &composite.node)))
-                        .is_some_and(|(a, b)| a == b));
-            if is_body && !overridden { composites.push(composite.clone()); }
+            let is_body = merged.body_controls.values().filter(|control| control.au_id >= 1001).any(|control|
+                control.roles.iter().any(|role| crate::body_controls::configured_bone_name(&merged, role)
+                    == crate::body_controls::configured_bone_name(&merged, &composite.node)));
+            let overridden = composites.iter_mut().find(|candidate|
+                crate::body_controls::configured_bone_name(&merged, &candidate.node)
+                    == crate::body_controls::configured_bone_name(&merged, &composite.node));
+            if !is_body { continue; }
+            if let Some(candidate) = overridden {
+                if legacy_cc4 {
+                    for (current, default) in [(&mut candidate.pitch, &composite.pitch),
+                        (&mut candidate.yaw, &composite.yaw), (&mut candidate.roll, &composite.roll)] {
+                        if current.is_none() && default.as_ref().is_some_and(|axis|
+                            !axis.aus.is_empty() && axis.aus.iter().all(|id| *id >= 1010)) {
+                            *current = default.clone();
+                        }
+                    }
+                }
+            } else { composites.push(composite.clone()); }
         }
         merged.composite_rotations = composites.into();
     }

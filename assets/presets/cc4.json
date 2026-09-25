@@ -1,4 +1,6863 @@
-{"name":"Character Creator 4","animalType":"human","auToMorphs":{"1":{"left":["Brow_Raise_Inner_L"],"right":["Brow_Raise_Inner_R"],"center":[]},"2":{"left":["Brow_Raise_Outer_L"],"right":["Brow_Raise_Outer_R"],"center":[]},"4":{"left":["Brow_Drop_L"],"right":["Brow_Drop_R"],"center":[]},"5":{"left":["Eye_Wide_L"],"right":["Eye_Wide_R"],"center":[]},"6":{"left":["Cheek_Raise_L"],"right":["Cheek_Raise_R"],"center":[]},"7":{"left":["Eye_Squint_L"],"right":["Eye_Squint_R"],"center":[]},"8":{"left":["Mouth_Press_L"],"right":["Mouth_Press_R"],"center":["Mouth_Close"]},"9":{"left":["Nose_Sneer_L"],"right":["Nose_Sneer_R"],"center":[]},"10":{"left":["Mouth_Up_Upper_L"],"right":["Mouth_Up_Upper_R"],"center":[]},"11":{"left":["Mouth_Up_Upper_L"],"right":["Mouth_Up_Upper_R"],"center":[]},"12":{"left":["Mouth_Smile_L"],"right":["Mouth_Smile_R"],"center":[]},"13":{"left":["Mouth_Smile_L","Mouth_Up_Upper_L"],"right":["Mouth_Smile_R","Mouth_Up_Upper_R"],"center":[]},"14":{"left":["Mouth_Dimple_L"],"right":["Mouth_Dimple_R"],"center":[]},"15":{"left":["Mouth_Frown_L"],"right":["Mouth_Frown_R"],"center":[]},"16":{"left":["Mouth_Down_Lower_L"],"right":["Mouth_Down_Lower_R"],"center":[]},"17":{"left":[],"right":[],"center":["Mouth_Shrug_Lower"]},"18":{"left":[],"right":[],"center":["Mouth_Pucker"]},"19":{"left":[],"right":[],"center":["Tongue_Out"]},"20":{"left":["Mouth_Stretch_L"],"right":["Mouth_Stretch_R"],"center":[]},"22":{"left":[],"right":[],"center":["Mouth_Funnel"]},"23":{"left":["Mouth_Press_L"],"right":["Mouth_Press_R"],"center":[]},"24":{"left":["Mouth_Press_L"],"right":["Mouth_Press_R"],"center":[]},"25":{"left":[],"right":[],"center":["Jaw_Open"]},"26":{"left":[],"right":[],"center":["Jaw_Open"]},"27":{"left":[],"right":[],"center":["Jaw_Open"]},"28":{"left":[],"right":[],"center":["Mouth_Roll_In_Upper","Mouth_Roll_In_Lower"]},"29":{"left":[],"right":[],"center":["Jaw_Forward"]},"30":{"left":["Jaw_L"],"right":[],"center":[]},"31":{"left":[],"right":[],"center":[]},"32":{"left":[],"right":[],"center":["Mouth_Roll_In_Lower"]},"34":{"left":["Cheek_Puff_L"],"right":["Cheek_Puff_R"],"center":[]},"35":{"left":[],"right":["Jaw_R"],"center":[]},"36":{"left":["Tongue_Bulge_L"],"right":["Tongue_Bulge_R"],"center":[]},"37":{"left":[],"right":[],"center":["Tongue_Up"]},"38":{"left":[],"right":[],"center":["Tongue_Down"]},"39":{"left":["Tongue_L"],"right":[],"center":[]},"40":{"left":[],"right":["Tongue_R"],"center":[]},"41":{"left":[],"right":[],"center":[]},"42":{"left":[],"right":[],"center":[]},"43":{"left":["Eye_Blink_L"],"right":["Eye_Blink_R"],"center":[]},"45":{"left":["Eye_Blink_L"],"right":["Eye_Blink_R"],"center":[]},"51":{"left":["Head_Turn_L"],"right":[],"center":[]},"52":{"left":[],"right":["Head_Turn_R"],"center":[]},"53":{"left":[],"right":[],"center":["Head_Turn_Up"]},"54":{"left":[],"right":[],"center":["Head_Turn_Down"]},"55":{"left":["Head_Tilt_L"],"right":[],"center":[]},"56":{"left":[],"right":["Head_Tilt_R"],"center":[]},"61":{"left":["Eye_L_Look_L"],"right":["Eye_R_Look_L"],"center":[]},"62":{"left":["Eye_L_Look_R"],"right":["Eye_R_Look_R"],"center":[]},"63":{"left":["Eye_L_Look_Up"],"right":["Eye_R_Look_Up"],"center":[]},"64":{"left":["Eye_L_Look_Down"],"right":["Eye_R_Look_Down"],"center":[]},"65":{"left":["Eye_L_Look_L"],"right":[],"center":[]},"66":{"left":[],"right":["Eye_L_Look_R"],"center":[]},"67":{"left":[],"right":[],"center":["Eye_L_Look_Up"]},"68":{"left":[],"right":[],"center":["Eye_L_Look_Down"]},"69":{"left":["Eye_R_Look_L"],"right":[],"center":[]},"70":{"left":[],"right":["Eye_R_Look_R"],"center":[]},"71":{"left":[],"right":[],"center":["Eye_R_Look_Up"]},"72":{"left":[],"right":[],"center":["Eye_R_Look_Down"]},"73":{"left":[],"right":[],"center":["Tongue_Narrow"]},"74":{"left":[],"right":[],"center":["Tongue_Wide"]},"75":{"left":[],"right":[],"center":["Tongue_Roll"]},"76":{"left":[],"right":[],"center":["Tongue_Tip_Up"]},"77":{"left":[],"right":[],"center":["Tongue_Tip_Down"]},"80":{"left":["EO Bulge L"],"right":["EO Bulge R"],"center":[]},"81":{"left":["EO Depth L"],"right":["EO Depth R"],"center":[]},"82":{"left":["EO Inner Depth L"],"right":["EO Inner Depth R"],"center":[]},"83":{"left":["EO Inner Height L"],"right":["EO Inner Height R"],"center":[]},"84":{"left":["EO Inner Width L"],"right":["EO Inner Width R"],"center":[]},"85":{"left":["EO Outer Depth L"],"right":["EO Outer Depth R"],"center":[]},"86":{"left":["EO Outer Height L"],"right":["EO Outer Height R"],"center":[]},"87":{"left":["EO Outer Width L"],"right":["EO Outer Width R"],"center":[]},"88":{"left":["EO Upper Depth L"],"right":["EO Upper Depth R"],"center":[]},"89":{"left":["EO Lower Depth L"],"right":["EO Lower Depth R"],"center":[]},"90":{"left":["EO Center Upper Depth L"],"right":["EO Center Upper Depth R"],"center":[]},"91":{"left":["EO Center Upper Height L"],"right":["EO Center Upper Height R"],"center":[]},"92":{"left":["EO Center Lower Depth L"],"right":["EO Center Lower Depth R"],"center":[]},"93":{"left":["EO Center Lower Height L"],"right":["EO Center Lower Height R"],"center":[]},"94":{"left":["EO Inner Upper Depth L"],"right":["EO Inner Upper Depth R"],"center":[]},"95":{"left":["EO Inner Upper Height L"],"right":["EO Inner Upper Height R"],"center":[]},"96":{"left":["EO Inner Lower Depth L"],"right":["EO Inner Lower Depth R"],"center":[]},"97":{"left":["EO Inner Lower Height L"],"right":["EO Inner Lower Height R"],"center":[]},"98":{"left":["EO Outer Upper Depth L"],"right":["EO Outer Upper Depth R"],"center":[]},"99":{"left":["EO Outer Upper Height L"],"right":["EO Outer Upper Height R"],"center":[]},"100":{"left":["EO Outer Lower Depth L"],"right":["EO Outer Lower Depth R"],"center":[]},"101":{"left":["EO Outer Lower Height L"],"right":["EO Outer Lower Height R"],"center":[]},"102":{"left":["EO Duct Depth L"],"right":["EO Duct Depth R"],"center":[]},"1001":{"left":["LL_Body_Bicep_Flex_L"],"right":["LL_Body_Bicep_Flex_R"],"center":[]},"1002":{"left":[],"right":[],"center":[]},"1003":{"left":[],"right":[],"center":[]},"1004":{"left":[],"right":[],"center":[]}},"auToBones":{"25":[{"node":"CC_Base_JawRoot","channel":"rz","scale":1,"maxDegrees":20}],"26":[{"node":"CC_Base_JawRoot","channel":"rz","scale":1,"maxDegrees":30}],"27":[{"node":"CC_Base_JawRoot","channel":"rz","scale":1,"maxDegrees":35}],"30":[{"node":"CC_Base_JawRoot","channel":"ry","scale":-1,"maxDegrees":15}],"35":[{"node":"CC_Base_JawRoot","channel":"ry","scale":1,"maxDegrees":15}],"37":[{"node":"CC_Base_Tongue01","channel":"rz","scale":1,"maxDegrees":20}],"38":[{"node":"CC_Base_Tongue01","channel":"rz","scale":-1,"maxDegrees":20}],"39":[{"node":"CC_Base_Tongue01","channel":"ry","scale":-1,"maxDegrees":20}],"40":[{"node":"CC_Base_Tongue01","channel":"ry","scale":1,"maxDegrees":20}],"41":[{"node":"CC_Base_Tongue01","channel":"rx","scale":-1,"maxDegrees":20}],"42":[{"node":"CC_Base_Tongue01","channel":"rx","scale":1,"maxDegrees":20}],"51":[{"node":"CC_Base_Head","channel":"ry","scale":1,"maxDegrees":60}],"52":[{"node":"CC_Base_Head","channel":"ry","scale":-1,"maxDegrees":60}],"53":[{"node":"CC_Base_Head","channel":"rx","scale":-1,"maxDegrees":30}],"54":[{"node":"CC_Base_Head","channel":"rx","scale":1,"maxDegrees":30}],"55":[{"node":"CC_Base_Head","channel":"rz","scale":-1,"maxDegrees":25}],"56":[{"node":"CC_Base_Head","channel":"rz","scale":1,"maxDegrees":25}],"61":[{"node":"CC_Base_L_Eye","channel":"rz","scale":1,"maxDegrees":25,"side":"left"},{"node":"CC_Base_R_Eye","channel":"rz","scale":1,"maxDegrees":25,"side":"right"}],"62":[{"node":"CC_Base_L_Eye","channel":"rz","scale":-1,"maxDegrees":25,"side":"left"},{"node":"CC_Base_R_Eye","channel":"rz","scale":-1,"maxDegrees":25,"side":"right"}],"63":[{"node":"CC_Base_L_Eye","channel":"rx","scale":-1,"maxDegrees":20,"side":"left"},{"node":"CC_Base_R_Eye","channel":"rx","scale":-1,"maxDegrees":20,"side":"right"}],"64":[{"node":"CC_Base_L_Eye","channel":"rx","scale":1,"maxDegrees":20,"side":"left"},{"node":"CC_Base_R_Eye","channel":"rx","scale":1,"maxDegrees":20,"side":"right"}],"65":[{"node":"CC_Base_L_Eye","channel":"rz","scale":1,"maxDegrees":25,"side":"left"}],"66":[{"node":"CC_Base_L_Eye","channel":"rz","scale":-1,"maxDegrees":25,"side":"left"}],"67":[{"node":"CC_Base_L_Eye","channel":"rx","scale":-1,"maxDegrees":20,"side":"left"}],"68":[{"node":"CC_Base_L_Eye","channel":"rx","scale":1,"maxDegrees":20,"side":"left"}],"69":[{"node":"CC_Base_R_Eye","channel":"rz","scale":1,"maxDegrees":25,"side":"right"}],"70":[{"node":"CC_Base_R_Eye","channel":"rz","scale":-1,"maxDegrees":25,"side":"right"}],"71":[{"node":"CC_Base_R_Eye","channel":"rx","scale":-1,"maxDegrees":20,"side":"right"}],"72":[{"node":"CC_Base_R_Eye","channel":"rx","scale":1,"maxDegrees":20,"side":"right"}],"103":[{"node":"CC_Base_JawRoot","channel":"rz","scale":1,"maxDegrees":30}],"1001":[{"node":"leftLowerArm","channel":"rx","scale":1,"maxDegrees":120,"side":"left"},{"node":"rightLowerArm","channel":"rx","scale":1,"maxDegrees":120,"side":"right"}],"1002":[{"node":"leftLowerLeg","channel":"rx","scale":-1,"maxDegrees":100,"side":"left"},{"node":"rightLowerLeg","channel":"rx","scale":-1,"maxDegrees":100,"side":"right"}],"1003":[{"node":"spine","channel":"ry","scale":-1,"maxDegrees":30}],"1004":[{"node":"spine","channel":"ry","scale":1,"maxDegrees":30}]},"boneNodes":{"EYE_L":"L_Eye","EYE_R":"R_Eye","HEAD":"Head","NECK":"NeckTwist01","NECK_TWIST":"NeckTwist02","JAW":"JawRoot","TONGUE":"Tongue01","SPINE_01":"Spine01","SPINE_02":"Spine02","CLAVICLE_L":"L_Clavicle","CLAVICLE_R":"R_Clavicle","HAND_L":"L_Hand","HAND_R":"R_Hand","FOOT_L":"L_Foot","FOOT_R":"R_Foot","TOEBASE_L":"L_ToeBase","TOEBASE_R":"R_ToeBase","CC_Base_L_Eye":"CC_Base_L_Eye","CC_Base_R_Eye":"CC_Base_R_Eye","CC_Base_Head":"CC_Base_Head","CC_Base_NeckTwist01":"CC_Base_NeckTwist01","CC_Base_NeckTwist02":"CC_Base_NeckTwist02","CC_Base_JawRoot":"CC_Base_JawRoot","CC_Base_Tongue01":"CC_Base_Tongue01","CC_Base_Spine01":"CC_Base_Spine01","CC_Base_Spine02":"CC_Base_Spine02","CC_Base_L_Clavicle":"CC_Base_L_Clavicle","CC_Base_R_Clavicle":"CC_Base_R_Clavicle","CC_Base_L_Hand":"CC_Base_L_Hand","CC_Base_R_Hand":"CC_Base_R_Hand","CC_Base_L_Foot":"CC_Base_L_Foot","CC_Base_R_Foot":"CC_Base_R_Foot","CC_Base_L_ToeBase":"CC_Base_L_ToeBase","CC_Base_R_ToeBase":"CC_Base_R_ToeBase","HIPS":"Hip","UPPER_ARM_L":"L_Upperarm","UPPER_ARM_R":"R_Upperarm","LOWER_ARM_L":"L_Forearm","LOWER_ARM_R":"R_Forearm","UPPER_LEG_L":"L_Thigh","UPPER_LEG_R":"R_Thigh","LOWER_LEG_L":"L_Calf","LOWER_LEG_R":"R_Calf"},"bonePrefix":"CC_Base_","suffixPattern":"_\\d+$|\\.\\d+$","morphToMesh":{"face":["CC_Base_Body"],"viseme":["CC_Base_Body","CC_Base_Body_1"],"eye":["CC_Base_EyeOcclusion","CC_Base_EyeOcclusion_1","CC_Base_EyeOcclusion_2"],"tongue":["CC_Base_Tongue","CC_Base_Tongue_1"],"hair":["Side_part_wavy","Side_part_wavy_1","Side_part_wavy_2"],"body":["CC_Base_Body"]},"auFacePartToMeshCategory":{"Eye":"eye","Eyes":"eye","Eyelids":"eye","Tongue":"tongue","Body":"body"},"mappingSections":[{"id":"Forehead","label":"Forehead","kind":"au","order":0,"meshCategory":"face","facePart":"Forehead"},{"id":"Eyelids","label":"Eyelids","kind":"au","order":1,"meshCategory":"eye","facePart":"Eyelids"},{"id":"Eyes","label":"Eyes","kind":"au","order":2,"meshCategory":"eye","facePart":"Eyes"},{"id":"Cheeks","label":"Cheeks","kind":"au","order":3,"meshCategory":"face","facePart":"Cheeks"},{"id":"Nose","label":"Nose","kind":"au","order":4,"meshCategory":"face","facePart":"Nose"},{"id":"Mouth","label":"Mouth","kind":"au","order":5,"meshCategory":"face","facePart":"Mouth"},{"id":"Chin","label":"Chin","kind":"au","order":6,"meshCategory":"face","facePart":"Chin"},{"id":"Jaw","label":"Jaw","kind":"au","order":7,"meshCategory":"face","facePart":"Jaw"},{"id":"Tongue","label":"Tongue","kind":"au","order":8,"meshCategory":"tongue","facePart":"Tongue"},{"id":"Head","label":"Head","kind":"au","order":9,"meshCategory":"face","facePart":"Head"},{"id":"Joint Controls","label":"Joint Controls","kind":"au","order":10,"meshCategory":"face","facePart":"Joint Controls"},{"id":"Eye","label":"Eye","kind":"au","order":11,"meshCategory":"eye","facePart":"Eye"},{"id":"Hair","label":"Hair","kind":"hair","order":12,"meshCategory":"hair"},{"id":"Visemes","label":"Visemes","kind":"viseme","order":13,"meshCategory":"viseme"},{"id":"LipSync","label":"Lip Sync","kind":"lipSync","order":14,"meshCategory":"face"},{"id":"Unmapped","label":"Unmapped","kind":"unmapped","order":15,"meshCategory":"face"}],"visemeKeys":["AE","Ah","B_M_P","Ch_J","EE","Er","F_V","Ih","K_G_H_NG","Oh","R","S_Z","T_L_D_N","Th","W_OO"],"visemeSystemId":"cc4-arkit-15","visemeSlots":[{"id":"ae","label":"AE","order":0,"providerIds":{"azure":[4],"sapi":[4]},"phonemes":["AE","EH","EY","UH"],"matchers":["(^|[_ .-])(v|viseme)?[_ .-]?(ae|eh|ey)([_ .-]|$)"],"features":{"jawOpen":0.75,"lipSpread":0.35},"defaultJawAmount":0.75},{"id":"ah","label":"Ah","order":1,"providerIds":{"azure":[1,2,9,11,12],"sapi":[1,2,9,11,12]},"phonemes":["AA","AE","AH","AX","AW","AY","HH"],"matchers":["(^|[_ .-])(v|viseme)?[_ .-]?(ah|aa|aah|open)([_ .-]|$)"],"features":{"jawOpen":0.8},"defaultJawAmount":0.8},{"id":"b-m-p","label":"B_M_P","order":2,"providerIds":{"azure":[0,21],"sapi":[0,21]},"phonemes":["B","M","P"],"matchers":["(^|[_ .-])(v|viseme)?[_ .-]?(b[_ .-]?m[_ .-]?p|bmp|closed|sil|rest)([_ .-]|$)"],"features":{"jawOpen":0,"lipClosed":1},"defaultJawAmount":0},{"id":"ch-j","label":"Ch_J","order":3,"providerIds":{"azure":[16],"sapi":[16]},"phonemes":["CH","JH","SH","ZH"],"matchers":["(^|[_ .-])(v|viseme)?[_ .-]?(ch|j|sh|zh)([_ .-]|$)"],"features":{"jawOpen":0.3,"fricative":0.6},"defaultJawAmount":0.3},{"id":"ee","label":"EE","order":4,"providerIds":{"azure":[6],"sapi":[6]},"phonemes":["IY","IH","IX","Y"],"matchers":["(^|[_ .-])(v|viseme)?[_ .-]?(ee|iy|y)([_ .-]|$)"],"features":{"jawOpen":0.2,"lipSpread":0.8},"defaultJawAmount":0.2},{"id":"er","label":"Er","order":5,"providerIds":{"azure":[5],"sapi":[5]},"phonemes":["ER"],"matchers":["(^|[_ .-])(v|viseme)?[_ .-]?(er)([_ .-]|$)"],"features":{"jawOpen":0.35,"lipRound":0.35},"defaultJawAmount":0.35},{"id":"f-v","label":"F_V","order":6,"providerIds":{"azure":[18],"sapi":[18]},"phonemes":["F","V"],"matchers":["(^|[_ .-])(v|viseme)?[_ .-]?(f[_ .-]?v|fv)([_ .-]|$)"],"features":{"jawOpen":0.1,"fricative":1},"defaultJawAmount":0.1},{"id":"ih","label":"Ih","order":7,"providerIds":{"azure":[6],"sapi":[6]},"phonemes":["IH","IX"],"matchers":["(^|[_ .-])(v|viseme)?[_ .-]?(ih|ix)([_ .-]|$)"],"features":{"jawOpen":0.2,"lipSpread":0.55},"defaultJawAmount":0.2},{"id":"k-g-h-ng","label":"K_G_H_NG","order":8,"providerIds":{"azure":[20],"sapi":[20]},"phonemes":["K","G","NG"],"matchers":["(^|[_ .-])(v|viseme)?[_ .-]?(k[_ .-]?g[_ .-]?h?[_ .-]?ng|kg|ng)([_ .-]|$)"],"features":{"jawOpen":0.35},"defaultJawAmount":0.35},{"id":"oh","label":"Oh","order":9,"providerIds":{"azure":[3,8,10],"sapi":[3,8,10]},"phonemes":["AO","OW","OY"],"matchers":["(^|[_ .-])(v|viseme)?[_ .-]?(oh|ao|ow|oy)([_ .-]|$)"],"features":{"jawOpen":0.6,"lipRound":0.8},"defaultJawAmount":0.6},{"id":"r","label":"R","order":10,"providerIds":{"azure":[13],"sapi":[13]},"phonemes":["R"],"matchers":["(^|[_ .-])(v|viseme)[_ .-]?r([_ .-]|$)","(^|[_ .-])r[_ .-]?(sound|viseme)([_ .-]|$)"],"features":{"jawOpen":0.35,"lipRound":0.5},"defaultJawAmount":0.35},{"id":"s-z","label":"S_Z","order":11,"providerIds":{"azure":[15],"sapi":[15]},"phonemes":["S","Z"],"matchers":["(^|[_ .-])(v|viseme)?[_ .-]?(s[_ .-]?z|sz)([_ .-]|$)"],"features":{"jawOpen":0.1,"fricative":1},"defaultJawAmount":0.1},{"id":"t-l-d-n","label":"T_L_D_N","order":12,"providerIds":{"azure":[14,19],"sapi":[14,19]},"phonemes":["T","L","D","N"],"matchers":["(^|[_ .-])(v|viseme)?[_ .-]?(t[_ .-]?l[_ .-]?d[_ .-]?n|tldn)([_ .-]|$)","(^|[_ .-])(v|viseme)[_ .-]?l([_ .-]|$)"],"features":{"jawOpen":0.3,"tongueTip":1},"defaultJawAmount":0.3},{"id":"th","label":"Th","order":13,"providerIds":{"azure":[17],"sapi":[17]},"phonemes":["TH","DH"],"matchers":["(^|[_ .-])(v|viseme)?[_ .-]?(th|dh)([_ .-]|$)"],"features":{"jawOpen":0.15,"tongueTip":0.8,"fricative":0.8},"defaultJawAmount":0.15},{"id":"w-oo","label":"W_OO","order":14,"providerIds":{"azure":[7],"sapi":[7]},"phonemes":["W","UW"],"matchers":["(^|[_ .-])(v|viseme)?[_ .-]?(w[_ .-]?oo|woo|uw|oo)([_ .-]|$)"],"features":{"jawOpen":0.5,"lipRound":1},"defaultJawAmount":0.5}],"visemeMeshCategory":"viseme","visemeJawAmounts":[0.75,0.8,0,0.3,0.2,0.35,0.1,0.2,0.35,0.6,0.35,0.1,0.3,0.15,0.5],"visemeTongueTargets":[{},{},{},{"37":0.22,"73":0.3,"76":0.24},{},{},{},{},{"38":0.26,"73":0.2,"77":0.2},{},{"73":0.16,"77":0.1},{"37":0.12,"73":0.36,"76":0.18},{"37":0.42,"76":0.44},{"37":0.4,"74":0.18,"76":0.52},{}],"auMixDefaults":{"25":0.5,"26":0.5,"27":0.5,"30":0.5,"31":0.7,"32":0.7,"33":0.7,"35":0.5,"53":0.7,"54":0.7,"55":0.7,"56":0.7,"61":0.5,"62":0.5,"63":0.5,"64":0.5},"auInfo":{"1":{"id":"1","name":"Inner Brow Raiser","muscularBasis":"frontalis (pars medialis)","links":["https://en.wikipedia.org/wiki/Frontalis_muscle"],"faceArea":"Upper","facePart":"Forehead"},"2":{"id":"2","name":"Outer Brow Raiser","muscularBasis":"frontalis (pars lateralis)","links":["https://en.wikipedia.org/wiki/Frontalis_muscle"],"faceArea":"Upper","facePart":"Forehead"},"4":{"id":"4","name":"Brow Lowerer","muscularBasis":"corrugator/depressor supercilii","links":["https://en.wikipedia.org/wiki/Corrugator_supercilii"],"faceArea":"Upper","facePart":"Forehead"},"5":{"id":"5","name":"Upper Lid Raiser","muscularBasis":"levator palpebrae superioris","links":["https://en.wikipedia.org/wiki/Levator_palpebrae_superioris"],"faceArea":"Upper","facePart":"Eyelids"},"6":{"id":"6","name":"Cheek Raiser","muscularBasis":"orbicularis oculi (pars orbitalis)","links":["https://en.wikipedia.org/wiki/Orbicularis_oculi"],"faceArea":"Upper","facePart":"Cheeks"},"7":{"id":"7","name":"Lid Tightener","muscularBasis":"orbicularis oculi (pars palpebralis)","links":["https://en.wikipedia.org/wiki/Orbicularis_oculi"],"faceArea":"Upper","facePart":"Eyelids"},"8":{"id":"8","name":"Lips Toward Each Other","muscularBasis":"orbicularis oris","links":["https://en.wikipedia.org/wiki/Orbicularis_oris"],"faceArea":"Lower","facePart":"Mouth"},"9":{"id":"9","name":"Nose Wrinkler","muscularBasis":"levator labii superioris alaeque nasi","links":["https://en.wikipedia.org/wiki/Levator_labii_superioris_alaeque_nasi"],"faceArea":"Upper","facePart":"Nose"},"10":{"id":"10","name":"Upper Lip Raiser","muscularBasis":"levator labii superioris","links":["https://en.wikipedia.org/wiki/Levator_labii_superioris"],"faceArea":"Lower","facePart":"Mouth"},"11":{"id":"11","name":"Nasolabial Deepener","muscularBasis":"zygomaticus minor","links":["https://en.wikipedia.org/wiki/Zygomaticus_minor"],"faceArea":"Lower","facePart":"Cheeks"},"12":{"id":"12","name":"Lip Corner Puller","muscularBasis":"zygomaticus major","links":["https://en.wikipedia.org/wiki/Zygomaticus_major"],"faceArea":"Lower","facePart":"Mouth"},"13":{"id":"13","name":"Sharp Lip Puller","muscularBasis":"levator anguli oris","links":["https://en.wikipedia.org/wiki/Levator_anguli_oris"],"faceArea":"Lower","facePart":"Mouth"},"14":{"id":"14","name":"Dimpler","muscularBasis":"buccinator","links":["https://en.wikipedia.org/wiki/Buccinator"],"faceArea":"Lower","facePart":"Cheeks"},"15":{"id":"15","name":"Lip Corner Depressor","muscularBasis":"depressor anguli oris","links":["https://en.wikipedia.org/wiki/Depressor_anguli_oris"],"faceArea":"Lower","facePart":"Mouth"},"16":{"id":"16","name":"Lower Lip Depressor","muscularBasis":"depressor labii inferioris","links":["https://en.wikipedia.org/wiki/Depressor_labii_inferioris"],"faceArea":"Lower","facePart":"Mouth"},"17":{"id":"17","name":"Chin Raiser","muscularBasis":"mentalis","links":["https://en.wikipedia.org/wiki/Mentalis"],"faceArea":"Lower","facePart":"Chin"},"18":{"id":"18","name":"Lip Pucker","faceArea":"Lower","facePart":"Mouth"},"19":{"id":"19","name":"Tongue Show","faceArea":"Lower","facePart":"Tongue"},"20":{"id":"20","name":"Lip Stretcher","muscularBasis":"risorius + platysma","links":["https://en.wikipedia.org/wiki/Risorius","https://en.wikipedia.org/wiki/Platysma"],"faceArea":"Lower","facePart":"Mouth"},"22":{"id":"22","name":"Lip Funneler","muscularBasis":"orbicularis oris","links":["https://en.wikipedia.org/wiki/Orbicularis_oris"],"faceArea":"Lower","facePart":"Mouth"},"23":{"id":"23","name":"Lip Tightener","muscularBasis":"orbicularis oris","faceArea":"Lower","facePart":"Mouth"},"24":{"id":"24","name":"Lip Presser","muscularBasis":"orbicularis oris","faceArea":"Lower","facePart":"Mouth"},"25":{"id":"25","name":"Lips Part","faceArea":"Lower","facePart":"Mouth"},"26":{"id":"26","name":"Jaw Drop","muscularBasis":"masseter (relax temporalis)","links":["https://en.wikipedia.org/wiki/Masseter_muscle"],"faceArea":"Lower","facePart":"Jaw"},"27":{"id":"27","name":"Mouth Stretch","muscularBasis":"pterygoids + digastric","links":["https://en.wikipedia.org/wiki/Pterygoid_bone","https://en.wikipedia.org/wiki/Digastric_muscle"],"faceArea":"Lower","facePart":"Mouth"},"28":{"id":"28","name":"Lip Suck","muscularBasis":"orbicularis oris","faceArea":"Lower","facePart":"Mouth"},"29":{"id":"29","name":"Jaw Thrust","faceArea":"Lower","facePart":"Jaw"},"30":{"id":"30","name":"Jaw Left","faceArea":"Lower","facePart":"Jaw"},"31":{"id":"31","name":"Jaw Clencher","muscularBasis":"masseter + temporalis","faceArea":"Lower","facePart":"Jaw"},"32":{"id":"32","name":"Lip Bite","muscularBasis":"orbicularis oris","faceArea":"Lower","facePart":"Mouth"},"34":{"id":"34","name":"Cheek Puff","faceArea":"Lower","facePart":"Cheeks"},"35":{"id":"35","name":"Jaw Right","faceArea":"Lower","facePart":"Jaw"},"36":{"id":"36","name":"Tongue Bulge","faceArea":"Lower","facePart":"Tongue"},"37":{"id":"37","name":"Tongue Up","faceArea":"Lower","facePart":"Tongue"},"38":{"id":"38","name":"Tongue Down","faceArea":"Lower","facePart":"Tongue"},"39":{"id":"39","name":"Tongue Left","faceArea":"Lower","facePart":"Tongue"},"40":{"id":"40","name":"Tongue Right","faceArea":"Lower","facePart":"Tongue"},"41":{"id":"41","name":"Tongue Tilt Left","faceArea":"Lower","facePart":"Tongue"},"42":{"id":"42","name":"Tongue Tilt Right","faceArea":"Lower","facePart":"Tongue"},"43":{"id":"43","name":"Eyes Closed","muscularBasis":"orbicularis oculi","links":["https://en.wikipedia.org/wiki/Orbicularis_oculi_muscle"],"faceArea":"Upper","facePart":"Eyelids"},"45":{"id":"45","name":"Blink","muscularBasis":"orbicularis oculi","links":["https://en.wikipedia.org/wiki/Orbicularis_oculi_muscle"],"faceArea":"Upper","facePart":"Eyelids"},"51":{"id":"51","name":"Head Turn Left","faceArea":"Upper","facePart":"Head"},"52":{"id":"52","name":"Head Turn Right","faceArea":"Upper","facePart":"Head"},"53":{"id":"53","name":"Head Up","faceArea":"Upper","facePart":"Head"},"54":{"id":"54","name":"Head Down","faceArea":"Upper","facePart":"Head"},"55":{"id":"55","name":"Head Tilt Left","faceArea":"Upper","facePart":"Head"},"56":{"id":"56","name":"Head Tilt Right","faceArea":"Upper","facePart":"Head"},"61":{"id":"61","name":"Eyes Turn Left","faceArea":"Upper","facePart":"Eyes"},"62":{"id":"62","name":"Eyes Turn Right","faceArea":"Upper","facePart":"Eyes"},"63":{"id":"63","name":"Eyes Up","faceArea":"Upper","facePart":"Eyes"},"64":{"id":"64","name":"Eyes Down","faceArea":"Upper","facePart":"Eyes"},"65":{"id":"65","name":"Left Eye Look Left","faceArea":"Upper","facePart":"Eyes"},"66":{"id":"66","name":"Left Eye Look Right","faceArea":"Upper","facePart":"Eyes"},"67":{"id":"67","name":"Left Eye Look Up","faceArea":"Upper","facePart":"Eyes"},"68":{"id":"68","name":"Left Eye Look Down","faceArea":"Upper","facePart":"Eyes"},"69":{"id":"69","name":"Right Eye Look Left","faceArea":"Upper","facePart":"Eyes"},"70":{"id":"70","name":"Right Eye Look Right","faceArea":"Upper","facePart":"Eyes"},"71":{"id":"71","name":"Right Eye Look Up","faceArea":"Upper","facePart":"Eyes"},"72":{"id":"72","name":"Right Eye Look Down","faceArea":"Upper","facePart":"Eyes"},"73":{"id":"73","name":"Tongue Narrow","faceArea":"Lower","facePart":"Tongue"},"74":{"id":"74","name":"Tongue Wide","faceArea":"Lower","facePart":"Tongue"},"75":{"id":"75","name":"Tongue Roll","faceArea":"Lower","facePart":"Tongue"},"76":{"id":"76","name":"Tongue Tip Up","faceArea":"Lower","facePart":"Tongue"},"77":{"id":"77","name":"Tongue Tip Down","faceArea":"Lower","facePart":"Tongue"},"80":{"id":"80","name":"Eye Bulge","faceArea":"Upper","facePart":"Eye"},"81":{"id":"81","name":"Eye Depth","faceArea":"Upper","facePart":"Eye"},"82":{"id":"82","name":"Eye Inner Depth","faceArea":"Upper","facePart":"Eye"},"83":{"id":"83","name":"Eye Inner Height","faceArea":"Upper","facePart":"Eye"},"84":{"id":"84","name":"Eye Inner Width","faceArea":"Upper","facePart":"Eye"},"85":{"id":"85","name":"Eye Outer Depth","faceArea":"Upper","facePart":"Eye"},"86":{"id":"86","name":"Eye Outer Height","faceArea":"Upper","facePart":"Eye"},"87":{"id":"87","name":"Eye Outer Width","faceArea":"Upper","facePart":"Eye"},"88":{"id":"88","name":"Eye Upper Depth","faceArea":"Upper","facePart":"Eye"},"89":{"id":"89","name":"Eye Lower Depth","faceArea":"Upper","facePart":"Eye"},"90":{"id":"90","name":"Eye Center Upper Depth","faceArea":"Upper","facePart":"Eye"},"91":{"id":"91","name":"Eye Center Upper Height","faceArea":"Upper","facePart":"Eye"},"92":{"id":"92","name":"Eye Center Lower Depth","faceArea":"Upper","facePart":"Eye"},"93":{"id":"93","name":"Eye Center Lower Height","faceArea":"Upper","facePart":"Eye"},"94":{"id":"94","name":"Eye Inner Upper Depth","faceArea":"Upper","facePart":"Eye"},"95":{"id":"95","name":"Eye Inner Upper Height","faceArea":"Upper","facePart":"Eye"},"96":{"id":"96","name":"Eye Inner Lower Depth","faceArea":"Upper","facePart":"Eye"},"97":{"id":"97","name":"Eye Inner Lower Height","faceArea":"Upper","facePart":"Eye"},"98":{"id":"98","name":"Eye Outer Upper Depth","faceArea":"Upper","facePart":"Eye"},"99":{"id":"99","name":"Eye Outer Upper Height","faceArea":"Upper","facePart":"Eye"},"100":{"id":"100","name":"Eye Outer Lower Depth","faceArea":"Upper","facePart":"Eye"},"101":{"id":"101","name":"Eye Outer Lower Height","faceArea":"Upper","facePart":"Eye"},"102":{"id":"102","name":"Eye Duct Depth","faceArea":"Upper","facePart":"Eye"},"1001":{"id":"1001","name":"Elbow flex / biceps","faceArea":"Body","facePart":"Body"},"1002":{"id":"1002","name":"Knee bend","faceArea":"Body","facePart":"Body"},"1003":{"id":"1003","name":"Torso twist left","faceArea":"Body","facePart":"Body"},"1004":{"id":"1004","name":"Torso twist right","faceArea":"Body","facePart":"Body"}},"eyeMeshNodes":{"LEFT":"CC_Base_Eye","RIGHT":"CC_Base_Eye_1"},"meshes":{"CC_Base_Body_1":{"category":"body","morphCount":80},"CC_Base_Body_2":{"category":"body","morphCount":80},"CC_Base_Body_3":{"category":"body","morphCount":80},"CC_Base_Body_4":{"category":"body","morphCount":80},"CC_Base_Body_5":{"category":"body","morphCount":80},"CC_Base_Body_6":{"category":"body","morphCount":80},"CC_Base_Eye":{"category":"eye","morphCount":0,"material":{"renderOrder":-10}},"CC_Base_Eye_1":{"category":"eye","morphCount":0,"material":{"renderOrder":-10}},"CC_Base_Eye_2":{"category":"eye","morphCount":0,"material":{"renderOrder":-10}},"CC_Base_Eye_3":{"category":"eye","morphCount":0,"material":{"renderOrder":-10}},"CC_Base_Eye_4":{"category":"eye","morphCount":0,"material":{"renderOrder":-10}},"CC_Base_EyeOcclusion_1":{"category":"eyeOcclusion","morphCount":94,"material":{"renderOrder":2,"transparent":true,"opacity":1,"depthWrite":true,"depthTest":true,"blending":"Normal"}},"CC_Base_EyeOcclusion_2":{"category":"eyeOcclusion","morphCount":94,"material":{"renderOrder":2,"transparent":true,"opacity":1,"depthWrite":true,"depthTest":true,"blending":"Normal"}},"CC_Base_TearLine_1":{"category":"tearLine","morphCount":90,"material":{"renderOrder":2}},"CC_Base_TearLine_2":{"category":"tearLine","morphCount":90,"material":{"renderOrder":2}},"CC_Base_Cornea":{"category":"cornea","morphCount":0,"material":{"renderOrder":-10}},"CC_Base_Cornea_1":{"category":"cornea","morphCount":0,"material":{"renderOrder":-10}},"CC_Base_Teeth_1":{"category":"teeth","morphCount":0},"CC_Base_Teeth_2":{"category":"teeth","morphCount":0},"CC_Base_Tongue":{"category":"tongue","morphCount":23},"Male_Bushy_1":{"category":"eyebrow","morphCount":91,"material":{"renderOrder":5}},"Male_Bushy_2":{"category":"eyebrow","morphCount":91,"material":{"renderOrder":5}},"Side_part_wavy_1":{"category":"hair","morphCount":14,"material":{"renderOrder":10}},"Side_part_wavy_2":{"category":"hair","morphCount":14,"material":{"renderOrder":10}}},"continuumPairs":{"30":{"pairId":35,"isNegative":true,"axis":"yaw","node":"CC_Base_JawRoot"},"35":{"pairId":30,"isNegative":false,"axis":"yaw","node":"CC_Base_JawRoot"},"37":{"pairId":38,"isNegative":false,"axis":"pitch","node":"CC_Base_Tongue01"},"38":{"pairId":37,"isNegative":true,"axis":"pitch","node":"CC_Base_Tongue01"},"39":{"pairId":40,"isNegative":true,"axis":"yaw","node":"CC_Base_Tongue01"},"40":{"pairId":39,"isNegative":false,"axis":"yaw","node":"CC_Base_Tongue01"},"41":{"pairId":42,"isNegative":true,"axis":"roll","node":"CC_Base_Tongue01"},"42":{"pairId":41,"isNegative":false,"axis":"roll","node":"CC_Base_Tongue01"},"51":{"pairId":52,"isNegative":true,"axis":"yaw","node":"CC_Base_Head"},"52":{"pairId":51,"isNegative":false,"axis":"yaw","node":"CC_Base_Head"},"53":{"pairId":54,"isNegative":false,"axis":"pitch","node":"CC_Base_Head"},"54":{"pairId":53,"isNegative":true,"axis":"pitch","node":"CC_Base_Head"},"55":{"pairId":56,"isNegative":true,"axis":"roll","node":"CC_Base_Head"},"56":{"pairId":55,"isNegative":false,"axis":"roll","node":"CC_Base_Head"},"61":{"pairId":62,"isNegative":true,"axis":"yaw","node":"CC_Base_L_Eye"},"62":{"pairId":61,"isNegative":false,"axis":"yaw","node":"CC_Base_L_Eye"},"63":{"pairId":64,"isNegative":false,"axis":"pitch","node":"CC_Base_L_Eye"},"64":{"pairId":63,"isNegative":true,"axis":"pitch","node":"CC_Base_L_Eye"},"65":{"pairId":66,"isNegative":true,"axis":"yaw","node":"CC_Base_L_Eye"},"66":{"pairId":65,"isNegative":false,"axis":"yaw","node":"CC_Base_L_Eye"},"67":{"pairId":68,"isNegative":false,"axis":"pitch","node":"CC_Base_L_Eye"},"68":{"pairId":67,"isNegative":true,"axis":"pitch","node":"CC_Base_L_Eye"},"69":{"pairId":70,"isNegative":true,"axis":"yaw","node":"CC_Base_R_Eye"},"70":{"pairId":69,"isNegative":false,"axis":"yaw","node":"CC_Base_R_Eye"},"71":{"pairId":72,"isNegative":false,"axis":"pitch","node":"CC_Base_R_Eye"},"72":{"pairId":71,"isNegative":true,"axis":"pitch","node":"CC_Base_R_Eye"},"73":{"pairId":74,"isNegative":true,"axis":"yaw","node":"CC_Base_Tongue01"},"74":{"pairId":73,"isNegative":false,"axis":"yaw","node":"CC_Base_Tongue01"},"76":{"pairId":77,"isNegative":false,"axis":"pitch","node":"CC_Base_Tongue01"},"77":{"pairId":76,"isNegative":true,"axis":"pitch","node":"CC_Base_Tongue01"},"1003":{"pairId":1004,"isNegative":true,"axis":"yaw","node":"spine"},"1004":{"pairId":1003,"isNegative":false,"axis":"yaw","node":"spine"}},"continuumLabels":{"1003":"Twist left","1004":"Twist right","61-62":"Eyes — Horizontal","64-63":"Eyes — Vertical","65-66":"Left Eye — Horizontal","68-67":"Left Eye — Vertical","69-70":"Right Eye — Horizontal","72-71":"Right Eye — Vertical","51-52":"Head — Horizontal","54-53":"Head — Vertical","55-56":"Head — Tilt","30-35":"Jaw — Horizontal","38-37":"Tongue — Vertical","39-40":"Tongue — Horizontal","41-42":"Tongue — Tilt","73-74":"Tongue — Width","76-77":"Tongue Tip — Vertical"},"hairPhysics":{"stiffness":7.5,"damping":0.18,"inertia":3.5,"gravity":12,"responseScale":2.5,"idleSwayAmount":0.12,"idleSwaySpeed":1,"windStrength":0,"windDirectionX":1,"windDirectionZ":0,"windTurbulence":0.3,"windFrequency":1.4,"idleClipDuration":10,"impulseClipDuration":1.4,"direction":{"yawSign":-1,"pitchSign":-1},"morphTargets":{"swayLeft":{"key":"L_Hair_Left","axis":"yaw"},"swayRight":{"key":"L_Hair_Right","axis":"yaw"},"swayFront":{"key":"L_Hair_Front","axis":"pitch"},"fluffRight":{"key":"Fluffy_Right","axis":"yaw"},"fluffBottom":{"key":"Fluffy_Bottom_ALL","axis":"pitch"},"headUp":{"Hairline_High_ALL":{"value":0.45,"axis":"pitch"},"Length_Short":{"value":0.65,"axis":"pitch"}},"headDown":{"L_Hair_Front":{"value":2,"axis":"pitch"},"Fluffy_Bottom_ALL":{"value":1,"axis":"pitch"}}}},"annotationRegions":[{"name":"full_body","objects":["*"],"paddingFactor":2},{"name":"head","bones":["HEAD","JAW"],"paddingFactor":1.5,"children":["face","left_eye","right_eye","mouth"],"expandAnimation":"staggered"},{"name":"face","bones":["HEAD"],"paddingFactor":1.3,"parent":"head"},{"name":"left_eye","bones":["EYE_L"],"paddingFactor":0.9,"parent":"head"},{"name":"right_eye","bones":["EYE_R"],"paddingFactor":0.9,"parent":"head"},{"name":"mouth","bones":["JAW"],"paddingFactor":1.5,"parent":"head"},{"name":"upper_body","bones":["SPINE_02","HEAD","CLAVICLE_L","CLAVICLE_R"],"paddingFactor":1.6},{"name":"back","bones":["SPINE_01","SPINE_02"],"paddingFactor":1.8,"cameraAngle":180},{"name":"left_hand","bones":["HAND_L"],"paddingFactor":1.3,"cameraAngle":270},{"name":"right_hand","bones":["HAND_R"],"paddingFactor":1.3,"cameraAngle":90},{"name":"left_foot","bones":["FOOT_L","TOEBASE_L"],"paddingFactor":2.5,"cameraAngle":270},{"name":"right_foot","bones":["FOOT_R","TOEBASE_R"],"paddingFactor":2.5,"cameraAngle":90}],"compositeRotations":[{"node":"JAW","pitch":{"aus":[25,26,27],"axis":"rz"},"yaw":{"aus":[30,35],"axis":"ry","negative":30,"positive":35},"roll":null},{"node":"HEAD","pitch":{"aus":[54,53],"axis":"rx","negative":54,"positive":53},"yaw":{"aus":[51,52],"axis":"ry","negative":51,"positive":52},"roll":{"aus":[55,56],"axis":"rz","negative":55,"positive":56}},{"node":"EYE_L","pitch":{"aus":[64,63,68,67],"axis":"rx","negative":[64,68],"positive":[63,67]},"yaw":{"aus":[61,62,65,66],"axis":"rz","negative":[61,65],"positive":[62,66]},"roll":null},{"node":"EYE_R","pitch":{"aus":[64,63,72,71],"axis":"rx","negative":[64,72],"positive":[63,71]},"yaw":{"aus":[61,62,69,70],"axis":"rz","negative":[61,69],"positive":[62,70]},"roll":null},{"node":"TONGUE","pitch":{"aus":[38,37],"axis":"rz","negative":38,"positive":37},"yaw":{"aus":[39,40],"axis":"ry","negative":39,"positive":40},"roll":{"aus":[41,42],"axis":"rx","negative":41,"positive":42}},{"node":"leftLowerArm","pitch":{"aus":[1001],"axis":"rx"}},{"node":"rightLowerArm","pitch":{"aus":[1001],"axis":"rx"}},{"node":"leftLowerLeg","pitch":{"aus":[1002],"axis":"rx"}},{"node":"rightLowerLeg","pitch":{"aus":[1002],"axis":"rx"}},{"node":"spine","yaw":{"aus":[1003,1004],"negative":1003,"positive":1004,"axis":"ry"}}],"humanoidCharacterization":{"schemaVersion":1,"standard":"VRMC_vrm-1.0","status":"characterized","roles":{"hips":{"nodeKey":"HIPS","source":"cc4-preset"},"spine":{"nodeKey":"SPINE_01","source":"cc4-preset"},"chest":{"nodeKey":"SPINE_02","source":"cc4-preset"},"neck":{"nodeKey":"NECK","source":"cc4-preset"},"head":{"nodeKey":"HEAD","source":"cc4-preset"},"leftUpperArm":{"nodeKey":"UPPER_ARM_L","source":"cc4-preset"},"leftLowerArm":{"nodeKey":"LOWER_ARM_L","source":"cc4-preset"},"leftHand":{"nodeKey":"HAND_L","source":"cc4-preset"},"rightUpperArm":{"nodeKey":"UPPER_ARM_R","source":"cc4-preset"},"rightLowerArm":{"nodeKey":"LOWER_ARM_R","source":"cc4-preset"},"rightHand":{"nodeKey":"HAND_R","source":"cc4-preset"},"leftUpperLeg":{"nodeKey":"UPPER_LEG_L","source":"cc4-preset"},"leftLowerLeg":{"nodeKey":"LOWER_LEG_L","source":"cc4-preset"},"leftFoot":{"nodeKey":"FOOT_L","source":"cc4-preset"},"rightUpperLeg":{"nodeKey":"UPPER_LEG_R","source":"cc4-preset"},"rightLowerLeg":{"nodeKey":"LOWER_LEG_R","source":"cc4-preset"},"rightFoot":{"nodeKey":"FOOT_R","source":"cc4-preset"}}},"bodyControls":{"body.elbowFlex":{"label":"Elbow flex / biceps","section":"Arms","auId":1001,"bilateral":true,"roles":["leftLowerArm","rightLowerArm"],"order":10},"body.kneeBend":{"label":"Knee bend","section":"Legs","auId":1002,"bilateral":true,"roles":["leftLowerLeg","rightLowerLeg"],"order":20},"body.torsoTwist":{"label":"Torso twist","section":"Torso","auId":1004,"negativeAuId":1003,"bilateral":false,"roles":["spine"],"order":30}},"bodyControlCalibration":{"source":"LoomLarge/loomlarge_lol/public/characters/jonathan_bust.glb","basis":"Local rotations after reference quaternion: forearm +X moves hands toward model +Z; calf -X moves feet toward -Z; spine Y is vertical.","limits":"Authored demonstration ranges. Recalibrate axes and ranges for other rigs.","morphs":"Optional authored per-side bicep targets; profile auToMorphs may also bind existing center skin/clothing morphs."},
+{
+  "name": "Character Creator 4",
+  "animalType": "human",
+  "auToMorphs": {
+    "1": {
+      "left": [
+        "Brow_Raise_Inner_L"
+      ],
+      "right": [
+        "Brow_Raise_Inner_R"
+      ],
+      "center": []
+    },
+    "2": {
+      "left": [
+        "Brow_Raise_Outer_L"
+      ],
+      "right": [
+        "Brow_Raise_Outer_R"
+      ],
+      "center": []
+    },
+    "4": {
+      "left": [
+        "Brow_Drop_L"
+      ],
+      "right": [
+        "Brow_Drop_R"
+      ],
+      "center": []
+    },
+    "5": {
+      "left": [
+        "Eye_Wide_L"
+      ],
+      "right": [
+        "Eye_Wide_R"
+      ],
+      "center": []
+    },
+    "6": {
+      "left": [
+        "Cheek_Raise_L"
+      ],
+      "right": [
+        "Cheek_Raise_R"
+      ],
+      "center": []
+    },
+    "7": {
+      "left": [
+        "Eye_Squint_L"
+      ],
+      "right": [
+        "Eye_Squint_R"
+      ],
+      "center": []
+    },
+    "8": {
+      "left": [
+        "Mouth_Press_L"
+      ],
+      "right": [
+        "Mouth_Press_R"
+      ],
+      "center": [
+        "Mouth_Close"
+      ]
+    },
+    "9": {
+      "left": [
+        "Nose_Sneer_L"
+      ],
+      "right": [
+        "Nose_Sneer_R"
+      ],
+      "center": []
+    },
+    "10": {
+      "left": [
+        "Mouth_Up_Upper_L"
+      ],
+      "right": [
+        "Mouth_Up_Upper_R"
+      ],
+      "center": []
+    },
+    "11": {
+      "left": [
+        "Mouth_Up_Upper_L"
+      ],
+      "right": [
+        "Mouth_Up_Upper_R"
+      ],
+      "center": []
+    },
+    "12": {
+      "left": [
+        "Mouth_Smile_L"
+      ],
+      "right": [
+        "Mouth_Smile_R"
+      ],
+      "center": []
+    },
+    "13": {
+      "left": [
+        "Mouth_Smile_L",
+        "Mouth_Up_Upper_L"
+      ],
+      "right": [
+        "Mouth_Smile_R",
+        "Mouth_Up_Upper_R"
+      ],
+      "center": []
+    },
+    "14": {
+      "left": [
+        "Mouth_Dimple_L"
+      ],
+      "right": [
+        "Mouth_Dimple_R"
+      ],
+      "center": []
+    },
+    "15": {
+      "left": [
+        "Mouth_Frown_L"
+      ],
+      "right": [
+        "Mouth_Frown_R"
+      ],
+      "center": []
+    },
+    "16": {
+      "left": [
+        "Mouth_Down_Lower_L"
+      ],
+      "right": [
+        "Mouth_Down_Lower_R"
+      ],
+      "center": []
+    },
+    "17": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Mouth_Shrug_Lower"
+      ]
+    },
+    "18": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Mouth_Pucker"
+      ]
+    },
+    "19": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Tongue_Out"
+      ]
+    },
+    "20": {
+      "left": [
+        "Mouth_Stretch_L"
+      ],
+      "right": [
+        "Mouth_Stretch_R"
+      ],
+      "center": []
+    },
+    "22": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Mouth_Funnel"
+      ]
+    },
+    "23": {
+      "left": [
+        "Mouth_Press_L"
+      ],
+      "right": [
+        "Mouth_Press_R"
+      ],
+      "center": []
+    },
+    "24": {
+      "left": [
+        "Mouth_Press_L"
+      ],
+      "right": [
+        "Mouth_Press_R"
+      ],
+      "center": []
+    },
+    "25": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Jaw_Open"
+      ]
+    },
+    "26": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Jaw_Open"
+      ]
+    },
+    "27": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Jaw_Open"
+      ]
+    },
+    "28": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Mouth_Roll_In_Upper",
+        "Mouth_Roll_In_Lower"
+      ]
+    },
+    "29": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Jaw_Forward"
+      ]
+    },
+    "30": {
+      "left": [
+        "Jaw_L"
+      ],
+      "right": [],
+      "center": []
+    },
+    "31": {
+      "left": [],
+      "right": [],
+      "center": []
+    },
+    "32": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Mouth_Roll_In_Lower"
+      ]
+    },
+    "34": {
+      "left": [
+        "Cheek_Puff_L"
+      ],
+      "right": [
+        "Cheek_Puff_R"
+      ],
+      "center": []
+    },
+    "35": {
+      "left": [],
+      "right": [
+        "Jaw_R"
+      ],
+      "center": []
+    },
+    "36": {
+      "left": [
+        "Tongue_Bulge_L"
+      ],
+      "right": [
+        "Tongue_Bulge_R"
+      ],
+      "center": []
+    },
+    "37": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Tongue_Up"
+      ]
+    },
+    "38": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Tongue_Down"
+      ]
+    },
+    "39": {
+      "left": [
+        "Tongue_L"
+      ],
+      "right": [],
+      "center": []
+    },
+    "40": {
+      "left": [],
+      "right": [
+        "Tongue_R"
+      ],
+      "center": []
+    },
+    "41": {
+      "left": [],
+      "right": [],
+      "center": []
+    },
+    "42": {
+      "left": [],
+      "right": [],
+      "center": []
+    },
+    "43": {
+      "left": [
+        "Eye_Blink_L"
+      ],
+      "right": [
+        "Eye_Blink_R"
+      ],
+      "center": []
+    },
+    "45": {
+      "left": [
+        "Eye_Blink_L"
+      ],
+      "right": [
+        "Eye_Blink_R"
+      ],
+      "center": []
+    },
+    "51": {
+      "left": [
+        "Head_Turn_L"
+      ],
+      "right": [],
+      "center": []
+    },
+    "52": {
+      "left": [],
+      "right": [
+        "Head_Turn_R"
+      ],
+      "center": []
+    },
+    "53": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Head_Turn_Up"
+      ]
+    },
+    "54": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Head_Turn_Down"
+      ]
+    },
+    "55": {
+      "left": [
+        "Head_Tilt_L"
+      ],
+      "right": [],
+      "center": []
+    },
+    "56": {
+      "left": [],
+      "right": [
+        "Head_Tilt_R"
+      ],
+      "center": []
+    },
+    "61": {
+      "left": [
+        "Eye_L_Look_L"
+      ],
+      "right": [
+        "Eye_R_Look_L"
+      ],
+      "center": []
+    },
+    "62": {
+      "left": [
+        "Eye_L_Look_R"
+      ],
+      "right": [
+        "Eye_R_Look_R"
+      ],
+      "center": []
+    },
+    "63": {
+      "left": [
+        "Eye_L_Look_Up"
+      ],
+      "right": [
+        "Eye_R_Look_Up"
+      ],
+      "center": []
+    },
+    "64": {
+      "left": [
+        "Eye_L_Look_Down"
+      ],
+      "right": [
+        "Eye_R_Look_Down"
+      ],
+      "center": []
+    },
+    "65": {
+      "left": [
+        "Eye_L_Look_L"
+      ],
+      "right": [],
+      "center": []
+    },
+    "66": {
+      "left": [],
+      "right": [
+        "Eye_L_Look_R"
+      ],
+      "center": []
+    },
+    "67": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Eye_L_Look_Up"
+      ]
+    },
+    "68": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Eye_L_Look_Down"
+      ]
+    },
+    "69": {
+      "left": [
+        "Eye_R_Look_L"
+      ],
+      "right": [],
+      "center": []
+    },
+    "70": {
+      "left": [],
+      "right": [
+        "Eye_R_Look_R"
+      ],
+      "center": []
+    },
+    "71": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Eye_R_Look_Up"
+      ]
+    },
+    "72": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Eye_R_Look_Down"
+      ]
+    },
+    "73": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Tongue_Narrow"
+      ]
+    },
+    "74": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Tongue_Wide"
+      ]
+    },
+    "75": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Tongue_Roll"
+      ]
+    },
+    "76": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Tongue_Tip_Up"
+      ]
+    },
+    "77": {
+      "left": [],
+      "right": [],
+      "center": [
+        "Tongue_Tip_Down"
+      ]
+    },
+    "80": {
+      "left": [
+        "EO Bulge L"
+      ],
+      "right": [
+        "EO Bulge R"
+      ],
+      "center": []
+    },
+    "81": {
+      "left": [
+        "EO Depth L"
+      ],
+      "right": [
+        "EO Depth R"
+      ],
+      "center": []
+    },
+    "82": {
+      "left": [
+        "EO Inner Depth L"
+      ],
+      "right": [
+        "EO Inner Depth R"
+      ],
+      "center": []
+    },
+    "83": {
+      "left": [
+        "EO Inner Height L"
+      ],
+      "right": [
+        "EO Inner Height R"
+      ],
+      "center": []
+    },
+    "84": {
+      "left": [
+        "EO Inner Width L"
+      ],
+      "right": [
+        "EO Inner Width R"
+      ],
+      "center": []
+    },
+    "85": {
+      "left": [
+        "EO Outer Depth L"
+      ],
+      "right": [
+        "EO Outer Depth R"
+      ],
+      "center": []
+    },
+    "86": {
+      "left": [
+        "EO Outer Height L"
+      ],
+      "right": [
+        "EO Outer Height R"
+      ],
+      "center": []
+    },
+    "87": {
+      "left": [
+        "EO Outer Width L"
+      ],
+      "right": [
+        "EO Outer Width R"
+      ],
+      "center": []
+    },
+    "88": {
+      "left": [
+        "EO Upper Depth L"
+      ],
+      "right": [
+        "EO Upper Depth R"
+      ],
+      "center": []
+    },
+    "89": {
+      "left": [
+        "EO Lower Depth L"
+      ],
+      "right": [
+        "EO Lower Depth R"
+      ],
+      "center": []
+    },
+    "90": {
+      "left": [
+        "EO Center Upper Depth L"
+      ],
+      "right": [
+        "EO Center Upper Depth R"
+      ],
+      "center": []
+    },
+    "91": {
+      "left": [
+        "EO Center Upper Height L"
+      ],
+      "right": [
+        "EO Center Upper Height R"
+      ],
+      "center": []
+    },
+    "92": {
+      "left": [
+        "EO Center Lower Depth L"
+      ],
+      "right": [
+        "EO Center Lower Depth R"
+      ],
+      "center": []
+    },
+    "93": {
+      "left": [
+        "EO Center Lower Height L"
+      ],
+      "right": [
+        "EO Center Lower Height R"
+      ],
+      "center": []
+    },
+    "94": {
+      "left": [
+        "EO Inner Upper Depth L"
+      ],
+      "right": [
+        "EO Inner Upper Depth R"
+      ],
+      "center": []
+    },
+    "95": {
+      "left": [
+        "EO Inner Upper Height L"
+      ],
+      "right": [
+        "EO Inner Upper Height R"
+      ],
+      "center": []
+    },
+    "96": {
+      "left": [
+        "EO Inner Lower Depth L"
+      ],
+      "right": [
+        "EO Inner Lower Depth R"
+      ],
+      "center": []
+    },
+    "97": {
+      "left": [
+        "EO Inner Lower Height L"
+      ],
+      "right": [
+        "EO Inner Lower Height R"
+      ],
+      "center": []
+    },
+    "98": {
+      "left": [
+        "EO Outer Upper Depth L"
+      ],
+      "right": [
+        "EO Outer Upper Depth R"
+      ],
+      "center": []
+    },
+    "99": {
+      "left": [
+        "EO Outer Upper Height L"
+      ],
+      "right": [
+        "EO Outer Upper Height R"
+      ],
+      "center": []
+    },
+    "100": {
+      "left": [
+        "EO Outer Lower Depth L"
+      ],
+      "right": [
+        "EO Outer Lower Depth R"
+      ],
+      "center": []
+    },
+    "101": {
+      "left": [
+        "EO Outer Lower Height L"
+      ],
+      "right": [
+        "EO Outer Lower Height R"
+      ],
+      "center": []
+    },
+    "102": {
+      "left": [
+        "EO Duct Depth L"
+      ],
+      "right": [
+        "EO Duct Depth R"
+      ],
+      "center": []
+    },
+    "1001": {
+      "left": [
+        "LL_Body_Bicep_Flex_L"
+      ],
+      "right": [
+        "LL_Body_Bicep_Flex_R"
+      ],
+      "center": []
+    },
+    "1002": {
+      "left": [],
+      "right": [],
+      "center": []
+    },
+    "1003": {
+      "left": [],
+      "right": [],
+      "center": []
+    },
+    "1004": {
+      "left": [],
+      "right": [],
+      "center": []
+    }
+  },
+  "auToBones": {
+    "25": [
+      {
+        "node": "CC_Base_JawRoot",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 20
+      }
+    ],
+    "26": [
+      {
+        "node": "CC_Base_JawRoot",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 30
+      }
+    ],
+    "27": [
+      {
+        "node": "CC_Base_JawRoot",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 35
+      }
+    ],
+    "30": [
+      {
+        "node": "CC_Base_JawRoot",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 15
+      }
+    ],
+    "35": [
+      {
+        "node": "CC_Base_JawRoot",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 15
+      }
+    ],
+    "37": [
+      {
+        "node": "CC_Base_Tongue01",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 20
+      }
+    ],
+    "38": [
+      {
+        "node": "CC_Base_Tongue01",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 20
+      }
+    ],
+    "39": [
+      {
+        "node": "CC_Base_Tongue01",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 20
+      }
+    ],
+    "40": [
+      {
+        "node": "CC_Base_Tongue01",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 20
+      }
+    ],
+    "41": [
+      {
+        "node": "CC_Base_Tongue01",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 20
+      }
+    ],
+    "42": [
+      {
+        "node": "CC_Base_Tongue01",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 20
+      }
+    ],
+    "51": [
+      {
+        "node": "CC_Base_Head",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 60
+      }
+    ],
+    "52": [
+      {
+        "node": "CC_Base_Head",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 60
+      }
+    ],
+    "53": [
+      {
+        "node": "CC_Base_Head",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 30
+      }
+    ],
+    "54": [
+      {
+        "node": "CC_Base_Head",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 30
+      }
+    ],
+    "55": [
+      {
+        "node": "CC_Base_Head",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 25
+      }
+    ],
+    "56": [
+      {
+        "node": "CC_Base_Head",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 25
+      }
+    ],
+    "61": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 25,
+        "side": "left"
+      },
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 25,
+        "side": "right"
+      }
+    ],
+    "62": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 25,
+        "side": "left"
+      },
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 25,
+        "side": "right"
+      }
+    ],
+    "63": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 20,
+        "side": "left"
+      },
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 20,
+        "side": "right"
+      }
+    ],
+    "64": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 20,
+        "side": "left"
+      },
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 20,
+        "side": "right"
+      }
+    ],
+    "65": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 25,
+        "side": "left"
+      }
+    ],
+    "66": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 25,
+        "side": "left"
+      }
+    ],
+    "67": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 20,
+        "side": "left"
+      }
+    ],
+    "68": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 20,
+        "side": "left"
+      }
+    ],
+    "69": [
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 25,
+        "side": "right"
+      }
+    ],
+    "70": [
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 25,
+        "side": "right"
+      }
+    ],
+    "71": [
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 20,
+        "side": "right"
+      }
+    ],
+    "72": [
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 20,
+        "side": "right"
+      }
+    ],
+    "103": [
+      {
+        "node": "CC_Base_JawRoot",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 30
+      }
+    ],
+    "1001": [
+      {
+        "node": "leftLowerArm",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 120,
+        "side": "left"
+      },
+      {
+        "node": "rightLowerArm",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 120,
+        "side": "right"
+      }
+    ],
+    "1002": [
+      {
+        "node": "leftLowerLeg",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 100,
+        "side": "left"
+      },
+      {
+        "node": "rightLowerLeg",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 100,
+        "side": "right"
+      }
+    ],
+    "1003": [
+      {
+        "node": "SPINE_01",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 30
+      }
+    ],
+    "1004": [
+      {
+        "node": "SPINE_01",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 30
+      }
+    ],
+    "1011": [
+      {
+        "node": "hips",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 15
+      }
+    ],
+    "1010": [
+      {
+        "node": "hips",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 15
+      }
+    ],
+    "1013": [
+      {
+        "node": "hips",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 20
+      }
+    ],
+    "1012": [
+      {
+        "node": "hips",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 20
+      }
+    ],
+    "1015": [
+      {
+        "node": "hips",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 15
+      }
+    ],
+    "1014": [
+      {
+        "node": "hips",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 15
+      }
+    ],
+    "1017": [
+      {
+        "node": "spine",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 15
+      }
+    ],
+    "1016": [
+      {
+        "node": "spine",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 15
+      }
+    ],
+    "1019": [
+      {
+        "node": "spine",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 20
+      }
+    ],
+    "1018": [
+      {
+        "node": "spine",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 20
+      }
+    ],
+    "1021": [
+      {
+        "node": "spine",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 15
+      }
+    ],
+    "1020": [
+      {
+        "node": "spine",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 15
+      }
+    ],
+    "1023": [
+      {
+        "node": "chest",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 15
+      }
+    ],
+    "1022": [
+      {
+        "node": "chest",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 15
+      }
+    ],
+    "1025": [
+      {
+        "node": "chest",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 15
+      }
+    ],
+    "1024": [
+      {
+        "node": "chest",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 15
+      }
+    ],
+    "1027": [
+      {
+        "node": "upperChest",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 15
+      }
+    ],
+    "1026": [
+      {
+        "node": "upperChest",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 15
+      }
+    ],
+    "1029": [
+      {
+        "node": "upperChest",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 20
+      }
+    ],
+    "1028": [
+      {
+        "node": "upperChest",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 20
+      }
+    ],
+    "1031": [
+      {
+        "node": "upperChest",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 15
+      }
+    ],
+    "1030": [
+      {
+        "node": "upperChest",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 15
+      }
+    ],
+    "1033": [
+      {
+        "node": "neck",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 20
+      }
+    ],
+    "1032": [
+      {
+        "node": "neck",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 20
+      }
+    ],
+    "1035": [
+      {
+        "node": "neck",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 20
+      }
+    ],
+    "1034": [
+      {
+        "node": "neck",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 20
+      }
+    ],
+    "1037": [
+      {
+        "node": "neck",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 15
+      }
+    ],
+    "1036": [
+      {
+        "node": "neck",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 15
+      }
+    ],
+    "1039": [
+      {
+        "node": "leftShoulder",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 20,
+        "side": "left"
+      },
+      {
+        "node": "rightShoulder",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 20,
+        "side": "right"
+      }
+    ],
+    "1038": [
+      {
+        "node": "leftShoulder",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 20,
+        "side": "left"
+      },
+      {
+        "node": "rightShoulder",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 20,
+        "side": "right"
+      }
+    ],
+    "1041": [
+      {
+        "node": "leftShoulder",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 20,
+        "side": "left"
+      },
+      {
+        "node": "rightShoulder",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 20,
+        "side": "right"
+      }
+    ],
+    "1040": [
+      {
+        "node": "leftShoulder",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 20,
+        "side": "left"
+      },
+      {
+        "node": "rightShoulder",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 20,
+        "side": "right"
+      }
+    ],
+    "1043": [
+      {
+        "node": "leftUpperArm",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightUpperArm",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1042": [
+      {
+        "node": "leftUpperArm",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightUpperArm",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1045": [
+      {
+        "node": "leftUpperArm",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightUpperArm",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1044": [
+      {
+        "node": "leftUpperArm",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightUpperArm",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1047": [
+      {
+        "node": "leftUpperArm",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 45,
+        "side": "left"
+      },
+      {
+        "node": "rightUpperArm",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 45,
+        "side": "right"
+      }
+    ],
+    "1046": [
+      {
+        "node": "leftUpperArm",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 45,
+        "side": "left"
+      },
+      {
+        "node": "rightUpperArm",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 45,
+        "side": "right"
+      }
+    ],
+    "1049": [
+      {
+        "node": "leftLowerArm",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightLowerArm",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1048": [
+      {
+        "node": "leftLowerArm",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightLowerArm",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1051": [
+      {
+        "node": "leftHand",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 45,
+        "side": "left"
+      },
+      {
+        "node": "rightHand",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 45,
+        "side": "right"
+      }
+    ],
+    "1050": [
+      {
+        "node": "leftHand",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 45,
+        "side": "left"
+      },
+      {
+        "node": "rightHand",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 45,
+        "side": "right"
+      }
+    ],
+    "1053": [
+      {
+        "node": "leftHand",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 20,
+        "side": "left"
+      },
+      {
+        "node": "rightHand",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 20,
+        "side": "right"
+      }
+    ],
+    "1052": [
+      {
+        "node": "leftHand",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 20,
+        "side": "left"
+      },
+      {
+        "node": "rightHand",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 20,
+        "side": "right"
+      }
+    ],
+    "1055": [
+      {
+        "node": "leftUpperLeg",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightUpperLeg",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1054": [
+      {
+        "node": "leftUpperLeg",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightUpperLeg",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1057": [
+      {
+        "node": "leftUpperLeg",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 30,
+        "side": "left"
+      },
+      {
+        "node": "rightUpperLeg",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 30,
+        "side": "right"
+      }
+    ],
+    "1056": [
+      {
+        "node": "leftUpperLeg",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 30,
+        "side": "left"
+      },
+      {
+        "node": "rightUpperLeg",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 30,
+        "side": "right"
+      }
+    ],
+    "1059": [
+      {
+        "node": "leftUpperLeg",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 30,
+        "side": "left"
+      },
+      {
+        "node": "rightUpperLeg",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 30,
+        "side": "right"
+      }
+    ],
+    "1058": [
+      {
+        "node": "leftUpperLeg",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 30,
+        "side": "left"
+      },
+      {
+        "node": "rightUpperLeg",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 30,
+        "side": "right"
+      }
+    ],
+    "1061": [
+      {
+        "node": "leftFoot",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 30,
+        "side": "left"
+      },
+      {
+        "node": "rightFoot",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 30,
+        "side": "right"
+      }
+    ],
+    "1060": [
+      {
+        "node": "leftFoot",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 30,
+        "side": "left"
+      },
+      {
+        "node": "rightFoot",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 30,
+        "side": "right"
+      }
+    ],
+    "1063": [
+      {
+        "node": "leftFoot",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 15,
+        "side": "left"
+      },
+      {
+        "node": "rightFoot",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 15,
+        "side": "right"
+      }
+    ],
+    "1062": [
+      {
+        "node": "leftFoot",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 15,
+        "side": "left"
+      },
+      {
+        "node": "rightFoot",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 15,
+        "side": "right"
+      }
+    ],
+    "1065": [
+      {
+        "node": "leftToes",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 30,
+        "side": "left"
+      },
+      {
+        "node": "rightToes",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 30,
+        "side": "right"
+      }
+    ],
+    "1064": [
+      {
+        "node": "leftToes",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 30,
+        "side": "left"
+      },
+      {
+        "node": "rightToes",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 30,
+        "side": "right"
+      }
+    ],
+    "1066": [
+      {
+        "node": "leftThumbMetacarpal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 35,
+        "side": "left"
+      },
+      {
+        "node": "rightThumbMetacarpal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 35,
+        "side": "right"
+      }
+    ],
+    "1067": [
+      {
+        "node": "leftThumbProximal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 35,
+        "side": "left"
+      },
+      {
+        "node": "rightThumbProximal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 35,
+        "side": "right"
+      }
+    ],
+    "1068": [
+      {
+        "node": "leftThumbDistal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 35,
+        "side": "left"
+      },
+      {
+        "node": "rightThumbDistal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 35,
+        "side": "right"
+      }
+    ],
+    "1070": [
+      {
+        "node": "leftThumbMetacarpal",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 15,
+        "side": "left"
+      },
+      {
+        "node": "rightThumbMetacarpal",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 15,
+        "side": "right"
+      }
+    ],
+    "1069": [
+      {
+        "node": "leftThumbMetacarpal",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 15,
+        "side": "left"
+      },
+      {
+        "node": "rightThumbMetacarpal",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 15,
+        "side": "right"
+      }
+    ],
+    "1071": [
+      {
+        "node": "leftIndexProximal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightIndexProximal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1072": [
+      {
+        "node": "leftIndexIntermediate",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightIndexIntermediate",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1073": [
+      {
+        "node": "leftIndexDistal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightIndexDistal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1075": [
+      {
+        "node": "leftIndexProximal",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 15,
+        "side": "left"
+      },
+      {
+        "node": "rightIndexProximal",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 15,
+        "side": "right"
+      }
+    ],
+    "1074": [
+      {
+        "node": "leftIndexProximal",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 15,
+        "side": "left"
+      },
+      {
+        "node": "rightIndexProximal",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 15,
+        "side": "right"
+      }
+    ],
+    "1076": [
+      {
+        "node": "leftMiddleProximal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightMiddleProximal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1077": [
+      {
+        "node": "leftMiddleIntermediate",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightMiddleIntermediate",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1078": [
+      {
+        "node": "leftMiddleDistal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightMiddleDistal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1080": [
+      {
+        "node": "leftMiddleProximal",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 15,
+        "side": "left"
+      },
+      {
+        "node": "rightMiddleProximal",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 15,
+        "side": "right"
+      }
+    ],
+    "1079": [
+      {
+        "node": "leftMiddleProximal",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 15,
+        "side": "left"
+      },
+      {
+        "node": "rightMiddleProximal",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 15,
+        "side": "right"
+      }
+    ],
+    "1081": [
+      {
+        "node": "leftRingProximal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightRingProximal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1082": [
+      {
+        "node": "leftRingIntermediate",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightRingIntermediate",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1083": [
+      {
+        "node": "leftRingDistal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightRingDistal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1085": [
+      {
+        "node": "leftRingProximal",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 15,
+        "side": "left"
+      },
+      {
+        "node": "rightRingProximal",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 15,
+        "side": "right"
+      }
+    ],
+    "1084": [
+      {
+        "node": "leftRingProximal",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 15,
+        "side": "left"
+      },
+      {
+        "node": "rightRingProximal",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 15,
+        "side": "right"
+      }
+    ],
+    "1086": [
+      {
+        "node": "leftLittleProximal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightLittleProximal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1087": [
+      {
+        "node": "leftLittleIntermediate",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightLittleIntermediate",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1088": [
+      {
+        "node": "leftLittleDistal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "left"
+      },
+      {
+        "node": "rightLittleDistal",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 60,
+        "side": "right"
+      }
+    ],
+    "1090": [
+      {
+        "node": "leftLittleProximal",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 15,
+        "side": "left"
+      },
+      {
+        "node": "rightLittleProximal",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 15,
+        "side": "right"
+      }
+    ],
+    "1089": [
+      {
+        "node": "leftLittleProximal",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 15,
+        "side": "left"
+      },
+      {
+        "node": "rightLittleProximal",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 15,
+        "side": "right"
+      }
+    ]
+  },
+  "boneNodes": {
+    "EYE_L": "L_Eye",
+    "EYE_R": "R_Eye",
+    "HEAD": "Head",
+    "NECK": "NeckTwist01",
+    "NECK_TWIST": "NeckTwist02",
+    "JAW": "JawRoot",
+    "TONGUE": "Tongue01",
+    "SPINE_01": "Spine01",
+    "SPINE_02": "Spine02",
+    "CLAVICLE_L": "L_Clavicle",
+    "CLAVICLE_R": "R_Clavicle",
+    "HAND_L": "L_Hand",
+    "HAND_R": "R_Hand",
+    "FOOT_L": "L_Foot",
+    "FOOT_R": "R_Foot",
+    "TOEBASE_L": "L_ToeBase",
+    "TOEBASE_R": "R_ToeBase",
+    "CC_Base_L_Eye": "CC_Base_L_Eye",
+    "CC_Base_R_Eye": "CC_Base_R_Eye",
+    "CC_Base_Head": "CC_Base_Head",
+    "CC_Base_NeckTwist01": "CC_Base_NeckTwist01",
+    "CC_Base_NeckTwist02": "CC_Base_NeckTwist02",
+    "CC_Base_JawRoot": "CC_Base_JawRoot",
+    "CC_Base_Tongue01": "CC_Base_Tongue01",
+    "CC_Base_Spine01": "CC_Base_Spine01",
+    "CC_Base_Spine02": "CC_Base_Spine02",
+    "CC_Base_L_Clavicle": "CC_Base_L_Clavicle",
+    "CC_Base_R_Clavicle": "CC_Base_R_Clavicle",
+    "CC_Base_L_Hand": "CC_Base_L_Hand",
+    "CC_Base_R_Hand": "CC_Base_R_Hand",
+    "CC_Base_L_Foot": "CC_Base_L_Foot",
+    "CC_Base_R_Foot": "CC_Base_R_Foot",
+    "CC_Base_L_ToeBase": "CC_Base_L_ToeBase",
+    "CC_Base_R_ToeBase": "CC_Base_R_ToeBase",
+    "HIPS": "Hip",
+    "UPPER_ARM_L": "L_Upperarm",
+    "UPPER_ARM_R": "R_Upperarm",
+    "LOWER_ARM_L": "L_Forearm",
+    "LOWER_ARM_R": "R_Forearm",
+    "UPPER_LEG_L": "L_Thigh",
+    "UPPER_LEG_R": "R_Thigh",
+    "LOWER_LEG_L": "L_Calf",
+    "LOWER_LEG_R": "R_Calf",
+    "WAIST": "Waist",
+    "THUMB_METACARPAL_L": "L_Thumb1",
+    "THUMB_PROXIMAL_L": "L_Thumb2",
+    "THUMB_DISTAL_L": "L_Thumb3",
+    "INDEX_PROXIMAL_L": "L_Index1",
+    "INDEX_INTERMEDIATE_L": "L_Index2",
+    "INDEX_DISTAL_L": "L_Index3",
+    "MIDDLE_PROXIMAL_L": "L_Mid1",
+    "MIDDLE_INTERMEDIATE_L": "L_Mid2",
+    "MIDDLE_DISTAL_L": "L_Mid3",
+    "RING_PROXIMAL_L": "L_Ring1",
+    "RING_INTERMEDIATE_L": "L_Ring2",
+    "RING_DISTAL_L": "L_Ring3",
+    "LITTLE_PROXIMAL_L": "L_Pinky1",
+    "LITTLE_INTERMEDIATE_L": "L_Pinky2",
+    "LITTLE_DISTAL_L": "L_Pinky3",
+    "THUMB_METACARPAL_R": "R_Thumb1",
+    "THUMB_PROXIMAL_R": "R_Thumb2",
+    "THUMB_DISTAL_R": "R_Thumb3",
+    "INDEX_PROXIMAL_R": "R_Index1",
+    "INDEX_INTERMEDIATE_R": "R_Index2",
+    "INDEX_DISTAL_R": "R_Index3",
+    "MIDDLE_PROXIMAL_R": "R_Mid1",
+    "MIDDLE_INTERMEDIATE_R": "R_Mid2",
+    "MIDDLE_DISTAL_R": "R_Mid3",
+    "RING_PROXIMAL_R": "R_Ring1",
+    "RING_INTERMEDIATE_R": "R_Ring2",
+    "RING_DISTAL_R": "R_Ring3",
+    "LITTLE_PROXIMAL_R": "R_Pinky1",
+    "LITTLE_INTERMEDIATE_R": "R_Pinky2",
+    "LITTLE_DISTAL_R": "R_Pinky3"
+  },
+  "bonePrefix": "CC_Base_",
+  "suffixPattern": "_\\d+$|\\.\\d+$",
+  "morphToMesh": {
+    "face": [
+      "CC_Base_Body"
+    ],
+    "viseme": [
+      "CC_Base_Body",
+      "CC_Base_Body_1"
+    ],
+    "eye": [
+      "CC_Base_EyeOcclusion",
+      "CC_Base_EyeOcclusion_1",
+      "CC_Base_EyeOcclusion_2"
+    ],
+    "tongue": [
+      "CC_Base_Tongue",
+      "CC_Base_Tongue_1"
+    ],
+    "hair": [
+      "Side_part_wavy",
+      "Side_part_wavy_1",
+      "Side_part_wavy_2"
+    ],
+    "body": [
+      "CC_Base_Body"
+    ]
+  },
+  "auFacePartToMeshCategory": {
+    "Eye": "eye",
+    "Eyes": "eye",
+    "Eyelids": "eye",
+    "Tongue": "tongue",
+    "Body": "body"
+  },
+  "mappingSections": [
+    {
+      "id": "Forehead",
+      "label": "Forehead",
+      "kind": "au",
+      "order": 0,
+      "meshCategory": "face",
+      "facePart": "Forehead"
+    },
+    {
+      "id": "Eyelids",
+      "label": "Eyelids",
+      "kind": "au",
+      "order": 1,
+      "meshCategory": "eye",
+      "facePart": "Eyelids"
+    },
+    {
+      "id": "Eyes",
+      "label": "Eyes",
+      "kind": "au",
+      "order": 2,
+      "meshCategory": "eye",
+      "facePart": "Eyes"
+    },
+    {
+      "id": "Cheeks",
+      "label": "Cheeks",
+      "kind": "au",
+      "order": 3,
+      "meshCategory": "face",
+      "facePart": "Cheeks"
+    },
+    {
+      "id": "Nose",
+      "label": "Nose",
+      "kind": "au",
+      "order": 4,
+      "meshCategory": "face",
+      "facePart": "Nose"
+    },
+    {
+      "id": "Mouth",
+      "label": "Mouth",
+      "kind": "au",
+      "order": 5,
+      "meshCategory": "face",
+      "facePart": "Mouth"
+    },
+    {
+      "id": "Chin",
+      "label": "Chin",
+      "kind": "au",
+      "order": 6,
+      "meshCategory": "face",
+      "facePart": "Chin"
+    },
+    {
+      "id": "Jaw",
+      "label": "Jaw",
+      "kind": "au",
+      "order": 7,
+      "meshCategory": "face",
+      "facePart": "Jaw"
+    },
+    {
+      "id": "Tongue",
+      "label": "Tongue",
+      "kind": "au",
+      "order": 8,
+      "meshCategory": "tongue",
+      "facePart": "Tongue"
+    },
+    {
+      "id": "Head",
+      "label": "Head",
+      "kind": "au",
+      "order": 9,
+      "meshCategory": "face",
+      "facePart": "Head"
+    },
+    {
+      "id": "Joint Controls",
+      "label": "Joint Controls",
+      "kind": "au",
+      "order": 10,
+      "meshCategory": "face",
+      "facePart": "Joint Controls"
+    },
+    {
+      "id": "Eye",
+      "label": "Eye",
+      "kind": "au",
+      "order": 11,
+      "meshCategory": "eye",
+      "facePart": "Eye"
+    },
+    {
+      "id": "Hair",
+      "label": "Hair",
+      "kind": "hair",
+      "order": 12,
+      "meshCategory": "hair"
+    },
+    {
+      "id": "Visemes",
+      "label": "Visemes",
+      "kind": "viseme",
+      "order": 13,
+      "meshCategory": "viseme"
+    },
+    {
+      "id": "LipSync",
+      "label": "Lip Sync",
+      "kind": "lipSync",
+      "order": 14,
+      "meshCategory": "face"
+    },
+    {
+      "id": "Unmapped",
+      "label": "Unmapped",
+      "kind": "unmapped",
+      "order": 15,
+      "meshCategory": "face"
+    }
+  ],
+  "visemeKeys": [
+    "AE",
+    "Ah",
+    "B_M_P",
+    "Ch_J",
+    "EE",
+    "Er",
+    "F_V",
+    "Ih",
+    "K_G_H_NG",
+    "Oh",
+    "R",
+    "S_Z",
+    "T_L_D_N",
+    "Th",
+    "W_OO"
+  ],
+  "visemeSystemId": "cc4-arkit-15",
+  "visemeSlots": [
+    {
+      "id": "ae",
+      "label": "AE",
+      "order": 0,
+      "providerIds": {
+        "azure": [
+          4
+        ],
+        "sapi": [
+          4
+        ]
+      },
+      "phonemes": [
+        "AE",
+        "EH",
+        "EY",
+        "UH"
+      ],
+      "matchers": [
+        "(^|[_ .-])(v|viseme)?[_ .-]?(ae|eh|ey)([_ .-]|$)"
+      ],
+      "features": {
+        "jawOpen": 0.75,
+        "lipSpread": 0.35
+      },
+      "defaultJawAmount": 0.75
+    },
+    {
+      "id": "ah",
+      "label": "Ah",
+      "order": 1,
+      "providerIds": {
+        "azure": [
+          1,
+          2,
+          9,
+          11,
+          12
+        ],
+        "sapi": [
+          1,
+          2,
+          9,
+          11,
+          12
+        ]
+      },
+      "phonemes": [
+        "AA",
+        "AE",
+        "AH",
+        "AX",
+        "AW",
+        "AY",
+        "HH"
+      ],
+      "matchers": [
+        "(^|[_ .-])(v|viseme)?[_ .-]?(ah|aa|aah|open)([_ .-]|$)"
+      ],
+      "features": {
+        "jawOpen": 0.8
+      },
+      "defaultJawAmount": 0.8
+    },
+    {
+      "id": "b-m-p",
+      "label": "B_M_P",
+      "order": 2,
+      "providerIds": {
+        "azure": [
+          0,
+          21
+        ],
+        "sapi": [
+          0,
+          21
+        ]
+      },
+      "phonemes": [
+        "B",
+        "M",
+        "P"
+      ],
+      "matchers": [
+        "(^|[_ .-])(v|viseme)?[_ .-]?(b[_ .-]?m[_ .-]?p|bmp|closed|sil|rest)([_ .-]|$)"
+      ],
+      "features": {
+        "jawOpen": 0,
+        "lipClosed": 1
+      },
+      "defaultJawAmount": 0
+    },
+    {
+      "id": "ch-j",
+      "label": "Ch_J",
+      "order": 3,
+      "providerIds": {
+        "azure": [
+          16
+        ],
+        "sapi": [
+          16
+        ]
+      },
+      "phonemes": [
+        "CH",
+        "JH",
+        "SH",
+        "ZH"
+      ],
+      "matchers": [
+        "(^|[_ .-])(v|viseme)?[_ .-]?(ch|j|sh|zh)([_ .-]|$)"
+      ],
+      "features": {
+        "jawOpen": 0.3,
+        "fricative": 0.6
+      },
+      "defaultJawAmount": 0.3
+    },
+    {
+      "id": "ee",
+      "label": "EE",
+      "order": 4,
+      "providerIds": {
+        "azure": [
+          6
+        ],
+        "sapi": [
+          6
+        ]
+      },
+      "phonemes": [
+        "IY",
+        "IH",
+        "IX",
+        "Y"
+      ],
+      "matchers": [
+        "(^|[_ .-])(v|viseme)?[_ .-]?(ee|iy|y)([_ .-]|$)"
+      ],
+      "features": {
+        "jawOpen": 0.2,
+        "lipSpread": 0.8
+      },
+      "defaultJawAmount": 0.2
+    },
+    {
+      "id": "er",
+      "label": "Er",
+      "order": 5,
+      "providerIds": {
+        "azure": [
+          5
+        ],
+        "sapi": [
+          5
+        ]
+      },
+      "phonemes": [
+        "ER"
+      ],
+      "matchers": [
+        "(^|[_ .-])(v|viseme)?[_ .-]?(er)([_ .-]|$)"
+      ],
+      "features": {
+        "jawOpen": 0.35,
+        "lipRound": 0.35
+      },
+      "defaultJawAmount": 0.35
+    },
+    {
+      "id": "f-v",
+      "label": "F_V",
+      "order": 6,
+      "providerIds": {
+        "azure": [
+          18
+        ],
+        "sapi": [
+          18
+        ]
+      },
+      "phonemes": [
+        "F",
+        "V"
+      ],
+      "matchers": [
+        "(^|[_ .-])(v|viseme)?[_ .-]?(f[_ .-]?v|fv)([_ .-]|$)"
+      ],
+      "features": {
+        "jawOpen": 0.1,
+        "fricative": 1
+      },
+      "defaultJawAmount": 0.1
+    },
+    {
+      "id": "ih",
+      "label": "Ih",
+      "order": 7,
+      "providerIds": {
+        "azure": [
+          6
+        ],
+        "sapi": [
+          6
+        ]
+      },
+      "phonemes": [
+        "IH",
+        "IX"
+      ],
+      "matchers": [
+        "(^|[_ .-])(v|viseme)?[_ .-]?(ih|ix)([_ .-]|$)"
+      ],
+      "features": {
+        "jawOpen": 0.2,
+        "lipSpread": 0.55
+      },
+      "defaultJawAmount": 0.2
+    },
+    {
+      "id": "k-g-h-ng",
+      "label": "K_G_H_NG",
+      "order": 8,
+      "providerIds": {
+        "azure": [
+          20
+        ],
+        "sapi": [
+          20
+        ]
+      },
+      "phonemes": [
+        "K",
+        "G",
+        "NG"
+      ],
+      "matchers": [
+        "(^|[_ .-])(v|viseme)?[_ .-]?(k[_ .-]?g[_ .-]?h?[_ .-]?ng|kg|ng)([_ .-]|$)"
+      ],
+      "features": {
+        "jawOpen": 0.35
+      },
+      "defaultJawAmount": 0.35
+    },
+    {
+      "id": "oh",
+      "label": "Oh",
+      "order": 9,
+      "providerIds": {
+        "azure": [
+          3,
+          8,
+          10
+        ],
+        "sapi": [
+          3,
+          8,
+          10
+        ]
+      },
+      "phonemes": [
+        "AO",
+        "OW",
+        "OY"
+      ],
+      "matchers": [
+        "(^|[_ .-])(v|viseme)?[_ .-]?(oh|ao|ow|oy)([_ .-]|$)"
+      ],
+      "features": {
+        "jawOpen": 0.6,
+        "lipRound": 0.8
+      },
+      "defaultJawAmount": 0.6
+    },
+    {
+      "id": "r",
+      "label": "R",
+      "order": 10,
+      "providerIds": {
+        "azure": [
+          13
+        ],
+        "sapi": [
+          13
+        ]
+      },
+      "phonemes": [
+        "R"
+      ],
+      "matchers": [
+        "(^|[_ .-])(v|viseme)[_ .-]?r([_ .-]|$)",
+        "(^|[_ .-])r[_ .-]?(sound|viseme)([_ .-]|$)"
+      ],
+      "features": {
+        "jawOpen": 0.35,
+        "lipRound": 0.5
+      },
+      "defaultJawAmount": 0.35
+    },
+    {
+      "id": "s-z",
+      "label": "S_Z",
+      "order": 11,
+      "providerIds": {
+        "azure": [
+          15
+        ],
+        "sapi": [
+          15
+        ]
+      },
+      "phonemes": [
+        "S",
+        "Z"
+      ],
+      "matchers": [
+        "(^|[_ .-])(v|viseme)?[_ .-]?(s[_ .-]?z|sz)([_ .-]|$)"
+      ],
+      "features": {
+        "jawOpen": 0.1,
+        "fricative": 1
+      },
+      "defaultJawAmount": 0.1
+    },
+    {
+      "id": "t-l-d-n",
+      "label": "T_L_D_N",
+      "order": 12,
+      "providerIds": {
+        "azure": [
+          14,
+          19
+        ],
+        "sapi": [
+          14,
+          19
+        ]
+      },
+      "phonemes": [
+        "T",
+        "L",
+        "D",
+        "N"
+      ],
+      "matchers": [
+        "(^|[_ .-])(v|viseme)?[_ .-]?(t[_ .-]?l[_ .-]?d[_ .-]?n|tldn)([_ .-]|$)",
+        "(^|[_ .-])(v|viseme)[_ .-]?l([_ .-]|$)"
+      ],
+      "features": {
+        "jawOpen": 0.3,
+        "tongueTip": 1
+      },
+      "defaultJawAmount": 0.3
+    },
+    {
+      "id": "th",
+      "label": "Th",
+      "order": 13,
+      "providerIds": {
+        "azure": [
+          17
+        ],
+        "sapi": [
+          17
+        ]
+      },
+      "phonemes": [
+        "TH",
+        "DH"
+      ],
+      "matchers": [
+        "(^|[_ .-])(v|viseme)?[_ .-]?(th|dh)([_ .-]|$)"
+      ],
+      "features": {
+        "jawOpen": 0.15,
+        "tongueTip": 0.8,
+        "fricative": 0.8
+      },
+      "defaultJawAmount": 0.15
+    },
+    {
+      "id": "w-oo",
+      "label": "W_OO",
+      "order": 14,
+      "providerIds": {
+        "azure": [
+          7
+        ],
+        "sapi": [
+          7
+        ]
+      },
+      "phonemes": [
+        "W",
+        "UW"
+      ],
+      "matchers": [
+        "(^|[_ .-])(v|viseme)?[_ .-]?(w[_ .-]?oo|woo|uw|oo)([_ .-]|$)"
+      ],
+      "features": {
+        "jawOpen": 0.5,
+        "lipRound": 1
+      },
+      "defaultJawAmount": 0.5
+    }
+  ],
+  "visemeMeshCategory": "viseme",
+  "visemeJawAmounts": [
+    0.75,
+    0.8,
+    0,
+    0.3,
+    0.2,
+    0.35,
+    0.1,
+    0.2,
+    0.35,
+    0.6,
+    0.35,
+    0.1,
+    0.3,
+    0.15,
+    0.5
+  ],
+  "visemeTongueTargets": [
+    {},
+    {},
+    {},
+    {
+      "37": 0.22,
+      "73": 0.3,
+      "76": 0.24
+    },
+    {},
+    {},
+    {},
+    {},
+    {
+      "38": 0.26,
+      "73": 0.2,
+      "77": 0.2
+    },
+    {},
+    {
+      "73": 0.16,
+      "77": 0.1
+    },
+    {
+      "37": 0.12,
+      "73": 0.36,
+      "76": 0.18
+    },
+    {
+      "37": 0.42,
+      "76": 0.44
+    },
+    {
+      "37": 0.4,
+      "74": 0.18,
+      "76": 0.52
+    },
+    {}
+  ],
+  "auMixDefaults": {
+    "25": 0.5,
+    "26": 0.5,
+    "27": 0.5,
+    "30": 0.5,
+    "31": 0.7,
+    "32": 0.7,
+    "33": 0.7,
+    "35": 0.5,
+    "53": 0.7,
+    "54": 0.7,
+    "55": 0.7,
+    "56": 0.7,
+    "61": 0.5,
+    "62": 0.5,
+    "63": 0.5,
+    "64": 0.5
+  },
+  "auInfo": {
+    "1": {
+      "id": "1",
+      "name": "Inner Brow Raiser",
+      "muscularBasis": "frontalis (pars medialis)",
+      "links": [
+        "https://en.wikipedia.org/wiki/Frontalis_muscle"
+      ],
+      "faceArea": "Upper",
+      "facePart": "Forehead"
+    },
+    "2": {
+      "id": "2",
+      "name": "Outer Brow Raiser",
+      "muscularBasis": "frontalis (pars lateralis)",
+      "links": [
+        "https://en.wikipedia.org/wiki/Frontalis_muscle"
+      ],
+      "faceArea": "Upper",
+      "facePart": "Forehead"
+    },
+    "4": {
+      "id": "4",
+      "name": "Brow Lowerer",
+      "muscularBasis": "corrugator/depressor supercilii",
+      "links": [
+        "https://en.wikipedia.org/wiki/Corrugator_supercilii"
+      ],
+      "faceArea": "Upper",
+      "facePart": "Forehead"
+    },
+    "5": {
+      "id": "5",
+      "name": "Upper Lid Raiser",
+      "muscularBasis": "levator palpebrae superioris",
+      "links": [
+        "https://en.wikipedia.org/wiki/Levator_palpebrae_superioris"
+      ],
+      "faceArea": "Upper",
+      "facePart": "Eyelids"
+    },
+    "6": {
+      "id": "6",
+      "name": "Cheek Raiser",
+      "muscularBasis": "orbicularis oculi (pars orbitalis)",
+      "links": [
+        "https://en.wikipedia.org/wiki/Orbicularis_oculi"
+      ],
+      "faceArea": "Upper",
+      "facePart": "Cheeks"
+    },
+    "7": {
+      "id": "7",
+      "name": "Lid Tightener",
+      "muscularBasis": "orbicularis oculi (pars palpebralis)",
+      "links": [
+        "https://en.wikipedia.org/wiki/Orbicularis_oculi"
+      ],
+      "faceArea": "Upper",
+      "facePart": "Eyelids"
+    },
+    "8": {
+      "id": "8",
+      "name": "Lips Toward Each Other",
+      "muscularBasis": "orbicularis oris",
+      "links": [
+        "https://en.wikipedia.org/wiki/Orbicularis_oris"
+      ],
+      "faceArea": "Lower",
+      "facePart": "Mouth"
+    },
+    "9": {
+      "id": "9",
+      "name": "Nose Wrinkler",
+      "muscularBasis": "levator labii superioris alaeque nasi",
+      "links": [
+        "https://en.wikipedia.org/wiki/Levator_labii_superioris_alaeque_nasi"
+      ],
+      "faceArea": "Upper",
+      "facePart": "Nose"
+    },
+    "10": {
+      "id": "10",
+      "name": "Upper Lip Raiser",
+      "muscularBasis": "levator labii superioris",
+      "links": [
+        "https://en.wikipedia.org/wiki/Levator_labii_superioris"
+      ],
+      "faceArea": "Lower",
+      "facePart": "Mouth"
+    },
+    "11": {
+      "id": "11",
+      "name": "Nasolabial Deepener",
+      "muscularBasis": "zygomaticus minor",
+      "links": [
+        "https://en.wikipedia.org/wiki/Zygomaticus_minor"
+      ],
+      "faceArea": "Lower",
+      "facePart": "Cheeks"
+    },
+    "12": {
+      "id": "12",
+      "name": "Lip Corner Puller",
+      "muscularBasis": "zygomaticus major",
+      "links": [
+        "https://en.wikipedia.org/wiki/Zygomaticus_major"
+      ],
+      "faceArea": "Lower",
+      "facePart": "Mouth"
+    },
+    "13": {
+      "id": "13",
+      "name": "Sharp Lip Puller",
+      "muscularBasis": "levator anguli oris",
+      "links": [
+        "https://en.wikipedia.org/wiki/Levator_anguli_oris"
+      ],
+      "faceArea": "Lower",
+      "facePart": "Mouth"
+    },
+    "14": {
+      "id": "14",
+      "name": "Dimpler",
+      "muscularBasis": "buccinator",
+      "links": [
+        "https://en.wikipedia.org/wiki/Buccinator"
+      ],
+      "faceArea": "Lower",
+      "facePart": "Cheeks"
+    },
+    "15": {
+      "id": "15",
+      "name": "Lip Corner Depressor",
+      "muscularBasis": "depressor anguli oris",
+      "links": [
+        "https://en.wikipedia.org/wiki/Depressor_anguli_oris"
+      ],
+      "faceArea": "Lower",
+      "facePart": "Mouth"
+    },
+    "16": {
+      "id": "16",
+      "name": "Lower Lip Depressor",
+      "muscularBasis": "depressor labii inferioris",
+      "links": [
+        "https://en.wikipedia.org/wiki/Depressor_labii_inferioris"
+      ],
+      "faceArea": "Lower",
+      "facePart": "Mouth"
+    },
+    "17": {
+      "id": "17",
+      "name": "Chin Raiser",
+      "muscularBasis": "mentalis",
+      "links": [
+        "https://en.wikipedia.org/wiki/Mentalis"
+      ],
+      "faceArea": "Lower",
+      "facePart": "Chin"
+    },
+    "18": {
+      "id": "18",
+      "name": "Lip Pucker",
+      "faceArea": "Lower",
+      "facePart": "Mouth"
+    },
+    "19": {
+      "id": "19",
+      "name": "Tongue Show",
+      "faceArea": "Lower",
+      "facePart": "Tongue"
+    },
+    "20": {
+      "id": "20",
+      "name": "Lip Stretcher",
+      "muscularBasis": "risorius + platysma",
+      "links": [
+        "https://en.wikipedia.org/wiki/Risorius",
+        "https://en.wikipedia.org/wiki/Platysma"
+      ],
+      "faceArea": "Lower",
+      "facePart": "Mouth"
+    },
+    "22": {
+      "id": "22",
+      "name": "Lip Funneler",
+      "muscularBasis": "orbicularis oris",
+      "links": [
+        "https://en.wikipedia.org/wiki/Orbicularis_oris"
+      ],
+      "faceArea": "Lower",
+      "facePart": "Mouth"
+    },
+    "23": {
+      "id": "23",
+      "name": "Lip Tightener",
+      "muscularBasis": "orbicularis oris",
+      "faceArea": "Lower",
+      "facePart": "Mouth"
+    },
+    "24": {
+      "id": "24",
+      "name": "Lip Presser",
+      "muscularBasis": "orbicularis oris",
+      "faceArea": "Lower",
+      "facePart": "Mouth"
+    },
+    "25": {
+      "id": "25",
+      "name": "Lips Part",
+      "faceArea": "Lower",
+      "facePart": "Mouth"
+    },
+    "26": {
+      "id": "26",
+      "name": "Jaw Drop",
+      "muscularBasis": "masseter (relax temporalis)",
+      "links": [
+        "https://en.wikipedia.org/wiki/Masseter_muscle"
+      ],
+      "faceArea": "Lower",
+      "facePart": "Jaw"
+    },
+    "27": {
+      "id": "27",
+      "name": "Mouth Stretch",
+      "muscularBasis": "pterygoids + digastric",
+      "links": [
+        "https://en.wikipedia.org/wiki/Pterygoid_bone",
+        "https://en.wikipedia.org/wiki/Digastric_muscle"
+      ],
+      "faceArea": "Lower",
+      "facePart": "Mouth"
+    },
+    "28": {
+      "id": "28",
+      "name": "Lip Suck",
+      "muscularBasis": "orbicularis oris",
+      "faceArea": "Lower",
+      "facePart": "Mouth"
+    },
+    "29": {
+      "id": "29",
+      "name": "Jaw Thrust",
+      "faceArea": "Lower",
+      "facePart": "Jaw"
+    },
+    "30": {
+      "id": "30",
+      "name": "Jaw Left",
+      "faceArea": "Lower",
+      "facePart": "Jaw"
+    },
+    "31": {
+      "id": "31",
+      "name": "Jaw Clencher",
+      "muscularBasis": "masseter + temporalis",
+      "faceArea": "Lower",
+      "facePart": "Jaw"
+    },
+    "32": {
+      "id": "32",
+      "name": "Lip Bite",
+      "muscularBasis": "orbicularis oris",
+      "faceArea": "Lower",
+      "facePart": "Mouth"
+    },
+    "34": {
+      "id": "34",
+      "name": "Cheek Puff",
+      "faceArea": "Lower",
+      "facePart": "Cheeks"
+    },
+    "35": {
+      "id": "35",
+      "name": "Jaw Right",
+      "faceArea": "Lower",
+      "facePart": "Jaw"
+    },
+    "36": {
+      "id": "36",
+      "name": "Tongue Bulge",
+      "faceArea": "Lower",
+      "facePart": "Tongue"
+    },
+    "37": {
+      "id": "37",
+      "name": "Tongue Up",
+      "faceArea": "Lower",
+      "facePart": "Tongue"
+    },
+    "38": {
+      "id": "38",
+      "name": "Tongue Down",
+      "faceArea": "Lower",
+      "facePart": "Tongue"
+    },
+    "39": {
+      "id": "39",
+      "name": "Tongue Left",
+      "faceArea": "Lower",
+      "facePart": "Tongue"
+    },
+    "40": {
+      "id": "40",
+      "name": "Tongue Right",
+      "faceArea": "Lower",
+      "facePart": "Tongue"
+    },
+    "41": {
+      "id": "41",
+      "name": "Tongue Tilt Left",
+      "faceArea": "Lower",
+      "facePart": "Tongue"
+    },
+    "42": {
+      "id": "42",
+      "name": "Tongue Tilt Right",
+      "faceArea": "Lower",
+      "facePart": "Tongue"
+    },
+    "43": {
+      "id": "43",
+      "name": "Eyes Closed",
+      "muscularBasis": "orbicularis oculi",
+      "links": [
+        "https://en.wikipedia.org/wiki/Orbicularis_oculi_muscle"
+      ],
+      "faceArea": "Upper",
+      "facePart": "Eyelids"
+    },
+    "45": {
+      "id": "45",
+      "name": "Blink",
+      "muscularBasis": "orbicularis oculi",
+      "links": [
+        "https://en.wikipedia.org/wiki/Orbicularis_oculi_muscle"
+      ],
+      "faceArea": "Upper",
+      "facePart": "Eyelids"
+    },
+    "51": {
+      "id": "51",
+      "name": "Head Turn Left",
+      "faceArea": "Upper",
+      "facePart": "Head"
+    },
+    "52": {
+      "id": "52",
+      "name": "Head Turn Right",
+      "faceArea": "Upper",
+      "facePart": "Head"
+    },
+    "53": {
+      "id": "53",
+      "name": "Head Up",
+      "faceArea": "Upper",
+      "facePart": "Head"
+    },
+    "54": {
+      "id": "54",
+      "name": "Head Down",
+      "faceArea": "Upper",
+      "facePart": "Head"
+    },
+    "55": {
+      "id": "55",
+      "name": "Head Tilt Left",
+      "faceArea": "Upper",
+      "facePart": "Head"
+    },
+    "56": {
+      "id": "56",
+      "name": "Head Tilt Right",
+      "faceArea": "Upper",
+      "facePart": "Head"
+    },
+    "61": {
+      "id": "61",
+      "name": "Eyes Turn Left",
+      "faceArea": "Upper",
+      "facePart": "Eyes"
+    },
+    "62": {
+      "id": "62",
+      "name": "Eyes Turn Right",
+      "faceArea": "Upper",
+      "facePart": "Eyes"
+    },
+    "63": {
+      "id": "63",
+      "name": "Eyes Up",
+      "faceArea": "Upper",
+      "facePart": "Eyes"
+    },
+    "64": {
+      "id": "64",
+      "name": "Eyes Down",
+      "faceArea": "Upper",
+      "facePart": "Eyes"
+    },
+    "65": {
+      "id": "65",
+      "name": "Left Eye Look Left",
+      "faceArea": "Upper",
+      "facePart": "Eyes"
+    },
+    "66": {
+      "id": "66",
+      "name": "Left Eye Look Right",
+      "faceArea": "Upper",
+      "facePart": "Eyes"
+    },
+    "67": {
+      "id": "67",
+      "name": "Left Eye Look Up",
+      "faceArea": "Upper",
+      "facePart": "Eyes"
+    },
+    "68": {
+      "id": "68",
+      "name": "Left Eye Look Down",
+      "faceArea": "Upper",
+      "facePart": "Eyes"
+    },
+    "69": {
+      "id": "69",
+      "name": "Right Eye Look Left",
+      "faceArea": "Upper",
+      "facePart": "Eyes"
+    },
+    "70": {
+      "id": "70",
+      "name": "Right Eye Look Right",
+      "faceArea": "Upper",
+      "facePart": "Eyes"
+    },
+    "71": {
+      "id": "71",
+      "name": "Right Eye Look Up",
+      "faceArea": "Upper",
+      "facePart": "Eyes"
+    },
+    "72": {
+      "id": "72",
+      "name": "Right Eye Look Down",
+      "faceArea": "Upper",
+      "facePart": "Eyes"
+    },
+    "73": {
+      "id": "73",
+      "name": "Tongue Narrow",
+      "faceArea": "Lower",
+      "facePart": "Tongue"
+    },
+    "74": {
+      "id": "74",
+      "name": "Tongue Wide",
+      "faceArea": "Lower",
+      "facePart": "Tongue"
+    },
+    "75": {
+      "id": "75",
+      "name": "Tongue Roll",
+      "faceArea": "Lower",
+      "facePart": "Tongue"
+    },
+    "76": {
+      "id": "76",
+      "name": "Tongue Tip Up",
+      "faceArea": "Lower",
+      "facePart": "Tongue"
+    },
+    "77": {
+      "id": "77",
+      "name": "Tongue Tip Down",
+      "faceArea": "Lower",
+      "facePart": "Tongue"
+    },
+    "80": {
+      "id": "80",
+      "name": "Eye Bulge",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "81": {
+      "id": "81",
+      "name": "Eye Depth",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "82": {
+      "id": "82",
+      "name": "Eye Inner Depth",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "83": {
+      "id": "83",
+      "name": "Eye Inner Height",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "84": {
+      "id": "84",
+      "name": "Eye Inner Width",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "85": {
+      "id": "85",
+      "name": "Eye Outer Depth",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "86": {
+      "id": "86",
+      "name": "Eye Outer Height",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "87": {
+      "id": "87",
+      "name": "Eye Outer Width",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "88": {
+      "id": "88",
+      "name": "Eye Upper Depth",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "89": {
+      "id": "89",
+      "name": "Eye Lower Depth",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "90": {
+      "id": "90",
+      "name": "Eye Center Upper Depth",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "91": {
+      "id": "91",
+      "name": "Eye Center Upper Height",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "92": {
+      "id": "92",
+      "name": "Eye Center Lower Depth",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "93": {
+      "id": "93",
+      "name": "Eye Center Lower Height",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "94": {
+      "id": "94",
+      "name": "Eye Inner Upper Depth",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "95": {
+      "id": "95",
+      "name": "Eye Inner Upper Height",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "96": {
+      "id": "96",
+      "name": "Eye Inner Lower Depth",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "97": {
+      "id": "97",
+      "name": "Eye Inner Lower Height",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "98": {
+      "id": "98",
+      "name": "Eye Outer Upper Depth",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "99": {
+      "id": "99",
+      "name": "Eye Outer Upper Height",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "100": {
+      "id": "100",
+      "name": "Eye Outer Lower Depth",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "101": {
+      "id": "101",
+      "name": "Eye Outer Lower Height",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "102": {
+      "id": "102",
+      "name": "Eye Duct Depth",
+      "faceArea": "Upper",
+      "facePart": "Eye"
+    },
+    "1001": {
+      "id": "1001",
+      "name": "Elbow flex / biceps",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1002": {
+      "id": "1002",
+      "name": "Knee bend",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1003": {
+      "id": "1003",
+      "name": "Torso twist right",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1004": {
+      "id": "1004",
+      "name": "Torso twist left",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1011": {
+      "id": "1011",
+      "name": "Pelvis bend — Forward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1010": {
+      "id": "1010",
+      "name": "Pelvis bend — Back",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1013": {
+      "id": "1013",
+      "name": "Pelvis twist — Left",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1012": {
+      "id": "1012",
+      "name": "Pelvis twist — Right",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1015": {
+      "id": "1015",
+      "name": "Pelvis side bend — Right",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1014": {
+      "id": "1014",
+      "name": "Pelvis side bend — Left",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1017": {
+      "id": "1017",
+      "name": "Lower spine bend — Forward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1016": {
+      "id": "1016",
+      "name": "Lower spine bend — Back",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1019": {
+      "id": "1019",
+      "name": "Lower spine twist — Left",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1018": {
+      "id": "1018",
+      "name": "Lower spine twist — Right",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1021": {
+      "id": "1021",
+      "name": "Lower spine side bend — Right",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1020": {
+      "id": "1020",
+      "name": "Lower spine side bend — Left",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1023": {
+      "id": "1023",
+      "name": "Chest bend — Forward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1022": {
+      "id": "1022",
+      "name": "Chest bend — Back",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1025": {
+      "id": "1025",
+      "name": "Chest side bend — Right",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1024": {
+      "id": "1024",
+      "name": "Chest side bend — Left",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1027": {
+      "id": "1027",
+      "name": "Upper chest bend — Forward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1026": {
+      "id": "1026",
+      "name": "Upper chest bend — Back",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1029": {
+      "id": "1029",
+      "name": "Upper chest twist — Left",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1028": {
+      "id": "1028",
+      "name": "Upper chest twist — Right",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1031": {
+      "id": "1031",
+      "name": "Upper chest side bend — Right",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1030": {
+      "id": "1030",
+      "name": "Upper chest side bend — Left",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1033": {
+      "id": "1033",
+      "name": "Neck bend — Forward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1032": {
+      "id": "1032",
+      "name": "Neck bend — Back",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1035": {
+      "id": "1035",
+      "name": "Neck twist — Left",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1034": {
+      "id": "1034",
+      "name": "Neck twist — Right",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1037": {
+      "id": "1037",
+      "name": "Neck side bend — Right",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1036": {
+      "id": "1036",
+      "name": "Neck side bend — Left",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1039": {
+      "id": "1039",
+      "name": "Shoulder raise — Raise",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1038": {
+      "id": "1038",
+      "name": "Shoulder raise — Lower",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1041": {
+      "id": "1041",
+      "name": "Shoulder forward/back — Forward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1040": {
+      "id": "1040",
+      "name": "Shoulder forward/back — Back",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1043": {
+      "id": "1043",
+      "name": "Arm forward/back — Forward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1042": {
+      "id": "1042",
+      "name": "Arm forward/back — Back",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1045": {
+      "id": "1045",
+      "name": "Arm raise/lower — Raise",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1044": {
+      "id": "1044",
+      "name": "Arm raise/lower — Lower",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1047": {
+      "id": "1047",
+      "name": "Upper arm twist — Rotate outward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1046": {
+      "id": "1046",
+      "name": "Upper arm twist — Rotate inward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1049": {
+      "id": "1049",
+      "name": "Forearm rotation — Rotate outward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1048": {
+      "id": "1048",
+      "name": "Forearm rotation — Rotate inward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1051": {
+      "id": "1051",
+      "name": "Wrist bend — Flex",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1050": {
+      "id": "1050",
+      "name": "Wrist bend — Extend",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1053": {
+      "id": "1053",
+      "name": "Wrist side bend — Flex",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1052": {
+      "id": "1052",
+      "name": "Wrist side bend — Extend",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1055": {
+      "id": "1055",
+      "name": "Hip forward/back — Forward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1054": {
+      "id": "1054",
+      "name": "Hip forward/back — Back",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1057": {
+      "id": "1057",
+      "name": "Hip outward/inward — Outward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1056": {
+      "id": "1056",
+      "name": "Hip outward/inward — Inward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1059": {
+      "id": "1059",
+      "name": "Hip rotation — Rotate outward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1058": {
+      "id": "1058",
+      "name": "Hip rotation — Rotate inward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1061": {
+      "id": "1061",
+      "name": "Ankle bend — Flex",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1060": {
+      "id": "1060",
+      "name": "Ankle bend — Extend",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1063": {
+      "id": "1063",
+      "name": "Foot tilt — Rotate outward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1062": {
+      "id": "1062",
+      "name": "Foot tilt — Rotate inward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1065": {
+      "id": "1065",
+      "name": "Toe bend — Flex",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1064": {
+      "id": "1064",
+      "name": "Toe bend — Extend",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1066": {
+      "id": "1066",
+      "name": "Thumb metacarpal curl positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1067": {
+      "id": "1067",
+      "name": "Thumb proximal curl positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1068": {
+      "id": "1068",
+      "name": "Thumb distal curl positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1070": {
+      "id": "1070",
+      "name": "Thumb spread — Outward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1069": {
+      "id": "1069",
+      "name": "Thumb spread — Inward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1071": {
+      "id": "1071",
+      "name": "Index proximal curl positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1072": {
+      "id": "1072",
+      "name": "Index intermediate curl positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1073": {
+      "id": "1073",
+      "name": "Index distal curl positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1075": {
+      "id": "1075",
+      "name": "Index spread — Outward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1074": {
+      "id": "1074",
+      "name": "Index spread — Inward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1076": {
+      "id": "1076",
+      "name": "Middle proximal curl positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1077": {
+      "id": "1077",
+      "name": "Middle intermediate curl positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1078": {
+      "id": "1078",
+      "name": "Middle distal curl positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1080": {
+      "id": "1080",
+      "name": "Middle spread — Outward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1079": {
+      "id": "1079",
+      "name": "Middle spread — Inward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1081": {
+      "id": "1081",
+      "name": "Ring proximal curl positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1082": {
+      "id": "1082",
+      "name": "Ring intermediate curl positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1083": {
+      "id": "1083",
+      "name": "Ring distal curl positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1085": {
+      "id": "1085",
+      "name": "Ring spread — Outward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1084": {
+      "id": "1084",
+      "name": "Ring spread — Inward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1086": {
+      "id": "1086",
+      "name": "Little proximal curl positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1087": {
+      "id": "1087",
+      "name": "Little intermediate curl positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1088": {
+      "id": "1088",
+      "name": "Little distal curl positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1090": {
+      "id": "1090",
+      "name": "Little spread — Outward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1089": {
+      "id": "1089",
+      "name": "Little spread — Inward",
+      "faceArea": "Body",
+      "facePart": "Body"
+    }
+  },
+  "eyeMeshNodes": {
+    "LEFT": "CC_Base_Eye",
+    "RIGHT": "CC_Base_Eye_1"
+  },
+  "meshes": {
+    "CC_Base_Body_1": {
+      "category": "body",
+      "morphCount": 80
+    },
+    "CC_Base_Body_2": {
+      "category": "body",
+      "morphCount": 80
+    },
+    "CC_Base_Body_3": {
+      "category": "body",
+      "morphCount": 80
+    },
+    "CC_Base_Body_4": {
+      "category": "body",
+      "morphCount": 80
+    },
+    "CC_Base_Body_5": {
+      "category": "body",
+      "morphCount": 80
+    },
+    "CC_Base_Body_6": {
+      "category": "body",
+      "morphCount": 80
+    },
+    "CC_Base_Eye": {
+      "category": "eye",
+      "morphCount": 0,
+      "material": {
+        "renderOrder": -10
+      }
+    },
+    "CC_Base_Eye_1": {
+      "category": "eye",
+      "morphCount": 0,
+      "material": {
+        "renderOrder": -10
+      }
+    },
+    "CC_Base_Eye_2": {
+      "category": "eye",
+      "morphCount": 0,
+      "material": {
+        "renderOrder": -10
+      }
+    },
+    "CC_Base_Eye_3": {
+      "category": "eye",
+      "morphCount": 0,
+      "material": {
+        "renderOrder": -10
+      }
+    },
+    "CC_Base_Eye_4": {
+      "category": "eye",
+      "morphCount": 0,
+      "material": {
+        "renderOrder": -10
+      }
+    },
+    "CC_Base_EyeOcclusion_1": {
+      "category": "eyeOcclusion",
+      "morphCount": 94,
+      "material": {
+        "renderOrder": 2,
+        "transparent": true,
+        "opacity": 1,
+        "depthWrite": true,
+        "depthTest": true,
+        "blending": "Normal"
+      }
+    },
+    "CC_Base_EyeOcclusion_2": {
+      "category": "eyeOcclusion",
+      "morphCount": 94,
+      "material": {
+        "renderOrder": 2,
+        "transparent": true,
+        "opacity": 1,
+        "depthWrite": true,
+        "depthTest": true,
+        "blending": "Normal"
+      }
+    },
+    "CC_Base_TearLine_1": {
+      "category": "tearLine",
+      "morphCount": 90,
+      "material": {
+        "renderOrder": 2
+      }
+    },
+    "CC_Base_TearLine_2": {
+      "category": "tearLine",
+      "morphCount": 90,
+      "material": {
+        "renderOrder": 2
+      }
+    },
+    "CC_Base_Cornea": {
+      "category": "cornea",
+      "morphCount": 0,
+      "material": {
+        "renderOrder": -10
+      }
+    },
+    "CC_Base_Cornea_1": {
+      "category": "cornea",
+      "morphCount": 0,
+      "material": {
+        "renderOrder": -10
+      }
+    },
+    "CC_Base_Teeth_1": {
+      "category": "teeth",
+      "morphCount": 0
+    },
+    "CC_Base_Teeth_2": {
+      "category": "teeth",
+      "morphCount": 0
+    },
+    "CC_Base_Tongue": {
+      "category": "tongue",
+      "morphCount": 23
+    },
+    "Male_Bushy_1": {
+      "category": "eyebrow",
+      "morphCount": 91,
+      "material": {
+        "renderOrder": 5
+      }
+    },
+    "Male_Bushy_2": {
+      "category": "eyebrow",
+      "morphCount": 91,
+      "material": {
+        "renderOrder": 5
+      }
+    },
+    "Side_part_wavy_1": {
+      "category": "hair",
+      "morphCount": 14,
+      "material": {
+        "renderOrder": 10
+      }
+    },
+    "Side_part_wavy_2": {
+      "category": "hair",
+      "morphCount": 14,
+      "material": {
+        "renderOrder": 10
+      }
+    }
+  },
+  "continuumPairs": {
+    "30": {
+      "pairId": 35,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "CC_Base_JawRoot"
+    },
+    "35": {
+      "pairId": 30,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "CC_Base_JawRoot"
+    },
+    "37": {
+      "pairId": 38,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "CC_Base_Tongue01"
+    },
+    "38": {
+      "pairId": 37,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "CC_Base_Tongue01"
+    },
+    "39": {
+      "pairId": 40,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "CC_Base_Tongue01"
+    },
+    "40": {
+      "pairId": 39,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "CC_Base_Tongue01"
+    },
+    "41": {
+      "pairId": 42,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "CC_Base_Tongue01"
+    },
+    "42": {
+      "pairId": 41,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "CC_Base_Tongue01"
+    },
+    "51": {
+      "pairId": 52,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "CC_Base_Head"
+    },
+    "52": {
+      "pairId": 51,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "CC_Base_Head"
+    },
+    "53": {
+      "pairId": 54,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "CC_Base_Head"
+    },
+    "54": {
+      "pairId": 53,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "CC_Base_Head"
+    },
+    "55": {
+      "pairId": 56,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "CC_Base_Head"
+    },
+    "56": {
+      "pairId": 55,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "CC_Base_Head"
+    },
+    "61": {
+      "pairId": 62,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "CC_Base_L_Eye"
+    },
+    "62": {
+      "pairId": 61,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "CC_Base_L_Eye"
+    },
+    "63": {
+      "pairId": 64,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "CC_Base_L_Eye"
+    },
+    "64": {
+      "pairId": 63,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "CC_Base_L_Eye"
+    },
+    "65": {
+      "pairId": 66,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "CC_Base_L_Eye"
+    },
+    "66": {
+      "pairId": 65,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "CC_Base_L_Eye"
+    },
+    "67": {
+      "pairId": 68,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "CC_Base_L_Eye"
+    },
+    "68": {
+      "pairId": 67,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "CC_Base_L_Eye"
+    },
+    "69": {
+      "pairId": 70,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "CC_Base_R_Eye"
+    },
+    "70": {
+      "pairId": 69,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "CC_Base_R_Eye"
+    },
+    "71": {
+      "pairId": 72,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "CC_Base_R_Eye"
+    },
+    "72": {
+      "pairId": 71,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "CC_Base_R_Eye"
+    },
+    "73": {
+      "pairId": 74,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "CC_Base_Tongue01"
+    },
+    "74": {
+      "pairId": 73,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "CC_Base_Tongue01"
+    },
+    "76": {
+      "pairId": 77,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "CC_Base_Tongue01"
+    },
+    "77": {
+      "pairId": 76,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "CC_Base_Tongue01"
+    },
+    "1003": {
+      "pairId": 1004,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "SPINE_01"
+    },
+    "1004": {
+      "pairId": 1003,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "SPINE_01"
+    },
+    "1011": {
+      "pairId": 1010,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "hips"
+    },
+    "1010": {
+      "pairId": 1011,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "hips"
+    },
+    "1013": {
+      "pairId": 1012,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "hips"
+    },
+    "1012": {
+      "pairId": 1013,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "hips"
+    },
+    "1015": {
+      "pairId": 1014,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "hips"
+    },
+    "1014": {
+      "pairId": 1015,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "hips"
+    },
+    "1017": {
+      "pairId": 1016,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "spine"
+    },
+    "1016": {
+      "pairId": 1017,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "spine"
+    },
+    "1019": {
+      "pairId": 1018,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "spine"
+    },
+    "1018": {
+      "pairId": 1019,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "spine"
+    },
+    "1021": {
+      "pairId": 1020,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "spine"
+    },
+    "1020": {
+      "pairId": 1021,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "spine"
+    },
+    "1023": {
+      "pairId": 1022,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "chest"
+    },
+    "1022": {
+      "pairId": 1023,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "chest"
+    },
+    "1025": {
+      "pairId": 1024,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "chest"
+    },
+    "1024": {
+      "pairId": 1025,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "chest"
+    },
+    "1027": {
+      "pairId": 1026,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "upperChest"
+    },
+    "1026": {
+      "pairId": 1027,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "upperChest"
+    },
+    "1029": {
+      "pairId": 1028,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "upperChest"
+    },
+    "1028": {
+      "pairId": 1029,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "upperChest"
+    },
+    "1031": {
+      "pairId": 1030,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "upperChest"
+    },
+    "1030": {
+      "pairId": 1031,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "upperChest"
+    },
+    "1033": {
+      "pairId": 1032,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "neck"
+    },
+    "1032": {
+      "pairId": 1033,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "neck"
+    },
+    "1035": {
+      "pairId": 1034,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "neck"
+    },
+    "1034": {
+      "pairId": 1035,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "neck"
+    },
+    "1037": {
+      "pairId": 1036,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "neck"
+    },
+    "1036": {
+      "pairId": 1037,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "neck"
+    },
+    "1039": {
+      "pairId": 1038,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "leftShoulder"
+    },
+    "1038": {
+      "pairId": 1039,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "leftShoulder"
+    },
+    "1041": {
+      "pairId": 1040,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "leftShoulder"
+    },
+    "1040": {
+      "pairId": 1041,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "leftShoulder"
+    },
+    "1043": {
+      "pairId": 1042,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "leftUpperArm"
+    },
+    "1042": {
+      "pairId": 1043,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "leftUpperArm"
+    },
+    "1045": {
+      "pairId": 1044,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "leftUpperArm"
+    },
+    "1044": {
+      "pairId": 1045,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "leftUpperArm"
+    },
+    "1047": {
+      "pairId": 1046,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "leftUpperArm"
+    },
+    "1046": {
+      "pairId": 1047,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "leftUpperArm"
+    },
+    "1049": {
+      "pairId": 1048,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "leftLowerArm"
+    },
+    "1048": {
+      "pairId": 1049,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "leftLowerArm"
+    },
+    "1051": {
+      "pairId": 1050,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "leftHand"
+    },
+    "1050": {
+      "pairId": 1051,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "leftHand"
+    },
+    "1053": {
+      "pairId": 1052,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "leftHand"
+    },
+    "1052": {
+      "pairId": 1053,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "leftHand"
+    },
+    "1055": {
+      "pairId": 1054,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "leftUpperLeg"
+    },
+    "1054": {
+      "pairId": 1055,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "leftUpperLeg"
+    },
+    "1057": {
+      "pairId": 1056,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "leftUpperLeg"
+    },
+    "1056": {
+      "pairId": 1057,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "leftUpperLeg"
+    },
+    "1059": {
+      "pairId": 1058,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "leftUpperLeg"
+    },
+    "1058": {
+      "pairId": 1059,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "leftUpperLeg"
+    },
+    "1061": {
+      "pairId": 1060,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "leftFoot"
+    },
+    "1060": {
+      "pairId": 1061,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "leftFoot"
+    },
+    "1063": {
+      "pairId": 1062,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "leftFoot"
+    },
+    "1062": {
+      "pairId": 1063,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "leftFoot"
+    },
+    "1065": {
+      "pairId": 1064,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "leftToes"
+    },
+    "1064": {
+      "pairId": 1065,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "leftToes"
+    },
+    "1070": {
+      "pairId": 1069,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "leftThumbMetacarpal"
+    },
+    "1069": {
+      "pairId": 1070,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "leftThumbMetacarpal"
+    },
+    "1075": {
+      "pairId": 1074,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "leftIndexProximal"
+    },
+    "1074": {
+      "pairId": 1075,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "leftIndexProximal"
+    },
+    "1080": {
+      "pairId": 1079,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "leftMiddleProximal"
+    },
+    "1079": {
+      "pairId": 1080,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "leftMiddleProximal"
+    },
+    "1085": {
+      "pairId": 1084,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "leftRingProximal"
+    },
+    "1084": {
+      "pairId": 1085,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "leftRingProximal"
+    },
+    "1090": {
+      "pairId": 1089,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "leftLittleProximal"
+    },
+    "1089": {
+      "pairId": 1090,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "leftLittleProximal"
+    }
+  },
+  "continuumLabels": {
+    "1003": "Twist left",
+    "1004": "Twist right",
+    "61-62": "Eyes — Horizontal",
+    "64-63": "Eyes — Vertical",
+    "65-66": "Left Eye — Horizontal",
+    "68-67": "Left Eye — Vertical",
+    "69-70": "Right Eye — Horizontal",
+    "72-71": "Right Eye — Vertical",
+    "51-52": "Head — Horizontal",
+    "54-53": "Head — Vertical",
+    "55-56": "Head — Tilt",
+    "30-35": "Jaw — Horizontal",
+    "38-37": "Tongue — Vertical",
+    "39-40": "Tongue — Horizontal",
+    "41-42": "Tongue — Tilt",
+    "73-74": "Tongue — Width",
+    "76-77": "Tongue Tip — Vertical",
+    "1011": "Pelvis bend",
+    "1013": "Pelvis twist",
+    "1015": "Pelvis side bend",
+    "1017": "Lower spine bend",
+    "1019": "Lower spine twist",
+    "1021": "Lower spine side bend",
+    "1023": "Chest bend",
+    "1025": "Chest side bend",
+    "1027": "Upper chest bend",
+    "1029": "Upper chest twist",
+    "1031": "Upper chest side bend",
+    "1033": "Neck bend",
+    "1035": "Neck twist",
+    "1037": "Neck side bend",
+    "1039": "Shoulder raise",
+    "1041": "Shoulder forward/back",
+    "1043": "Arm forward/back",
+    "1045": "Arm raise/lower",
+    "1047": "Upper arm twist",
+    "1049": "Forearm rotation",
+    "1051": "Wrist bend",
+    "1053": "Wrist side bend",
+    "1055": "Hip forward/back",
+    "1057": "Hip outward/inward",
+    "1059": "Hip rotation",
+    "1061": "Ankle bend",
+    "1063": "Foot tilt",
+    "1065": "Toe bend",
+    "1070": "Thumb spread",
+    "1075": "Index spread",
+    "1080": "Middle spread",
+    "1085": "Ring spread",
+    "1090": "Little spread"
+  },
+  "hairPhysics": {
+    "stiffness": 7.5,
+    "damping": 0.18,
+    "inertia": 3.5,
+    "gravity": 12,
+    "responseScale": 2.5,
+    "idleSwayAmount": 0.12,
+    "idleSwaySpeed": 1,
+    "windStrength": 0,
+    "windDirectionX": 1,
+    "windDirectionZ": 0,
+    "windTurbulence": 0.3,
+    "windFrequency": 1.4,
+    "idleClipDuration": 10,
+    "impulseClipDuration": 1.4,
+    "direction": {
+      "yawSign": -1,
+      "pitchSign": -1
+    },
+    "morphTargets": {
+      "swayLeft": {
+        "key": "L_Hair_Left",
+        "axis": "yaw"
+      },
+      "swayRight": {
+        "key": "L_Hair_Right",
+        "axis": "yaw"
+      },
+      "swayFront": {
+        "key": "L_Hair_Front",
+        "axis": "pitch"
+      },
+      "fluffRight": {
+        "key": "Fluffy_Right",
+        "axis": "yaw"
+      },
+      "fluffBottom": {
+        "key": "Fluffy_Bottom_ALL",
+        "axis": "pitch"
+      },
+      "headUp": {
+        "Hairline_High_ALL": {
+          "value": 0.45,
+          "axis": "pitch"
+        },
+        "Length_Short": {
+          "value": 0.65,
+          "axis": "pitch"
+        }
+      },
+      "headDown": {
+        "L_Hair_Front": {
+          "value": 2,
+          "axis": "pitch"
+        },
+        "Fluffy_Bottom_ALL": {
+          "value": 1,
+          "axis": "pitch"
+        }
+      }
+    }
+  },
+  "annotationRegions": [
+    {
+      "name": "full_body",
+      "objects": [
+        "*"
+      ],
+      "paddingFactor": 2
+    },
+    {
+      "name": "head",
+      "bones": [
+        "HEAD",
+        "JAW"
+      ],
+      "paddingFactor": 1.5,
+      "children": [
+        "face",
+        "left_eye",
+        "right_eye",
+        "mouth"
+      ],
+      "expandAnimation": "staggered"
+    },
+    {
+      "name": "face",
+      "bones": [
+        "HEAD"
+      ],
+      "paddingFactor": 1.3,
+      "parent": "head"
+    },
+    {
+      "name": "left_eye",
+      "bones": [
+        "EYE_L"
+      ],
+      "paddingFactor": 0.9,
+      "parent": "head"
+    },
+    {
+      "name": "right_eye",
+      "bones": [
+        "EYE_R"
+      ],
+      "paddingFactor": 0.9,
+      "parent": "head"
+    },
+    {
+      "name": "mouth",
+      "bones": [
+        "JAW"
+      ],
+      "paddingFactor": 1.5,
+      "parent": "head"
+    },
+    {
+      "name": "upper_body",
+      "bones": [
+        "SPINE_02",
+        "HEAD",
+        "CLAVICLE_L",
+        "CLAVICLE_R"
+      ],
+      "paddingFactor": 1.6
+    },
+    {
+      "name": "back",
+      "bones": [
+        "SPINE_01",
+        "SPINE_02"
+      ],
+      "paddingFactor": 1.8,
+      "cameraAngle": 180
+    },
+    {
+      "name": "left_hand",
+      "bones": [
+        "HAND_L"
+      ],
+      "paddingFactor": 1.3,
+      "cameraAngle": 270
+    },
+    {
+      "name": "right_hand",
+      "bones": [
+        "HAND_R"
+      ],
+      "paddingFactor": 1.3,
+      "cameraAngle": 90
+    },
+    {
+      "name": "left_foot",
+      "bones": [
+        "FOOT_L",
+        "TOEBASE_L"
+      ],
+      "paddingFactor": 2.5,
+      "cameraAngle": 270
+    },
+    {
+      "name": "right_foot",
+      "bones": [
+        "FOOT_R",
+        "TOEBASE_R"
+      ],
+      "paddingFactor": 2.5,
+      "cameraAngle": 90
+    }
+  ],
+  "compositeRotations": [
+    {
+      "node": "JAW",
+      "pitch": {
+        "aus": [
+          25,
+          26,
+          27
+        ],
+        "axis": "rz"
+      },
+      "yaw": {
+        "aus": [
+          30,
+          35
+        ],
+        "axis": "ry",
+        "negative": 30,
+        "positive": 35
+      },
+      "roll": null
+    },
+    {
+      "node": "HEAD",
+      "pitch": {
+        "aus": [
+          54,
+          53
+        ],
+        "axis": "rx",
+        "negative": 54,
+        "positive": 53
+      },
+      "yaw": {
+        "aus": [
+          51,
+          52
+        ],
+        "axis": "ry",
+        "negative": 51,
+        "positive": 52
+      },
+      "roll": {
+        "aus": [
+          55,
+          56
+        ],
+        "axis": "rz",
+        "negative": 55,
+        "positive": 56
+      }
+    },
+    {
+      "node": "EYE_L",
+      "pitch": {
+        "aus": [
+          64,
+          63,
+          68,
+          67
+        ],
+        "axis": "rx",
+        "negative": [
+          64,
+          68
+        ],
+        "positive": [
+          63,
+          67
+        ]
+      },
+      "yaw": {
+        "aus": [
+          61,
+          62,
+          65,
+          66
+        ],
+        "axis": "rz",
+        "negative": [
+          61,
+          65
+        ],
+        "positive": [
+          62,
+          66
+        ]
+      },
+      "roll": null
+    },
+    {
+      "node": "EYE_R",
+      "pitch": {
+        "aus": [
+          64,
+          63,
+          72,
+          71
+        ],
+        "axis": "rx",
+        "negative": [
+          64,
+          72
+        ],
+        "positive": [
+          63,
+          71
+        ]
+      },
+      "yaw": {
+        "aus": [
+          61,
+          62,
+          69,
+          70
+        ],
+        "axis": "rz",
+        "negative": [
+          61,
+          69
+        ],
+        "positive": [
+          62,
+          70
+        ]
+      },
+      "roll": null
+    },
+    {
+      "node": "TONGUE",
+      "pitch": {
+        "aus": [
+          38,
+          37
+        ],
+        "axis": "rz",
+        "negative": 38,
+        "positive": 37
+      },
+      "yaw": {
+        "aus": [
+          39,
+          40
+        ],
+        "axis": "ry",
+        "negative": 39,
+        "positive": 40
+      },
+      "roll": {
+        "aus": [
+          41,
+          42
+        ],
+        "axis": "rx",
+        "negative": 41,
+        "positive": 42
+      }
+    },
+    {
+      "node": "leftLowerArm",
+      "pitch": {
+        "aus": [
+          1001
+        ],
+        "axis": "rx"
+      },
+      "yaw": {
+        "aus": [
+          1048,
+          1049
+        ],
+        "axis": "ry",
+        "negative": 1048,
+        "positive": 1049
+      }
+    },
+    {
+      "node": "rightLowerArm",
+      "pitch": {
+        "aus": [
+          1001
+        ],
+        "axis": "rx"
+      },
+      "yaw": {
+        "aus": [
+          1048,
+          1049
+        ],
+        "axis": "ry",
+        "negative": 1048,
+        "positive": 1049
+      }
+    },
+    {
+      "node": "leftLowerLeg",
+      "pitch": {
+        "aus": [
+          1002
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "rightLowerLeg",
+      "pitch": {
+        "aus": [
+          1002
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "SPINE_01",
+      "yaw": {
+        "aus": [
+          1003,
+          1004
+        ],
+        "negative": 1003,
+        "positive": 1004,
+        "axis": "ry"
+      },
+      "pitch": {
+        "aus": [
+          1022,
+          1023
+        ],
+        "axis": "rx",
+        "negative": 1022,
+        "positive": 1023
+      },
+      "roll": {
+        "aus": [
+          1024,
+          1025
+        ],
+        "axis": "rz",
+        "negative": 1024,
+        "positive": 1025
+      }
+    },
+    {
+      "node": "hips",
+      "pitch": {
+        "aus": [
+          1010,
+          1011
+        ],
+        "axis": "rx",
+        "negative": 1010,
+        "positive": 1011
+      },
+      "yaw": {
+        "aus": [
+          1012,
+          1013
+        ],
+        "axis": "ry",
+        "negative": 1012,
+        "positive": 1013
+      },
+      "roll": {
+        "aus": [
+          1014,
+          1015
+        ],
+        "axis": "rz",
+        "negative": 1014,
+        "positive": 1015
+      }
+    },
+    {
+      "node": "spine",
+      "pitch": {
+        "aus": [
+          1016,
+          1017
+        ],
+        "axis": "rx",
+        "negative": 1016,
+        "positive": 1017
+      },
+      "yaw": {
+        "aus": [
+          1018,
+          1019
+        ],
+        "axis": "ry",
+        "negative": 1018,
+        "positive": 1019
+      },
+      "roll": {
+        "aus": [
+          1020,
+          1021
+        ],
+        "axis": "rz",
+        "negative": 1020,
+        "positive": 1021
+      }
+    },
+    {
+      "node": "upperChest",
+      "pitch": {
+        "aus": [
+          1026,
+          1027
+        ],
+        "axis": "rx",
+        "negative": 1026,
+        "positive": 1027
+      },
+      "yaw": {
+        "aus": [
+          1028,
+          1029
+        ],
+        "axis": "ry",
+        "negative": 1028,
+        "positive": 1029
+      },
+      "roll": {
+        "aus": [
+          1030,
+          1031
+        ],
+        "axis": "rz",
+        "negative": 1030,
+        "positive": 1031
+      }
+    },
+    {
+      "node": "neck",
+      "pitch": {
+        "aus": [
+          1032,
+          1033
+        ],
+        "axis": "rx",
+        "negative": 1032,
+        "positive": 1033
+      },
+      "yaw": {
+        "aus": [
+          1034,
+          1035
+        ],
+        "axis": "ry",
+        "negative": 1034,
+        "positive": 1035
+      },
+      "roll": {
+        "aus": [
+          1036,
+          1037
+        ],
+        "axis": "rz",
+        "negative": 1036,
+        "positive": 1037
+      }
+    },
+    {
+      "node": "leftShoulder",
+      "roll": {
+        "aus": [
+          1038,
+          1039
+        ],
+        "axis": "rz",
+        "negative": 1038,
+        "positive": 1039
+      },
+      "pitch": {
+        "aus": [
+          1040,
+          1041
+        ],
+        "axis": "rx",
+        "negative": 1040,
+        "positive": 1041
+      }
+    },
+    {
+      "node": "rightShoulder",
+      "roll": {
+        "aus": [
+          1038,
+          1039
+        ],
+        "axis": "rz",
+        "negative": 1038,
+        "positive": 1039
+      },
+      "pitch": {
+        "aus": [
+          1040,
+          1041
+        ],
+        "axis": "rx",
+        "negative": 1040,
+        "positive": 1041
+      }
+    },
+    {
+      "node": "leftUpperArm",
+      "pitch": {
+        "aus": [
+          1042,
+          1043
+        ],
+        "axis": "rx",
+        "negative": 1042,
+        "positive": 1043
+      },
+      "roll": {
+        "aus": [
+          1044,
+          1045
+        ],
+        "axis": "rz",
+        "negative": 1044,
+        "positive": 1045
+      },
+      "yaw": {
+        "aus": [
+          1046,
+          1047
+        ],
+        "axis": "ry",
+        "negative": 1046,
+        "positive": 1047
+      }
+    },
+    {
+      "node": "rightUpperArm",
+      "pitch": {
+        "aus": [
+          1042,
+          1043
+        ],
+        "axis": "rx",
+        "negative": 1042,
+        "positive": 1043
+      },
+      "roll": {
+        "aus": [
+          1044,
+          1045
+        ],
+        "axis": "rz",
+        "negative": 1044,
+        "positive": 1045
+      },
+      "yaw": {
+        "aus": [
+          1046,
+          1047
+        ],
+        "axis": "ry",
+        "negative": 1046,
+        "positive": 1047
+      }
+    },
+    {
+      "node": "leftHand",
+      "pitch": {
+        "aus": [
+          1050,
+          1051
+        ],
+        "axis": "rx",
+        "negative": 1050,
+        "positive": 1051
+      },
+      "roll": {
+        "aus": [
+          1052,
+          1053
+        ],
+        "axis": "rz",
+        "negative": 1052,
+        "positive": 1053
+      }
+    },
+    {
+      "node": "rightHand",
+      "pitch": {
+        "aus": [
+          1050,
+          1051
+        ],
+        "axis": "rx",
+        "negative": 1050,
+        "positive": 1051
+      },
+      "roll": {
+        "aus": [
+          1052,
+          1053
+        ],
+        "axis": "rz",
+        "negative": 1052,
+        "positive": 1053
+      }
+    },
+    {
+      "node": "leftUpperLeg",
+      "pitch": {
+        "aus": [
+          1054,
+          1055
+        ],
+        "axis": "rx",
+        "negative": 1054,
+        "positive": 1055
+      },
+      "roll": {
+        "aus": [
+          1056,
+          1057
+        ],
+        "axis": "rz",
+        "negative": 1056,
+        "positive": 1057
+      },
+      "yaw": {
+        "aus": [
+          1058,
+          1059
+        ],
+        "axis": "ry",
+        "negative": 1058,
+        "positive": 1059
+      }
+    },
+    {
+      "node": "rightUpperLeg",
+      "pitch": {
+        "aus": [
+          1054,
+          1055
+        ],
+        "axis": "rx",
+        "negative": 1054,
+        "positive": 1055
+      },
+      "roll": {
+        "aus": [
+          1056,
+          1057
+        ],
+        "axis": "rz",
+        "negative": 1056,
+        "positive": 1057
+      },
+      "yaw": {
+        "aus": [
+          1058,
+          1059
+        ],
+        "axis": "ry",
+        "negative": 1058,
+        "positive": 1059
+      }
+    },
+    {
+      "node": "leftFoot",
+      "pitch": {
+        "aus": [
+          1060,
+          1061
+        ],
+        "axis": "rx",
+        "negative": 1060,
+        "positive": 1061
+      },
+      "yaw": {
+        "aus": [
+          1062,
+          1063
+        ],
+        "axis": "ry",
+        "negative": 1062,
+        "positive": 1063
+      }
+    },
+    {
+      "node": "rightFoot",
+      "pitch": {
+        "aus": [
+          1060,
+          1061
+        ],
+        "axis": "rx",
+        "negative": 1060,
+        "positive": 1061
+      },
+      "yaw": {
+        "aus": [
+          1062,
+          1063
+        ],
+        "axis": "ry",
+        "negative": 1062,
+        "positive": 1063
+      }
+    },
+    {
+      "node": "leftToes",
+      "pitch": {
+        "aus": [
+          1064,
+          1065
+        ],
+        "axis": "rx",
+        "negative": 1064,
+        "positive": 1065
+      }
+    },
+    {
+      "node": "rightToes",
+      "pitch": {
+        "aus": [
+          1064,
+          1065
+        ],
+        "axis": "rx",
+        "negative": 1064,
+        "positive": 1065
+      }
+    },
+    {
+      "node": "leftThumbMetacarpal",
+      "pitch": {
+        "aus": [
+          1066
+        ],
+        "axis": "rx"
+      },
+      "roll": {
+        "aus": [
+          1069,
+          1070
+        ],
+        "axis": "rz",
+        "negative": 1069,
+        "positive": 1070
+      }
+    },
+    {
+      "node": "rightThumbMetacarpal",
+      "pitch": {
+        "aus": [
+          1066
+        ],
+        "axis": "rx"
+      },
+      "roll": {
+        "aus": [
+          1069,
+          1070
+        ],
+        "axis": "rz",
+        "negative": 1069,
+        "positive": 1070
+      }
+    },
+    {
+      "node": "leftThumbProximal",
+      "pitch": {
+        "aus": [
+          1067
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "rightThumbProximal",
+      "pitch": {
+        "aus": [
+          1067
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "leftThumbDistal",
+      "pitch": {
+        "aus": [
+          1068
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "rightThumbDistal",
+      "pitch": {
+        "aus": [
+          1068
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "leftIndexProximal",
+      "pitch": {
+        "aus": [
+          1071
+        ],
+        "axis": "rx"
+      },
+      "roll": {
+        "aus": [
+          1074,
+          1075
+        ],
+        "axis": "rz",
+        "negative": 1074,
+        "positive": 1075
+      }
+    },
+    {
+      "node": "rightIndexProximal",
+      "pitch": {
+        "aus": [
+          1071
+        ],
+        "axis": "rx"
+      },
+      "roll": {
+        "aus": [
+          1074,
+          1075
+        ],
+        "axis": "rz",
+        "negative": 1074,
+        "positive": 1075
+      }
+    },
+    {
+      "node": "leftIndexIntermediate",
+      "pitch": {
+        "aus": [
+          1072
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "rightIndexIntermediate",
+      "pitch": {
+        "aus": [
+          1072
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "leftIndexDistal",
+      "pitch": {
+        "aus": [
+          1073
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "rightIndexDistal",
+      "pitch": {
+        "aus": [
+          1073
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "leftMiddleProximal",
+      "pitch": {
+        "aus": [
+          1076
+        ],
+        "axis": "rx"
+      },
+      "roll": {
+        "aus": [
+          1079,
+          1080
+        ],
+        "axis": "rz",
+        "negative": 1079,
+        "positive": 1080
+      }
+    },
+    {
+      "node": "rightMiddleProximal",
+      "pitch": {
+        "aus": [
+          1076
+        ],
+        "axis": "rx"
+      },
+      "roll": {
+        "aus": [
+          1079,
+          1080
+        ],
+        "axis": "rz",
+        "negative": 1079,
+        "positive": 1080
+      }
+    },
+    {
+      "node": "leftMiddleIntermediate",
+      "pitch": {
+        "aus": [
+          1077
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "rightMiddleIntermediate",
+      "pitch": {
+        "aus": [
+          1077
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "leftMiddleDistal",
+      "pitch": {
+        "aus": [
+          1078
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "rightMiddleDistal",
+      "pitch": {
+        "aus": [
+          1078
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "leftRingProximal",
+      "pitch": {
+        "aus": [
+          1081
+        ],
+        "axis": "rx"
+      },
+      "roll": {
+        "aus": [
+          1084,
+          1085
+        ],
+        "axis": "rz",
+        "negative": 1084,
+        "positive": 1085
+      }
+    },
+    {
+      "node": "rightRingProximal",
+      "pitch": {
+        "aus": [
+          1081
+        ],
+        "axis": "rx"
+      },
+      "roll": {
+        "aus": [
+          1084,
+          1085
+        ],
+        "axis": "rz",
+        "negative": 1084,
+        "positive": 1085
+      }
+    },
+    {
+      "node": "leftRingIntermediate",
+      "pitch": {
+        "aus": [
+          1082
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "rightRingIntermediate",
+      "pitch": {
+        "aus": [
+          1082
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "leftRingDistal",
+      "pitch": {
+        "aus": [
+          1083
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "rightRingDistal",
+      "pitch": {
+        "aus": [
+          1083
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "leftLittleProximal",
+      "pitch": {
+        "aus": [
+          1086
+        ],
+        "axis": "rx"
+      },
+      "roll": {
+        "aus": [
+          1089,
+          1090
+        ],
+        "axis": "rz",
+        "negative": 1089,
+        "positive": 1090
+      }
+    },
+    {
+      "node": "rightLittleProximal",
+      "pitch": {
+        "aus": [
+          1086
+        ],
+        "axis": "rx"
+      },
+      "roll": {
+        "aus": [
+          1089,
+          1090
+        ],
+        "axis": "rz",
+        "negative": 1089,
+        "positive": 1090
+      }
+    },
+    {
+      "node": "leftLittleIntermediate",
+      "pitch": {
+        "aus": [
+          1087
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "rightLittleIntermediate",
+      "pitch": {
+        "aus": [
+          1087
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "leftLittleDistal",
+      "pitch": {
+        "aus": [
+          1088
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "rightLittleDistal",
+      "pitch": {
+        "aus": [
+          1088
+        ],
+        "axis": "rx"
+      }
+    }
+  ],
+  "humanoidCharacterization": {
+    "schemaVersion": 1,
+    "standard": "VRMC_vrm-1.0",
+    "status": "characterized",
+    "roles": {
+      "hips": {
+        "nodeKey": "HIPS",
+        "source": "cc4-preset"
+      },
+      "spine": {
+        "nodeKey": "WAIST",
+        "source": "cc4-preset"
+      },
+      "chest": {
+        "nodeKey": "SPINE_01",
+        "source": "cc4-preset"
+      },
+      "neck": {
+        "nodeKey": "NECK",
+        "source": "cc4-preset"
+      },
+      "head": {
+        "nodeKey": "HEAD",
+        "source": "cc4-preset"
+      },
+      "leftUpperArm": {
+        "nodeKey": "UPPER_ARM_L",
+        "source": "cc4-preset"
+      },
+      "leftLowerArm": {
+        "nodeKey": "LOWER_ARM_L",
+        "source": "cc4-preset"
+      },
+      "leftHand": {
+        "nodeKey": "HAND_L",
+        "source": "cc4-preset"
+      },
+      "rightUpperArm": {
+        "nodeKey": "UPPER_ARM_R",
+        "source": "cc4-preset"
+      },
+      "rightLowerArm": {
+        "nodeKey": "LOWER_ARM_R",
+        "source": "cc4-preset"
+      },
+      "rightHand": {
+        "nodeKey": "HAND_R",
+        "source": "cc4-preset"
+      },
+      "leftUpperLeg": {
+        "nodeKey": "UPPER_LEG_L",
+        "source": "cc4-preset"
+      },
+      "leftLowerLeg": {
+        "nodeKey": "LOWER_LEG_L",
+        "source": "cc4-preset"
+      },
+      "leftFoot": {
+        "nodeKey": "FOOT_L",
+        "source": "cc4-preset"
+      },
+      "rightUpperLeg": {
+        "nodeKey": "UPPER_LEG_R",
+        "source": "cc4-preset"
+      },
+      "rightLowerLeg": {
+        "nodeKey": "LOWER_LEG_R",
+        "source": "cc4-preset"
+      },
+      "rightFoot": {
+        "nodeKey": "FOOT_R",
+        "source": "cc4-preset"
+      },
+      "upperChest": {
+        "nodeKey": "SPINE_02",
+        "source": "cc4-preset"
+      },
+      "leftEye": {
+        "nodeKey": "EYE_L",
+        "source": "cc4-preset"
+      },
+      "leftShoulder": {
+        "nodeKey": "CLAVICLE_L",
+        "source": "cc4-preset"
+      },
+      "leftToes": {
+        "nodeKey": "TOEBASE_L",
+        "source": "cc4-preset"
+      },
+      "leftThumbMetacarpal": {
+        "nodeKey": "THUMB_METACARPAL_L",
+        "source": "cc4-preset"
+      },
+      "leftThumbProximal": {
+        "nodeKey": "THUMB_PROXIMAL_L",
+        "source": "cc4-preset"
+      },
+      "leftThumbDistal": {
+        "nodeKey": "THUMB_DISTAL_L",
+        "source": "cc4-preset"
+      },
+      "leftIndexProximal": {
+        "nodeKey": "INDEX_PROXIMAL_L",
+        "source": "cc4-preset"
+      },
+      "leftIndexIntermediate": {
+        "nodeKey": "INDEX_INTERMEDIATE_L",
+        "source": "cc4-preset"
+      },
+      "leftIndexDistal": {
+        "nodeKey": "INDEX_DISTAL_L",
+        "source": "cc4-preset"
+      },
+      "leftMiddleProximal": {
+        "nodeKey": "MIDDLE_PROXIMAL_L",
+        "source": "cc4-preset"
+      },
+      "leftMiddleIntermediate": {
+        "nodeKey": "MIDDLE_INTERMEDIATE_L",
+        "source": "cc4-preset"
+      },
+      "leftMiddleDistal": {
+        "nodeKey": "MIDDLE_DISTAL_L",
+        "source": "cc4-preset"
+      },
+      "leftRingProximal": {
+        "nodeKey": "RING_PROXIMAL_L",
+        "source": "cc4-preset"
+      },
+      "leftRingIntermediate": {
+        "nodeKey": "RING_INTERMEDIATE_L",
+        "source": "cc4-preset"
+      },
+      "leftRingDistal": {
+        "nodeKey": "RING_DISTAL_L",
+        "source": "cc4-preset"
+      },
+      "leftLittleProximal": {
+        "nodeKey": "LITTLE_PROXIMAL_L",
+        "source": "cc4-preset"
+      },
+      "leftLittleIntermediate": {
+        "nodeKey": "LITTLE_INTERMEDIATE_L",
+        "source": "cc4-preset"
+      },
+      "leftLittleDistal": {
+        "nodeKey": "LITTLE_DISTAL_L",
+        "source": "cc4-preset"
+      },
+      "rightEye": {
+        "nodeKey": "EYE_R",
+        "source": "cc4-preset"
+      },
+      "rightShoulder": {
+        "nodeKey": "CLAVICLE_R",
+        "source": "cc4-preset"
+      },
+      "rightToes": {
+        "nodeKey": "TOEBASE_R",
+        "source": "cc4-preset"
+      },
+      "rightThumbMetacarpal": {
+        "nodeKey": "THUMB_METACARPAL_R",
+        "source": "cc4-preset"
+      },
+      "rightThumbProximal": {
+        "nodeKey": "THUMB_PROXIMAL_R",
+        "source": "cc4-preset"
+      },
+      "rightThumbDistal": {
+        "nodeKey": "THUMB_DISTAL_R",
+        "source": "cc4-preset"
+      },
+      "rightIndexProximal": {
+        "nodeKey": "INDEX_PROXIMAL_R",
+        "source": "cc4-preset"
+      },
+      "rightIndexIntermediate": {
+        "nodeKey": "INDEX_INTERMEDIATE_R",
+        "source": "cc4-preset"
+      },
+      "rightIndexDistal": {
+        "nodeKey": "INDEX_DISTAL_R",
+        "source": "cc4-preset"
+      },
+      "rightMiddleProximal": {
+        "nodeKey": "MIDDLE_PROXIMAL_R",
+        "source": "cc4-preset"
+      },
+      "rightMiddleIntermediate": {
+        "nodeKey": "MIDDLE_INTERMEDIATE_R",
+        "source": "cc4-preset"
+      },
+      "rightMiddleDistal": {
+        "nodeKey": "MIDDLE_DISTAL_R",
+        "source": "cc4-preset"
+      },
+      "rightRingProximal": {
+        "nodeKey": "RING_PROXIMAL_R",
+        "source": "cc4-preset"
+      },
+      "rightRingIntermediate": {
+        "nodeKey": "RING_INTERMEDIATE_R",
+        "source": "cc4-preset"
+      },
+      "rightRingDistal": {
+        "nodeKey": "RING_DISTAL_R",
+        "source": "cc4-preset"
+      },
+      "rightLittleProximal": {
+        "nodeKey": "LITTLE_PROXIMAL_R",
+        "source": "cc4-preset"
+      },
+      "rightLittleIntermediate": {
+        "nodeKey": "LITTLE_INTERMEDIATE_R",
+        "source": "cc4-preset"
+      },
+      "rightLittleDistal": {
+        "nodeKey": "LITTLE_DISTAL_R",
+        "source": "cc4-preset"
+      },
+      "jaw": {
+        "nodeKey": "JAW",
+        "source": "cc4-preset"
+      }
+    }
+  },
+  "bodyControls": {
+    "body.elbowFlex": {
+      "label": "Elbow flex / biceps",
+      "section": "Arms",
+      "auId": 1001,
+      "bilateral": true,
+      "roles": [
+        "leftLowerArm",
+        "rightLowerArm"
+      ],
+      "order": 10
+    },
+    "body.kneeBend": {
+      "label": "Knee bend",
+      "section": "Legs",
+      "auId": 1002,
+      "bilateral": true,
+      "roles": [
+        "leftLowerLeg",
+        "rightLowerLeg"
+      ],
+      "order": 20
+    },
+    "body.torsoTwist": {
+      "label": "Torso twist",
+      "section": "Torso",
+      "auId": 1004,
+      "negativeAuId": 1003,
+      "bilateral": false,
+      "roles": [
+        "chest"
+      ],
+      "order": 30
+    },
+    "body.hipsBend": {
+      "label": "Pelvis bend",
+      "section": "Torso",
+      "auId": 1011,
+      "bilateral": false,
+      "roles": [
+        "hips"
+      ],
+      "order": 40,
+      "negativeAuId": 1010
+    },
+    "body.hipsTwist": {
+      "label": "Pelvis twist",
+      "section": "Torso",
+      "auId": 1013,
+      "bilateral": false,
+      "roles": [
+        "hips"
+      ],
+      "order": 50,
+      "negativeAuId": 1012
+    },
+    "body.hipsSideBend": {
+      "label": "Pelvis side bend",
+      "section": "Torso",
+      "auId": 1015,
+      "bilateral": false,
+      "roles": [
+        "hips"
+      ],
+      "order": 60,
+      "negativeAuId": 1014
+    },
+    "body.spineBend": {
+      "label": "Lower spine bend",
+      "section": "Torso",
+      "auId": 1017,
+      "bilateral": false,
+      "roles": [
+        "spine"
+      ],
+      "order": 70,
+      "negativeAuId": 1016
+    },
+    "body.spineTwist": {
+      "label": "Lower spine twist",
+      "section": "Torso",
+      "auId": 1019,
+      "bilateral": false,
+      "roles": [
+        "spine"
+      ],
+      "order": 80,
+      "negativeAuId": 1018
+    },
+    "body.spineSideBend": {
+      "label": "Lower spine side bend",
+      "section": "Torso",
+      "auId": 1021,
+      "bilateral": false,
+      "roles": [
+        "spine"
+      ],
+      "order": 90,
+      "negativeAuId": 1020
+    },
+    "body.chestBend": {
+      "label": "Chest bend",
+      "section": "Torso",
+      "auId": 1023,
+      "bilateral": false,
+      "roles": [
+        "chest"
+      ],
+      "order": 100,
+      "negativeAuId": 1022
+    },
+    "body.chestSideBend": {
+      "label": "Chest side bend",
+      "section": "Torso",
+      "auId": 1025,
+      "bilateral": false,
+      "roles": [
+        "chest"
+      ],
+      "order": 110,
+      "negativeAuId": 1024
+    },
+    "body.upperChestBend": {
+      "label": "Upper chest bend",
+      "section": "Torso",
+      "auId": 1027,
+      "bilateral": false,
+      "roles": [
+        "upperChest"
+      ],
+      "order": 120,
+      "negativeAuId": 1026
+    },
+    "body.upperChestTwist": {
+      "label": "Upper chest twist",
+      "section": "Torso",
+      "auId": 1029,
+      "bilateral": false,
+      "roles": [
+        "upperChest"
+      ],
+      "order": 130,
+      "negativeAuId": 1028
+    },
+    "body.upperChestSideBend": {
+      "label": "Upper chest side bend",
+      "section": "Torso",
+      "auId": 1031,
+      "bilateral": false,
+      "roles": [
+        "upperChest"
+      ],
+      "order": 140,
+      "negativeAuId": 1030
+    },
+    "body.neckBend": {
+      "label": "Neck bend",
+      "section": "Head",
+      "auId": 1033,
+      "bilateral": false,
+      "roles": [
+        "neck"
+      ],
+      "order": 150,
+      "negativeAuId": 1032
+    },
+    "body.neckTwist": {
+      "label": "Neck twist",
+      "section": "Head",
+      "auId": 1035,
+      "bilateral": false,
+      "roles": [
+        "neck"
+      ],
+      "order": 160,
+      "negativeAuId": 1034
+    },
+    "body.neckSideBend": {
+      "label": "Neck side bend",
+      "section": "Head",
+      "auId": 1037,
+      "bilateral": false,
+      "roles": [
+        "neck"
+      ],
+      "order": 170,
+      "negativeAuId": 1036
+    },
+    "body.shoulderRaise": {
+      "label": "Shoulder raise",
+      "section": "Arms",
+      "auId": 1039,
+      "bilateral": true,
+      "roles": [
+        "leftShoulder",
+        "rightShoulder"
+      ],
+      "order": 180,
+      "negativeAuId": 1038
+    },
+    "body.shoulderSwing": {
+      "label": "Shoulder forward/back",
+      "section": "Arms",
+      "auId": 1041,
+      "bilateral": true,
+      "roles": [
+        "leftShoulder",
+        "rightShoulder"
+      ],
+      "order": 190,
+      "negativeAuId": 1040
+    },
+    "body.armSwing": {
+      "label": "Arm forward/back",
+      "section": "Arms",
+      "auId": 1043,
+      "bilateral": true,
+      "roles": [
+        "leftUpperArm",
+        "rightUpperArm"
+      ],
+      "order": 200,
+      "negativeAuId": 1042
+    },
+    "body.armSpread": {
+      "label": "Arm raise/lower",
+      "section": "Arms",
+      "auId": 1045,
+      "bilateral": true,
+      "roles": [
+        "leftUpperArm",
+        "rightUpperArm"
+      ],
+      "order": 210,
+      "negativeAuId": 1044
+    },
+    "body.armTwist": {
+      "label": "Upper arm twist",
+      "section": "Arms",
+      "auId": 1047,
+      "bilateral": true,
+      "roles": [
+        "leftUpperArm",
+        "rightUpperArm"
+      ],
+      "order": 220,
+      "negativeAuId": 1046
+    },
+    "body.forearmTwist": {
+      "label": "Forearm rotation",
+      "section": "Arms",
+      "auId": 1049,
+      "bilateral": true,
+      "roles": [
+        "leftLowerArm",
+        "rightLowerArm"
+      ],
+      "order": 230,
+      "negativeAuId": 1048
+    },
+    "body.wristBend": {
+      "label": "Wrist bend",
+      "section": "Hands",
+      "auId": 1051,
+      "bilateral": true,
+      "roles": [
+        "leftHand",
+        "rightHand"
+      ],
+      "order": 240,
+      "negativeAuId": 1050
+    },
+    "body.wristDeviation": {
+      "label": "Wrist side bend",
+      "section": "Hands",
+      "auId": 1053,
+      "bilateral": true,
+      "roles": [
+        "leftHand",
+        "rightHand"
+      ],
+      "order": 250,
+      "negativeAuId": 1052
+    },
+    "body.hipSwing": {
+      "label": "Hip forward/back",
+      "section": "Legs",
+      "auId": 1055,
+      "bilateral": true,
+      "roles": [
+        "leftUpperLeg",
+        "rightUpperLeg"
+      ],
+      "order": 260,
+      "negativeAuId": 1054
+    },
+    "body.hipSpread": {
+      "label": "Hip outward/inward",
+      "section": "Legs",
+      "auId": 1057,
+      "bilateral": true,
+      "roles": [
+        "leftUpperLeg",
+        "rightUpperLeg"
+      ],
+      "order": 270,
+      "negativeAuId": 1056
+    },
+    "body.hipTwist": {
+      "label": "Hip rotation",
+      "section": "Legs",
+      "auId": 1059,
+      "bilateral": true,
+      "roles": [
+        "leftUpperLeg",
+        "rightUpperLeg"
+      ],
+      "order": 280,
+      "negativeAuId": 1058
+    },
+    "body.ankleBend": {
+      "label": "Ankle bend",
+      "section": "Feet",
+      "auId": 1061,
+      "bilateral": true,
+      "roles": [
+        "leftFoot",
+        "rightFoot"
+      ],
+      "order": 290,
+      "negativeAuId": 1060
+    },
+    "body.footTilt": {
+      "label": "Foot tilt",
+      "section": "Feet",
+      "auId": 1063,
+      "bilateral": true,
+      "roles": [
+        "leftFoot",
+        "rightFoot"
+      ],
+      "order": 300,
+      "negativeAuId": 1062
+    },
+    "body.toeBend": {
+      "label": "Toe bend",
+      "section": "Feet",
+      "auId": 1065,
+      "bilateral": true,
+      "roles": [
+        "leftToes",
+        "rightToes"
+      ],
+      "order": 310,
+      "negativeAuId": 1064
+    },
+    "body.thumbMetacarpalCurl": {
+      "label": "Thumb metacarpal curl",
+      "section": "Hands",
+      "auId": 1066,
+      "bilateral": true,
+      "roles": [
+        "leftThumbMetacarpal",
+        "rightThumbMetacarpal"
+      ],
+      "order": 320
+    },
+    "body.thumbProximalCurl": {
+      "label": "Thumb proximal curl",
+      "section": "Hands",
+      "auId": 1067,
+      "bilateral": true,
+      "roles": [
+        "leftThumbProximal",
+        "rightThumbProximal"
+      ],
+      "order": 330
+    },
+    "body.thumbDistalCurl": {
+      "label": "Thumb distal curl",
+      "section": "Hands",
+      "auId": 1068,
+      "bilateral": true,
+      "roles": [
+        "leftThumbDistal",
+        "rightThumbDistal"
+      ],
+      "order": 340
+    },
+    "body.thumbSpread": {
+      "label": "Thumb spread",
+      "section": "Hands",
+      "auId": 1070,
+      "bilateral": true,
+      "roles": [
+        "leftThumbMetacarpal",
+        "rightThumbMetacarpal"
+      ],
+      "order": 350,
+      "negativeAuId": 1069
+    },
+    "body.indexProximalCurl": {
+      "label": "Index proximal curl",
+      "section": "Hands",
+      "auId": 1071,
+      "bilateral": true,
+      "roles": [
+        "leftIndexProximal",
+        "rightIndexProximal"
+      ],
+      "order": 360
+    },
+    "body.indexIntermediateCurl": {
+      "label": "Index intermediate curl",
+      "section": "Hands",
+      "auId": 1072,
+      "bilateral": true,
+      "roles": [
+        "leftIndexIntermediate",
+        "rightIndexIntermediate"
+      ],
+      "order": 370
+    },
+    "body.indexDistalCurl": {
+      "label": "Index distal curl",
+      "section": "Hands",
+      "auId": 1073,
+      "bilateral": true,
+      "roles": [
+        "leftIndexDistal",
+        "rightIndexDistal"
+      ],
+      "order": 380
+    },
+    "body.indexSpread": {
+      "label": "Index spread",
+      "section": "Hands",
+      "auId": 1075,
+      "bilateral": true,
+      "roles": [
+        "leftIndexProximal",
+        "rightIndexProximal"
+      ],
+      "order": 390,
+      "negativeAuId": 1074
+    },
+    "body.middleProximalCurl": {
+      "label": "Middle proximal curl",
+      "section": "Hands",
+      "auId": 1076,
+      "bilateral": true,
+      "roles": [
+        "leftMiddleProximal",
+        "rightMiddleProximal"
+      ],
+      "order": 400
+    },
+    "body.middleIntermediateCurl": {
+      "label": "Middle intermediate curl",
+      "section": "Hands",
+      "auId": 1077,
+      "bilateral": true,
+      "roles": [
+        "leftMiddleIntermediate",
+        "rightMiddleIntermediate"
+      ],
+      "order": 410
+    },
+    "body.middleDistalCurl": {
+      "label": "Middle distal curl",
+      "section": "Hands",
+      "auId": 1078,
+      "bilateral": true,
+      "roles": [
+        "leftMiddleDistal",
+        "rightMiddleDistal"
+      ],
+      "order": 420
+    },
+    "body.middleSpread": {
+      "label": "Middle spread",
+      "section": "Hands",
+      "auId": 1080,
+      "bilateral": true,
+      "roles": [
+        "leftMiddleProximal",
+        "rightMiddleProximal"
+      ],
+      "order": 430,
+      "negativeAuId": 1079
+    },
+    "body.ringProximalCurl": {
+      "label": "Ring proximal curl",
+      "section": "Hands",
+      "auId": 1081,
+      "bilateral": true,
+      "roles": [
+        "leftRingProximal",
+        "rightRingProximal"
+      ],
+      "order": 440
+    },
+    "body.ringIntermediateCurl": {
+      "label": "Ring intermediate curl",
+      "section": "Hands",
+      "auId": 1082,
+      "bilateral": true,
+      "roles": [
+        "leftRingIntermediate",
+        "rightRingIntermediate"
+      ],
+      "order": 450
+    },
+    "body.ringDistalCurl": {
+      "label": "Ring distal curl",
+      "section": "Hands",
+      "auId": 1083,
+      "bilateral": true,
+      "roles": [
+        "leftRingDistal",
+        "rightRingDistal"
+      ],
+      "order": 460
+    },
+    "body.ringSpread": {
+      "label": "Ring spread",
+      "section": "Hands",
+      "auId": 1085,
+      "bilateral": true,
+      "roles": [
+        "leftRingProximal",
+        "rightRingProximal"
+      ],
+      "order": 470,
+      "negativeAuId": 1084
+    },
+    "body.littleProximalCurl": {
+      "label": "Little proximal curl",
+      "section": "Hands",
+      "auId": 1086,
+      "bilateral": true,
+      "roles": [
+        "leftLittleProximal",
+        "rightLittleProximal"
+      ],
+      "order": 480
+    },
+    "body.littleIntermediateCurl": {
+      "label": "Little intermediate curl",
+      "section": "Hands",
+      "auId": 1087,
+      "bilateral": true,
+      "roles": [
+        "leftLittleIntermediate",
+        "rightLittleIntermediate"
+      ],
+      "order": 490
+    },
+    "body.littleDistalCurl": {
+      "label": "Little distal curl",
+      "section": "Hands",
+      "auId": 1088,
+      "bilateral": true,
+      "roles": [
+        "leftLittleDistal",
+        "rightLittleDistal"
+      ],
+      "order": 500
+    },
+    "body.littleSpread": {
+      "label": "Little spread",
+      "section": "Hands",
+      "auId": 1090,
+      "bilateral": true,
+      "roles": [
+        "leftLittleProximal",
+        "rightLittleProximal"
+      ],
+      "order": 510,
+      "negativeAuId": 1089
+    },
+    "body.headTurn": {
+      "label": "Head turn",
+      "section": "Head",
+      "auId": 52,
+      "bilateral": false,
+      "roles": [
+        "head"
+      ],
+      "order": 520,
+      "negativeAuId": 51
+    },
+    "body.headNod": {
+      "label": "Head nod",
+      "section": "Head",
+      "auId": 53,
+      "bilateral": false,
+      "roles": [
+        "head"
+      ],
+      "order": 530,
+      "negativeAuId": 54
+    },
+    "body.headTilt": {
+      "label": "Head tilt",
+      "section": "Head",
+      "auId": 56,
+      "bilateral": false,
+      "roles": [
+        "head"
+      ],
+      "order": 540,
+      "negativeAuId": 55
+    },
+    "body.eyeTurn": {
+      "label": "Eyes turn",
+      "section": "Head",
+      "auId": 62,
+      "bilateral": true,
+      "roles": [
+        "leftEye",
+        "rightEye"
+      ],
+      "order": 550,
+      "negativeAuId": 61
+    },
+    "body.eyeLook": {
+      "label": "Eyes up/down",
+      "section": "Head",
+      "auId": 63,
+      "bilateral": true,
+      "roles": [
+        "leftEye",
+        "rightEye"
+      ],
+      "order": 560,
+      "negativeAuId": 64
+    },
+    "body.jawOpen": {
+      "label": "Jaw open",
+      "section": "Head",
+      "auId": 26,
+      "bilateral": false,
+      "roles": [
+        "jaw"
+      ],
+      "order": 570
+    },
+    "body.jawSide": {
+      "label": "Jaw sideways",
+      "section": "Head",
+      "auId": 35,
+      "bilateral": false,
+      "roles": [
+        "jaw"
+      ],
+      "order": 580,
+      "negativeAuId": 30
+    }
+  },
+  "bodyControlCalibration": {
+    "source": "LoomLarge/loomlarge_lol/public/characters/jonathan_bust.glb",
+    "basis": "Local rotations after reference quaternion: forearm +X moves hands toward model +Z; calf -X moves feet toward -Z; spine Y is vertical.",
+    "limits": "Authored demonstration ranges. Recalibrate axes and ranges for other rigs.",
+    "morphs": "Optional authored per-side bicep targets; profile auToMorphs may also bind existing center skin/clothing morphs."
+  },
   "hairColorPresets": {
     "natural_black": {
       "name": "Natural Black",

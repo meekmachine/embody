@@ -10,6 +10,8 @@ mod gaze;
 mod hair;
 mod hair_curves;
 mod humanoid_characterization;
+#[cfg(test)]
+mod humanoid_spec_tests;
 mod humanoid_fit;
 mod humanoid_templates;
 mod math;

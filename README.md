@@ -142,6 +142,18 @@ step/linear clip conversion, and remaining import work.
 
 ## Presets And Profiles
 
+### Full humanoid skeleton and body authoring
+
+`humanoid.getSpecification` exposes all 55 VRM 1.0 anatomical roles and their
+parent/required rules. CC4 maps all 55 to distinct authored bones and supplies
+58 body controls, including fingers, wrists, shoulders, feet, pelvis, spine,
+head, eyes and jaw. `profile.setHumanoidRoleBinding` edits or clears a role and
+retargets its existing actuators. The runtime keeps the same bone/morph evaluator;
+other rigs must author their own calibrated axes/ranges and optional muscle
+morph targets. See [Body controls](docs/body-controls.md) for migration, validation
+and role-assignment contracts.
+
+
 `cc4` and `fish` are embedded in the Wasm binary. `skeletal` is accepted as a
 host-level alias for `fish`; exact custom profiles use
 `RuntimeCore.configure_with_profile` and are never silently merged with CC4.

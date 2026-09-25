@@ -10,98 +10,37 @@ use crate::profile::{HumanoidCharacterizationData, ModelData, ProfileData};
 
 pub const VRMC_VRM_1_STANDARD: &str = "VRMC_vrm-1.0";
 
-const VRM_HUMANOID_ROLES: &[&str] = &[
-    "hips",
-    "spine",
-    "chest",
-    "upperChest",
-    "neck",
-    "head",
-    "leftEye",
-    "rightEye",
-    "jaw",
-    "leftShoulder",
-    "leftUpperArm",
-    "leftLowerArm",
-    "leftHand",
-    "rightShoulder",
-    "rightUpperArm",
-    "rightLowerArm",
-    "rightHand",
-    "leftUpperLeg",
-    "leftLowerLeg",
-    "leftFoot",
-    "leftToes",
-    "rightUpperLeg",
-    "rightLowerLeg",
-    "rightFoot",
-    "rightToes",
-    "leftThumbMetacarpal",
-    "leftThumbProximal",
-    "leftThumbDistal",
-    "leftIndexProximal",
-    "leftIndexIntermediate",
-    "leftIndexDistal",
-    "leftMiddleProximal",
-    "leftMiddleIntermediate",
-    "leftMiddleDistal",
-    "leftRingProximal",
-    "leftRingIntermediate",
-    "leftRingDistal",
-    "leftLittleProximal",
-    "leftLittleIntermediate",
-    "leftLittleDistal",
-    "rightThumbMetacarpal",
-    "rightThumbProximal",
-    "rightThumbDistal",
-    "rightIndexProximal",
-    "rightIndexIntermediate",
-    "rightIndexDistal",
-    "rightMiddleProximal",
-    "rightMiddleIntermediate",
-    "rightMiddleDistal",
-    "rightRingProximal",
-    "rightRingIntermediate",
-    "rightRingDistal",
-    "rightLittleProximal",
-    "rightLittleIntermediate",
-    "rightLittleDistal",
-];
+/// Canonical VRM 1.0 anatomy metadata shared by validation and host authoring UI.
+#[derive(serde::Deserialize, Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct HumanoidBoneSpecification {
+    pub role: String,
+    pub label: String,
+    pub section: String,
+    pub parent: Option<String>,
+    pub required: bool,
+    pub requires_parent: bool,
+}
 
-const REQUIRED_ROLES: &[&str] = &[
-    "hips",
-    "spine",
-    "head",
-    "leftUpperArm",
-    "leftLowerArm",
-    "leftHand",
-    "rightUpperArm",
-    "rightLowerArm",
-    "rightHand",
-    "leftUpperLeg",
-    "leftLowerLeg",
-    "leftFoot",
-    "rightUpperLeg",
-    "rightLowerLeg",
-    "rightFoot",
-];
+#[derive(serde::Deserialize, Serialize, Debug)]
+pub struct HumanoidSpecification {
+    pub standard: String,
+    pub bones: Vec<HumanoidBoneSpecification>,
+}
 
-const HIERARCHY_RELATIONSHIPS: &[(&str, &str)] = &[
-    ("hips", "spine"),
-    ("spine", "head"),
-    ("spine", "leftUpperArm"),
-    ("leftUpperArm", "leftLowerArm"),
-    ("leftLowerArm", "leftHand"),
-    ("spine", "rightUpperArm"),
-    ("rightUpperArm", "rightLowerArm"),
-    ("rightLowerArm", "rightHand"),
-    ("hips", "leftUpperLeg"),
-    ("leftUpperLeg", "leftLowerLeg"),
-    ("leftLowerLeg", "leftFoot"),
-    ("hips", "rightUpperLeg"),
-    ("rightUpperLeg", "rightLowerLeg"),
-    ("rightLowerLeg", "rightFoot"),
-];
+pub fn specification() -> &'static HumanoidSpecification {
+    static SPEC: std::sync::OnceLock<HumanoidSpecification> = std::sync::OnceLock::new();
+    SPEC.get_or_init(|| serde_json::from_str(include_str!("../assets/vrm-humanoid-specification.json"))
+        .expect("embedded VRM humanoid specification must be valid"))
+}
+
+fn required_roles() -> impl Iterator<Item = &'static str> {
+    specification().bones.iter().filter(|bone| bone.required).map(|bone| bone.role.as_str())
+}
+
+pub(crate) fn bone_specification(role: &str) -> Option<&'static HumanoidBoneSpecification> {
+    specification().bones.iter().find(|bone| bone.role == role)
+}
 
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -132,9 +71,8 @@ pub fn resolve(profile: &ProfileData) -> HumanoidCharacterizationResolution {
             standard: None,
             status: None,
             roles: BTreeMap::new(),
-            missing_required_roles: REQUIRED_ROLES
-                .iter()
-                .map(|role| (*role).to_string())
+            missing_required_roles: required_roles()
+                .map(str::to_string)
                 .collect(),
             errors: vec!["Profile has no humanoidCharacterization.".to_string()],
             warnings: Vec::new(),
@@ -160,8 +98,8 @@ pub fn resolve(profile: &ProfileData) -> HumanoidCharacterizationResolution {
 pub fn validate(profile: &ProfileData, model: &ModelData) -> HumanoidCharacterizationResolution {
     let mut result = resolve(profile);
     let resolver = crate::profile::NameResolver::new(profile, model);
-    for resolved in result.roles.values_mut() {
-        if let Some(bone) = resolver.resolve_bone(model, profile, &resolved.node_key) {
+    for (role, resolved) in &mut result.roles {
+        if let Some(bone) = resolver.resolve_bone(model, profile, role) {
             resolved.bone_name = bone.name.clone();
         }
     }
@@ -180,31 +118,89 @@ pub fn validate(profile: &ProfileData, model: &ModelData) -> HumanoidCharacteriz
         }
     }
 
-    for (ancestor_role, descendant_role) in HIERARCHY_RELATIONSHIPS {
-        let (Some(ancestor), Some(descendant)) = (
-            result.roles.get(*ancestor_role),
-            result.roles.get(*descendant_role),
-        ) else {
-            continue;
-        };
-        if let (Some(ancestor_bone), Some(descendant_bone)) = (
-            bone_by_name.get(ancestor.bone_name.as_str()),
-            bone_by_name.get(descendant.bone_name.as_str()),
-        ) {
-            if !is_descendant(
-                descendant_bone.parent_name.clone(),
-                ancestor_bone.name.as_str(),
-                &bone_by_name,
-            ) {
-                result.errors.push(format!(
-                    "VRM hierarchy requires \"{descendant_role}\" to descend from \"{ancestor_role}\"."
-                ));
+    let mut role_by_bone = HashMap::new();
+    for (role, resolved) in &result.roles {
+        if let Some(previous) = role_by_bone.insert(resolved.bone_name.as_str(), role.as_str()) {
+            result.errors.push(format!("VRM roles \"{previous}\" and \"{role}\" resolve to the same bone \"{}\".", resolved.bone_name));
+        }
+        if let Some(bone) = bone_by_name.get(resolved.bone_name.as_str()) {
+            if let Some(scale) = bone.rest_transform.as_ref().and_then(|transform| transform.scale.as_ref()) {
+                if [scale.x, scale.y, scale.z].iter().any(|value| !value.is_finite() || *value <= 0.0) {
+                    result.errors.push(format!("VRM role \"{role}\" requires positive, nonzero rest scale components."));
+                }
             }
+        }
+    }
+    for (role, resolved) in &result.roles {
+        let Some(spec) = bone_specification(role) else { continue; };
+        let mut expected_parent = spec.parent.as_deref();
+        while let Some(parent) = expected_parent {
+            if result.roles.contains_key(parent) { break; }
+            expected_parent = bone_specification(parent).and_then(|bone| bone.parent.as_deref());
+        }
+        let Some(expected_parent) = expected_parent else { continue; };
+        let Some(bone) = bone_by_name.get(resolved.bone_name.as_str()) else { continue; };
+        // VRM permits intermediate non-humanoid nodes, but the nearest mapped
+        // humanoid ancestor must be the prescribed (possibly skipped) parent.
+        let mut parent = bone.parent_name.as_deref();
+        let mut visited = std::collections::HashSet::new();
+        let mut actual_parent = None;
+        while let Some(name) = parent {
+            if !visited.insert(name) { break; }
+            if let Some(role) = role_by_bone.get(name) { actual_parent = Some(*role); break; }
+            parent = bone_by_name.get(name).and_then(|bone| bone.parent_name.as_deref());
+        }
+        if actual_parent != Some(expected_parent) {
+            result.errors.push(format!("VRM hierarchy requires \"{role}\" to descend from \"{expected_parent}\" without another humanoid role in between."));
         }
     }
 
     result.valid = is_usable(&result);
     result
+}
+
+/// Author a role without leaving old AU aliases driving a cleared/reassigned bone.
+pub fn set_role_binding(profile: &mut ProfileData, role: &str, bone_name: Option<&str>) -> Result<(), String> {
+    if bone_specification(role).is_none() { return Err(format!("Unknown VRM humanoid role \"{role}\".")); }
+    if bone_name.is_some_and(|name| name.trim().is_empty()) { return Err("boneName must be a nonempty bone name or null.".into()); }
+    let old_key = profile.humanoid_characterization.as_ref().and_then(|mapping| mapping.roles.get(role)).map(|binding| binding.node_key.clone());
+    let old_name = old_key.as_ref().map(|key| crate::body_controls::configured_bone_name(profile, key));
+    if let Some(name) = bone_name {
+        if profile.humanoid_characterization.as_ref().is_some_and(|mapping| mapping.roles.iter().any(|(other, binding)|
+            other != role && (crate::body_controls::configured_bone_name(profile, &binding.node_key) == name
+                || profile.bone_nodes.get(&binding.node_key).is_some_and(|configured| configured == name)))) {
+            return Err(format!("Bone \"{name}\" is already assigned to another humanoid role."));
+        }
+    }
+    if let Some(old_name) = old_name {
+        let aliases: std::collections::HashSet<String> = profile.bone_nodes.iter()
+            .filter(|(key, _)| crate::body_controls::configured_bone_name(profile, key) == old_name)
+            .flat_map(|(key, value)| [key.clone(), value.clone()]).collect();
+        let matches = |node: &str| node == role || node == old_name || aliases.contains(node);
+        for binding in profile.au_to_bones.values_mut().flatten() {
+            if matches(&binding.node) { binding.node = role.into(); }
+        }
+        if !profile.composite_rotations.is_unspecified() {
+            for composite in profile.composite_rotations.iter_mut() {
+                if matches(&composite.node) { composite.node = role.into(); }
+            }
+        }
+        for pair in profile.continuum_pairs.values_mut().flatten() {
+            if pair.node.as_deref().is_some_and(matches) { pair.node = Some(role.into()); }
+        }
+    }
+    let mapping = profile.humanoid_characterization.get_or_insert_with(|| HumanoidCharacterizationData {
+        schema_version: 1, standard: VRMC_VRM_1_STANDARD.into(), status: "incomplete".into(), ..Default::default()
+    });
+    mapping.extensions.insert("authored".into(), serde_json::json!(true));
+    if let Some(name) = bone_name {
+        let key = old_key.unwrap_or_else(|| format!("HUMANOID_{role}"));
+        profile.bone_nodes.insert(key.clone(), name.to_string());
+        mapping.roles.insert(role.into(), crate::profile::HumanoidRoleData { node_key: key, exact_bone_name: Some(name.into()), source: Some("authored".into()), ..Default::default() });
+    } else { mapping.roles.remove(role); }
+    mapping.status = "characterized".into();
+    if !resolve(profile).valid { profile.humanoid_characterization.as_mut().unwrap().status = "incomplete".into(); }
+    Ok(())
 }
 
 fn validate_metadata(
@@ -235,7 +231,7 @@ fn validate_metadata(
     }
 
     for (role, binding) in &characterization.roles {
-        if !VRM_HUMANOID_ROLES.contains(&role.as_str()) {
+        if bone_specification(role).is_none() {
             result
                 .errors
                 .push(format!("Unknown VRM humanoid role \"{role}\"."));
@@ -267,43 +263,34 @@ fn validate_metadata(
             role.clone(),
             ResolvedHumanoidRole {
                 node_key: node_key.to_string(),
-                bone_name: crate::body_controls::configured_bone_name(profile, node_key),
+                bone_name: crate::body_controls::configured_bone_name(profile, role),
                 source: binding.source.clone(),
                 confidence: binding.confidence,
             },
         );
     }
 
-    result.missing_required_roles = REQUIRED_ROLES
-        .iter()
-        .filter(|role| !result.roles.contains_key(**role))
-        .map(|role| (*role).to_string())
+    let mut role_by_bone = HashMap::new();
+    for (role, resolved) in &result.roles {
+        if let Some(previous) = role_by_bone.insert(resolved.bone_name.as_str(), role.as_str()) {
+            result.errors.push(format!("VRM roles \"{previous}\" and \"{role}\" map to the same bone \"{}\".", resolved.bone_name));
+        }
+        if let Some(spec) = bone_specification(role) {
+            if spec.requires_parent && spec.parent.as_ref().is_some_and(|parent| !result.roles.contains_key(parent)) {
+                result.errors.push(format!("VRM role \"{role}\" requires mapped parent \"{}\".", spec.parent.as_ref().unwrap()));
+            }
+        }
+    }
+
+    result.missing_required_roles = required_roles()
+        .filter(|role| !result.roles.contains_key(*role))
+        .map(str::to_string)
         .collect();
     if characterization.status == "verified-vrm" && !result.missing_required_roles.is_empty() {
         result.errors.push(
             "A verified VRM characterization must include every required VRM role.".to_string(),
         );
     }
-}
-
-fn is_descendant(
-    mut parent_name: Option<String>,
-    expected_ancestor: &str,
-    bones: &HashMap<&str, &crate::profile::BoneData>,
-) -> bool {
-    let mut visited = std::collections::HashSet::new();
-    while let Some(name) = parent_name {
-        if !visited.insert(name.clone()) {
-            return false;
-        }
-        if name == expected_ancestor {
-            return true;
-        }
-        parent_name = bones
-            .get(name.as_str())
-            .and_then(|bone| bone.parent_name.clone());
-    }
-    false
 }
 
 fn is_usable(result: &HumanoidCharacterizationResolution) -> bool {

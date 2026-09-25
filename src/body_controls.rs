@@ -15,7 +15,15 @@ pub(crate) fn node_key<'a>(profile: &'a ProfileData, node: &'a str) -> &'a str {
         .unwrap_or(node)
 }
 
+pub(crate) fn exact_bone_name<'a>(profile: &'a ProfileData, node: &str) -> Option<&'a str> {
+    let mapping = profile.humanoid_characterization.as_ref()?;
+    let role = mapping.roles.get(node).or_else(|| mapping.roles.values().find(|role| role.node_key == node))?;
+    let exact = role.exact_bone_name.as_deref()?;
+    (profile.bone_nodes.get(&role.node_key).map(String::as_str) == Some(exact)).then_some(exact)
+}
+
 pub(crate) fn configured_bone_name(profile: &ProfileData, node: &str) -> String {
+    if let Some(exact) = exact_bone_name(profile, node) { return exact.to_string(); }
     let key = node_key(profile, node);
     let base = profile.bone_nodes.get(key).map(String::as_str).unwrap_or(key);
     let prefix = profile.bone_prefix.as_deref().unwrap_or("");
@@ -58,7 +66,7 @@ pub(crate) fn resolve(profile: &ProfileData, model: Option<&ModelData>) -> Value
                     .unwrap_or_else(|| configured_bone_name(profile, &binding.node)));
                 let rotational = matches!(binding.channel.as_str(), "rx" | "ry" | "rz");
                 let composite_exists = !rotational || profile.composite_rotations.iter().any(|composite| {
-                    node_key(profile, &composite.node) == node_key(profile, &binding.node)
+                    configured_bone_name(profile, &composite.node) == configured_bone_name(profile, &binding.node)
                         && [&composite.pitch, &composite.yaw, &composite.roll].into_iter().flatten()
                             .any(|axis| axis.aus.contains(au) || [&axis.negative, &axis.positive].into_iter().flatten().any(|selector| {
                                 match selector { crate::profile::AuSelector::One(id) => id == au,

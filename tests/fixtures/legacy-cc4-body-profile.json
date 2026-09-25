@@ -1,0 +1,889 @@
+{
+  "boneNodes": {
+    "EYE_L": "L_Eye",
+    "EYE_R": "R_Eye",
+    "HEAD": "Head",
+    "NECK": "NeckTwist01",
+    "NECK_TWIST": "NeckTwist02",
+    "JAW": "JawRoot",
+    "TONGUE": "Tongue01",
+    "SPINE_01": "Spine01",
+    "SPINE_02": "Spine02",
+    "CLAVICLE_L": "L_Clavicle",
+    "CLAVICLE_R": "R_Clavicle",
+    "HAND_L": "L_Hand",
+    "HAND_R": "R_Hand",
+    "FOOT_L": "L_Foot",
+    "FOOT_R": "R_Foot",
+    "TOEBASE_L": "L_ToeBase",
+    "TOEBASE_R": "R_ToeBase",
+    "CC_Base_L_Eye": "CC_Base_L_Eye",
+    "CC_Base_R_Eye": "CC_Base_R_Eye",
+    "CC_Base_Head": "CC_Base_Head",
+    "CC_Base_NeckTwist01": "CC_Base_NeckTwist01",
+    "CC_Base_NeckTwist02": "CC_Base_NeckTwist02",
+    "CC_Base_JawRoot": "CC_Base_JawRoot",
+    "CC_Base_Tongue01": "CC_Base_Tongue01",
+    "CC_Base_Spine01": "CC_Base_Spine01",
+    "CC_Base_Spine02": "CC_Base_Spine02",
+    "CC_Base_L_Clavicle": "CC_Base_L_Clavicle",
+    "CC_Base_R_Clavicle": "CC_Base_R_Clavicle",
+    "CC_Base_L_Hand": "CC_Base_L_Hand",
+    "CC_Base_R_Hand": "CC_Base_R_Hand",
+    "CC_Base_L_Foot": "CC_Base_L_Foot",
+    "CC_Base_R_Foot": "CC_Base_R_Foot",
+    "CC_Base_L_ToeBase": "CC_Base_L_ToeBase",
+    "CC_Base_R_ToeBase": "CC_Base_R_ToeBase",
+    "HIPS": "Hip",
+    "UPPER_ARM_L": "L_Upperarm",
+    "UPPER_ARM_R": "R_Upperarm",
+    "LOWER_ARM_L": "L_Forearm",
+    "LOWER_ARM_R": "R_Forearm",
+    "UPPER_LEG_L": "L_Thigh",
+    "UPPER_LEG_R": "R_Thigh",
+    "LOWER_LEG_L": "L_Calf",
+    "LOWER_LEG_R": "R_Calf"
+  },
+  "bonePrefix": "CC_Base_",
+  "humanoidCharacterization": {
+    "schemaVersion": 1,
+    "standard": "VRMC_vrm-1.0",
+    "status": "characterized",
+    "roles": {
+      "hips": {
+        "nodeKey": "HIPS",
+        "source": "cc4-preset"
+      },
+      "spine": {
+        "nodeKey": "SPINE_01",
+        "source": "cc4-preset"
+      },
+      "chest": {
+        "nodeKey": "SPINE_02",
+        "source": "cc4-preset"
+      },
+      "neck": {
+        "nodeKey": "NECK",
+        "source": "cc4-preset"
+      },
+      "head": {
+        "nodeKey": "HEAD",
+        "source": "cc4-preset"
+      },
+      "leftUpperArm": {
+        "nodeKey": "UPPER_ARM_L",
+        "source": "cc4-preset"
+      },
+      "leftLowerArm": {
+        "nodeKey": "LOWER_ARM_L",
+        "source": "cc4-preset"
+      },
+      "leftHand": {
+        "nodeKey": "HAND_L",
+        "source": "cc4-preset"
+      },
+      "rightUpperArm": {
+        "nodeKey": "UPPER_ARM_R",
+        "source": "cc4-preset"
+      },
+      "rightLowerArm": {
+        "nodeKey": "LOWER_ARM_R",
+        "source": "cc4-preset"
+      },
+      "rightHand": {
+        "nodeKey": "HAND_R",
+        "source": "cc4-preset"
+      },
+      "leftUpperLeg": {
+        "nodeKey": "UPPER_LEG_L",
+        "source": "cc4-preset"
+      },
+      "leftLowerLeg": {
+        "nodeKey": "LOWER_LEG_L",
+        "source": "cc4-preset"
+      },
+      "leftFoot": {
+        "nodeKey": "FOOT_L",
+        "source": "cc4-preset"
+      },
+      "rightUpperLeg": {
+        "nodeKey": "UPPER_LEG_R",
+        "source": "cc4-preset"
+      },
+      "rightLowerLeg": {
+        "nodeKey": "LOWER_LEG_R",
+        "source": "cc4-preset"
+      },
+      "rightFoot": {
+        "nodeKey": "FOOT_R",
+        "source": "cc4-preset"
+      }
+    }
+  },
+  "bodyControls": {
+    "body.elbowFlex": {
+      "label": "Elbow flex / biceps",
+      "section": "Arms",
+      "auId": 1001,
+      "bilateral": true,
+      "roles": [
+        "leftLowerArm",
+        "rightLowerArm"
+      ],
+      "order": 10
+    },
+    "body.kneeBend": {
+      "label": "Knee bend",
+      "section": "Legs",
+      "auId": 1002,
+      "bilateral": true,
+      "roles": [
+        "leftLowerLeg",
+        "rightLowerLeg"
+      ],
+      "order": 20
+    },
+    "body.torsoTwist": {
+      "label": "Torso twist",
+      "section": "Torso",
+      "auId": 1004,
+      "negativeAuId": 1003,
+      "bilateral": false,
+      "roles": [
+        "spine"
+      ],
+      "order": 30
+    }
+  },
+  "auToBones": {
+    "25": [
+      {
+        "node": "CC_Base_JawRoot",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 20
+      }
+    ],
+    "26": [
+      {
+        "node": "CC_Base_JawRoot",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 30
+      }
+    ],
+    "27": [
+      {
+        "node": "CC_Base_JawRoot",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 35
+      }
+    ],
+    "30": [
+      {
+        "node": "CC_Base_JawRoot",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 15
+      }
+    ],
+    "35": [
+      {
+        "node": "CC_Base_JawRoot",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 15
+      }
+    ],
+    "37": [
+      {
+        "node": "CC_Base_Tongue01",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 20
+      }
+    ],
+    "38": [
+      {
+        "node": "CC_Base_Tongue01",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 20
+      }
+    ],
+    "39": [
+      {
+        "node": "CC_Base_Tongue01",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 20
+      }
+    ],
+    "40": [
+      {
+        "node": "CC_Base_Tongue01",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 20
+      }
+    ],
+    "41": [
+      {
+        "node": "CC_Base_Tongue01",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 20
+      }
+    ],
+    "42": [
+      {
+        "node": "CC_Base_Tongue01",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 20
+      }
+    ],
+    "51": [
+      {
+        "node": "CC_Base_Head",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 60
+      }
+    ],
+    "52": [
+      {
+        "node": "CC_Base_Head",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 60
+      }
+    ],
+    "53": [
+      {
+        "node": "CC_Base_Head",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 30
+      }
+    ],
+    "54": [
+      {
+        "node": "CC_Base_Head",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 30
+      }
+    ],
+    "55": [
+      {
+        "node": "CC_Base_Head",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 25
+      }
+    ],
+    "56": [
+      {
+        "node": "CC_Base_Head",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 25
+      }
+    ],
+    "61": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 25,
+        "side": "left"
+      },
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 25,
+        "side": "right"
+      }
+    ],
+    "62": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 25,
+        "side": "left"
+      },
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 25,
+        "side": "right"
+      }
+    ],
+    "63": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 20,
+        "side": "left"
+      },
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 20,
+        "side": "right"
+      }
+    ],
+    "64": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 20,
+        "side": "left"
+      },
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 20,
+        "side": "right"
+      }
+    ],
+    "65": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 25,
+        "side": "left"
+      }
+    ],
+    "66": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 25,
+        "side": "left"
+      }
+    ],
+    "67": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 20,
+        "side": "left"
+      }
+    ],
+    "68": [
+      {
+        "node": "CC_Base_L_Eye",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 20,
+        "side": "left"
+      }
+    ],
+    "69": [
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 25,
+        "side": "right"
+      }
+    ],
+    "70": [
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rz",
+        "scale": -1,
+        "maxDegrees": 25,
+        "side": "right"
+      }
+    ],
+    "71": [
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 20,
+        "side": "right"
+      }
+    ],
+    "72": [
+      {
+        "node": "CC_Base_R_Eye",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 20,
+        "side": "right"
+      }
+    ],
+    "103": [
+      {
+        "node": "CC_Base_JawRoot",
+        "channel": "rz",
+        "scale": 1,
+        "maxDegrees": 30
+      }
+    ],
+    "1001": [
+      {
+        "node": "leftLowerArm",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 120,
+        "side": "left"
+      },
+      {
+        "node": "rightLowerArm",
+        "channel": "rx",
+        "scale": 1,
+        "maxDegrees": 120,
+        "side": "right"
+      }
+    ],
+    "1002": [
+      {
+        "node": "leftLowerLeg",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 100,
+        "side": "left"
+      },
+      {
+        "node": "rightLowerLeg",
+        "channel": "rx",
+        "scale": -1,
+        "maxDegrees": 100,
+        "side": "right"
+      }
+    ],
+    "1003": [
+      {
+        "node": "spine",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 30
+      }
+    ],
+    "1004": [
+      {
+        "node": "spine",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 30
+      }
+    ]
+  },
+  "compositeRotations": [
+    {
+      "node": "JAW",
+      "pitch": {
+        "aus": [
+          25,
+          26,
+          27
+        ],
+        "axis": "rz"
+      },
+      "yaw": {
+        "aus": [
+          30,
+          35
+        ],
+        "axis": "ry",
+        "negative": 30,
+        "positive": 35
+      },
+      "roll": null
+    },
+    {
+      "node": "HEAD",
+      "pitch": {
+        "aus": [
+          54,
+          53
+        ],
+        "axis": "rx",
+        "negative": 54,
+        "positive": 53
+      },
+      "yaw": {
+        "aus": [
+          51,
+          52
+        ],
+        "axis": "ry",
+        "negative": 51,
+        "positive": 52
+      },
+      "roll": {
+        "aus": [
+          55,
+          56
+        ],
+        "axis": "rz",
+        "negative": 55,
+        "positive": 56
+      }
+    },
+    {
+      "node": "EYE_L",
+      "pitch": {
+        "aus": [
+          64,
+          63,
+          68,
+          67
+        ],
+        "axis": "rx",
+        "negative": [
+          64,
+          68
+        ],
+        "positive": [
+          63,
+          67
+        ]
+      },
+      "yaw": {
+        "aus": [
+          61,
+          62,
+          65,
+          66
+        ],
+        "axis": "rz",
+        "negative": [
+          61,
+          65
+        ],
+        "positive": [
+          62,
+          66
+        ]
+      },
+      "roll": null
+    },
+    {
+      "node": "EYE_R",
+      "pitch": {
+        "aus": [
+          64,
+          63,
+          72,
+          71
+        ],
+        "axis": "rx",
+        "negative": [
+          64,
+          72
+        ],
+        "positive": [
+          63,
+          71
+        ]
+      },
+      "yaw": {
+        "aus": [
+          61,
+          62,
+          69,
+          70
+        ],
+        "axis": "rz",
+        "negative": [
+          61,
+          69
+        ],
+        "positive": [
+          62,
+          70
+        ]
+      },
+      "roll": null
+    },
+    {
+      "node": "TONGUE",
+      "pitch": {
+        "aus": [
+          38,
+          37
+        ],
+        "axis": "rz",
+        "negative": 38,
+        "positive": 37
+      },
+      "yaw": {
+        "aus": [
+          39,
+          40
+        ],
+        "axis": "ry",
+        "negative": 39,
+        "positive": 40
+      },
+      "roll": {
+        "aus": [
+          41,
+          42
+        ],
+        "axis": "rx",
+        "negative": 41,
+        "positive": 42
+      }
+    },
+    {
+      "node": "leftLowerArm",
+      "pitch": {
+        "aus": [
+          1001
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "rightLowerArm",
+      "pitch": {
+        "aus": [
+          1001
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "leftLowerLeg",
+      "pitch": {
+        "aus": [
+          1002
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "rightLowerLeg",
+      "pitch": {
+        "aus": [
+          1002
+        ],
+        "axis": "rx"
+      }
+    },
+    {
+      "node": "spine",
+      "yaw": {
+        "aus": [
+          1003,
+          1004
+        ],
+        "negative": 1003,
+        "positive": 1004,
+        "axis": "ry"
+      }
+    }
+  ],
+  "continuumPairs": {
+    "30": {
+      "pairId": 35,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "CC_Base_JawRoot"
+    },
+    "35": {
+      "pairId": 30,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "CC_Base_JawRoot"
+    },
+    "37": {
+      "pairId": 38,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "CC_Base_Tongue01"
+    },
+    "38": {
+      "pairId": 37,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "CC_Base_Tongue01"
+    },
+    "39": {
+      "pairId": 40,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "CC_Base_Tongue01"
+    },
+    "40": {
+      "pairId": 39,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "CC_Base_Tongue01"
+    },
+    "41": {
+      "pairId": 42,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "CC_Base_Tongue01"
+    },
+    "42": {
+      "pairId": 41,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "CC_Base_Tongue01"
+    },
+    "51": {
+      "pairId": 52,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "CC_Base_Head"
+    },
+    "52": {
+      "pairId": 51,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "CC_Base_Head"
+    },
+    "53": {
+      "pairId": 54,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "CC_Base_Head"
+    },
+    "54": {
+      "pairId": 53,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "CC_Base_Head"
+    },
+    "55": {
+      "pairId": 56,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "CC_Base_Head"
+    },
+    "56": {
+      "pairId": 55,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "CC_Base_Head"
+    },
+    "61": {
+      "pairId": 62,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "CC_Base_L_Eye"
+    },
+    "62": {
+      "pairId": 61,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "CC_Base_L_Eye"
+    },
+    "63": {
+      "pairId": 64,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "CC_Base_L_Eye"
+    },
+    "64": {
+      "pairId": 63,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "CC_Base_L_Eye"
+    },
+    "65": {
+      "pairId": 66,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "CC_Base_L_Eye"
+    },
+    "66": {
+      "pairId": 65,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "CC_Base_L_Eye"
+    },
+    "67": {
+      "pairId": 68,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "CC_Base_L_Eye"
+    },
+    "68": {
+      "pairId": 67,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "CC_Base_L_Eye"
+    },
+    "69": {
+      "pairId": 70,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "CC_Base_R_Eye"
+    },
+    "70": {
+      "pairId": 69,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "CC_Base_R_Eye"
+    },
+    "71": {
+      "pairId": 72,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "CC_Base_R_Eye"
+    },
+    "72": {
+      "pairId": 71,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "CC_Base_R_Eye"
+    },
+    "73": {
+      "pairId": 74,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "CC_Base_Tongue01"
+    },
+    "74": {
+      "pairId": 73,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "CC_Base_Tongue01"
+    },
+    "76": {
+      "pairId": 77,
+      "isNegative": false,
+      "axis": "pitch",
+      "node": "CC_Base_Tongue01"
+    },
+    "77": {
+      "pairId": 76,
+      "isNegative": true,
+      "axis": "pitch",
+      "node": "CC_Base_Tongue01"
+    },
+    "1003": {
+      "pairId": 1004,
+      "isNegative": true,
+      "axis": "yaw",
+      "node": "spine"
+    },
+    "1004": {
+      "pairId": 1003,
+      "isNegative": false,
+      "axis": "yaw",
+      "node": "spine"
+    }
+  }
+}

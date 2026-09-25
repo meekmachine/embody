@@ -2126,6 +2126,7 @@ fn profile_view(profile: &ProfileData, op: &str, payload: &Value) -> Result<Valu
 fn execute(request: Request) -> Result<Value, String> {
     let payload = request.payload;
     match request.op.as_str() {
+        "humanoid.getSpecification" => serde_json::to_value(crate::humanoid_characterization::specification()).map_err(|error| error.to_string()),
         "preset.get" => {
             let id = string_field(&payload, "id")?;
             let canonical = if id == "skeletal" {
@@ -2176,6 +2177,14 @@ fn execute(request: Request) -> Result<Value, String> {
             &string_field(&payload, "targetName")?,
             payload.get("suffixPattern").and_then(Value::as_str),
         ))),
+        "profile.setHumanoidRoleBinding" => {
+            let mut profile = profile_field(&payload)?;
+            let role = string_field(&payload, "role")?;
+            let value = value_field(&payload, "boneName")?;
+            let bone_name = if value.is_null() { None } else { Some(value.as_str().ok_or("boneName must be a string or null")?) };
+            crate::humanoid_characterization::set_role_binding(&mut profile, &role, bone_name)?;
+            serde_json::to_value(profile).map_err(|error| error.to_string())
+        }
         op if op.starts_with("profile.") => {
             let profile = profile_field(&payload)?;
             profile_view(&profile, op, &payload)
@@ -2510,15 +2519,15 @@ mod tests {
 
     #[test]
     fn expanded_body_catalog_removals_reach_queries_and_runtime() {
+        let base = request("preset.get", json!({"id":"cc4"}));
+        let count = base["bodyControls"].as_object().unwrap().len();
+        let remove_all: serde_json::Map<String, Value> = base["bodyControls"].as_object().unwrap().keys()
+            .map(|key| (key.clone(), Value::Null)).collect();
         let cases = [
             json!({"bodyControls": {"body.kneeBend": null}}),
             json!({"profile": {"bodyControls": {"body.kneeBend": null}}}),
-            json!({"bodyControls": {
-                "body.elbowFlex": null, "body.kneeBend": null, "body.torsoTwist": null
-            }}),
-            json!({"profile": {"bodyControls": {
-                "body.elbowFlex": null, "body.kneeBend": null, "body.torsoTwist": null
-            }}}),
+            json!({"bodyControls": remove_all}),
+            json!({"profile": {"bodyControls": remove_all}}),
         ];
         for (index, mut config) in cases.into_iter().enumerate() {
             config["auPresetType"] = json!("cc4");
@@ -2527,7 +2536,7 @@ mod tests {
             assert_eq!(expanded["assetUrl"], "character.glb");
             assert!(expanded["bodyControls"].get("body.kneeBend").is_none());
             let controls = request("profile.getBodyControls", json!({"profile": expanded}));
-            assert_eq!(controls.as_array().unwrap().len(), if index < 2 { 2 } else { 0 });
+            assert_eq!(controls.as_array().unwrap().len(), if index < 2 { count - 1 } else { 0 });
             if index >= 2 {
                 assert_eq!(expanded["bodyControls"], json!({}));
             }

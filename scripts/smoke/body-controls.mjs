@@ -4,6 +4,8 @@ import { initEmbodyCore } from '@lovelace_lol/embody/wasm';
 const wasm = await initEmbodyCore();
 const request = (op, payload) => JSON.parse(wasm.embody_request(JSON.stringify({ op, payload })));
 const expand = (config) => request('profile.extendConfig', { config });
+const preset = request('preset.get', { id: 'cc4' });
+const count = Object.keys(preset.bodyControls).length;
 const model = JSON.stringify({ bones: [
   { id: 1, name: 'CC_Base_Head' }, { id: 2, name: 'CC_Base_L_Forearm' },
 ] });
@@ -13,12 +15,12 @@ try {
   for (const nested of [false, true]) {
     for (const all of [false, true]) {
       const bodyControls = all
-        ? { 'body.elbowFlex': null, 'body.kneeBend': null, 'body.torsoTwist': null }
+        ? Object.fromEntries(Object.keys(preset.bodyControls).map(id => [id, null]))
         : { 'body.kneeBend': null };
       const override = nested ? { profile: { bodyControls } } : { bodyControls };
       const profile = expand({ auPresetType: 'cc4', ...override });
       const controls = request('profile.getBodyControls', { profile });
-      assert.equal(controls.length, all ? 0 : 2);
+      assert.equal(controls.length, all ? 0 : count - 1);
       assert.equal(Object.hasOwn(profile.bodyControls, 'body.kneeBend'), false);
       assert.deepEqual(expand(JSON.parse(JSON.stringify(profile))).bodyControls, profile.bodyControls);
       runtime.configure_with_profile(JSON.stringify(profile), model);
@@ -65,3 +67,46 @@ try {
 }
 
 console.log('Body control profile and runtime smoke passed');
+
+const specification = request('humanoid.getSpecification', {});
+assert.equal(specification.standard, 'VRMC_vrm-1.0');
+assert.equal(specification.bones.length, 55);
+assert.equal(specification.bones.filter(bone => bone.required).length, 15);
+assert.equal(count, 58);
+assert.deepEqual(new Set(Object.values(preset.bodyControls).flatMap(control => control.roles)),
+  new Set(specification.bones.map(bone => bone.role)));
+const completeModel = {
+  bones: specification.bones.map((bone, index) => {
+    const key = preset.humanoidCharacterization.roles[bone.role].nodeKey;
+    return { id: index + 1, name: `${preset.bonePrefix}${preset.boneNodes[key]}` };
+  }),
+};
+const completeControls = request('profile.getBodyControls', { profile: preset, model: completeModel });
+assert(completeControls.every(control => control.hasBones), 'all 58 controls have real skeletal outputs');
+const fullRuntime = new wasm.RuntimeCore(0);
+try {
+  fullRuntime.configure_with_profile(JSON.stringify(preset), JSON.stringify(completeModel));
+  for (const control of completeControls) {
+    fullRuntime.clear();
+    fullRuntime.set_au(control.auId, 0.5, 0);
+    assert(fullRuntime.evaluate_active_bone_frame().length > 0, `${control.id} must move`);
+  }
+  let edited = request('profile.setHumanoidRoleBinding', { profile: preset, role: 'head', boneName: 'CustomHead' });
+  assert.equal(request('profile.resolveHumanoidCharacterization', { profile: edited }).roles.head.boneName, 'CustomHead');
+  const editedModel = { bones: [...completeModel.bones,
+    { id: 100, name: 'CC_Base_CustomHead' }, { id: 101, name: 'CustomHead' }, { id: 102, name: 'head' }] };
+  fullRuntime.clear();
+  fullRuntime.configure_with_profile(JSON.stringify(edited), JSON.stringify(editedModel));
+  fullRuntime.set_au(51, 0.5, 0);
+  assert.equal(fullRuntime.evaluate_active_bone_frame()[0], 101, 'literal selected bone wins over prefixed twin');
+  edited = request('profile.setHumanoidRoleBinding', { profile: edited, role: 'head', boneName: null });
+  edited = expand(JSON.parse(JSON.stringify({ ...edited, auPresetType: 'cc4' })));
+  assert.equal(Object.hasOwn(edited.humanoidCharacterization.roles, 'head'), false);
+  fullRuntime.clear();
+  fullRuntime.configure_with_profile(JSON.stringify(edited), JSON.stringify(editedModel));
+  fullRuntime.set_au(51, 0.5, 0);
+  assert.equal(fullRuntime.evaluate_active_bone_frame().length, 0, 'clear does not fall back to a bone literally named head');
+  const staticProfile = request('profile.setHumanoidRoleBinding', { profile: {}, role: 'head', boneName: 'CustomHead' });
+  assert.equal(staticProfile.auToBones, undefined, 'role authoring must not seed rig-specific motion into an explicit static profile');
+} finally { fullRuntime.free(); }
+console.log('Complete humanoid specification, controls, and role-authoring smoke passed');

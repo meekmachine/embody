@@ -620,6 +620,9 @@ pub struct GazeCalibrationData {
 #[serde(rename_all = "camelCase", default)]
 pub struct HumanoidRoleData {
     pub node_key: String,
+    /// Literal model selection; applies while boneNodes[nodeKey] remains unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exact_bone_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1600,6 +1603,14 @@ impl NameResolver {
         profile: &ProfileData,
         node_key: &str,
     ) -> Option<&'a BoneData> {
+        if crate::humanoid_characterization::bone_specification(node_key).is_some()
+            && profile.humanoid_characterization.as_ref().is_some_and(|mapping|
+                mapping.standard == "VRMC_vrm-1.0" && !mapping.roles.contains_key(node_key)) {
+            return None;
+        }
+        if let Some(exact) = crate::body_controls::exact_bone_name(profile, node_key) {
+            return model.bones.iter().find(|bone| bone.name == exact);
+        }
         let node_key = crate::body_controls::node_key(profile, node_key);
         let configured = profile
             .bone_nodes
@@ -1622,7 +1633,9 @@ impl NameResolver {
         model
             .bones
             .iter()
-            .find(|bone| bone.name == node_key || bone.name == configured || bone.name == full)
+            .find(|bone| bone.name == full)
+            .or_else(|| model.bones.iter().find(|bone| bone.name == configured))
+            .or_else(|| model.bones.iter().find(|bone| bone.name == node_key))
     }
 }
 
