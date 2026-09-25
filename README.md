@@ -96,7 +96,12 @@ the CLJS character host used by LoomLarge and calls the Wasm exports directly.
 ### Bilateral snippet channels
 
 AU balance uses the character's left/right: `-1` drives the left side,
-`0` drives both, and `1` drives the right. Legacy `build_clip` curve maps use
+`0` drives both, and `1` drives the right. `RuntimeCore.get_au_balance(id)`
+returns the stored live balance, clamped by the existing setters to [-1, 1],
+with neutral zero for an unset id or after `clear()`. Hosts can save it alongside
+`get_au(id)` when serializing a manual pose.
+
+Legacy `build_clip` curve maps use
 `options.balanceMap[auId]`, falling back to `options.balance` and then zero.
 For `build_typed_clip`, an AU target's explicit `balance` takes precedence:
 

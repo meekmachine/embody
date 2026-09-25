@@ -509,6 +509,12 @@ impl RuntimeCore {
         *self.au_values.get(&id).unwrap_or(&0.0)
     }
 
+    /// Stored live AU balance in [-1, 1], or neutral zero when unset or cleared.
+    #[wasm_bindgen]
+    pub fn get_au_balance(&self, id: u32) -> f32 {
+        *self.au_balances.get(&id).unwrap_or(&0.0)
+    }
+
     #[wasm_bindgen]
     pub fn set_au_mix_weight(&mut self, id: u32, weight: f32) {
         self.mix_weights.insert(id, clamp01(weight));
@@ -1981,6 +1987,45 @@ fn clamp_signed(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_canonical_au_balance_through_updates_and_clear() {
+        let mut core = RuntimeCore::new(0);
+        assert_eq!(core.get_au_balance(43), 0.0);
+        assert!(core.au_balances.is_empty(), "reading an unset AU is pure");
+
+        core.set_au(43, 0.75, -0.25);
+        assert_eq!(core.get_au_balance(43), -0.25);
+        assert_eq!(core.get_au(43), 0.75);
+        assert_eq!(core.get_au_balance(12), 0.0);
+        core.set_au_signed(43, 0.5, 0.5);
+        assert_eq!(core.get_au_balance(43), 0.5);
+        core.transition_au(43, 0.0, 200.0, f32::NAN);
+        assert_eq!(
+            core.get_au_balance(43),
+            0.5,
+            "zero intensity retains its stored balance"
+        );
+
+        for (input, expected) in [
+            (2.0, 1.0),
+            (-2.0, -1.0),
+            (f32::NAN, 0.0),
+            (f32::INFINITY, 0.0),
+        ] {
+            core.set_au(43, 1.0, input);
+            assert_eq!(core.get_au_balance(43), expected);
+        }
+        core.set_continuum(61, 62, -0.5, -0.75);
+        assert_eq!(core.get_au_balance(61), -0.75);
+        assert_eq!(core.get_au_balance(62), -0.75);
+        core.clear();
+        for id in [43, 61, 62] {
+            assert_eq!(core.get_au_balance(id), 0.0);
+        }
+        core.set_au(43, 0.5, 1.0);
+        assert_eq!(core.get_au_balance(43), 1.0);
+    }
 
     fn bilateral_channels(inherit: bool) -> Vec<TypedChannel> {
         serde_json::from_value(serde_json::json!([

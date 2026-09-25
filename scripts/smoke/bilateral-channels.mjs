@@ -50,6 +50,24 @@ const play = (ir, at, check, initial = [0, 0, 0, 0]) => {
 };
 const eyelids = (l, r, label) => { near(mesh.morphTargetInfluences[0], l, `${label} left`); near(mesh.morphTargetInfluences[1], r, `${label} right`); };
 try {
+  // Hosts can serialize manual poses from canonical live values and balances.
+  assert.equal(core.get_au_balance(43), 0);
+  core.set_au(43, 0.75, -0.25);
+  near(core.get_au_balance(43), -0.25, 'current stored balance');
+  near(core.get_au(43), 0.75, 'balance lookup preserves intensity');
+  assert.equal(core.get_au_balance(999), 0);
+  core.transition_au(43, 0, 200, NaN);
+  near(core.get_au_balance(43), -0.25, 'neutral intensity retains balance');
+  for (const [input, expected] of [[2, 1], [-2, -1], [NaN, 0], [Infinity, 0]]) {
+    core.set_au_signed(43, 0.5, input);
+    assert.equal(core.get_au_balance(43), expected);
+  }
+  core.set_continuum(61, 62, -0.5, -0.75);
+  near(core.get_au_balance(61), -0.75, 'continuum negative balance');
+  near(core.get_au_balance(62), -0.75, 'continuum positive balance');
+  core.clear();
+  for (const id of [43, 61, 62]) assert.equal(core.get_au_balance(id), 0);
+
   // Both legacy balance forms still use -1 = left, +1 = right.
   for (const [balance, l, r] of [[-1, 1, 0], [0, 1, 1], [1, 0, 1]]) {
     play(legacy({ balance }), 1, () => eyelids(l, r, 'legacy balance'));
