@@ -86,11 +86,27 @@ assert(completeControls.every(control => control.hasBones), 'all 58 controls hav
 const fullRuntime = new wasm.RuntimeCore(0);
 try {
   fullRuntime.configure_with_profile(JSON.stringify(preset), JSON.stringify(completeModel));
+  assert.deepEqual(JSON.parse(fullRuntime.get_body_controls_json()), completeControls);
   for (const control of completeControls) {
     fullRuntime.clear();
     fullRuntime.set_au(control.auId, 0.5, 0);
     assert(fullRuntime.evaluate_active_bone_frame().length > 0, `${control.id} must move`);
   }
+  fullRuntime.clear();
+  fullRuntime.configure_with_profile(JSON.stringify(preset), JSON.stringify(completeModel));
+  assert.equal(fullRuntime.evaluate_procedural_bone_frame().length, 0);
+  fullRuntime.set_au(1001, 0.5, -1);
+  fullRuntime.set_au(12, 0.75, 0.25);
+  assert(fullRuntime.evaluate_procedural_bone_frame().length > 0);
+  fullRuntime.reset_body_controls();
+  assert.equal(fullRuntime.get_au(1001), 0);
+  assert.equal(fullRuntime.get_au_balance(1001), 0);
+  assert.equal(fullRuntime.get_au(12), 0.75);
+  assert(fullRuntime.evaluate_procedural_bone_frame().length > 0, 'reset releases previous body ownership');
+  assert.equal(fullRuntime.evaluate_procedural_bone_frame().length, 0);
+  assert.equal(fullRuntime.evaluate_procedural_morph_frame().length, 0);
+  assert.equal(fullRuntime.release_procedural_morph_frame().length, 0);
+  fullRuntime.reset_procedural_frame_tracking();
   let edited = request('profile.setHumanoidRoleBinding', { profile: preset, role: 'head', boneName: 'CustomHead' });
   assert.equal(request('profile.resolveHumanoidCharacterization', { profile: edited }).roles.head.boneName, 'CustomHead');
   const editedModel = { bones: [...completeModel.bones,

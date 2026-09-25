@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
@@ -149,6 +149,10 @@ pub struct RuntimeCore {
     object_rest_scales: HashMap<u32, [f32; 3]>,
     mesh_visibility: HashMap<u32, bool>,
     animation: AnimationCore,
+    procedural_bone_flags: HashMap<u32, u32>,
+    procedural_morph_targets: BTreeSet<(u32, u32)>,
+    body_controls_json: String,
+    body_control_au_ids: BTreeSet<u32>,
 }
 
 #[wasm_bindgen]
@@ -182,6 +186,10 @@ impl RuntimeCore {
             object_rest_scales: HashMap::new(),
             mesh_visibility: HashMap::new(),
             animation: AnimationCore::new(),
+            procedural_bone_flags: HashMap::new(),
+            procedural_morph_targets: BTreeSet::new(),
+            body_controls_json: "[]".into(),
+            body_control_au_ids: BTreeSet::new(),
         }
     }
 
@@ -252,6 +260,11 @@ impl RuntimeCore {
         model: ModelData,
         tables: CompiledTables,
     ) {
+        self.reset_procedural_frame_tracking();
+        self.body_controls_json = crate::body_controls::resolve(&profile, Some(&model)).to_string();
+        self.body_control_au_ids = profile.body_controls.values()
+            .flat_map(|control| std::iter::once(control.au_id).chain(control.negative_au_id))
+            .collect();
         self.initial_morph_values.clear();
         self.bone_rest_scales.clear();
         self.object_rest_positions.clear();
@@ -521,6 +534,44 @@ impl RuntimeCore {
         let copy_scales = self.viseme_jaw_scales.len().min(count);
         next_scales[..copy_scales].copy_from_slice(&self.viseme_jaw_scales[..copy_scales]);
         self.viseme_jaw_scales = next_scales;
+    }
+
+    /// Resolved Body descriptors for the configured profile/model. Model
+    /// inspection and descriptor resolution are cached until reconfiguration.
+    #[wasm_bindgen]
+    pub fn get_body_controls_json(&self) -> String {
+        self.body_controls_json.clone()
+    }
+
+    /// Clear each unique configured Body action and bilateral balance together.
+    /// Shared facial aliases are Body actions too. Preserve other actions,
+    /// visemes, direct morph overrides, and authored/current morph mix weights.
+    #[wasm_bindgen]
+    pub fn reset_body_controls(&mut self) {
+        for id in &self.body_control_au_ids {
+            self.au_values.remove(id);
+            self.au_balances.remove(id);
+        }
+    }
+
+    /// Forget ownership when renderer bindings are discarded. Before replacing
+    /// bindings, apply release_procedural_morph_frame through the old IDs.
+    /// Normal clear/reset deliberately retain tracking for the next frame.
+    #[wasm_bindgen]
+    pub fn reset_procedural_frame_tracking(&mut self) {
+        self.procedural_bone_flags.clear();
+        self.procedural_morph_targets.clear();
+    }
+
+    /// Release owned morphs through the old renderer binding IDs before rebind.
+    #[wasm_bindgen]
+    pub fn release_procedural_morph_frame(&mut self) -> Box<[f32]> {
+        let mut out = Vec::with_capacity(self.procedural_morph_targets.len() * 4);
+        for (mesh_id, target_id) in &self.procedural_morph_targets {
+            out.extend_from_slice(&[*mesh_id as f32, *target_id as f32, 0.0, 0.0]);
+        }
+        self.reset_procedural_frame_tracking();
+        out.into_boxed_slice()
     }
 
     #[wasm_bindgen]
@@ -1028,8 +1079,30 @@ impl RuntimeCore {
         self.morph_frame_writes(true)
     }
 
+    /// Emit active morphs plus one neutral release for previously owned
+    /// targets. Direct overrides, including explicit zero, retain ownership.
+    /// Untouched targets are omitted so constant mixer tracks keep their pose.
+    #[wasm_bindgen]
+    pub fn evaluate_procedural_morph_frame(&mut self) -> Box<[f32]> {
+        let dense = self.morph_frame_writes(false);
+        let mut previous = std::mem::take(&mut self.procedural_morph_targets);
+        let mut out = Vec::new();
+        for row in dense.chunks_exact(PACKED_MORPH_FRAME_DELTA_STRIDE as usize) {
+            let target = (row[0] as u32, row[1] as u32);
+            let active = row[2] > 1e-6 || self.direct_morph_values.contains_key(&target);
+            let was_owned = previous.remove(&target);
+            if active { self.procedural_morph_targets.insert(target); }
+            if active || was_owned { out.extend_from_slice(row); }
+        }
+        // Direct-only targets vanish from dense evaluation when cleared.
+        for (mesh_id, target_id) in previous {
+            out.extend_from_slice(&[mesh_id as f32, target_id as f32, 0.0, 0.0]);
+        }
+        out.into_boxed_slice()
+    }
+
     fn morph_frame_writes(&self, active_only: bool) -> Box<[f32]> {
-        let mut writes: HashMap<(u32, u32), f32> = HashMap::new();
+        let mut writes: BTreeMap<(u32, u32), f32> = BTreeMap::new();
 
         for binding in &self.au_bindings {
             let value = *self.au_values.get(&binding.au_id).unwrap_or(&0.0);
@@ -1119,7 +1192,22 @@ impl RuntimeCore {
         self.bone_frame_writes(true)
     }
 
+    /// Emit only currently/previously owned bone properties. Position and
+    /// rotation ownership are separate; inactive properties release once.
+    #[wasm_bindgen]
+    pub fn evaluate_procedural_bone_frame(&mut self) -> Box<[f32]> {
+        let (frame, active) = self.bone_frame_writes_tracked(false, Some(&self.procedural_bone_flags));
+        self.procedural_bone_flags = active;
+        frame
+    }
+
     fn bone_frame_writes(&self, active_only: bool) -> Box<[f32]> {
+        self.bone_frame_writes_tracked(active_only, None).0
+    }
+
+    fn bone_frame_writes_tracked(&self, active_only: bool, previous: Option<&HashMap<u32, u32>>)
+        -> (Box<[f32]>, HashMap<u32, u32>) {
+        let mut active_flags: HashMap<u32, u32> = HashMap::new();
         let mut order: Vec<u32> = Vec::new();
         let mut writes: HashMap<u32, BoneWrite> = HashMap::new();
 
@@ -1166,6 +1254,7 @@ impl RuntimeCore {
                 composite_index += 1;
             }
 
+            if previous.is_some() && bone_active { *active_flags.entry(bone_id).or_default() |= FLAG_HAS_ROTATION; }
             if !active_only || bone_active {
                 upsert_bone_write(&mut writes, &mut order, bone_id, None, Some(rotation));
             }
@@ -1194,6 +1283,9 @@ impl RuntimeCore {
             entry.1[row.axis.min(2) as usize] = offset;
         }
         for (bone_id, offset) in offsets {
+            if previous.is_some() && offset.iter().any(|component| component.abs() > 1e-6) {
+                *active_flags.entry(bone_id).or_default() |= FLAG_HAS_POSITION;
+            }
             if active_only && offset.iter().all(|component| component.abs() <= 1e-6) {
                 continue;
             }
@@ -1226,6 +1318,9 @@ impl RuntimeCore {
                 .map(|rest| rest.rotation)
                 .unwrap_or([0.0, 0.0, 0.0, 1.0]);
             if jaw_amount > 1e-6 {
+                if previous.is_some() {
+                    *active_flags.entry(jaw.bone_id).or_default() |= FLAG_HAS_ROTATION;
+                }
                 let rotation = multiply_quat(
                     rest,
                     quat_from_channel(
@@ -1254,6 +1349,11 @@ impl RuntimeCore {
             if rotation.is_some() {
                 flags |= FLAG_HAS_ROTATION;
             }
+            if let Some(previous) = previous {
+                flags &= active_flags.get(&bone_id).copied().unwrap_or(0)
+                    | previous.get(&bone_id).copied().unwrap_or(0);
+                if flags == 0 { continue; }
+            }
             let position = position.unwrap_or([0.0, 0.0, 0.0]);
             let rotation = rotation.unwrap_or([0.0, 0.0, 0.0, 1.0]);
             out.push(bone_id as f32);
@@ -1261,7 +1361,7 @@ impl RuntimeCore {
             out.extend_from_slice(&rotation);
             out.push(flags as f32);
         }
-        out.into_boxed_slice()
+        (out.into_boxed_slice(), active_flags)
     }
 
     /// Scene extras for live state. Clip-driven scale/visibility/object writes
@@ -2212,6 +2312,155 @@ mod tests {
         let len = (0.1f32 * 0.1 + 0.2 * 0.2 + 0.3 * 0.3 + 0.9 * 0.9).sqrt();
         assert!((packed[4] - 0.1 / len).abs() < 1e-6);
         assert!((packed[8] - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn procedural_bone_ownership_releases_properties_once_without_touching_mixer_channels() {
+        let mut core = RuntimeCore::new(1);
+        core.load_bone_rest_transforms(&[
+            1.0, 2.0, 3.0, 4.0, 0.0, 0.0, 0.0, 1.0,
+            2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ]);
+        core.load_composite_axes(&[
+            1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0,
+            51.0, 2.0, 0.0, 51.0, 2.0, 0.0, 1.0, 1.0, 30.0,
+        ]);
+        core.load_bone_translations(&[40.0, 1.0, 1.0, 1.0, 0.5]);
+        core.load_jaw_binding(&[2.0, 0.0, 1.0, 30.0]);
+        core.load_viseme_jaw_amounts(&[1.0]);
+        assert!(core.evaluate_procedural_bone_frame().is_empty());
+        core.set_au(51, 0.5, 0.0);
+        let rotation = core.evaluate_procedural_bone_frame();
+        assert_eq!(rotation.len(), 9);
+        assert_eq!(rotation[8], FLAG_HAS_ROTATION as f32);
+        let active = core.evaluate_active_bone_frame();
+        assert_eq!(active[0], rotation[0]);
+        assert_eq!(&active[4..], &rotation[4..]); // position is unowned
+        core.set_au(40, 0.5, 0.0);
+        assert_eq!(core.evaluate_procedural_bone_frame()[8], 3.0);
+        core.set_au(51, 0.0, 0.0);
+        // Pure post-mixer reads must not consume the pending neutral release.
+        assert_eq!(core.evaluate_active_bone_frame()[8], 1.0);
+        let release = core.evaluate_procedural_bone_frame();
+        assert_eq!(release[8], 3.0);
+        assert_eq!(&release[4..8], &[0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(core.evaluate_procedural_bone_frame()[8], 1.0);
+        core.set_viseme(0, 0.5);
+        assert_eq!(core.evaluate_procedural_bone_frame().len(), 18);
+        core.clear();
+        assert!(core.evaluate_active_bone_frame().is_empty());
+        let release = core.evaluate_procedural_bone_frame();
+        assert_eq!(release.len(), 18);
+        assert_eq!(release[8], 1.0);
+        assert_eq!(&release[1..4], &[2.0, 3.0, 4.0]);
+        assert_eq!(release[17], 2.0);
+        assert!(core.evaluate_procedural_bone_frame().is_empty());
+    }
+
+    #[test]
+    fn procedural_morphs_preserve_bilateral_mix_and_release_direct_only_targets_once() {
+        let mut core = RuntimeCore::new(0);
+        core.load_au_morph_bindings(&[
+            1.0, 0.0, 10.0, 100.0, 1.0,
+            1.0, 1.0, 10.0, 101.0, 1.0,
+            2.0, 2.0, 10.0, 102.0, 1.0,
+        ]);
+        assert!(core.evaluate_procedural_morph_frame().is_empty());
+        core.mixed_aus.insert(1, true);
+        core.set_au_mix_weight(1, 0.5);
+        core.set_au(1, 0.8, -1.0);
+        let active = core.evaluate_procedural_morph_frame();
+        assert_eq!(&*active, &[10.0, 100.0, 0.4, 0.0]);
+        assert_eq!(core.evaluate_active_morph_frame(), active);
+        core.set_au(1, 0.8, 1.0);
+        assert_eq!(&*core.evaluate_procedural_morph_frame(),
+            &[10.0, 100.0, 0.0, 0.0, 10.0, 101.0, 0.4, 0.0]);
+        assert_eq!(&*core.evaluate_procedural_morph_frame(), &[10.0, 101.0, 0.4, 0.0]);
+        core.direct_morph_values.insert((9, 2), 0.0);
+        core.direct_morph_values.insert((9, 1), 0.75);
+        let stable = core.evaluate_procedural_morph_frame();
+        assert_eq!(core.evaluate_procedural_morph_frame(), stable);
+        assert_eq!(&stable[..8], &[9.0, 1.0, 0.75, 0.0, 9.0, 2.0, 0.0, 0.0]);
+        core.clear();
+        assert!(core.evaluate_active_morph_frame().is_empty());
+        assert_eq!(&*core.evaluate_procedural_morph_frame(),
+            &[10.0, 101.0, 0.0, 0.0, 9.0, 1.0, 0.0, 0.0, 9.0, 2.0, 0.0, 0.0]);
+        assert!(core.evaluate_procedural_morph_frame().is_empty());
+    }
+
+    #[test]
+    fn procedural_rebind_releases_old_ids_and_reconfigure_cannot_write_reused_ids() {
+        let mut core = RuntimeCore::new(0);
+        let model = r#"{"meshes":[{"id":1,"name":"Body","morphTargetIds":[7]}],"morphTargets":[{"id":7,"meshId":1,"name":"Flex","hostIndex":0}]}"#;
+        core.configure_with_profile("{}", model).unwrap();
+        core.set_morph("Flex", 0.75, "[]");
+        assert_eq!(&*core.evaluate_procedural_morph_frame(), &[1.0, 7.0, 0.75, 0.0]);
+        assert_eq!(&*core.release_procedural_morph_frame(), &[1.0, 7.0, 0.0, 0.0]);
+        assert!(core.release_procedural_morph_frame().is_empty());
+        // Reconfigure also clears ownership even if a caller discards the old
+        // renderer instead of applying a release to it.
+        core.evaluate_procedural_morph_frame();
+        core.configure_with_profile("{}", &model.replace("Flex", "DifferentTarget")).unwrap();
+        assert!(core.evaluate_procedural_morph_frame().is_empty());
+        assert!(core.release_procedural_morph_frame().is_empty());
+        core.load_bone_translations(&[40.0, 1.0, 1.0, 1.0, 0.5]);
+        core.set_au(40, 1.0, 0.0);
+        assert!(!core.evaluate_procedural_bone_frame().is_empty());
+        core.configure_with_profile("{}", "{}").unwrap();
+        core.set_au(40, 0.0, 0.0);
+        core.load_bone_translations(&[40.0, 1.0, 1.0, 1.0, 0.5]);
+        assert!(core.evaluate_procedural_bone_frame().is_empty());
+    }
+
+    #[test]
+    fn configured_body_descriptors_match_authoring_resolution_and_refresh_on_configure() {
+        let mut core = RuntimeCore::new(0);
+        assert_eq!(core.get_body_controls_json(), "[]");
+        let model = r#"{"bones":[{"id":1,"name":"CC_Base_L_Forearm"}]}"#;
+        core.configure_with_preset("cc4", "{}", model).unwrap();
+        let expected = crate::body_controls::resolve(core.profile.as_ref().unwrap(), core.model.as_ref());
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&core.get_body_controls_json()).unwrap(), expected);
+        assert_eq!(expected.as_array().unwrap().len(), 58);
+        let elbow = expected.as_array().unwrap().iter().find(|control| control["id"] == "body.elbowFlex").unwrap();
+        assert_eq!(elbow["hasBones"], true);
+        assert_eq!(elbow["hasMorphs"], false);
+        core.configure_with_preset("cc4", "{}", "{}").unwrap();
+        assert!(serde_json::from_str::<serde_json::Value>(&core.get_body_controls_json()).unwrap()
+            .as_array().unwrap().iter().all(|control| control["available"] == false));
+        core.configure_with_profile("{}", model).unwrap();
+        assert_eq!(core.get_body_controls_json(), "[]");
+    }
+
+    #[test]
+    fn body_reset_uses_unique_configured_actions_preserves_face_and_mix_and_releases_frame() {
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_preset("cc4", "{}", r#"{"bones":[{"id":1,"name":"CC_Base_L_Forearm"}]}"#).unwrap();
+        core.set_au(1001, 0.8, -1.0);
+        core.set_continuum(1003, 1004, -0.5, 0.75);
+        core.set_au(51, 0.5, 0.5); // Shared facial action is in the Body catalog.
+        core.set_au(12, 0.9, -0.25); // Unrelated face control is preserved.
+        core.set_au_mix_weight(1001, 0.25);
+        core.direct_morph_values.insert((10, 9), 0.8);
+        assert!(!core.evaluate_procedural_bone_frame().is_empty());
+        core.reset_body_controls();
+        for id in [1001, 1003, 1004, 51] {
+            assert_eq!(core.get_au(id), 0.0);
+            assert_eq!(core.get_au_balance(id), 0.0);
+        }
+        assert_eq!(core.get_au(12), 0.9);
+        assert_eq!(core.get_au_balance(12), -0.25);
+        assert_eq!(core.mix_weights.get(&1001), Some(&0.25));
+        assert_eq!(core.direct_morph_values.get(&(10, 9)), Some(&0.8));
+        assert_eq!(core.evaluate_procedural_bone_frame()[8], 2.0);
+        assert!(core.evaluate_procedural_bone_frame().is_empty());
+        // Replacing the catalog makes the prior default actions unrelated.
+        core.configure_with_profile(r#"{"bodyControls":{"custom":{"label":"Custom","auId":12},"alias":{"label":"Alias","auId":12,"negativeAuId":12}}}"#, "{}").unwrap();
+        assert_eq!(core.body_control_au_ids.len(), 1);
+        core.set_au(1001, 0.6, 0.5);
+        core.reset_body_controls();
+        assert_eq!(core.get_au(12), 0.0);
+        assert_eq!(core.get_au(1001), 0.6);
+        assert_eq!(core.get_au_balance(1001), 0.5);
     }
 
     #[test]

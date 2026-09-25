@@ -117,3 +117,41 @@ skeleton and verify reset, shared facial actions and optional morph outputs.
 Other rigs need their own axis/range calibration. These mappings do not infer
 the pose of a scan or generate muscle morph geometry. The default per-side
 `LL_Body_Bicep_Flex_L` and `_R` targets are optional until authored or overridden.
+
+## Configured runtime commands and frame ownership
+
+`RuntimeCore.get_body_controls_json()` returns the same model-aware descriptors
+as `profile.getBodyControls`, resolved and cached during configuration. Hosts
+can render the Body drawer from the configured profile/model without traversing
+the renderer scene again. Empty profiles return `[]`; reconfiguration refreshes
+availability and missing-target diagnostics.
+
+`RuntimeCore.reset_body_controls()` clears the value and bilateral balance of
+each unique action in the configured Body catalog in one command, including
+both directions of signed controls. Facial actions also exposed in Body are
+included; unrelated face values, visemes, direct morph overrides and morph mix
+weights are preserved. The command does not write renderer objects. The host
+applies one procedural frame afterward and refreshes its controls.
+
+Synchronous live control writes use `evaluate_procedural_morph_frame()` and
+`evaluate_procedural_bone_frame()`. Rust evaluates each channel type once and
+tracks which properties it owns. A formerly active property emits its neutral
+release once. Untouched properties emit no write, so a constant mixer track
+keeps its held value. Bone rotation and position ownership are independent;
+explicit direct morph overrides own their target even when their value is zero.
+Clearing a direct-only target still emits one zero release although that target
+no longer appears in the dense frame. Morph row ordering is deterministic.
+
+After mixer playback, `evaluate_active_morph_frame()` and
+`evaluate_active_bone_frame()` remain pure reads of currently active state.
+They do not consume pending releases or change procedural ownership. Existing
+dense frame queries retain their full neutral-write behavior.
+
+Before replacing renderer bindings, apply `release_procedural_morph_frame()`
+through the old applier IDs. It returns zero rows for previous morph ownership
+and clears frame tracking. Successful profile/model configuration also resets
+tracking, so reused numeric IDs cannot inherit ownership from an old model.
+`reset_procedural_frame_tracking()` is available when discarding bindings.
+Ordinary `clear()` and `reset_body_controls()` retain tracking until the next
+procedural frame releases their channels. Renderer application, mixer playback
+and gaze constraint scheduling remain host responsibilities.
