@@ -137,6 +137,26 @@ mixer. Unset, cleared, or out-of-range slots return `0` and `1` respectively.
 Hosts can snapshot these values before a temporary mouth-shape preview and
 restore them with the existing setters; a zero value releases its live override.
 
+### Preparing a default scene
+
+`createDefaultCharacterSceneAsync(container, { signal, ...sceneOptions })` from
+`@lovelace_lol/embody/three` creates the existing WebGL scene and awaits
+`renderer.compileAsync(scene, camera)` before attaching its canvas and resize
+listener. Its typed result retains the scene, camera, renderer, lighting,
+`resize()` and `dispose()` handles and reports `backend: 'webgl'`.
+The synchronous `createDefaultCharacterScene` remains available.
+
+Cancellation during compilation waits for Three's uncancellable preparation
+to settle, then releases acquired resources and rejects with `AbortError`.
+Other setup failures preserve their original error after cleanup. Disposal is
+idempotent; after resolution the caller owns it, and later signal cancellation
+does not dispose the scene. This prepares only the initial lights, environment
+and optional shadow plane: subsequently added models, texture upload, first
+render and application readiness require separate host preparation.
+
+See [scene readiness and the WebGPU follow-up](docs/SCENE_READINESS.md) for
+ownership, version requirements and the remaining renderer work.
+
 ### Bilateral snippet channels
 
 AU balance uses the character's left/right: `-1` drives the left side,

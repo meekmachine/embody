@@ -14,7 +14,7 @@ import {
   SRGBColorSpace,
   WebGLRenderer,
 } from 'three';
-import type { Texture, WebGLRenderTarget } from 'three';
+import type { ColorRepresentation, Texture, WebGLRenderTarget } from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 export type DefaultCharacterLightingSettings = {
@@ -51,6 +51,70 @@ export type CharacterSceneTypeId = keyof typeof CHARACTER_SCENE_TYPES;
 export const CHARACTER_SCENE_TYPE_IDS = Object.keys(CHARACTER_SCENE_TYPES) as CharacterSceneTypeId[];
 export const DEFAULT_CHARACTER_SCENE_TYPE_ID: CharacterSceneTypeId = 'studio';
 
+export type DefaultCharacterSceneOptions = {
+  type?: CharacterSceneTypeId;
+  background?: ColorRepresentation | null;
+  cameraFov?: number;
+  pixelRatioCap?: number;
+  shadows?: boolean;
+  lightingPreset?: DefaultCharacterLightingPresetId;
+  lighting?: Partial<DefaultCharacterLightingSettings>;
+  shadowPlane?: boolean;
+  manageResize?: boolean;
+};
+
+export type DefaultCharacterSceneAsyncOptions = DefaultCharacterSceneOptions & {
+  /** Cancels construction, not ownership of a successfully returned scene. */
+  signal?: AbortSignal;
+};
+
+export type DefaultCharacterScene = {
+  container: HTMLElement;
+  scene: Scene;
+  renderer: WebGLRenderer;
+  camera: PerspectiveCamera;
+  lighting: ReturnType<typeof createDefaultCharacterLighting>;
+  shadowPlane: ReturnType<typeof createShadowPlane> | null;
+  sceneType: CharacterSceneTypeId;
+  ownsScene: true;
+  resize: () => void;
+  dispose: () => void;
+};
+
+export type ReadyDefaultCharacterScene = DefaultCharacterScene & {
+  readonly backend: 'webgl';
+};
+
+// Register each resource as it is acquired. A failing disposer must not prevent
+// later resources from being released, and repeated disposal is harmless.
+function createDisposer() {
+  const callbacks: Array<() => void> = [];
+  let disposed = false;
+  return {
+    add: (callback: () => void) => { callbacks.push(callback); },
+    isDisposed: () => disposed,
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      let failed = false;
+      let firstError: unknown;
+      for (const callback of callbacks.reverse()) {
+        try { callback(); } catch (error) {
+          if (!failed) firstError = error;
+          failed = true;
+        }
+      }
+      callbacks.length = 0;
+      if (failed) throw firstError;
+    },
+  };
+}
+
+function rollback(dispose: () => void) {
+  // Preserve the construction/preparation error after attempting all cleanup.
+  try { dispose(); } catch { /* The original failure is more useful to callers. */ }
+}
+
 const finite = (value: unknown, min: number, max: number, fallback: number) => {
   const number = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(number) ? MathUtils.clamp(number, min, max) : fallback;
@@ -84,62 +148,147 @@ export function createShadowPlane(scene: Scene, options: { size?: number; opacit
 }
 
 export function createDefaultCharacterLighting(scene: Scene, renderer: WebGLRenderer, initial: Partial<DefaultCharacterLightingSettings> = {}) {
-  const ambient = new HemisphereLight(0xf7fbff, 0x6b7280, 0);
-  const key = new DirectionalLight(0xfffbf4, 0);
-  const fill = new DirectionalLight(0xe8f0ff, 0);
-  const rim = new DirectionalLight(0xdde8ff, 0);
-  ambient.name = 'embodyCharacterAmbientHemisphereLight'; ambient.position.set(0, 8, 0);
-  key.name = 'embodyCharacterKeyLight'; key.position.set(4.5, 7.5, 6.2); key.castShadow = true;
-  key.shadow.mapSize.set(2048, 2048); Object.assign(key.shadow.camera, { near: .5, far: 50, left: -10, right: 10, top: 10, bottom: -10 }); key.shadow.bias = -.0001; key.shadow.radius = 4;
-  fill.name = 'embodyCharacterFillLight'; fill.position.set(-5.5, 4.2, 4.5);
-  rim.name = 'embodyCharacterRimLight'; rim.position.set(-3.5, 4.8, -5.4);
-  scene.add(ambient, key, fill, rim);
-  const pmrem = new PMREMGenerator(renderer);
-  const listeners = new Set<(value: DefaultCharacterLightingSettings) => void>();
-  let environment: WebGLRenderTarget | null = null;
-  let settings = normalize({ ...DEFAULT_CHARACTER_LIGHTING_SETTINGS, ...initial });
-  const rebuild = () => {
-    environment?.dispose(); environment = null;
-    if (!settings.envMapEnabled) { scene.environment = null; return; }
-    const room = new RoomEnvironment();
-    try { environment = pmrem.fromScene(room, settings.environmentBlur); } finally { room.dispose(); }
-    scene.environment = environment.texture;
-  };
-  const apply = () => {
-    renderer.outputColorSpace = SRGBColorSpace; renderer.toneMapping = ACESFilmicToneMapping; renderer.toneMappingExposure = settings.exposure;
-    scene.environmentIntensity = settings.envMapEnabled ? settings.environmentIntensity : 0;
-    ambient.intensity = settings.ambientIntensity; key.intensity = settings.keyIntensity; fill.intensity = settings.fillIntensity; rim.intensity = settings.rimIntensity;
-    const plane = scene.getObjectByName('shadowPlane') as Mesh | undefined;
-    for (const material of plane ? (Array.isArray(plane.material) ? plane.material : [plane.material]) : []) if (material instanceof ShadowMaterial) material.opacity = settings.shadowOpacity;
-  };
-  rebuild(); apply();
-  const setSettings = (patch: Partial<DefaultCharacterLightingSettings>) => {
-    const previous = settings; settings = normalize({ ...settings, ...patch });
-    if (previous.envMapEnabled !== settings.envMapEnabled || previous.environmentBlur !== settings.environmentBlur) rebuild();
-    apply(); listeners.forEach((listener) => listener({ ...settings })); return { ...settings };
-  };
-  return {
-    getSettings: () => ({ ...settings }), getEnvironmentTexture: (): Texture | null => environment?.texture ?? null,
-    setSettings, setPreset: (id: DefaultCharacterLightingPresetId) => setSettings(DEFAULT_CHARACTER_LIGHTING_PRESETS[id]?.settings ?? {}),
-    subscribe: (listener: (value: DefaultCharacterLightingSettings) => void) => { listeners.add(listener); listener({ ...settings }); return () => { listeners.delete(listener); }; },
-    dispose: () => { listeners.clear(); environment?.dispose(); pmrem.dispose(); scene.environment = null; scene.remove(ambient, key, fill, rim); },
-  };
+  const lifetime = createDisposer();
+  try {
+    const ambient = new HemisphereLight(0xf7fbff, 0x6b7280, 0);
+    const key = new DirectionalLight(0xfffbf4, 0);
+    const fill = new DirectionalLight(0xe8f0ff, 0);
+    const rim = new DirectionalLight(0xdde8ff, 0);
+    ambient.name = 'embodyCharacterAmbientHemisphereLight'; ambient.position.set(0, 8, 0);
+    key.name = 'embodyCharacterKeyLight'; key.position.set(4.5, 7.5, 6.2); key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048); Object.assign(key.shadow.camera, { near: .5, far: 50, left: -10, right: 10, top: 10, bottom: -10 }); key.shadow.bias = -.0001; key.shadow.radius = 4;
+    fill.name = 'embodyCharacterFillLight'; fill.position.set(-5.5, 4.2, 4.5);
+    rim.name = 'embodyCharacterRimLight'; rim.position.set(-3.5, 4.8, -5.4);
+    lifetime.add(() => scene.remove(ambient, key, fill, rim));
+    for (const light of [key, fill, rim]) lifetime.add(() => light.dispose());
+    scene.add(ambient, key, fill, rim);
+    const pmrem = new PMREMGenerator(renderer);
+    lifetime.add(() => pmrem.dispose());
+    const listeners = new Set<(value: DefaultCharacterLightingSettings) => void>();
+    lifetime.add(() => listeners.clear());
+    let environment: WebGLRenderTarget | null = null;
+    lifetime.add(() => { scene.environment = null; environment?.dispose(); environment = null; });
+    let settings = normalize({ ...DEFAULT_CHARACTER_LIGHTING_SETTINGS, ...initial });
+    const rebuild = () => {
+      environment?.dispose(); environment = null;
+      if (!settings.envMapEnabled) { scene.environment = null; return; }
+      const room = new RoomEnvironment();
+      try { environment = pmrem.fromScene(room, settings.environmentBlur); } finally { room.dispose(); }
+      scene.environment = environment.texture;
+    };
+    const apply = () => {
+      renderer.outputColorSpace = SRGBColorSpace; renderer.toneMapping = ACESFilmicToneMapping; renderer.toneMappingExposure = settings.exposure;
+      scene.environmentIntensity = settings.envMapEnabled ? settings.environmentIntensity : 0;
+      ambient.intensity = settings.ambientIntensity; key.intensity = settings.keyIntensity; fill.intensity = settings.fillIntensity; rim.intensity = settings.rimIntensity;
+      const plane = scene.getObjectByName('shadowPlane') as Mesh | undefined;
+      for (const material of plane ? (Array.isArray(plane.material) ? plane.material : [plane.material]) : []) if (material instanceof ShadowMaterial) material.opacity = settings.shadowOpacity;
+    };
+    rebuild(); apply();
+    const setSettings = (patch: Partial<DefaultCharacterLightingSettings>) => {
+      if (lifetime.isDisposed()) throw new Error('Character lighting has been disposed.');
+      const previous = settings; settings = normalize({ ...settings, ...patch });
+      if (previous.envMapEnabled !== settings.envMapEnabled || previous.environmentBlur !== settings.environmentBlur) rebuild();
+      apply(); listeners.forEach((listener) => listener({ ...settings })); return { ...settings };
+    };
+    return {
+      getSettings: () => ({ ...settings }), getEnvironmentTexture: (): Texture | null => environment?.texture ?? null,
+      setSettings, setPreset: (id: DefaultCharacterLightingPresetId) => setSettings(DEFAULT_CHARACTER_LIGHTING_PRESETS[id]?.settings ?? {}),
+      subscribe: (listener: (value: DefaultCharacterLightingSettings) => void) => {
+        if (lifetime.isDisposed()) throw new Error('Character lighting has been disposed.');
+        listeners.add(listener); listener({ ...settings }); return () => { listeners.delete(listener); };
+      },
+      dispose: lifetime.dispose,
+    };
+  } catch (error) {
+    rollback(lifetime.dispose);
+    throw error;
+  }
 }
 
-export function createDefaultCharacterScene(container: HTMLElement, options: any = {}) {
-  const sceneType = CHARACTER_SCENE_TYPES[options.type as CharacterSceneTypeId] ?? CHARACTER_SCENE_TYPES.studio;
-  const width = Math.max(1, container.clientWidth || globalThis.innerWidth || 1);
-  const height = Math.max(1, container.clientHeight || globalThis.innerHeight || 1);
-  const renderer = new WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
-  const ratio = () => Math.min(globalThis.devicePixelRatio || 1, options.pixelRatioCap ?? 1.5);
-  renderer.setPixelRatio(ratio()); renderer.setSize(width, height, true); renderer.shadowMap.enabled = options.shadows ?? true; renderer.shadowMap.type = PCFSoftShadowMap;
-  container.appendChild(renderer.domElement); Object.assign(renderer.domElement.style, { display: 'block', width: '100%', height: '100%' });
-  const scene = new Scene(); const background = options.background === undefined ? sceneType.background : options.background; scene.background = background == null ? null : new Color(background);
-  const camera = new PerspectiveCamera(options.cameraFov ?? 45, width / height, .1, 1000);
-  const preset = DEFAULT_CHARACTER_LIGHTING_PRESETS[(options.lightingPreset ?? sceneType.lightingPreset) as DefaultCharacterLightingPresetId]?.settings ?? DEFAULT_CHARACTER_LIGHTING_SETTINGS;
-  const lighting = createDefaultCharacterLighting(scene, renderer, { ...preset, ...options.lighting });
-  const shadowPlane = (options.shadowPlane ?? sceneType.shadowPlane) ? createShadowPlane(scene, { opacity: lighting.getSettings().shadowOpacity }) : null;
-  const resize = () => { const w = Math.max(1, container.clientWidth || globalThis.innerWidth || 1); const h = Math.max(1, container.clientHeight || globalThis.innerHeight || 1); camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setPixelRatio(ratio()); renderer.setSize(w, h, false); };
-  if (options.manageResize !== false) globalThis.addEventListener?.('resize', resize);
-  return { container, scene, renderer, camera, lighting, shadowPlane, sceneType: sceneType.id, ownsScene: true, resize, dispose: () => { if (options.manageResize !== false) globalThis.removeEventListener?.('resize', resize); lighting.dispose(); if (shadowPlane) { scene.remove(shadowPlane); shadowPlane.geometry.dispose(); (Array.isArray(shadowPlane.material) ? shadowPlane.material : [shadowPlane.material]).forEach((material) => material.dispose()); } if (renderer.domElement.parentElement === container) container.removeChild(renderer.domElement); renderer.dispose(); } };
+function constructDefaultCharacterScene(container: HTMLElement, options: DefaultCharacterSceneOptions) {
+  const lifetime = createDisposer();
+  try {
+    const sceneType = CHARACTER_SCENE_TYPES[options.type as CharacterSceneTypeId] ?? CHARACTER_SCENE_TYPES.studio;
+    const width = Math.max(1, container.clientWidth || globalThis.innerWidth || 1);
+    const height = Math.max(1, container.clientHeight || globalThis.innerHeight || 1);
+    const renderer = new WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
+    lifetime.add(() => renderer.dispose());
+    const ratio = () => Math.min(globalThis.devicePixelRatio || 1, options.pixelRatioCap ?? 1.5);
+    renderer.setPixelRatio(ratio()); renderer.setSize(width, height, true); renderer.shadowMap.enabled = options.shadows ?? true; renderer.shadowMap.type = PCFSoftShadowMap;
+    Object.assign(renderer.domElement.style, { display: 'block', width: '100%', height: '100%' });
+    const scene = new Scene(); const background = options.background === undefined ? sceneType.background : options.background; scene.background = background == null ? null : new Color(background);
+    const camera = new PerspectiveCamera(options.cameraFov ?? 45, width / height, .1, 1000);
+    const preset = DEFAULT_CHARACTER_LIGHTING_PRESETS[(options.lightingPreset ?? sceneType.lightingPreset) as DefaultCharacterLightingPresetId]?.settings ?? DEFAULT_CHARACTER_LIGHTING_SETTINGS;
+    const lighting = createDefaultCharacterLighting(scene, renderer, { ...preset, ...options.lighting });
+    lifetime.add(() => lighting.dispose());
+    const shadowPlane = (options.shadowPlane ?? sceneType.shadowPlane) ? createShadowPlane(scene, { opacity: lighting.getSettings().shadowOpacity }) : null;
+    if (shadowPlane) {
+      lifetime.add(() => shadowPlane.material.dispose());
+      lifetime.add(() => shadowPlane.geometry.dispose());
+      lifetime.add(() => scene.remove(shadowPlane));
+    }
+    const resize = () => {
+      if (lifetime.isDisposed()) return;
+      const w = Math.max(1, container.clientWidth || globalThis.innerWidth || 1);
+      const h = Math.max(1, container.clientHeight || globalThis.innerHeight || 1);
+      camera.aspect = w / h; camera.updateProjectionMatrix();
+      renderer.setPixelRatio(ratio()); renderer.setSize(w, h, false);
+    };
+    const handle: DefaultCharacterScene = { container, scene, renderer, camera, lighting, shadowPlane, sceneType: sceneType.id, ownsScene: true, resize, dispose: lifetime.dispose };
+    const attach = () => {
+      lifetime.add(() => { if (renderer.domElement.parentElement === container) container.removeChild(renderer.domElement); });
+      container.appendChild(renderer.domElement);
+      if (options.manageResize !== false) {
+        lifetime.add(() => globalThis.removeEventListener?.('resize', resize));
+        globalThis.addEventListener?.('resize', resize);
+      }
+    };
+    return { handle, attach };
+  } catch (error) {
+    rollback(lifetime.dispose);
+    throw error;
+  }
+}
+
+/** The existing synchronous WebGL path; it does not wait for shader compilation. */
+export function createDefaultCharacterScene(container: HTMLElement, options: any = {}): DefaultCharacterScene {
+  const { handle, attach } = constructDefaultCharacterScene(container, options);
+  try { attach(); return handle; } catch (error) {
+    rollback(handle.dispose);
+    throw error;
+  }
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw new DOMException('Character scene creation was aborted.', 'AbortError');
+}
+
+/**
+ * Prepares the initial WebGL scene before attaching its canvas and resize listener.
+ * Later character models still require their own preparation. Three's compilation
+ * cannot be interrupted: cancellation waits for it to settle before disposing and
+ * rejecting with AbortError. The signal does not dispose a returned scene.
+ */
+export async function createDefaultCharacterSceneAsync(
+  container: HTMLElement,
+  options: DefaultCharacterSceneAsyncOptions = {},
+): Promise<ReadyDefaultCharacterScene> {
+  throwIfAborted(options.signal);
+  const { handle, attach } = constructDefaultCharacterScene(container, options);
+  try {
+    throwIfAborted(options.signal);
+    if (typeof handle.renderer.compileAsync !== 'function') {
+      throw new Error('Async character scenes require Three.js WebGLRenderer.compileAsync.');
+    }
+    await handle.renderer.compileAsync(handle.scene, handle.camera);
+    throwIfAborted(options.signal);
+    // The container may have resized while compilation was pending.
+    handle.resize();
+    attach();
+    return Object.assign(handle, { backend: 'webgl' as const });
+  } catch (error) {
+    rollback(handle.dispose);
+    throwIfAborted(options.signal);
+    throw error;
+  }
 }
