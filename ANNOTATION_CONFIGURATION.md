@@ -1,11 +1,11 @@
 # Annotation Configuration
 
-Embody exposes annotation configuration through `annotationRegions` on `Profile`. Use `extendProfileConfigWithPreset(...)` when an app has a saved model/profile record and needs one preset-expanded runtime shape for camera and marker tooling.
+Embody stores annotation configuration in Rust profile `annotationRegions`. The Three adapter exports `resolveAnnotationCharacterConfig(...)` for preset-expanded camera and marker inputs; `DPthreeCameraController.loadRegions(...)` calls it by default. The full runtime, marker objects and visibility lifecycles are owned by `@lovelace_lol/embody/three`.
 
 There are three related shapes to know about:
 
 1. The canonical Embody preset/profile shape: `annotationRegions`
-2. The saved model/profile input shape: `ProfileRuntimeConfig` or `CharacterProfile`, selected with `profilePresetId`
+2. The structural annotation input shape: `AnnotationCharacterConfig`, selected with `profilePresetId`
 3. The runtime/legacy mirror for older camera and marker consumers: `config.regions`
 
 ## Runtime Extension
@@ -13,9 +13,9 @@ There are three related shapes to know about:
 New stored records should select the base profile with `profilePresetId` and put reusable overrides on `Profile` fields such as `annotationRegions`:
 
 ```ts
-import { extendProfileConfigWithPreset, type CharacterProfile } from '@lovelace_lol/embody';
+import { resolveAnnotationCharacterConfig, type AnnotationCharacterConfig } from '@lovelace_lol/embody/three';
 
-const savedProfile: CharacterProfile = {
+const savedProfile: AnnotationCharacterConfig = {
   characterId: 'jonathan',
   characterName: 'Jonathan',
   modelPath: 'characters/jonathan_new.glb',
@@ -34,12 +34,12 @@ const savedProfile: CharacterProfile = {
   ],
 };
 
-const runtimeConfig = extendProfileConfigWithPreset(savedProfile);
+const runtimeConfig = await resolveAnnotationCharacterConfig(savedProfile);
 ```
 
 `runtimeConfig.annotationRegions` and `runtimeConfig.regions` contain the preset regions plus saved overrides. The `regions` mirror exists so older camera and marker tooling can keep consuming top-level region entries while new Embody data stays profile-first.
 
-When you call `extendProfileConfigWithPreset(...)`, Embody extends these shapes with this precedence:
+When you call `resolveAnnotationCharacterConfig(...)`, Embody extends these shapes with this precedence:
 
 1. preset `annotationRegions`
 2. top-level profile fields and `annotationRegions` overrides by region name
@@ -48,16 +48,16 @@ When you call `extendProfileConfigWithPreset(...)`, Embody extends these shapes 
 
 If canonical annotation overrides exist, legacy `config.regions` entries are only preserved for non-preset extras that do not collide by region name.
 
-`CharacterConfig`, `auPresetType`, and `extendCharacterConfigWithPreset(...)` remain exported as deprecated compatibility names for downstream apps that still persist older LoomLarge-style character records. New code should use `CharacterProfile` or `ProfileRuntimeConfig`, `profilePresetId`, and `extendProfileConfigWithPreset(...)`.
+`auPresetType` remains accepted for existing records. New annotation consumers can use `AnnotationCharacterConfig`, `profilePresetId`, and `resolveAnnotationCharacterConfig(...)`. App-specific storage and profile normalization can be supplied through the controller’s `resolveCharacterConfig` callback; annotation resolution does not require app code and preserves additional host fields without serializing them to Wasm.
 
 ## Embody Profile Shape
 
 Embody itself supports preset-level annotation defaults through `annotationRegions` on `Profile`:
 
 ```ts
-import type { Profile } from '@lovelace_lol/embody';
+import type { AnnotationCharacterConfig } from '@lovelace_lol/embody/three';
 
-export const HUMAN_ANNOTATION_OVERRIDES: Partial<Profile> = {
+export const HUMAN_ANNOTATION_OVERRIDES: Pick<AnnotationCharacterConfig, 'annotationRegions'> = {
   annotationRegions: [
     { name: 'left_eye', paddingFactor: 0.5, cameraAngle: 45 },
     { name: 'right_eye', paddingFactor: 0.5, cameraAngle: 315 },

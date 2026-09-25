@@ -14,6 +14,7 @@ import {
   SubtractiveBlending,
   VectorKeyframeTrack,
 } from 'three';
+export * from './annotations/index';
 import { bindModelReferencePose } from './reference-pose';
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
 
