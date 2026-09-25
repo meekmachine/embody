@@ -607,6 +607,23 @@ impl RuntimeCore {
         targets.len() as u32
     }
 
+    /// Release a direct morph override so AU/viseme/mixer ownership can resume.
+    /// A deliberate `set_morph(..., 0, ...)` still owns and masks the target;
+    /// preview cleanup must release instead of installing a permanent zero.
+    /// Target selection matches `set_morph`; returns overrides actually removed.
+    #[wasm_bindgen]
+    pub fn release_morph(&mut self, morph_name: &str, mesh_names_json: &str) -> u32 {
+        let targets = self.resolve_morph_targets(morph_name, None, mesh_names_json);
+        targets.iter().filter(|target| self.direct_morph_values.remove(target).is_some()).count() as u32
+    }
+
+    /// Index counterpart to `release_morph`, with `set_morph_index` selection.
+    #[wasm_bindgen]
+    pub fn release_morph_index(&mut self, morph_index: i32, mesh_names_json: &str) -> u32 {
+        let targets = self.resolve_morph_targets("", Some(morph_index), mesh_names_json);
+        targets.iter().filter(|target| self.direct_morph_values.remove(target).is_some()).count() as u32
+    }
+
     /// Set morph(s) immediately. Duration is ignored — host mixers own timed fades.
     #[wasm_bindgen]
     pub fn transition_morph(
@@ -2461,6 +2478,50 @@ mod tests {
         assert_eq!(core.get_au(12), 0.0);
         assert_eq!(core.get_au(1001), 0.6);
         assert_eq!(core.get_au_balance(1001), 0.5);
+    }
+
+    #[test]
+    fn release_morph_restores_au_output_and_preserves_other_direct_overrides() {
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(r#"{
+            "bodyControls":{"body.elbowFlex":{"label":"Flex","auId":1001}},
+            "auToMorphs":{"1001":{"center":["Flex"]}},
+            "auInfo":{"1001":{"facePart":"Body"}},
+            "auFacePartToMeshCategory":{"Body":"body"},
+            "morphToMesh":{"body":["Skin"],"face":["Skin"]},
+            "auMixDefaults":{"1001":0.25}
+        }"#, r#"{
+            "meshes":[{"id":1,"name":"Skin","morphTargetIds":[2,3,4]},
+                      {"id":5,"name":"Clothing","morphTargetIds":[6]}],
+            "morphTargets":[{"id":2,"meshId":1,"name":"Flex","hostIndex":0},
+                {"id":3,"meshId":1,"name":"Other","hostIndex":1},
+                {"id":4,"meshId":1,"name":"PreviewOnly","hostIndex":2},
+                {"id":6,"meshId":5,"name":"Flex","hostIndex":0}]
+        }"#).unwrap();
+        core.set_au(1001, 0.8, 0.0);
+        core.set_morph("Flex", 1.0, r#"["Skin"]"#);
+        core.set_morph("Other", 0.6, r#"["Skin"]"#);
+        core.set_morph("Flex", 0.7, r#"["Clothing"]"#);
+        assert_eq!(unpack_rows(&core.evaluate_procedural_morph_frame()),
+            vec![(1, 2, 1.0), (1, 3, 0.6), (5, 6, 0.7)]);
+        assert_eq!(core.release_morph("Flex", r#"["Skin"]"#), 1);
+        assert_eq!(unpack_rows(&core.evaluate_procedural_morph_frame()),
+            vec![(1, 2, 0.2), (1, 3, 0.6), (5, 6, 0.7)]);
+        assert_eq!(core.release_morph("Flex", r#"["Skin"]"#), 0);
+        core.set_morph_index(0, 0.0, r#"["Skin"]"#);
+        assert_eq!(unpack_rows(&core.evaluate_active_morph_frame()),
+            vec![(1, 2, 0.0), (1, 3, 0.6), (5, 6, 0.7)], "explicit zero still owns its target");
+        assert_eq!(core.release_morph_index(0, r#"["Skin"]"#), 1);
+        assert_eq!(unpack_rows(&core.evaluate_active_morph_frame()),
+            vec![(1, 2, 0.2), (1, 3, 0.6), (5, 6, 0.7)]);
+        // Empty selection follows set_morph's existing profile-face default.
+        core.set_morph("PreviewOnly", 0.5, "[]");
+        assert!(unpack_rows(&core.evaluate_procedural_morph_frame()).contains(&(1, 4, 0.5)));
+        assert_eq!(core.release_morph("PreviewOnly", "[]"), 1);
+        assert!(unpack_rows(&core.evaluate_procedural_morph_frame()).contains(&(1, 4, 0.0)));
+        assert!(!unpack_rows(&core.evaluate_procedural_morph_frame()).iter().any(|row| row.1 == 4));
+        assert_eq!(core.release_morph("Missing", "[]"), 0);
+        assert_eq!(core.get_au(1001), 0.8);
     }
 
     #[test]

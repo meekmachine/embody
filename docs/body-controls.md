@@ -43,6 +43,26 @@ profile data. Existing symmetric `LL_Body_Bicep_Flex` can be assigned to
 `center`; it responds to intensity equally regardless of left/right balance.
 Independent muscle sides require independently authored left/right targets.
 
+Every catalog action, including both directions of signed controls and the
+shared head/eye/jaw actions, accepts independent `auToMorphs` assignments.
+Torso, Head, Arms, Hands, Legs and Feet all use the same evaluator. Map each
+signed direction by its own action ID; the descriptor's `morphBindings` is an
+aggregate for display, not a combined assignment to save back to both actions.
+`auMixDefaults` and live morph-strength changes scale Body morphs even if their
+bone bindings are missing or cleared. Bone intensity remains unchanged.
+To persist removal of inherited targets, save an explicit entry with empty
+`left`, `right` and `center` arrays; omitting an action or using `null` retains
+preset inheritance. Mapping a target does not create its mesh geometry.
+
+Authored Body target names are resolved only within the action's configured
+mesh category, including primitive-name variants. An explicit empty category
+list disables its outputs; a missing target cannot silently fall back to an
+unselected mesh. A legacy profile with the category entirely omitted retains
+content-based fallback. Non-Body actions and visemes keep their existing fallback
+behavior. Missing targets are diagnosed and skipped while other available sides
+continue to work. Skin and clothing can share an action when both authored
+meshes are included in its category.
+
 The complete definition is `{label, section, auId, negativeAuId?, bilateral,
 roles, order}`. Bone bindings target a role, for example
 `{node: "leftLowerArm", channel: "rx", scale: 1, maxDegrees: 120, side: "left"}`.
@@ -155,3 +175,12 @@ tracking, so reused numeric IDs cannot inherit ownership from an old model.
 Ordinary `clear()` and `reset_body_controls()` retain tracking until the next
 procedural frame releases their channels. Renderer application, mixer playback
 and gaze constraint scheduling remain host responsibilities.
+
+Morph previews must end with `release_morph(name, meshNamesJson)` or
+`release_morph_index(index, meshNamesJson)`. These remove only matching direct
+overrides and report the count removed, using the same mesh selection as their
+`set_morph` counterparts. The next procedural frame restores the underlying AU
+or viseme value, or releases the target once if no control remains active.
+Setting a morph to zero deliberately retains direct ownership and masks AU
+output until released; it is not preview cleanup. Other direct overrides,
+AU values and morph-strength settings are preserved by a targeted release.

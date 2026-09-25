@@ -126,3 +126,34 @@ try {
   assert.equal(staticProfile.auToBones, undefined, 'role authoring must not seed rig-specific motion into an explicit static profile');
 } finally { fullRuntime.free(); }
 console.log('Complete humanoid specification, controls, and role-authoring smoke passed');
+
+const morphRuntime = new wasm.RuntimeCore(0);
+try {
+  const profile = {
+    bodyControls: { 'body.elbowFlex': { label: 'Elbow', section: 'Arms', auId: 1001 } },
+    auToMorphs: { 1001: { center: ['Flex'] } },
+    morphToMesh: { face: ['Skin'] },
+    auMixDefaults: { 1001: 0.25 },
+  };
+  const model = {
+    meshes: [{ id: 1, name: 'Skin', morphTargetIds: [2] }],
+    morphTargets: [{ id: 2, meshId: 1, name: 'Flex', hostIndex: 0 }],
+  };
+  morphRuntime.configure_with_profile(JSON.stringify(profile), JSON.stringify(model));
+  morphRuntime.set_au(1001, 0.8, 0);
+  const weight = () => morphRuntime.evaluate_active_morph_frame()[2];
+  assert(Math.abs(weight() - 0.2) < 1e-6, 'morph-only Body actions honor saved strength');
+  morphRuntime.set_morph('Flex', 1, '["Skin"]');
+  assert.equal(weight(), 1);
+  assert.equal(morphRuntime.release_morph('Flex', '["Skin"]'), 1);
+  assert(Math.abs(weight() - 0.2) < 1e-6, 'preview release restores Body output');
+  morphRuntime.set_morph_index(0, 0, '["Skin"]');
+  assert.equal(weight(), 0, 'explicit zero remains an owned override');
+  assert.equal(morphRuntime.release_morph_index(0, '["Skin"]'), 1);
+  assert(Math.abs(weight() - 0.2) < 1e-6);
+  profile.morphToMesh.face = [];
+  morphRuntime.configure_with_profile(JSON.stringify(profile), JSON.stringify(model));
+  assert.equal(morphRuntime.evaluate_active_morph_frame().length, 0, 'deselecting every Body mesh disables its morphs');
+  assert.equal(JSON.parse(morphRuntime.get_body_controls_json())[0].hasMorphs, false);
+} finally { morphRuntime.free(); }
+console.log('Body morph strength, explicit mesh selection, and preview-release smoke passed');

@@ -81,9 +81,9 @@ pub(crate) fn resolve(profile: &ProfileData, model: Option<&ModelData>) -> Value
             if let Some(Some(entry)) = profile.au_to_morphs.get(&key) {
                 for (side, targets) in [("left", &entry.left), ("right", &entry.right), ("center", &entry.center)] {
                     for target in targets {
-                        let exists = resolver.as_ref().map(|r| !r.resolve_morph(target, &mesh_names).is_empty()).unwrap_or(true);
+                        let exists = resolver.as_ref().map(|r| !r.resolve_au_morph(profile, *au, target).is_empty()).unwrap_or(true);
                         has_morphs |= exists;
-                        if !exists { diagnostics.push(format!("Action {au}: {side} morph {} is absent from the model.", serde_json::to_string(target).unwrap())); }
+                        if !exists { diagnostics.push(format!("Action {au}: {side} morph {} is unavailable on the selected model meshes.", serde_json::to_string(target).unwrap())); }
                     }
                 }
                 morphs.left.extend(entry.left.clone()); morphs.right.extend(entry.right.clone()); morphs.center.extend(entry.center.clone());
@@ -102,6 +102,7 @@ pub(crate) fn resolve(profile: &ProfileData, model: Option<&ModelData>) -> Value
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
     use crate::runtime::RuntimeCore;
     use crate::profile_merge::{extend_preset_with_profile, parse_profile_patch};
 
@@ -182,5 +183,246 @@ mod tests {
         assert_eq!(result.body_controls["body.torsoTwist"].negative_au_id, None);
         assert!(result.composite_rotations.iter().any(|c| c.node == "leftLowerArm"));
         assert!(!result.composite_rotations.iter().any(|c| c.node == "leftLowerLeg"));
+    }
+
+    // Actual target entries in a synthetic authored model, not proposed names
+    // or promises that a character ships muscle geometry for every movement.
+    fn authored_morph_catalog() -> (ProfileData, Value) {
+        let mut profile = preset();
+        let actions: BTreeSet<_> = profile.body_controls.values()
+            .flat_map(|control| std::iter::once(control.au_id).chain(control.negative_au_id)).collect();
+        assert_eq!(actions.len(), 98);
+        let mut targets = Vec::new();
+        let mut meshes = Vec::new();
+        for (mesh_id, name) in [(1, "Skin_1"), (2, "Clothing_2"), (3, "Unrelated")] {
+            let mut ids = Vec::new();
+            for au in &actions {
+                for (side_index, side) in ["left", "right", "center"].iter().enumerate() {
+                    let id = mesh_id * 100_000 + au * 10 + side_index as u32;
+                    targets.push(json!({"id": id, "meshId": mesh_id,
+                        "name": format!("Authored_{au}_{side}"), "hostIndex": ids.len()}));
+                    ids.push(id);
+                }
+            }
+            meshes.push(json!({"id": mesh_id, "name": name, "morphTargetIds": ids}));
+        }
+        for au in actions {
+            profile.au_to_morphs.insert(au.to_string(), Some(serde_json::from_value(json!({
+                "left": [format!("Authored_{au}_left")],
+                "right": [format!("Authored_{au}_right")],
+                "center": [format!("Authored_{au}_center")]
+            })).unwrap()));
+            profile.au_mix_defaults.insert(au.to_string(), 0.25);
+        }
+        for names in profile.morph_to_mesh.values_mut() {
+            *names = vec!["Skin".into(), "Clothing".into()];
+        }
+        let bones: Vec<_> = profile.humanoid_characterization.as_ref().unwrap().roles.keys()
+            .enumerate().map(|(index, role)| json!({"id": index + 1,
+                "name": configured_bone_name(&profile, role)})).collect();
+        (profile, json!({"bones": bones, "meshes": meshes, "morphTargets": targets}))
+    }
+
+    #[test]
+    fn every_body_direction_drives_authored_skin_and_clothing_with_balance_strength_and_reset() {
+        let (authored, model) = authored_morph_catalog();
+        assert_eq!(authored.body_controls.values().map(|control| control.section.as_str())
+            .collect::<BTreeSet<_>>(), BTreeSet::from(["Torso", "Head", "Arms", "Hands", "Legs", "Feet"]));
+        assert_eq!(authored.body_controls.len(), 58);
+        // Removing role assignments and removing actuators are distinct authoring
+        // operations. Both must leave independent morph mappings usable.
+        for mode in ["mixed", "cleared-roles", "morph-only"] {
+            let mut profile = authored.clone();
+            if mode == "cleared-roles" {
+                let roles: Vec<_> = profile.humanoid_characterization.as_ref().unwrap().roles.keys().cloned().collect();
+                for role in roles {
+                    crate::humanoid_characterization::set_role_binding(&mut profile, &role, None).unwrap();
+                }
+            } else if mode == "morph-only" {
+                profile.au_to_bones.clear();
+                profile.composite_rotations = Vec::new().into();
+            }
+            let mut core = RuntimeCore::new(0);
+            core.configure_with_profile(&serde_json::to_string(&profile).unwrap(), &model.to_string()).unwrap();
+            let descriptors: Value = serde_json::from_str(&core.get_body_controls_json()).unwrap();
+            for descriptor in descriptors.as_array().unwrap() {
+                assert_eq!(descriptor["hasMorphs"], true, "{mode}: {descriptor}");
+                assert_eq!(descriptor["available"], true, "{mode}: {descriptor}");
+                assert_eq!(descriptor["hasBones"], mode == "mixed", "{mode}: {descriptor}");
+            }
+            for (id, control) in &profile.body_controls {
+                for direction in [1.0, -1.0] {
+                    let au = if direction < 0.0 {
+                        let Some(negative) = control.negative_au_id else { continue };
+                        negative
+                    } else { control.au_id };
+                    // First check persisted strength, then a live adjustment.
+                    for strength in [0.25, 0.75] {
+                        if strength == 0.75 { core.set_au_mix_weight(au, strength); }
+                        for balance in [-1.0, 0.0, 1.0] {
+                            if let Some(negative) = control.negative_au_id {
+                                core.set_continuum(negative, control.au_id, direction * 0.8, balance);
+                            } else { core.set_au(au, 0.8, balance); }
+                            let values = [if balance > 0.0 { 0.0 } else { 0.8 * strength },
+                                if balance < 0.0 { 0.0 } else { 0.8 * strength }, 0.8 * strength];
+                            let mut expected = Vec::new();
+                            for mesh_id in [1, 2] {
+                                for (side, value) in values.iter().enumerate() {
+                                    if *value > 0.0 {
+                                        expected.push((mesh_id, mesh_id * 100_000 + au * 10 + side as u32, *value));
+                                    }
+                                }
+                            }
+                            let actual: Vec<_> = core.evaluate_procedural_morph_frame().chunks_exact(4)
+                                .map(|row| (row[0] as u32, row[1] as u32, row[2])).collect();
+                            assert_eq!(actual, expected, "{mode}: {id}, action {au}, balance {balance}, strength {strength}");
+                            core.reset_body_controls();
+                            let release = core.evaluate_procedural_morph_frame();
+                            assert_eq!(release.len(), expected.len() * 4, "release {mode}: {id}");
+                            assert!(release.chunks_exact(4).all(|row| row[2] == 0.0));
+                            assert!(core.evaluate_procedural_morph_frame().is_empty());
+                            assert_eq!(core.get_au(au), 0.0);
+                            assert_eq!(core.get_au_balance(au), 0.0);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn body_morph_assignments_and_explicit_clears_survive_preset_save_reload() {
+        let (authored, model) = authored_morph_catalog();
+        let reload = |profile: &ProfileData| extend_preset_with_profile(&preset(),
+            parse_profile_patch(&serde_json::to_string(profile).unwrap()).unwrap());
+        let reloaded = reload(&authored);
+        assert_eq!(serde_json::to_value(&reloaded.au_to_morphs).unwrap(),
+            serde_json::to_value(&authored.au_to_morphs).unwrap());
+        let mut patch = json!({"auToMorphs": {}});
+        for control in authored.body_controls.values() {
+            for au in std::iter::once(control.au_id).chain(control.negative_au_id) {
+                patch["auToMorphs"][au.to_string()] = json!({"left": [], "right": [], "center": []});
+            }
+        }
+        let cleared = extend_preset_with_profile(&reloaded, parse_profile_patch(&patch.to_string()).unwrap());
+        let cleared = reload(&cleared);
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(&serde_json::to_string(&cleared).unwrap(), &model.to_string()).unwrap();
+        let descriptors: Value = serde_json::from_str(&core.get_body_controls_json()).unwrap();
+        assert!(descriptors.as_array().unwrap().iter().all(|descriptor| descriptor["hasMorphs"] == false));
+        for control in cleared.body_controls.values() {
+            for au in std::iter::once(control.au_id).chain(control.negative_au_id) {
+                core.set_au(au, 1.0, 0.0);
+            }
+        }
+        assert!(core.evaluate_active_morph_frame().is_empty(), "clearing must not revive inherited targets");
+        assert!(!core.evaluate_active_bone_frame().is_empty(), "morph clears preserve bone controls");
+    }
+
+    #[test]
+    fn morph_only_body_clip_tracks_use_the_same_authored_strength_and_balance() {
+        let (mut profile, model) = authored_morph_catalog();
+        profile.au_to_bones.clear();
+        profile.composite_rotations = Vec::new().into();
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(&serde_json::to_string(&profile).unwrap(), &model.to_string()).unwrap();
+        for control in profile.body_controls.values() {
+            for au in std::iter::once(control.au_id).chain(control.negative_au_id) {
+                let curves = json!({au.to_string(): [
+                    {"time": 0, "intensity": 0}, {"time": 1, "intensity": 0.8}
+                ]});
+                for strength in [0.25, 0.75] {
+                    if strength != 0.25 { core.set_au_mix_weight(au, strength); }
+                    let clip: Value = serde_json::from_str(&core.build_clip("body-morph",
+                        &curves.to_string(), r#"{"balance":-1}"#).unwrap()).unwrap();
+                    let tracks = clip["tracks"].as_array().unwrap();
+                    assert_eq!(tracks.len(), 4,
+                        "left and center authored targets; zero-weight tracks are omitted: action {au}");
+                    for track in tracks {
+                        assert_eq!(track["target"]["kind"], "morphTarget");
+                        assert!([1, 2].contains(&track["target"]["meshId"].as_u64().unwrap()));
+                        let side = track["target"]["morphTargetId"].as_u64().unwrap() % 10;
+                        let expected = if side == 1 { 0.0 } else { 0.8 * f64::from(strength) };
+                        assert!((track["values"][1].as_f64().unwrap() - expected).abs() < 1e-6,
+                            "action {au}, strength {strength}, track {track}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn missing_body_targets_are_diagnosed_without_disabling_available_authored_sides() {
+        let (profile, mut model) = authored_morph_catalog();
+        // All right/center geometry is unavailable, including fallback meshes.
+        // Left targets still exist on both skin and clothing for every action.
+        model["morphTargets"].as_array_mut().unwrap().retain(|target|
+            target["name"].as_str().unwrap().ends_with("_left"));
+        let model: ModelData = serde_json::from_value(model).unwrap();
+        let descriptors = resolve(&profile, Some(&model));
+        for descriptor in descriptors.as_array().unwrap() {
+            assert_eq!(descriptor["hasMorphs"], true);
+            for au in descriptor["auIds"].as_array().unwrap() {
+                for side in ["right", "center"] {
+                    assert!(descriptor["diagnostics"].as_array().unwrap().iter().any(|message|
+                        message.as_str().unwrap().contains(&format!("Action {au}: {side} morph"))), "{descriptor}");
+                }
+            }
+        }
+        let absent: ModelData = serde_json::from_value(json!({})).unwrap();
+        assert!(resolve(&profile, Some(&absent)).as_array().unwrap().iter().all(|descriptor|
+            descriptor["hasMorphs"] == false && descriptor["available"] == false));
+    }
+
+    #[test]
+    fn explicit_body_mesh_selection_never_falls_back_to_unselected_targets() {
+        let (authored, model) = authored_morph_catalog();
+        for selection in [Vec::<String>::new(), vec!["MissingMesh".into()], vec!["Skin".into()]] {
+            let mut profile = authored.clone();
+            profile.au_to_bones.clear();
+            profile.composite_rotations = Vec::new().into();
+            for names in profile.morph_to_mesh.values_mut() { *names = selection.clone(); }
+            let mut model = model.clone();
+            // Clothing and unrelated meshes still have every matching name.
+            // Neither may substitute for an intentionally selected bare skin.
+            model["morphTargets"].as_array_mut().unwrap().retain(|target| target["meshId"] != 1);
+            let mut core = RuntimeCore::new(0);
+            core.configure_with_profile(&serde_json::to_string(&profile).unwrap(), &model.to_string()).unwrap();
+            let descriptors: Value = serde_json::from_str(&core.get_body_controls_json()).unwrap();
+            assert!(descriptors.as_array().unwrap().iter().all(|descriptor|
+                descriptor["hasMorphs"] == false && descriptor["available"] == false), "{selection:?}");
+            for control in profile.body_controls.values() {
+                for au in std::iter::once(control.au_id).chain(control.negative_au_id) {
+                    core.set_au(au, 1.0, 0.0);
+                }
+            }
+            assert!(core.evaluate_active_morph_frame().is_empty(), "{selection:?}");
+        }
+        // Old profiles without any category still resolve targets by content.
+        let mut profile = authored;
+        profile.morph_to_mesh.clear();
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(&serde_json::to_string(&profile).unwrap(), &model.to_string()).unwrap();
+        for control in profile.body_controls.values() {
+            for au in std::iter::once(control.au_id).chain(control.negative_au_id) {
+                core.set_au(au, 1.0, 0.0);
+            }
+        }
+        assert_eq!(core.evaluate_active_morph_frame().len(), 98 * 3 * 3 * 4);
+    }
+
+    #[test]
+    fn non_body_morph_only_actions_keep_legacy_full_strength() {
+        for meshes in [json!({}), json!({"face": []}), json!({"face": ["Missing"]})] {
+            let profile = json!({"auToMorphs":{"12":{"center":["Smile"]}},
+                "auMixDefaults":{"12":0.25}, "morphToMesh": meshes});
+            let mut core = RuntimeCore::new(0);
+            core.configure_with_profile(&profile.to_string(),
+                r#"{"meshes":[{"id":1,"name":"Face","morphTargetIds":[2]}],"morphTargets":[{"id":2,"meshId":1,"name":"Smile","hostIndex":0}]}"#).unwrap();
+            core.set_au(12, 0.8, 0.0);
+            assert_eq!(core.evaluate_active_morph_frame()[2], 0.8);
+            core.set_au_mix_weight(12, 0.5);
+            assert_eq!(core.evaluate_active_morph_frame()[2], 0.8);
+        }
     }
 }

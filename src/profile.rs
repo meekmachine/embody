@@ -911,7 +911,6 @@ fn compile_au_morph_bindings(
         };
         let Some(entry) = entry else { continue };
 
-        let mesh_names = mesh_names_for_au(profile, au_id);
         let has_morphs =
             !entry.left.is_empty() || !entry.right.is_empty() || !entry.center.is_empty();
         let has_bones = profile
@@ -919,7 +918,11 @@ fn compile_au_morph_bindings(
             .get(au_text)
             .map(|bindings| !bindings.is_empty())
             .unwrap_or(false);
-        if has_morphs && has_bones {
+        // Body's morph strength remains meaningful when its bone actuator is
+        // absent or deliberately cleared. Keep legacy non-Body morph-only AU
+        // behavior, while compiling the same weighting rule for live controls
+        // and snippet tracks, including shared head/eye/jaw actions.
+        if has_morphs && (has_bones || is_body_action(profile, au_id)) {
             tables.mixed_aus.push(au_id);
         }
 
@@ -929,7 +932,7 @@ fn compile_au_morph_bindings(
             (2u8, &entry.center),
         ] {
             for morph in morphs {
-                for (mesh_id, morph_target_id) in resolver.resolve_morph(morph, &mesh_names) {
+                for (mesh_id, morph_target_id) in resolver.resolve_au_morph(profile, au_id, morph) {
                     tables.au_morph_bindings.extend_from_slice(&[
                         au_id as f32,
                         side as f32,
@@ -1408,22 +1411,24 @@ fn viseme_binding_targets(
     Vec::new()
 }
 
-pub(crate) fn mesh_names_for_au(profile: &ProfileData, au_id: u32) -> Vec<String> {
+fn is_body_action(profile: &ProfileData, au_id: u32) -> bool {
+    profile.body_controls.values().any(|control|
+        control.au_id == au_id || control.negative_au_id == Some(au_id))
+}
+
+fn mesh_category_for_au(profile: &ProfileData, au_id: u32) -> &str {
     let face_part = profile
         .au_info
         .get(&au_id.to_string())
         .and_then(|info| info.face_part.as_ref());
-    let category = face_part.and_then(|part| profile.au_face_part_to_mesh_category.get(part));
-    if let Some(category) = category {
-        return profile
-            .morph_to_mesh
-            .get(category)
-            .cloned()
-            .unwrap_or_default();
-    }
+    face_part.and_then(|part| profile.au_face_part_to_mesh_category.get(part))
+        .map(String::as_str).unwrap_or("face")
+}
+
+pub(crate) fn mesh_names_for_au(profile: &ProfileData, au_id: u32) -> Vec<String> {
     profile
         .morph_to_mesh
-        .get("face")
+        .get(mesh_category_for_au(profile, au_id))
         .cloned()
         .unwrap_or_default()
 }
@@ -1521,6 +1526,20 @@ impl NameResolver {
     }
 
     pub(crate) fn resolve_morph(&self, morph: &MorphRef, mesh_names: &[String]) -> Vec<(u32, u32)> {
+        self.resolve_morph_with_fallback(morph, mesh_names, true)
+    }
+
+    pub(crate) fn resolve_au_morph(&self, profile: &ProfileData, au_id: u32, morph: &MorphRef) -> Vec<(u32, u32)> {
+        // Body authoring exposes an explicit category mesh selection. An empty
+        // selection means no outputs, and a target absent from selected meshes
+        // must not silently actuate a similarly named target on another mesh.
+        // Legacy omitted categories and non-Body/viseme mappings keep fallback.
+        let strict_selection = is_body_action(profile, au_id)
+            && profile.morph_to_mesh.contains_key(mesh_category_for_au(profile, au_id));
+        self.resolve_morph_with_fallback(morph, &mesh_names_for_au(profile, au_id), !strict_selection)
+    }
+
+    fn resolve_morph_with_fallback(&self, morph: &MorphRef, mesh_names: &[String], allow_fallback: bool) -> Vec<(u32, u32)> {
         let mut result = Vec::new();
         let candidate_names = self.resolve_mesh_names(mesh_names);
         for mesh_name in &candidate_names {
@@ -1544,7 +1563,7 @@ impl NameResolver {
         // morphToMesh entirely. Preserve the exact profile while resolving its
         // morph against model content rather than making the host fall back to a
         // different preset. Configured/family matches always take precedence.
-        if result.is_empty() {
+        if allow_fallback && result.is_empty() {
             for mesh_name in &self.mesh_names {
                 if candidate_names.contains(mesh_name) {
                     continue;
