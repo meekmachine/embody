@@ -93,6 +93,44 @@ function update(dtSeconds: number) {
 Application-facing JavaScript APIs belong in the host package. Polymer owns
 the CLJS character host used by LoomLarge and calls the Wasm exports directly.
 
+### Bilateral snippet channels
+
+AU balance uses the character's left/right: `-1` drives the left side,
+`0` drives both, and `1` drives the right. `RuntimeCore.get_au_balance(id)`
+returns the stored live balance, clamped by the existing setters to [-1, 1],
+with neutral zero for an unset id or after `clear()`. Hosts can save it alongside
+`get_au(id)` when serializing a manual pose.
+
+Legacy `build_clip` curve maps use
+`options.balanceMap[auId]`, falling back to `options.balance` and then zero.
+For `build_typed_clip`, an AU target's explicit `balance` takes precedence:
+
+```js
+const channels = [
+  { target: { type: 'au', id: 43, balance: -1 }, keyframes: leftWink },
+  { target: { type: 'au', id: 43, balance: 1 }, keyframes: rightWink },
+];
+```
+
+Each channel retains its own keyframe times and intensity scale. Typed AU and
+viseme ids belong to separate namespaces, regardless of `snippetCategory`.
+Duplicate typed channels for the same AU or viseme and concrete morph target
+combine by maximum, including intersections between authored linear curves.
+Independent endpoint-balanced channels keep their own inherited or explicit
+starts; an inactive opposite-side contribution cannot replace an active
+channel's anchor. Composite bone rotations take the maximum AU contribution
+after each channel's balance. Legacy curves and distinct semantic ids that
+share a morph retain their existing separate tracks and host blending.
+
+A duplicate typed group with multiple enabled contributions to the same morph
+cannot also contain an inherited start: compilation rejects that combination
+with an error identifying the AU/viseme and destination. Author one curve per
+side or explicit starting values. Previously, duplicate ids silently discarded
+all but the last channel. Inheritance on supported morph tracks is captured
+when the Three clip is constructed. Hosts must construct it again to capture
+a fresh pose; this does not change cached host replay or generated bone
+inheritance behavior.
+
 ### Gaze geometry contract
 
 `solve_profile_screen_space_gaze` and `solve_profile_viewer_space_gaze` return
