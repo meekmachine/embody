@@ -36,11 +36,11 @@
     "build": "tsup --config tsup.config.mjs && npm run wasm:build && tsc -p tsconfig.declarations.json",
     "dev": "tsup --config tsup.config.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "npm run rust:test && npm run typecheck",
+    "test": "npm run rust:test && npm run typecheck && npm run test:annotations",
     "test:service-worker": "node --test scripts/test/character-asset-service-worker.test.mjs",
     "test:exports": "node scripts/smoke/package-exports.mjs && node scripts/smoke/morph-authoring.mjs && node scripts/smoke/inherited-starts.mjs && node scripts/smoke/bilateral-channels.mjs && node scripts/smoke/reference-pose.mjs && node scripts/smoke/clip-interpolation.mjs && node scripts/smoke/gaze-focus.mjs && node scripts/smoke/package-declarations.mjs",
     "test:pack": "node scripts/smoke/package-contents.mjs",
-    "test:package": "npm run check:dist && npm run test:exports && npm run test:pack",
+    "test:package": "npm run check:dist && npm run test:exports && npm run test:pack && npm run test:annotations",
     "check:dist": "node scripts/ci/check-built-package.mjs",
     "check:generated": "node scripts/ci/check-no-tracked-generated.mjs",
     "extract:humanoid-skeleton-template": "node scripts/extract-humanoid-skeleton-template.cjs",
@@ -48,7 +48,8 @@
     "rust:wasm-build": "RUSTC=$(rustup which rustc) RUSTDOC=$(rustup which rustdoc) rustup run stable cargo build --target wasm32-unknown-unknown --release",
     "wasm:build": "node scripts/build-wasm.mjs",
     "prepack": "npm run check:dist",
-    "prepublishOnly": "npm run check:dist"
+    "prepublishOnly": "npm run check:dist",
+    "test:annotations": "vitest run --config vitest.config.ts"
   },
   "peerDependencies": {
     "three": ">=0.150.0"
@@ -60,7 +61,8 @@
     "three": "^0.170.0",
     "tsup": "^8.0.0",
     "typescript": "^5.9.0",
-    "wasm-pack": "^0.15.0"
+    "wasm-pack": "^0.15.0",
+    "vitest": "^3.2.7"
   },
   "keywords": [
     "3d",

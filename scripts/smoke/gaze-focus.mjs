@@ -347,4 +347,64 @@ for (const scale of [0.1, 1, 10]) {
   mixer.stopAllAction();
 }
 
+// Native quaternion tracks store Float32 samples whose norms can round below
+// OR above one. Repeated applications between mixer ticks must neither absorb
+// their own correction nor overwrite a small newer authored orientation.
+for (const degrees of [1, 3]) {
+  const test = rig();
+  const referencePose = captureModelReferencePose(test.model);
+  const authored = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), radians(degrees));
+  const track = new QuaternionKeyframeTrack(`${test.head.name}.quaternion`, [0, 1],
+    [...authored.toArray(), ...authored.toArray()]);
+  assert(track.values instanceof Float32Array, 'regression uses native Float32 samples');
+  const mixer = new AnimationMixer(test.model);
+  mixer.clipAction(new AnimationClip('Float32 held head', 1, [track])).play();
+  mixer.update(0.25);
+  const base = test.head.quaternion.clone();
+  assert(degrees === 1 ? base.lengthSq() < 1 : base.lengthSq() > 1, 'fixture covers both rounding directions');
+  const value = request(test, { x: 0.3, y: 1.7, z: 1.7 });
+  const motor = controls(value, -0.25);
+  const orientationError = (a, b) => a.clone().normalize().angleTo(b.clone().normalize());
+  focused(test.focus.apply(value, motor), `Float32 initial ${degrees}`);
+  const rendered = test.head.quaternion.clone();
+  for (let i = 0; i < 12; i += 1) {
+    test.focus.apply(value, motor);
+    near(orientationError(test.head.quaternion, rendered), 0, `Float32 repeated apply ${degrees}/${i}`, 1e-6);
+    test.focus.restore();
+    assert.deepEqual(test.head.quaternion.toArray(), base.toArray(), 'restore retains the exact sampled base');
+    mixer.update(0.016);
+    focused(test.focus.apply(value, motor), `Float32 held mixer ${degrees}/${i}`);
+  }
+  // A rebind after restore must also start from the same authored sample.
+  test.focus.restore();
+  test.focus = new ThreeGazeFocus(test.model, preset, { referencePose });
+  test.focus.apply(value, motor);
+  near(orientationError(test.head.quaternion, rendered), 0, 'Float32 constraint rebind', 1e-6);
+  // q and -q represent the same orientation, including their rounded norms.
+  test.head.quaternion.fromArray(test.head.quaternion.toArray().map((component) => -component));
+  test.focus.restore();
+  assert.deepEqual(test.head.quaternion.toArray(), base.toArray(), 'antipodal overlay restores sampled base');
+  test.focus.apply(value, motor);
+  test.head.quaternion.multiply(new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), radians(0.001)));
+  const newer = test.head.quaternion.toArray();
+  test.focus.restore();
+  assert.deepEqual(test.head.quaternion.toArray(), newer, 'small newer authored write survives rounded norms');
+  mixer.stopAllAction();
+}
+
+// Invalid current orientations are not evidence that the saved overlay still
+// owns the property. Restore must not replace them or retain stale saved state.
+for (const components of [[0, 0, 0, 0], [NaN, 0, 0, 1], [Infinity, 0, 0, 1]]) {
+  const test = rig();
+  const value = request(test, { x: 0.3, y: 1.7, z: 1.7 });
+  test.focus.apply(value, controls(value, -0.25));
+  test.head.quaternion.fromArray(components);
+  test.focus.restore();
+  assert.deepEqual(test.head.quaternion.toArray(), components, 'invalid newer orientation is left untouched');
+  const recovered = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), radians(2));
+  test.head.quaternion.copy(recovered);
+  test.focus.restore();
+  assert.deepEqual(test.head.quaternion.toArray(), recovered.toArray(), 'restore clears invalid saved state');
+}
+
 console.log('Rig-aware gaze focus smoke passed');

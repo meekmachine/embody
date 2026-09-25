@@ -142,7 +142,13 @@ export class ThreeGazeFocus {
   restore() {
     for (const [object, value] of this.saved) {
       // Preserve a newer authored/direct runtime write between mixer ticks.
-      if (Math.abs(object.quaternion.dot(value.applied)) > 1 - 1e-12) object.quaternion.copy(value.base);
+      // Native Float32 animation samples are not exactly unit length. Compare
+      // orientations without changing either the sampled base or live value.
+      const current = object.quaternion;
+      const norm = Math.sqrt(current.lengthSq() * value.applied.lengthSq());
+      if (norm > 0 && Number.isFinite(norm) && Math.abs(current.dot(value.applied)) / norm > 1 - 1e-12) {
+        current.copy(value.base);
+      }
     }
     this.saved.clear();
     this.model.updateMatrixWorld(true);
