@@ -39,7 +39,38 @@ not sample or lerp clips on the hot path.
 The TypeScript adapter is intentionally limited to operations that require
 Three.js objects: scene traversal, ClipIR ↔ `AnimationClip` conversion, frame
 application, material writes, model loading/disposal, and default scene
-construction.
+construction. The annotation adapter also owns camera controls, marker scene
+objects, labels, selection, and their browser lifecycle; applications provide
+the scene/camera/DOM inputs and render controls through the public API.
+
+### Annotation runtime
+
+`DPthreeCameraController` and the `DPthree` convenience facade from
+`@lovelace_lol/embody/three` own the complete camera and annotation runtime.
+`DPthree3DMarkers`, `DPthreeHTMLMarkers`, and the legacy `DPthreeMarkers` adapter
+are available for hosts that need a marker-only layer. Rust owns camera
+framing/flights/orbits, viewport clipping, curves, visibility factors and
+endpoint separation. The Three adapter owns native model inspection,
+raycasting, labels, DOM controls, marker expansion/solo/style state and disposal.
+
+Applications pass `AnnotationCharacterConfig`; storage, agency, editor and
+character-asset metadata remain host concerns. `loadRegions` defaults to
+`resolveAnnotationCharacterConfig`, which resolves annotation and AU mapping
+fields from an Embody preset without serializing unrelated host metadata.
+An optional `resolveCharacterConfig` callback supports host profile intake.
+`prepareRegionsAndMarkersForReveal` accepts an already-resolved profile and
+prepares native surface queries while the model pose is still stable.
+Initial queries yield to a browser paint between meshes once a 4 ms slice is
+spent. Each native mesh raycast is indivisible; a large mesh can still cause a
+frame drop, and slicing does not reduce total raycast CPU time. Interactive
+annotation changes retain synchronous queries so a marker samples one pose.
+Replacement, clearing and disposal cancel stale loads before scene commits.
+
+`createMarkerVisibilityLifecycle` owns automatic reveal/hide timers;
+`createRuntimeAnnotationPreviewLifecycle` owns temporary authoring previews.
+React hosts forward user events and subscribe to controller state. They do not
+need local copies of the camera, marker, placement or timer algorithms.
+The convenience facade delegates to one controller-owned marker layer.
 
 ## Runtime Use
 

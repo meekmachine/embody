@@ -14,7 +14,27 @@ import {
   captureModelReferencePose,
   extendModelReferencePose,
   type ThreeModelReferencePose,
+  DPthree,
+  DPthreeCameraController,
+  resolveAnnotationCharacterConfig,
+  createRuntimeAnnotationPreviewLifecycle,
+  type AnnotationCharacterConfig,
+  type MarkerStateSnapshot,
+  type DPthreeCameraControllerConfig,
 } from '@lovelace_lol/embody/three';
+
+const annotationProfile: AnnotationCharacterConfig = { characterId: 'consumer', auPresetType: 'cc4' };
+const resolvedAnnotationProfile = await resolveAnnotationCharacterConfig(annotationProfile);
+declare const cameraOptions: DPthreeCameraControllerConfig;
+const controller = new DPthreeCameraController(cameraOptions);
+await controller.loadRegions(resolvedAnnotationProfile);
+controller.subscribeMarkerState((state: MarkerStateSnapshot) => { const visible: boolean = state.visible; });
+const preview = createRuntimeAnnotationPreviewLifecycle({ getAutoClearMs: () => undefined });
+preview.start(); preview.dispose();
+// @ts-expect-error Annotation constructors retain required Three scene inputs.
+new DPthree({});
+// @ts-expect-error Camera methods retain public region-name types.
+controller.focusRegion(123);
 
 const core: EmbodyCore = await initEmbodyCore();
 const runtime: RuntimeCore = new core.RuntimeCore(15);
