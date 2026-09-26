@@ -44,7 +44,38 @@ not sample or lerp clips on the hot path.
 The TypeScript adapter is intentionally limited to operations that require
 Three.js objects: scene traversal, ClipIR ↔ `AnimationClip` conversion, frame
 application, material writes, model loading/disposal, and default scene
-construction.
+construction. The annotation adapter also owns camera controls, marker scene
+objects, labels, selection, and their browser lifecycle; applications provide
+the scene/camera/DOM inputs and render controls through the public API.
+
+### Annotation runtime
+
+`DPthreeCameraController` and the `DPthree` convenience facade from
+`@lovelace_lol/embody/three` own the complete camera and annotation runtime.
+`DPthree3DMarkers`, `DPthreeHTMLMarkers`, and the legacy `DPthreeMarkers` adapter
+are available for hosts that need a marker-only layer. Rust owns camera
+framing/flights/orbits, viewport clipping, curves, visibility factors and
+endpoint separation. The Three adapter owns native model inspection,
+raycasting, labels, DOM controls, marker expansion/solo/style state and disposal.
+
+Applications pass `AnnotationCharacterConfig`; storage, agency, editor and
+character-asset metadata remain host concerns. `loadRegions` defaults to
+`resolveAnnotationCharacterConfig`, which resolves annotation and AU mapping
+fields from an Embody preset without serializing unrelated host metadata.
+An optional `resolveCharacterConfig` callback supports host profile intake.
+`prepareRegionsAndMarkersForReveal` accepts an already-resolved profile and
+prepares native surface queries while the model pose is still stable.
+Initial queries yield to a browser paint between meshes once a 4 ms slice is
+spent. Each native mesh raycast is indivisible; a large mesh can still cause a
+frame drop, and slicing does not reduce total raycast CPU time. Interactive
+annotation changes retain synchronous queries so a marker samples one pose.
+Replacement, clearing and disposal cancel stale loads before scene commits.
+
+`createMarkerVisibilityLifecycle` owns automatic reveal/hide timers;
+`createRuntimeAnnotationPreviewLifecycle` owns temporary authoring previews.
+React hosts forward user events and subscribe to controller state. They do not
+need local copies of the camera, marker, placement or timer algorithms.
+The convenience facade delegates to one controller-owned marker layer.
 
 ## Runtime Use
 
@@ -97,6 +128,44 @@ function update(dtSeconds: number) {
 
 Application-facing JavaScript APIs belong in the host package. Polymer owns
 the CLJS character host used by LoomLarge and calls the Wasm exports directly.
+
+### Bilateral snippet channels
+
+AU balance uses the character's left/right: `-1` drives the left side,
+`0` drives both, and `1` drives the right. `RuntimeCore.get_au_balance(id)`
+returns the stored live balance, clamped by the existing setters to [-1, 1],
+with neutral zero for an unset id or after `clear()`. Hosts can save it alongside
+`get_au(id)` when serializing a manual pose.
+
+Legacy `build_clip` curve maps use
+`options.balanceMap[auId]`, falling back to `options.balance` and then zero.
+For `build_typed_clip`, an AU target's explicit `balance` takes precedence:
+
+```js
+const channels = [
+  { target: { type: 'au', id: 43, balance: -1 }, keyframes: leftWink },
+  { target: { type: 'au', id: 43, balance: 1 }, keyframes: rightWink },
+];
+```
+
+Each channel retains its own keyframe times and intensity scale. Typed AU and
+viseme ids belong to separate namespaces, regardless of `snippetCategory`.
+Duplicate typed channels for the same AU or viseme and concrete morph target
+combine by maximum, including intersections between authored linear curves.
+Independent endpoint-balanced channels keep their own inherited or explicit
+starts; an inactive opposite-side contribution cannot replace an active
+channel's anchor. Composite bone rotations take the maximum AU contribution
+after each channel's balance. Legacy curves and distinct semantic ids that
+share a morph retain their existing separate tracks and host blending.
+
+A duplicate typed group with multiple enabled contributions to the same morph
+cannot also contain an inherited start: compilation rejects that combination
+with an error identifying the AU/viseme and destination. Author one curve per
+side or explicit starting values. Previously, duplicate ids silently discarded
+all but the last channel. Inheritance on supported morph tracks is captured
+when the Three clip is constructed. Hosts must construct it again to capture
+a fresh pose; this does not change cached host replay or generated bone
+inheritance behavior.
 
 ### Gaze geometry contract
 
@@ -206,20 +275,47 @@ const report = JSON.parse(wasm.analyze_model_descriptor(
 `ThreeGazeFocus` from `@lovelace_lol/embody/three` applies a focus constraint
 inside an animation runtime. It has no clock or target-selection policy:
 call `restore()` before evaluating the base animation, then `apply(request,
-controls)` after it. Controls are the current positions of existing motor
-tracks, rather than newly started transitions. `readControlState({worldTarget})`
-provides initial bearings for a handoff from the rendered pose. When replacing
-legacy head controls at reduced intensity, also provide `headIntensity` and
-the evaluated local `headBaseQuaternion` with those controls excluded. The
-helper inverts gain in joint coordinates and reports `headSeedLimited` if
-the existing pose cannot be represented within the new bounds. Reading the
-seed does not modify the rig.
+controls)` after it. Restoration compares quaternion orientations independently
+of Float32 sample norms, preserving the exact authored sample and any newer
+authored orientation. Repeated applications between mixer ticks do not accumulate
+the constraint's previous correction. Controls are the current positions of existing motor
+tracks. The optional sampled `controls.headIntensity` and `controls.eyeIntensity`
+override the matching request fields, so the host can animate configuration
+changes on its existing motor tracks. Both mean contribution in [0, 1]: zero
+preserves the evaluated base, one applies the full solved excursion, and legacy
+values above one normalize to one. Intermediate eye contribution proportionally
+reduces the correction; it does not shrink anatomical limits. Reduced eye
+contribution deliberately leaves focus error. These controls do not amplify
+input displacement or control response speed.
 
-The helper solves in the actual joint hierarchy, compensates head/neck motion,
-and aims each eye from its own origin. It honors signed actuator limits and
-reports angular residuals for unreachable targets. Head intensity scales joint
-movement from the evaluated base pose; eye intensity bounds the available eye
-excursion. The optional `profile.gazeCalibration` supplies bone-local
+Pass `{ referencePose }` as the constructor's third argument, reusing the
+reference captured at import. Without it, construction captures the current
+pose, so callers must construct before playback. The head solves its bounded
+gaze excursion in that reference hierarchy under the model's current scene
+transform, then composes the excursion onto the evaluated authored head pose.
+Head and neck gestures retain their motion instead of being cancelled or
+reversed by tracking. Each eye then solves toward the same finite target from
+its own origin in the final animated hierarchy. Full eye contribution retains
+binocular focus wherever the combined authored motion and gaze are reachable;
+otherwise diagnostics report the remaining angular error and limits. Authored
+gestures are not suppressed to force a target into range. The signed limits
+bound the tracking excursion; they do not clamp the final authored pose plus
+that excursion against a neutral-reference joint range. Authored motion can
+therefore take the combined pose beyond that range or the eyes' reach.
+
+`readControlState({worldTarget, headIntensity, eyeIntensity})` provides initial
+motor bearings without changing the rig. It inverts existing focus contributions
+against their saved base, and seeds zero added head excursion when enabling on
+a purely authored pose. When replacing legacy AU controls, also provide the
+evaluated local `headBaseQuaternion` and/or `eyeBaseQuaternions` (a map keyed by
+bone name), with those legacy controls excluded. `headSeedLimited` and
+`eyeSeedLimited` report poses that cannot be represented by the bounded motor
+bearings. Parallel legacy eyes cannot both be preserved exactly by a shared
+finite target; inverse eye contribution avoids double attenuation but does not
+remove that convergence residual. This helper supplies no handoff transition
+clock; the host owns activation policy and movement timing.
+
+The optional `profile.gazeCalibration` supplies bone-local
 `head`, `leftEye`, and `rightEye` optical axes and `modelUnitsPerMeter`.
 Without explicit optical axes, signed yaw/pitch bindings determine the optical
 frame. Unresolvable joints remain untouched and are reported in diagnostics.

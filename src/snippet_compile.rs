@@ -46,11 +46,22 @@ pub struct CurvePoint {
 }
 
 #[derive(Clone, Debug)]
+pub enum CurveTarget {
+    Au { id: u32, balance: f32 },
+    Viseme(u32),
+    Morph(String),
+}
+
+#[derive(Clone, Debug)]
+pub struct SnippetCurve {
+    pub target: CurveTarget,
+    pub points: Vec<CurvePoint>,
+}
+
+#[derive(Clone, Debug)]
 pub struct SnippetCompileOptions {
     pub intensity_scale: f64,
-    pub balance: f32,
-    pub balance_map: HashMap<String, f32>,
-    pub snippet_category: Option<String>,
+    pub merge_duplicate_channels: bool,
     pub auto_viseme_jaw: bool,
     pub jaw_scale: f32,
 }
@@ -59,9 +70,7 @@ impl Default for SnippetCompileOptions {
     fn default() -> Self {
         Self {
             intensity_scale: 1.0,
-            balance: 0.0,
-            balance_map: HashMap::new(),
-            snippet_category: None,
+            merge_duplicate_channels: false,
             auto_viseme_jaw: true,
             jaw_scale: 1.0,
         }
@@ -69,7 +78,7 @@ impl Default for SnippetCompileOptions {
 }
 
 pub struct SnippetCompileInput<'a> {
-    pub curves: &'a BTreeMap<String, Vec<CurvePoint>>,
+    pub curves: &'a [SnippetCurve],
     pub au_bindings: &'a [AuMorphBinding],
     pub viseme_bindings: &'a [VisemeMorphBinding],
     pub viseme_slot_count: usize,
@@ -112,30 +121,14 @@ fn clamp_intensity(value: f64) -> f64 {
     value.clamp(0.0, 2.0)
 }
 
-fn curve_balance(curve_id: &str, options: &SnippetCompileOptions) -> f32 {
-    options
-        .balance_map
-        .get(curve_id)
-        .copied()
-        .unwrap_or(options.balance)
-}
-
-fn keyframe_times(curves: &BTreeMap<String, Vec<CurvePoint>>) -> Vec<f64> {
+fn keyframe_times(curves: &[SnippetCurve]) -> Vec<f64> {
     let mut times = curves
-        .values()
-        .flat_map(|points| points.iter().map(|point| point.time))
+        .iter()
+        .flat_map(|curve| curve.points.iter().map(|point| point.time))
         .collect::<Vec<_>>();
-    times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    times.sort_by(f64::total_cmp);
     times.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
     times
-}
-
-fn is_numeric_id(id: &str) -> Option<u32> {
-    if id.chars().all(|c| c.is_ascii_digit()) {
-        id.parse().ok()
-    } else {
-        None
-    }
 }
 
 fn scalar_track(
@@ -223,17 +216,35 @@ fn au_side_scale(balance: f32, side: u8) -> f32 {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum MorphSource {
+    Au(u32),
+    Viseme(u32),
+    Named(String),
+}
+
+struct MorphTrackContribution {
+    channel_index: usize,
+    source: MorphSource,
+    track: ClipTrackIR,
+    side_enabled: bool,
+}
+
 fn push_scaled_curve_track(
-    tracks: &mut Vec<ClipTrackIR>,
+    tracks: &mut Vec<MorphTrackContribution>,
     next_id: &mut u32,
     mesh_id: u32,
     morph_target_id: u32,
     points: &[CurvePoint],
     effective_scale: f64,
+    side_enabled: bool,
+    source: MorphSource,
+    channel_index: usize,
+    retain_zero_owner: bool,
 ) {
     let inherit_start = points.first().is_some_and(|point| point.inherit);
     // Even a zero-scaled curve can release a nonzero inherited live pose.
-    if effective_scale.abs() <= 1e-9 && !inherit_start {
+    if effective_scale.abs() <= 1e-9 && !inherit_start && !(retain_zero_owner && side_enabled) {
         return;
     }
     let times = points.iter().map(|point| point.time).collect::<Vec<_>>();
@@ -241,43 +252,160 @@ fn push_scaled_curve_track(
         .iter()
         .map(|point| clamp_intensity(point.intensity * effective_scale))
         .collect::<Vec<_>>();
-    tracks.push(scalar_track(
-        *next_id,
-        morph_target_json(mesh_id, morph_target_id),
-        times,
-        values,
-        inherit_start,
-    ));
+    tracks.push(MorphTrackContribution {
+        channel_index,
+        source,
+        track: scalar_track(
+            *next_id,
+            morph_target_json(mesh_id, morph_target_id),
+            times,
+            values,
+            inherit_start,
+        ),
+        side_enabled,
+    });
     *next_id += 1;
 }
 
+fn merge_morph_tracks(tracks: Vec<MorphTrackContribution>) -> Result<Vec<ClipTrackIR>, String> {
+    let mut by_target: BTreeMap<(MorphSource, u64, u64), Vec<MorphTrackContribution>> =
+        BTreeMap::new();
+    for contribution in tracks {
+        let key = (
+            contribution.source.clone(),
+            contribution.track.target["meshId"].as_u64().unwrap(),
+            contribution.track.target["morphTargetId"].as_u64().unwrap(),
+        );
+        by_target.entry(key).or_default().push(contribution);
+    }
+    let mut merged = Vec::new();
+    for ((source, mesh_id, morph_id), group) in by_target {
+        // Repeated profile bindings from one authored channel keep their
+        // existing separate tracks. Only duplicate input channels are combined.
+        if group
+            .iter()
+            .all(|entry| entry.channel_index == group[0].channel_index)
+        {
+            merged.extend(group.into_iter().map(|entry| entry.track));
+            continue;
+        }
+        // A disabled side may release an inherited live pose when it is the
+        // only source. It must not claim another channel's anchor or key times.
+        let has_enabled_side = group.iter().any(|entry| entry.side_enabled);
+        let group = group
+            .into_iter()
+            .filter(|entry| !has_enabled_side || entry.side_enabled)
+            .collect::<Vec<_>>();
+        if group
+            .iter()
+            .all(|entry| entry.channel_index == group[0].channel_index)
+        {
+            merged.extend(group.into_iter().map(|entry| entry.track));
+            continue;
+        }
+        let mut group = group
+            .into_iter()
+            .map(|entry| entry.track)
+            .collect::<Vec<_>>();
+        let mut result = group.remove(0);
+        if result.inherit_start || group.iter().any(|track| track.inherit_start) {
+            return Err(format!("Overlapping inherited channels for {source:?} on mesh {mesh_id}, morph {morph_id} cannot share a start anchor; author one curve per side or explicit starting values."));
+        }
+        group.insert(0, result.clone());
+        let curves = group
+            .iter()
+            .map(|track| {
+                track
+                    .times
+                    .iter()
+                    .zip(&track.values)
+                    .map(|(&time, &intensity)| CurvePoint {
+                        time,
+                        intensity,
+                        inherit: false,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let mut times = group
+            .iter()
+            .flat_map(|track| track.times.iter().copied())
+            .collect::<Vec<_>>();
+        times.sort_by(f64::total_cmp);
+        times.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+        // Preserve the exact piecewise-linear maximum, including intersections
+        // between authored keys. This is compile-time work, never frame work.
+        let mut crossings = Vec::new();
+        for interval in times.windows(2) {
+            for (i, a) in curves.iter().enumerate() {
+                for b in &curves[i + 1..] {
+                    let start = sample_at(a, interval[0]) - sample_at(b, interval[0]);
+                    let end = sample_at(a, interval[1]) - sample_at(b, interval[1]);
+                    if start * end < 0.0 {
+                        crossings.push(
+                            interval[0] + (interval[1] - interval[0]) * start / (start - end),
+                        );
+                    }
+                }
+            }
+        }
+        times.extend(crossings);
+        times.sort_by(f64::total_cmp);
+        times.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+        result.values = times
+            .iter()
+            .map(|&t| {
+                curves
+                    .iter()
+                    .map(|points| sample_at(points, t))
+                    .fold(0.0_f64, f64::max)
+            })
+            .collect();
+        result.times = times;
+        merged.push(result);
+    }
+    for (index, track) in merged.iter_mut().enumerate() {
+        track.id = index as u32 + 1;
+    }
+    Ok(merged)
+}
+
 /// Expand snippet curves into concrete morph/bone ClipIR tracks.
-pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Vec<ClipTrackIR> {
+pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Result<Vec<ClipTrackIR>, String> {
     let options = input.options;
     let scale = options.intensity_scale;
     let times = keyframe_times(input.curves);
     let mut tracks = Vec::new();
     let mut next_id = 1u32;
-    let is_viseme_snippet = options.snippet_category.as_deref() == Some("visemeSnippet");
-
-    let sample_curve = |curve_id: &str, t: f64| -> f64 {
-        let Some(points) = input.curves.get(curve_id) else {
-            return 0.0;
-        };
-        clamp_intensity(sample_at(points, t) * scale)
+    // Keep every typed channel: an AU can have independent left/right curves,
+    // and a viseme index can equal an AU id without sharing its namespace.
+    let mut au_curves: HashMap<u32, Vec<(&[CurvePoint], f32)>> = HashMap::new();
+    let mut viseme_curves: HashMap<u32, Vec<&[CurvePoint]>> = HashMap::new();
+    let source_for = |target: &CurveTarget| match target {
+        CurveTarget::Au { id, .. } => MorphSource::Au(*id),
+        CurveTarget::Viseme(id) => MorphSource::Viseme(*id),
+        CurveTarget::Morph(name) => MorphSource::Named(name.clone()),
     };
-
-    for (curve_id, points) in input.curves {
+    let mut channel_counts = BTreeMap::new();
+    if options.merge_duplicate_channels {
+        for curve in input.curves.iter().filter(|curve| !curve.points.is_empty()) {
+            *channel_counts.entry(source_for(&curve.target)).or_insert(0) += 1;
+        }
+    }
+    for (channel_index, curve) in input.curves.iter().enumerate() {
+        let points = &curve.points;
         if points.is_empty() {
             continue;
         }
-
-        if let Some(id) = is_numeric_id(curve_id) {
-            if is_viseme_snippet && (id as usize) < input.viseme_slot_count {
+        let source = source_for(&curve.target);
+        let retain_zero_owner = channel_counts.get(&source).is_some_and(|count| *count > 1);
+        match &curve.target {
+            CurveTarget::Viseme(id) => {
+                viseme_curves.entry(*id).or_default().push(points);
                 for binding in input
                     .viseme_bindings
                     .iter()
-                    .filter(|binding| binding.viseme_index == id)
+                    .filter(|binding| binding.viseme_index == *id)
                 {
                     push_scaled_curve_track(
                         &mut tracks,
@@ -286,56 +414,75 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Vec<ClipTrackIR
                         binding.morph_target_id,
                         points,
                         scale * f64::from(binding.weight),
+                        true,
+                        source.clone(),
+                        channel_index,
+                        retain_zero_owner,
                     );
                 }
-                continue;
             }
-
-            let mix_weight = if input.mixed_aus.contains(&id) {
-                *input.mix_weights.get(&id).unwrap_or(&1.0)
-            } else {
-                1.0
-            };
-            let balance = curve_balance(curve_id, options);
-            for binding in input
-                .au_bindings
-                .iter()
-                .filter(|binding| binding.au_id == id)
-            {
-                let side_factor = au_side_scale(balance, binding.side);
-                let effective = scale
-                    * f64::from(clamp01(mix_weight))
-                    * f64::from(binding.weight)
-                    * f64::from(side_factor);
-                push_scaled_curve_track(
-                    &mut tracks,
-                    &mut next_id,
-                    binding.mesh_id,
-                    binding.morph_target_id,
-                    points,
-                    effective,
-                );
+            CurveTarget::Au { id, balance } => {
+                au_curves.entry(*id).or_default().push((points, *balance));
+                let mix_weight = if input.mixed_aus.contains(id) {
+                    *input.mix_weights.get(id).unwrap_or(&1.0)
+                } else {
+                    1.0
+                };
+                for binding in input
+                    .au_bindings
+                    .iter()
+                    .filter(|binding| binding.au_id == *id)
+                {
+                    let effective = scale
+                        * f64::from(clamp01(mix_weight))
+                        * f64::from(binding.weight)
+                        * f64::from(au_side_scale(*balance, binding.side));
+                    push_scaled_curve_track(
+                        &mut tracks,
+                        &mut next_id,
+                        binding.mesh_id,
+                        binding.morph_target_id,
+                        points,
+                        effective,
+                        au_side_scale(*balance, binding.side) > 0.0,
+                        source.clone(),
+                        channel_index,
+                        retain_zero_owner,
+                    );
+                }
             }
-            continue;
-        }
-
-        if let Some(targets) = input.named_morph_targets.get(curve_id) {
-            for &(mesh_id, morph_target_id) in targets {
-                push_scaled_curve_track(
-                    &mut tracks,
-                    &mut next_id,
-                    mesh_id,
-                    morph_target_id,
-                    points,
-                    scale,
-                );
+            CurveTarget::Morph(name) => {
+                if let Some(targets) = input.named_morph_targets.get(name) {
+                    for &(mesh_id, morph_target_id) in targets {
+                        push_scaled_curve_track(
+                            &mut tracks,
+                            &mut next_id,
+                            mesh_id,
+                            morph_target_id,
+                            points,
+                            scale,
+                            true,
+                            source.clone(),
+                            channel_index,
+                            retain_zero_owner,
+                        );
+                    }
+                }
             }
         }
     }
+    // Only duplicate typed channels share this envelope. Preserve legacy
+    // tracks and distinct semantic controls' existing host blending behavior.
+    let mut tracks = if options.merge_duplicate_channels {
+        merge_morph_tracks(tracks)?
+    } else {
+        tracks.into_iter().map(|source| source.track).collect()
+    };
+    let mut next_id = tracks.len() as u32 + 1;
 
     let auto_viseme_jaw = options.auto_viseme_jaw
         && options.jaw_scale > 0.0
-        && is_viseme_snippet
+        && !viseme_curves.is_empty()
         && !times.is_empty()
         && input.jaw_binding.is_some()
         && !input.viseme_jaw_amounts.is_empty();
@@ -351,7 +498,12 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Vec<ClipTrackIR
             for &t in &times {
                 let mut jaw_amount = 0.0f32;
                 for viseme_idx in 0..input.viseme_slot_count {
-                    let intensity = sample_curve(&viseme_idx.to_string(), t) as f32;
+                    let intensity = viseme_curves
+                        .get(&(viseme_idx as u32))
+                        .into_iter()
+                        .flatten()
+                        .map(|points| clamp_intensity(sample_at(points, t) * scale) as f32)
+                        .fold(0.0_f32, f32::max);
                     if intensity <= 1e-6 {
                         continue;
                     }
@@ -377,21 +529,23 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Vec<ClipTrackIR
     }
 
     if times.is_empty() {
-        return tracks;
+        return Ok(tracks);
     }
 
-    let has_curve_au = input
-        .curves
-        .keys()
-        .filter_map(|id| is_numeric_id(id))
-        .filter(|id| !(is_viseme_snippet && (*id as usize) < input.viseme_slot_count))
-        .collect::<HashSet<_>>();
-
-    let bone_side_scale = |balance: f32, side: u8| -> f32 {
-        match side {
-            BONE_SIDE_LEFT | BONE_SIDE_RIGHT => side_scale(balance, side),
-            _ => 1.0,
-        }
+    let sample_au = |au_id: u32, side: u8, t: f64| -> f32 {
+        au_curves
+            .get(&au_id)
+            .into_iter()
+            .flatten()
+            .map(|(points, balance)| {
+                let raw = clamp01(clamp_intensity(sample_at(points, t) * scale) as f32);
+                let side_factor = match side {
+                    BONE_SIDE_LEFT | BONE_SIDE_RIGHT => side_scale(*balance, side),
+                    _ => 1.0,
+                };
+                raw * side_factor
+            })
+            .fold(0.0_f32, f32::max)
     };
 
     // Group composite axes by bone_id (packed tables are contiguous per bone).
@@ -413,7 +567,7 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Vec<ClipTrackIR
         let has_relevant = axes.iter().any(|axis| {
             axis.value_rows
                 .iter()
-                .any(|row| has_curve_au.contains(&row.au_id))
+                .any(|row| au_curves.contains_key(&row.au_id))
         });
         if !has_relevant {
             continue;
@@ -427,14 +581,7 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Vec<ClipTrackIR
         let mut values = Vec::with_capacity(times.len() * 4);
 
         for &t in &times {
-            let effective_value = |au_id: u32, side: u8| -> f32 {
-                let raw = sample_curve(&au_id.to_string(), t) as f32;
-                if raw <= 1e-6 {
-                    return 0.0;
-                }
-                let balance = curve_balance(&au_id.to_string(), options);
-                clamp01(raw) * bone_side_scale(balance, side)
-            };
+            let effective_value = |au_id: u32, side: u8| sample_au(au_id, side, t);
 
             let mut rotation = rest;
             for axis in axes {
@@ -463,7 +610,7 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Vec<ClipTrackIR
 
     let mut translation_bones = HashSet::new();
     for row in input.translation_rows {
-        if has_curve_au.contains(&row.au_id) {
+        if au_curves.contains_key(&row.au_id) {
             translation_bones.insert(row.bone_id);
         }
     }
@@ -476,7 +623,7 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Vec<ClipTrackIR
         let rows = input
             .translation_rows
             .iter()
-            .filter(|row| row.bone_id == bone_id && has_curve_au.contains(&row.au_id))
+            .filter(|row| row.bone_id == bone_id && au_curves.contains_key(&row.au_id))
             .collect::<Vec<_>>();
         if rows.is_empty() {
             continue;
@@ -485,7 +632,7 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Vec<ClipTrackIR
         for &t in &times {
             let mut position = rest;
             for row in &rows {
-                let v = sample_curve(&row.au_id.to_string(), t) as f32;
+                let v = sample_au(row.au_id, crate::bones::SIDE_NONE, t);
                 if v <= 1e-6 {
                     continue;
                 }
@@ -498,7 +645,7 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Vec<ClipTrackIR
         next_id += 1;
     }
 
-    tracks
+    Ok(tracks)
 }
 
 #[cfg(test)]
@@ -506,10 +653,56 @@ mod tests {
     use super::*;
 
     #[test]
+    fn overlapping_enabled_inherited_sources_are_rejected() {
+        let target = morph_target_json(1, 2);
+        let sources = [false, true]
+            .into_iter()
+            .enumerate()
+            .map(|(channel_index, inherit)| MorphTrackContribution {
+                channel_index,
+                source: MorphSource::Au(43),
+                side_enabled: true,
+                track: scalar_track(1, target.clone(), vec![0.0, 1.0], vec![0.0, 1.0], inherit),
+            });
+        let error = merge_morph_tracks(sources.collect()).unwrap_err();
+        assert!(error.contains("Overlapping inherited channels for Au(43)"));
+        assert!(error.contains("mesh 1, morph 2"));
+    }
+
+    #[test]
+    fn overlapping_morph_curves_keep_their_interior_maximum() {
+        let target = morph_target_json(1, 2);
+        let rising = scalar_track(1, target.clone(), vec![0.0, 1.0], vec![0.0, 1.0], false);
+        let falling = scalar_track(2, target, vec![0.0, 1.0], vec![1.0, 0.0], false);
+        for source in [vec![rising.clone(), falling.clone()], vec![falling, rising]] {
+            let tracks = merge_morph_tracks(
+                source
+                    .into_iter()
+                    .enumerate()
+                    .map(|(channel_index, track)| MorphTrackContribution {
+                        channel_index,
+                        source: MorphSource::Au(43),
+                        track,
+                        side_enabled: true,
+                    })
+                    .collect(),
+            )
+            .unwrap();
+            assert_eq!(tracks.len(), 1);
+            assert_eq!(tracks[0].times, vec![0.0, 0.5, 1.0]);
+            assert_eq!(tracks[0].values, vec![1.0, 0.5, 1.0]);
+            assert!(!tracks[0].inherit_start);
+        }
+    }
+
+    #[test]
     fn expands_au_curve_to_morph_target_tracks() {
-        let curves = BTreeMap::from([(
-            "12".to_string(),
-            vec![
+        let curves = vec![SnippetCurve {
+            target: CurveTarget::Au {
+                id: 12,
+                balance: 0.0,
+            },
+            points: vec![
                 CurvePoint {
                     time: 0.0,
                     intensity: 0.0,
@@ -521,7 +714,7 @@ mod tests {
                     inherit: false,
                 },
             ],
-        )]);
+        }];
         let au_bindings = [AuMorphBinding {
             au_id: 12,
             side: AU_SIDE_CENTER,
@@ -551,7 +744,8 @@ mod tests {
             bone_rest_transforms: &rests,
             named_morph_targets: &named,
             options: &options,
-        });
+        })
+        .unwrap();
         assert_eq!(tracks.len(), 1);
         assert!(tracks[0].inherit_start);
         assert_eq!(
@@ -574,14 +768,17 @@ mod tests {
 
     #[test]
     fn applies_balance_to_left_right_morphs() {
-        let curves = BTreeMap::from([(
-            "1".to_string(),
-            vec![CurvePoint {
+        let curves = vec![SnippetCurve {
+            target: CurveTarget::Au {
+                id: 1,
+                balance: 0.5,
+            },
+            points: vec![CurvePoint {
                 time: 0.0,
                 intensity: 1.0,
                 inherit: false,
             }],
-        )]);
+        }];
         let au_bindings = [
             AuMorphBinding {
                 au_id: 1,
@@ -598,10 +795,7 @@ mod tests {
                 weight: 1.0,
             },
         ];
-        let options = SnippetCompileOptions {
-            balance: 0.5,
-            ..Default::default()
-        };
+        let options = SnippetCompileOptions::default();
         let named = HashMap::new();
         let mix = HashMap::new();
         let mixed = HashSet::new();
@@ -620,7 +814,8 @@ mod tests {
             bone_rest_transforms: &rests,
             named_morph_targets: &named,
             options: &options,
-        });
+        })
+        .unwrap();
         assert_eq!(tracks.len(), 2);
         let left = tracks
             .iter()

@@ -51,6 +51,14 @@ try {
     assert(Math.abs(head[5]) > 0.01, 'omitted/null table keeps legacy head rotation');
   }
 
+  runtime.configure_with_preset('cc4', '{}', model);
+  runtime.set_continuum(51, 52, -0.8, 0);
+  runtime.set_au_signed(52, 0.6, 0);
+  assert.equal(runtime.get_au(51), 0, 'individual right command clears left');
+  assert(Math.abs(runtime.get_au(52) - 0.6) < 1e-6);
+  runtime.set_au_signed(51, 0, 0);
+  assert(Math.abs(runtime.get_au(52) - 0.6) < 1e-6, 'inactive slider release preserves right');
+
   runtime.clear();
   assert.equal(runtime.get_au_balance(1001), 0);
   runtime.set_au(1001, 0.5, -0.75);
