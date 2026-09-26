@@ -14,6 +14,7 @@ try {
   const pose={version:1,controls:[{controlId:elbow.id,positive:{intensity:.5,balance:-1,morphStrength:.25}}]};
   core.set_au(12,.4,0);core.apply_semantic_pose_json(JSON.stringify(pose));
   const saved=core.capture_semantic_pose_json();
+  assert.equal(core.get_au_mix_weight(elbow.positive.auId),.25);
   const morph=Array.from(core.evaluate_active_morph_frame());assert.equal(morph[2],.125);
   for(const bad of [
     {...pose,version:2},

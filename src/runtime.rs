@@ -499,6 +499,12 @@ impl RuntimeCore {
         *self.au_balances.get(&id).unwrap_or(&0.0)
     }
 
+    /// Current runtime tissue strength, independent of persisted profile defaults.
+    #[wasm_bindgen]
+    pub fn get_au_mix_weight(&self, id:u32)->f32{
+        self.mix_weights.get(&id).copied().unwrap_or(1.0)
+    }
+
     #[wasm_bindgen]
     pub fn set_au_mix_weight(&mut self, id: u32, weight: f32) {
         self.mix_weights.insert(id, clamp01(weight));
