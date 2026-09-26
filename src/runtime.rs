@@ -528,6 +528,19 @@ impl RuntimeCore {
         self.viseme_jaw_scales[index] = finite_or(jaw_scale, 1.0);
     }
 
+    /// Stored direct viseme value, or zero for an unset or out-of-range slot.
+    /// Host mixer output is not part of this live control state.
+    #[wasm_bindgen]
+    pub fn get_viseme(&self, index: u32) -> f32 {
+        *self.viseme_values.get(index as usize).unwrap_or(&0.0)
+    }
+
+    /// Stored direct viseme jaw scale, or one for an unset or out-of-range slot.
+    #[wasm_bindgen]
+    pub fn get_viseme_jaw_scale(&self, index: u32) -> f32 {
+        *self.viseme_jaw_scales.get(index as usize).unwrap_or(&1.0)
+    }
+
     #[wasm_bindgen]
     pub fn set_viseme_slot_count(&mut self, count: u32) {
         let count = count as usize;
@@ -2203,6 +2216,42 @@ fn clamp_signed(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_direct_viseme_state_through_set_transition_resize_and_clear() {
+        let mut core = RuntimeCore::new(2);
+        for index in [0, 1, 999] {
+            assert_eq!(core.get_viseme(index), 0.0);
+            assert_eq!(core.get_viseme_jaw_scale(index), 1.0);
+        }
+        core.set_viseme(0, 0.75);
+        core.set_viseme_jaw_scale(0, 0.25);
+        let values = core.viseme_values.clone();
+        let scales = core.viseme_jaw_scales.clone();
+        assert_eq!(core.get_viseme(0), 0.75);
+        assert_eq!(core.get_viseme_jaw_scale(0), 0.25);
+        assert_eq!(core.viseme_values, values);
+        assert_eq!(core.viseme_jaw_scales, scales);
+        core.transition_viseme(0, 0.5, 200.0, 0.0);
+        assert_eq!(core.get_viseme(0), 0.5);
+        assert_eq!(core.get_viseme_jaw_scale(0), 0.0);
+        core.set_viseme(999, 1.0);
+        core.set_viseme_jaw_scale(999, 0.0);
+        assert_eq!(core.get_viseme(999), 0.0);
+        assert_eq!(core.get_viseme_jaw_scale(999), 1.0);
+        core.set_viseme_slot_count(3);
+        assert_eq!(core.get_viseme(0), 0.5);
+        assert_eq!(core.get_viseme_jaw_scale(0), 0.0);
+        assert_eq!(core.get_viseme(2), 0.0);
+        assert_eq!(core.get_viseme_jaw_scale(2), 1.0);
+        core.set_viseme(0, 2.0);
+        core.set_viseme_jaw_scale(0, f32::NAN);
+        assert_eq!(core.get_viseme(0), 1.0);
+        assert_eq!(core.get_viseme_jaw_scale(0), 1.0);
+        core.clear();
+        assert_eq!(core.get_viseme(0), 0.0);
+        assert_eq!(core.get_viseme_jaw_scale(0), 1.0);
+    }
 
     #[test]
     fn reads_canonical_au_balance_through_updates_and_clear() {
