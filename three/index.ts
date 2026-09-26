@@ -14,6 +14,7 @@ import {
   SubtractiveBlending,
   VectorKeyframeTrack,
 } from 'three';
+export * from './annotations/index';
 import { bindModelReferencePose } from './reference-pose';
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
 
@@ -27,7 +28,7 @@ import type {
 } from 'three';
 
 export { ThreeGazeFocus } from './gaze';
-export type { ThreeGazeFocusRequest, ThreeGazeFocusControls, ThreeGazeFocusDiagnostic } from './gaze';
+export type { ThreeGazeFocusOptions, ThreeGazeFocusRequest, ThreeGazeFocusControls, ThreeGazeFocusDiagnostic } from './gaze';
 
 export const THREE_BLENDING_MODES = {
   Normal: NormalBlending,

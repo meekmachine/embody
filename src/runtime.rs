@@ -19,8 +19,8 @@ use crate::profile::{compile_tables, deserialize_json, CompiledTables, ModelData
 use crate::profile_merge::{extend_preset_with_profile, parse_profile_patch};
 use crate::snippet_compile::{
     compile_snippet_tracks, AuMorphBinding as SnippetAuMorphBinding,
-    CurvePoint as SnippetCurvePoint, SnippetCompileInput, SnippetCompileOptions,
-    VisemeMorphBinding as SnippetVisemeMorphBinding,
+    CurvePoint as SnippetCurvePoint, CurveTarget, SnippetCompileInput, SnippetCompileOptions,
+    SnippetCurve, VisemeMorphBinding as SnippetVisemeMorphBinding,
 };
 
 pub const AU_MORPH_BINDING_STRIDE: u32 = 5;
@@ -490,7 +490,7 @@ impl RuntimeCore {
         *self.au_values.get(&id).unwrap_or(&0.0)
     }
 
-    /// Current manual bilateral balance, shared by both sides of a continuum.
+    /// Stored live AU balance in [-1, 1], or neutral zero when unset or cleared.
     #[wasm_bindgen]
     pub fn get_au_balance(&self, id: u32) -> f32 {
         *self.au_balances.get(&id).unwrap_or(&0.0)
@@ -1451,31 +1451,62 @@ impl RuntimeCore {
         if clip_name.trim().is_empty() {
             return Err(JsError::new("Clip name cannot be empty."));
         }
-        let mesh_names_json = serde_json::to_string(&options.mesh_names).unwrap_or_default();
         let snippet_curves = curves
-            .iter()
+            .into_iter()
             .map(|(id, points)| {
-                (
-                    id.clone(),
-                    points
-                        .iter()
+                let target = if let Some(numeric_id) = id
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|_| id.chars().all(|c| c.is_ascii_digit()))
+                {
+                    if options.snippet_category.as_deref() == Some("visemeSnippet")
+                        && (numeric_id as usize) < self.viseme_values.len()
+                    {
+                        CurveTarget::Viseme(numeric_id)
+                    } else {
+                        CurveTarget::Au {
+                            id: numeric_id,
+                            balance: options
+                                .balance_map
+                                .get(&id)
+                                .copied()
+                                .unwrap_or(options.balance.unwrap_or(0.0)),
+                        }
+                    }
+                } else {
+                    CurveTarget::Morph(id)
+                };
+                SnippetCurve {
+                    target,
+                    points: points
+                        .into_iter()
                         .map(|point| SnippetCurvePoint {
                             time: point.time,
                             intensity: point.intensity,
                             inherit: point.inherit,
                         })
-                        .collect::<Vec<_>>(),
-                )
+                        .collect(),
+                }
             })
-            .collect::<BTreeMap<_, _>>();
+            .collect();
+        self.compile_snippet_curves(clip_name, snippet_curves, options, false)
+    }
+
+    fn compile_snippet_curves(
+        &self,
+        clip_name: &str,
+        snippet_curves: Vec<SnippetCurve>,
+        options: &ClipBuildOptions,
+        merge_duplicate_channels: bool,
+    ) -> Result<ClipIR, JsError> {
+        let mesh_names_json = serde_json::to_string(&options.mesh_names).unwrap_or_default();
         let mut named_morph_targets = HashMap::new();
-        for curve_id in snippet_curves.keys() {
-            if curve_id.chars().all(|c| c.is_ascii_digit()) {
-                continue;
-            }
-            let targets = self.resolve_morph_targets(curve_id, None, &mesh_names_json);
-            if !targets.is_empty() {
-                named_morph_targets.insert(curve_id.clone(), targets);
+        for curve in &snippet_curves {
+            if let CurveTarget::Morph(name) = &curve.target {
+                let targets = self.resolve_morph_targets(name, None, &mesh_names_json);
+                if !targets.is_empty() {
+                    named_morph_targets.insert(name.clone(), targets);
+                }
             }
         }
         let au_bindings = self
@@ -1501,10 +1532,8 @@ impl RuntimeCore {
             .collect::<Vec<_>>();
         let mixed_aus = self.mixed_aus.keys().copied().collect::<HashSet<_>>();
         let compile_options = SnippetCompileOptions {
+            merge_duplicate_channels,
             intensity_scale: options.intensity_scale.unwrap_or(1.0),
-            balance: options.balance.unwrap_or(0.0),
-            balance_map: options.balance_map.clone(),
-            snippet_category: options.snippet_category.clone(),
             auto_viseme_jaw: options.auto_viseme_jaw.unwrap_or(true),
             jaw_scale: options.jaw_scale.unwrap_or(1.0),
         };
@@ -1522,7 +1551,8 @@ impl RuntimeCore {
             bone_rest_transforms: &self.bone_rest_transforms,
             named_morph_targets: &named_morph_targets,
             options: &compile_options,
-        });
+        })
+        .map_err(|error| JsError::new(&error))?;
         clip_from_tracks(clip_name, tracks)
     }
 
@@ -1632,11 +1662,9 @@ impl RuntimeCore {
         let mut next_track_id = 1u32;
         let global_scale = options.intensity_scale.unwrap_or(1.0);
 
-        // Batch AU/viseme channels into one concrete ClipIR expansion so composite
-        // bones and jaw tracks are emitted once.
-        let mut semantic_curves: BTreeMap<String, Vec<RuntimeCurvePoint>> = BTreeMap::new();
-        let mut balance_map = options.balance_map.clone();
-        let mut has_viseme = false;
+        // Preserve each channel's namespace, balance and curve until concrete
+        // targets are resolved. Numeric id alone is not a channel identity.
+        let mut semantic_curves = Vec::new();
         let mut remaining = Vec::new();
         for channel in channels {
             if channel.keyframes.is_empty() {
@@ -1648,63 +1676,47 @@ impl RuntimeCore {
                 .or_else(|| channel.target.get("kind"))
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or_default();
-            let scale = global_scale * channel.intensity_scale.unwrap_or(1.0);
-            match target_type {
-                "au" | "lipSync" => {
-                    let Some(id) = channel.target.get("id").and_then(serde_json::Value::as_u64)
-                    else {
-                        continue;
-                    };
-                    if let Some(balance) = channel
+            if matches!(target_type, "au" | "lipSync" | "viseme") {
+                let Some(id) = channel
+                    .target
+                    .get("id")
+                    .and_then(serde_json::Value::as_u64)
+                    .and_then(|id| u32::try_from(id).ok())
+                else {
+                    continue;
+                };
+                let target = if target_type == "viseme" {
+                    CurveTarget::Viseme(id)
+                } else {
+                    let balance = channel
                         .target
                         .get("balance")
                         .and_then(serde_json::Value::as_f64)
                         .map(|value| value as f32)
-                    {
-                        balance_map.insert(id.to_string(), balance);
-                    }
-                    semantic_curves.insert(
-                        id.to_string(),
-                        channel
-                            .keyframes
-                            .iter()
-                            .map(|point| RuntimeCurvePoint {
-                                time: point.time,
-                                intensity: point.intensity * (scale / global_scale.max(1e-9)),
-                                inherit: point.inherit,
-                            })
-                            .collect(),
-                    );
-                }
-                "viseme" => {
-                    let Some(id) = channel.target.get("id").and_then(serde_json::Value::as_u64)
-                    else {
-                        continue;
-                    };
-                    has_viseme = true;
-                    semantic_curves.insert(
-                        id.to_string(),
-                        channel
-                            .keyframes
-                            .iter()
-                            .map(|point| RuntimeCurvePoint {
-                                time: point.time,
-                                intensity: point.intensity * (scale / global_scale.max(1e-9)),
-                                inherit: point.inherit,
-                            })
-                            .collect(),
-                    );
-                }
-                _ => remaining.push((channel, scale)),
+                        .or_else(|| options.balance_map.get(&id.to_string()).copied())
+                        .unwrap_or(options.balance.unwrap_or(0.0));
+                    CurveTarget::Au { id, balance }
+                };
+                semantic_curves.push(SnippetCurve {
+                    target,
+                    points: channel
+                        .keyframes
+                        .iter()
+                        .map(|point| SnippetCurvePoint {
+                            time: point.time,
+                            intensity: point.intensity * channel.intensity_scale.unwrap_or(1.0),
+                            inherit: point.inherit,
+                        })
+                        .collect(),
+                });
+            } else {
+                let scale = global_scale * channel.intensity_scale.unwrap_or(1.0);
+                remaining.push((channel, scale));
             }
         }
         if !semantic_curves.is_empty() {
-            let mut semantic_options = options.clone();
-            semantic_options.balance_map = balance_map;
-            if has_viseme {
-                semantic_options.snippet_category = Some("visemeSnippet".to_string());
-            }
-            let compiled = self.compile_curves(clip_name, semantic_curves, &semantic_options)?;
+            let compiled =
+                self.compile_snippet_curves(clip_name, semantic_curves, options, true)?;
             for mut track in compiled.tracks {
                 track.id = next_track_id;
                 next_track_id += 1;
@@ -2062,6 +2074,227 @@ fn clamp_signed(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_canonical_au_balance_through_updates_and_clear() {
+        let mut core = RuntimeCore::new(0);
+        assert_eq!(core.get_au_balance(43), 0.0);
+        assert!(core.au_balances.is_empty(), "reading an unset AU is pure");
+
+        core.set_au(43, 0.75, -0.25);
+        assert_eq!(core.get_au_balance(43), -0.25);
+        assert_eq!(core.get_au(43), 0.75);
+        assert_eq!(core.get_au_balance(12), 0.0);
+        core.set_au_signed(43, 0.5, 0.5);
+        assert_eq!(core.get_au_balance(43), 0.5);
+        core.transition_au(43, 0.0, 200.0, f32::NAN);
+        assert_eq!(
+            core.get_au_balance(43),
+            0.5,
+            "zero intensity retains its stored balance"
+        );
+
+        for (input, expected) in [
+            (2.0, 1.0),
+            (-2.0, -1.0),
+            (f32::NAN, 0.0),
+            (f32::INFINITY, 0.0),
+        ] {
+            core.set_au(43, 1.0, input);
+            assert_eq!(core.get_au_balance(43), expected);
+        }
+        core.set_continuum(61, 62, -0.5, -0.75);
+        assert_eq!(core.get_au_balance(61), -0.75);
+        assert_eq!(core.get_au_balance(62), -0.75);
+        core.clear();
+        for id in [43, 61, 62] {
+            assert_eq!(core.get_au_balance(id), 0.0);
+        }
+        core.set_au(43, 0.5, 1.0);
+        assert_eq!(core.get_au_balance(43), 1.0);
+    }
+
+    fn bilateral_channels(inherit: bool) -> Vec<TypedChannel> {
+        serde_json::from_value(serde_json::json!([
+            { "target": { "type": "au", "id": 43, "balance": -1 },
+              "keyframes": [{ "time": 0, "intensity": 0, "inherit": inherit }, { "time": 1, "intensity": 0.3 }] },
+            { "target": { "type": "au", "id": 43, "balance": 1 },
+              "keyframes": [{ "time": 0, "intensity": 0, "inherit": inherit }, { "time": 1, "intensity": 0.7 }] }
+        ])).unwrap()
+    }
+
+    #[test]
+    fn typed_bilateral_channels_preserve_independent_morph_curves() {
+        let mut core = RuntimeCore::new(0);
+        core.load_au_morph_bindings(&[43.0, 0.0, 1.0, 100.0, 1.0, 43.0, 1.0, 1.0, 101.0, 1.0]);
+        for inherit in [false, true] {
+            for reverse in [false, true] {
+                let mut channels = bilateral_channels(inherit);
+                if reverse {
+                    channels.reverse();
+                }
+                let clip = core
+                    .compile_typed_channels("wink", channels, &ClipBuildOptions::default())
+                    .unwrap();
+                assert_eq!(clip.tracks.len(), 2, "one track per concrete eyelid");
+                for (id, expected) in [(100, 0.3), (101, 0.7)] {
+                    let track = clip
+                        .tracks
+                        .iter()
+                        .find(|track| track.target["morphTargetId"] == id)
+                        .unwrap();
+                    assert_eq!(track.values, vec![0.0, expected]);
+                    assert_eq!(track.inherit_start, inherit);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn opposite_side_does_not_change_authored_start_or_key_times() {
+        let mut core = RuntimeCore::new(0);
+        core.load_au_morph_bindings(&[43.0, 0.0, 1.0, 100.0, 1.0, 43.0, 1.0, 1.0, 101.0, 1.0]);
+        let mut channels = bilateral_channels(true);
+        channels[0].keyframes[0].inherit = false;
+        channels[0].keyframes[0].intensity = 0.8;
+        channels[0].keyframes[1].intensity = 0.8;
+        channels[1].keyframes[1].time = 0.5;
+        let clip = core
+            .compile_typed_channels("wink", channels, &ClipBuildOptions::default())
+            .unwrap();
+        let left = clip
+            .tracks
+            .iter()
+            .find(|track| track.target["morphTargetId"] == 100)
+            .unwrap();
+        assert!(
+            !left.inherit_start,
+            "an inactive opposite-side release cannot claim this anchor"
+        );
+        assert_eq!(left.times, vec![0.0, 1.0]);
+        assert_eq!(left.values, vec![0.8, 0.8]);
+        let right = clip
+            .tracks
+            .iter()
+            .find(|track| track.target["morphTargetId"] == 101)
+            .unwrap();
+        assert!(right.inherit_start);
+        assert_eq!(right.times, vec![0.0, 0.5]);
+    }
+
+    #[test]
+    fn typed_bilateral_channels_preserve_independent_bone_curves() {
+        let mut core = RuntimeCore::new(0);
+        for (bone_id, side) in [(1, crate::bones::SIDE_LEFT), (2, crate::bones::SIDE_RIGHT)] {
+            core.composite_axes.push(CompositeAxis {
+                bone_id,
+                has_directional_groups: false,
+                value_rows: vec![AxisValueRow {
+                    au_id: 43,
+                    group: crate::bones::GROUP_PLAIN,
+                    side,
+                }],
+                binding_rows: vec![AxisBindingRow {
+                    au_id: 43,
+                    group: crate::bones::GROUP_PLAIN,
+                    side,
+                    channel: 0,
+                    scale: 1.0,
+                    max_degrees: 60.0,
+                }],
+            });
+        }
+        let clip = core
+            .compile_typed_channels(
+                "gills",
+                bilateral_channels(false),
+                &ClipBuildOptions::default(),
+            )
+            .unwrap();
+        assert_eq!(clip.tracks.len(), 2);
+        for (id, amount) in [(1, 0.3), (2, 0.7)] {
+            let track = clip
+                .tracks
+                .iter()
+                .find(|track| track.target["boneId"] == id)
+                .unwrap();
+            let expected = quat_from_channel(0, 60.0_f32.to_radians() * amount);
+            for (actual, expected) in track.values[4..].iter().zip(expected) {
+                assert!((actual - f64::from(expected)).abs() < 1e-6);
+            }
+        }
+    }
+
+    #[test]
+    fn typed_au_and_viseme_keep_separate_namespaces() {
+        let mut core = RuntimeCore::new(2);
+        core.load_au_morph_bindings(&[1.0, 2.0, 1.0, 100.0, 1.0]);
+        core.load_viseme_morph_bindings(&[1.0, 1.0, 101.0, 1.0]);
+        let channels = serde_json::from_value(serde_json::json!([
+            { "target": { "type": "au", "id": 1 }, "keyframes": [{ "time": 0, "intensity": 0.3 }, { "time": 1, "intensity": 0.3 }] },
+            { "target": { "type": "viseme", "id": 1 }, "keyframes": [{ "time": 0, "intensity": 0.7 }, { "time": 1, "intensity": 0.7 }] }
+        ])).unwrap();
+        let clip = core
+            .compile_typed_channels("talk", channels, &ClipBuildOptions::default())
+            .unwrap();
+        assert_eq!(clip.tracks.len(), 2);
+        for (id, value) in [(100, 0.3), (101, 0.7)] {
+            assert_eq!(
+                clip.tracks
+                    .iter()
+                    .find(|track| track.target["morphTargetId"] == id)
+                    .unwrap()
+                    .values,
+                vec![value, value]
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_and_distinct_au_shared_targets_keep_separate_tracks() {
+        let mut core = RuntimeCore::new(0);
+        core.load_au_morph_bindings(&[43.0, 2.0, 1.0, 100.0, 1.0, 44.0, 2.0, 1.0, 100.0, 1.0]);
+        let curves = serde_json::from_value(serde_json::json!({
+            "43": [{ "time": 0, "intensity": 0.3 }, { "time": 1, "intensity": 0.3 }],
+            "44": [{ "time": 0, "intensity": 0.7, "inherit": true }, { "time": 1, "intensity": 0.7 }]
+        })).unwrap();
+        let legacy = core
+            .compile_curves("shared", curves, &ClipBuildOptions::default())
+            .unwrap();
+        let channels = serde_json::from_value(serde_json::json!([
+            { "target": { "type": "au", "id": 43 }, "keyframes": [{ "time": 0, "intensity": 0.3 }, { "time": 1, "intensity": 0.3 }] },
+            { "target": { "type": "au", "id": 44 }, "keyframes": [{ "time": 0, "intensity": 0.7, "inherit": true }, { "time": 1, "intensity": 0.7 }] }
+        ])).unwrap();
+        let typed = core
+            .compile_typed_channels("shared", channels, &ClipBuildOptions::default())
+            .unwrap();
+        for clip in [&legacy, &typed] {
+            assert_eq!(clip.tracks.len(), 2);
+            assert_eq!(clip.tracks[0].target, clip.tracks[1].target);
+            assert_eq!(clip.tracks[0].values, vec![0.3, 0.3]);
+            assert!(!clip.tracks[0].inherit_start);
+            assert_eq!(clip.tracks[1].values, vec![0.7, 0.7]);
+            assert!(clip.tracks[1].inherit_start);
+        }
+    }
+
+    #[test]
+    fn one_typed_channel_keeps_repeated_profile_binding_tracks() {
+        let mut core = RuntimeCore::new(0);
+        core.load_au_morph_bindings(&[43.0, 0.0, 1.0, 100.0, 1.0, 43.0, 1.0, 1.0, 100.0, 1.0]);
+        let channels = serde_json::from_value(serde_json::json!([
+            { "target": { "type": "au", "id": 43, "balance": 0 }, "keyframes": [{ "time": 0, "intensity": 0, "inherit": true }, { "time": 1, "intensity": 0.8 }] }
+        ])).unwrap();
+        let clip = core
+            .compile_typed_channels("shared", channels, &ClipBuildOptions::default())
+            .unwrap();
+        assert_eq!(clip.tracks.len(), 2);
+        assert_eq!(clip.tracks[0].target, clip.tracks[1].target);
+        assert!(clip
+            .tracks
+            .iter()
+            .all(|track| track.inherit_start && track.values == vec![0.0, 0.8]));
+    }
 
     fn mixed_animation_clip(name: &str) -> serde_json::Value {
         use serde_json::json;
