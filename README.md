@@ -137,6 +137,29 @@ mixer. Unset, cleared, or out-of-range slots return `0` and `1` respectively.
 Hosts can snapshot these values before a temporary mouth-shape preview and
 restore them with the existing setters; a zero value releases its live override.
 
+### Preparing a default scene
+
+`createDefaultCharacterSceneAsync(container, { renderer, signal, ...sceneOptions })`
+from `@lovelace_lol/embody/three` defaults to WebGL. Explicit `renderer: 'webgpu'`
+uses native WebGPU and rejects if initialization fails or Three selects WebGL2.
+The returned `ReadyDefaultCharacterScene` discriminates its concrete renderer by
+`backend: 'webgl' | 'webgpu'`; both paths await initial scene compilation before
+attaching the canvas. The synchronous factory remains WebGL-specific.
+
+Cancellation waits for pending initialization/compilation to settle, then
+releases acquired resources and rejects with `AbortError`. Other setup failures
+preserve their original error after cleanup. Disposal is idempotent; after
+resolution the caller owns it. Later signal cancellation does not dispose the
+scene. `onDeviceLost(Error)` reports native GPU loss to the host for recovery,
+while retaining Three's internal handling. The camera controller accepts both
+renderers, serializes asynchronous frame callbacks, and reports failures through
+`onRenderError(Error)`.
+
+Three runtime and types are checked at 0.184.0, with a >=0.184.0 runtime peer.
+Initial scene readiness does not prepare subsequently added models or establish
+first-frame/visual parity. See [renderer selection and scene readiness](docs/SCENE_READINESS.md)
+for ownership, version rationale and remaining real-browser acceptance.
+
 ### Bilateral snippet channels
 
 AU balance uses the character's left/right: `-1` drives the left side,

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { DPthreeCameraControllerConfig } from '../types';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   DPthreeCameraController,
@@ -59,7 +60,7 @@ function createEyeModel(): { model: THREE.Group; leftEye: THREE.Bone } {
   return { model, leftEye };
 }
 
-function createController() {
+function createController(options: Partial<DPthreeCameraControllerConfig> = {}) {
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
   const scene = new THREE.Scene();
   const controller = new DPthreeCameraController({
@@ -70,6 +71,7 @@ function createController() {
       removeEventListener: vi.fn(),
     } as unknown as HTMLElement,
     showDOMControls: false,
+    ...options,
   });
 
   return { camera, scene, controller };
@@ -1173,5 +1175,93 @@ describe('Rust camera animation lifecycle', () => {
     expect(controller.getCurrentRegion()).toBeNull();
     expect(flight).not.toHaveBeenCalled();
     controller.dispose();
+  });
+});
+
+
+describe('renderer frame lifecycle', () => {
+  function renderingController(options: Partial<DPthreeCameraControllerConfig> = {}) {
+    vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    let frame: (() => void) | null = null;
+    const renderer = {
+      setAnimationLoop: vi.fn((callback: (() => void) | null) => { frame = callback; return Promise.resolve(); }),
+      render: vi.fn(),
+    };
+    const result = createController({ renderer: renderer as unknown as THREE.WebGLRenderer, ...options });
+    return { ...result, renderer, tick: () => frame?.() };
+  }
+
+  it('keeps synchronous frames immediate and forwards the supplied renderer', () => {
+    const renderFrame = vi.fn();
+    const { controller, renderer, scene, camera, tick } = renderingController({ renderFrame });
+    tick(); tick();
+    expect(renderFrame).toHaveBeenCalledTimes(2);
+    expect(renderFrame).toHaveBeenCalledWith(renderer, scene, camera);
+    expect(renderer.render).not.toHaveBeenCalled();
+    controller.dispose();
+    tick();
+    expect(renderFrame).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips frames until an asynchronous callback settles', async () => {
+    let resolve!: () => void;
+    const pending = new Promise<void>((yes) => { resolve = yes; });
+    const renderFrame = vi.fn(() => pending);
+    const { controller, tick } = renderingController({ renderFrame });
+    tick(); tick();
+    expect(renderFrame).toHaveBeenCalledOnce();
+    resolve(); await pending;
+    tick();
+    expect(renderFrame).toHaveBeenCalledTimes(2);
+    controller.dispose();
+  });
+
+  it.each(['throw', 'reject'] as const)('stops rendering and reports the original %s once', async (mode) => {
+    const failure = new Error('renderer failed');
+    const onRenderError = vi.fn();
+    const renderFrame = vi.fn(() => {
+      if (mode === 'throw') throw failure;
+      return Promise.reject(failure);
+    });
+    const { controller, renderer, tick } = renderingController({ renderFrame, onRenderError });
+    tick(); await Promise.resolve(); tick();
+    expect(onRenderError).toHaveBeenCalledExactlyOnceWith(failure);
+    expect(renderer.setAnimationLoop).toHaveBeenLastCalledWith(null);
+    expect(renderFrame).toHaveBeenCalledOnce();
+    controller.dispose();
+  });
+
+  it('handles a late rejection after disposal without notifying a stale host', async () => {
+    let reject!: (error: Error) => void;
+    const pending = new Promise<void>((_, no) => { reject = no; });
+    const onRenderError = vi.fn();
+    const { controller, tick } = renderingController({ renderFrame: () => pending, onRenderError });
+    tick(); controller.dispose(); reject(new Error('late failure'));
+    await Promise.resolve();
+    expect(onRenderError).not.toHaveBeenCalled();
+  });
+
+  it('reports asynchronous animation-loop setup failure', async () => {
+    const failure = new Error('loop setup');
+    const onRenderError = vi.fn();
+    const renderer = { setAnimationLoop: vi.fn((callback) => callback ? Promise.reject(failure) : Promise.resolve()) };
+    const { controller } = renderingController({ renderer: renderer as unknown as THREE.WebGLRenderer, onRenderError });
+    await Promise.resolve();
+    expect(onRenderError).toHaveBeenCalledExactlyOnceWith(failure);
+    expect(renderer.setAnimationLoop).toHaveBeenLastCalledWith(null);
+    controller.dispose();
+  });
+
+  it('consumes asynchronous loop-stop failure while completing controller disposal', async () => {
+    const failure = new Error('loop stop');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const renderer = { setAnimationLoop: vi.fn((callback) => callback ? Promise.resolve() : Promise.reject(failure)) };
+    const { controller } = renderingController({ renderer: renderer as unknown as THREE.WebGLRenderer });
+    const releaseControls = vi.spyOn(controller.controls, 'dispose');
+    controller.dispose(); controller.dispose();
+    await Promise.resolve();
+    expect(releaseControls).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalledExactlyOnceWith('Character camera render loop stop failed.', failure);
   });
 });
