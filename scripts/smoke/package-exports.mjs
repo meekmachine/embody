@@ -1,4 +1,4 @@
-import { createRequire } from 'node:module';
+import { createRequire, register } from 'node:module';
 import { readFile, readdir } from 'node:fs/promises';
 import {
   AnimationClip,
@@ -12,6 +12,13 @@ import {
 } from 'three';
 
 const require = createRequire(import.meta.url);
+// Public imports and the default WebGL path must not eagerly load GPU code.
+register(`data:text/javascript,${encodeURIComponent(`
+  export function resolve(specifier, context, nextResolve) {
+    if (specifier === 'three/webgpu') throw new Error('Unexpected eager WebGPU import');
+    return nextResolve(specifier, context);
+  }
+`)}`, import.meta.url);
 const serviceWorkerPath = require.resolve(
   '@lovelace_lol/embody/character-asset-service-worker.js',
 );

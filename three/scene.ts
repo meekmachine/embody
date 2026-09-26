@@ -14,7 +14,8 @@ import {
   SRGBColorSpace,
   WebGLRenderer,
 } from 'three';
-import type { ColorRepresentation, Texture, WebGLRenderTarget } from 'three';
+import type { ColorRepresentation, RenderTarget, Texture } from 'three';
+import type { WebGPURenderer } from 'three/webgpu';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 export type DefaultCharacterLightingSettings = {
@@ -64,14 +65,21 @@ export type DefaultCharacterSceneOptions = {
 };
 
 export type DefaultCharacterSceneAsyncOptions = DefaultCharacterSceneOptions & {
+  /** WebGL remains the default. WebGPU requires a native initialized backend. */
+  renderer?: CharacterSceneBackend;
   /** Cancels construction, not ownership of a successfully returned scene. */
   signal?: AbortSignal;
+  /** Device loss after readiness requires the host to dispose/recreate the scene. */
+  onDeviceLost?: (error: Error) => void;
 };
 
-export type DefaultCharacterScene = {
+export type CharacterSceneRenderer = WebGLRenderer | WebGPURenderer;
+export type CharacterSceneBackend = 'webgl' | 'webgpu';
+
+type CharacterScene<R extends CharacterSceneRenderer> = {
   container: HTMLElement;
   scene: Scene;
-  renderer: WebGLRenderer;
+  renderer: R;
   camera: PerspectiveCamera;
   lighting: ReturnType<typeof createDefaultCharacterLighting>;
   shadowPlane: ReturnType<typeof createShadowPlane> | null;
@@ -81,9 +89,10 @@ export type DefaultCharacterScene = {
   dispose: () => void;
 };
 
-export type ReadyDefaultCharacterScene = DefaultCharacterScene & {
-  readonly backend: 'webgl';
-};
+export type DefaultCharacterScene = CharacterScene<WebGLRenderer>;
+export type ReadyDefaultCharacterScene =
+  | (DefaultCharacterScene & { readonly backend: 'webgl' })
+  | (CharacterScene<WebGPURenderer> & { readonly backend: 'webgpu' });
 
 // Register each resource as it is acquired. A failing disposer must not prevent
 // later resources from being released, and repeated disposal is harmless.
@@ -148,6 +157,12 @@ export function createShadowPlane(scene: Scene, options: { size?: number; opacit
 }
 
 export function createDefaultCharacterLighting(scene: Scene, renderer: WebGLRenderer, initial: Partial<DefaultCharacterLightingSettings> = {}) {
+  return createCharacterLighting(scene, renderer, () => new PMREMGenerator(renderer), initial);
+}
+
+type ScenePMREM = { fromScene(scene: Scene, sigma?: number): RenderTarget; dispose(): void };
+
+function createCharacterLighting(scene: Scene, renderer: CharacterSceneRenderer, createPMREM: () => ScenePMREM, initial: Partial<DefaultCharacterLightingSettings>) {
   const lifetime = createDisposer();
   try {
     const ambient = new HemisphereLight(0xf7fbff, 0x6b7280, 0);
@@ -162,11 +177,11 @@ export function createDefaultCharacterLighting(scene: Scene, renderer: WebGLRend
     lifetime.add(() => scene.remove(ambient, key, fill, rim));
     for (const light of [key, fill, rim]) lifetime.add(() => light.dispose());
     scene.add(ambient, key, fill, rim);
-    const pmrem = new PMREMGenerator(renderer);
+    const pmrem = createPMREM();
     lifetime.add(() => pmrem.dispose());
     const listeners = new Set<(value: DefaultCharacterLightingSettings) => void>();
     lifetime.add(() => listeners.clear());
-    let environment: WebGLRenderTarget | null = null;
+    let environment: RenderTarget | null = null;
     lifetime.add(() => { scene.environment = null; environment?.dispose(); environment = null; });
     let settings = normalize({ ...DEFAULT_CHARACTER_LIGHTING_SETTINGS, ...initial });
     const rebuild = () => {
@@ -205,21 +220,26 @@ export function createDefaultCharacterLighting(scene: Scene, renderer: WebGLRend
   }
 }
 
-function constructDefaultCharacterScene(container: HTMLElement, options: DefaultCharacterSceneOptions) {
+function constructDefaultCharacterScene<R extends CharacterSceneRenderer>(
+  container: HTMLElement,
+  options: DefaultCharacterSceneOptions,
+  renderer: R,
+  disposeRenderer: () => void,
+  createLighting: (scene: Scene, settings: Partial<DefaultCharacterLightingSettings>) => ReturnType<typeof createDefaultCharacterLighting>,
+) {
   const lifetime = createDisposer();
+  lifetime.add(disposeRenderer);
   try {
     const sceneType = CHARACTER_SCENE_TYPES[options.type as CharacterSceneTypeId] ?? CHARACTER_SCENE_TYPES.studio;
     const width = Math.max(1, container.clientWidth || globalThis.innerWidth || 1);
     const height = Math.max(1, container.clientHeight || globalThis.innerHeight || 1);
-    const renderer = new WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
-    lifetime.add(() => renderer.dispose());
     const ratio = () => Math.min(globalThis.devicePixelRatio || 1, options.pixelRatioCap ?? 1.5);
     renderer.setPixelRatio(ratio()); renderer.setSize(width, height, true); renderer.shadowMap.enabled = options.shadows ?? true; renderer.shadowMap.type = PCFSoftShadowMap;
     Object.assign(renderer.domElement.style, { display: 'block', width: '100%', height: '100%' });
     const scene = new Scene(); const background = options.background === undefined ? sceneType.background : options.background; scene.background = background == null ? null : new Color(background);
     const camera = new PerspectiveCamera(options.cameraFov ?? 45, width / height, .1, 1000);
     const preset = DEFAULT_CHARACTER_LIGHTING_PRESETS[(options.lightingPreset ?? sceneType.lightingPreset) as DefaultCharacterLightingPresetId]?.settings ?? DEFAULT_CHARACTER_LIGHTING_SETTINGS;
-    const lighting = createDefaultCharacterLighting(scene, renderer, { ...preset, ...options.lighting });
+    const lighting = createLighting(scene, { ...preset, ...options.lighting });
     lifetime.add(() => lighting.dispose());
     const shadowPlane = (options.shadowPlane ?? sceneType.shadowPlane) ? createShadowPlane(scene, { opacity: lighting.getSettings().shadowOpacity }) : null;
     if (shadowPlane) {
@@ -234,7 +254,7 @@ function constructDefaultCharacterScene(container: HTMLElement, options: Default
       camera.aspect = w / h; camera.updateProjectionMatrix();
       renderer.setPixelRatio(ratio()); renderer.setSize(w, h, false);
     };
-    const handle: DefaultCharacterScene = { container, scene, renderer, camera, lighting, shadowPlane, sceneType: sceneType.id, ownsScene: true, resize, dispose: lifetime.dispose };
+    const handle: CharacterScene<R> = { container, scene, renderer, camera, lighting, shadowPlane, sceneType: sceneType.id, ownsScene: true, resize, dispose: lifetime.dispose };
     const attach = () => {
       lifetime.add(() => { if (renderer.domElement.parentElement === container) container.removeChild(renderer.domElement); });
       container.appendChild(renderer.domElement);
@@ -251,12 +271,18 @@ function constructDefaultCharacterScene(container: HTMLElement, options: Default
 }
 
 /** The existing synchronous WebGL path; it does not wait for shader compilation. */
-export function createDefaultCharacterScene(container: HTMLElement, options: any = {}): DefaultCharacterScene {
-  const { handle, attach } = constructDefaultCharacterScene(container, options);
+export function createDefaultCharacterScene(container: HTMLElement, options: DefaultCharacterSceneOptions = {}): DefaultCharacterScene {
+  const { handle, attach } = constructWebGLScene(container, options);
   try { attach(); return handle; } catch (error) {
     rollback(handle.dispose);
     throw error;
   }
+}
+
+function constructWebGLScene(container: HTMLElement, options: DefaultCharacterSceneOptions) {
+  const renderer = new WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
+  return constructDefaultCharacterScene(container, options, renderer, () => renderer.dispose(),
+    (scene, settings) => createDefaultCharacterLighting(scene, renderer, settings));
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -264,7 +290,7 @@ function throwIfAborted(signal?: AbortSignal) {
 }
 
 /**
- * Prepares the initial WebGL scene before attaching its canvas and resize listener.
+ * Prepares the initial scene before attaching its canvas and resize listener.
  * Later character models still require their own preparation. Three's compilation
  * cannot be interrupted: cancellation waits for it to settle before disposing and
  * rejecting with AbortError. The signal does not dispose a returned scene.
@@ -274,7 +300,11 @@ export async function createDefaultCharacterSceneAsync(
   options: DefaultCharacterSceneAsyncOptions = {},
 ): Promise<ReadyDefaultCharacterScene> {
   throwIfAborted(options.signal);
-  const { handle, attach } = constructDefaultCharacterScene(container, options);
+  if (options.renderer === 'webgpu') return createWebGPUCharacterScene(container, options);
+  if (options.renderer !== undefined && options.renderer !== 'webgl') {
+    throw new Error(`Unsupported character scene renderer: ${options.renderer}`);
+  }
+  const { handle, attach } = constructWebGLScene(container, options);
   try {
     throwIfAborted(options.signal);
     if (typeof handle.renderer.compileAsync !== 'function') {
@@ -288,6 +318,74 @@ export async function createDefaultCharacterSceneAsync(
     return Object.assign(handle, { backend: 'webgl' as const });
   } catch (error) {
     rollback(handle.dispose);
+    throwIfAborted(options.signal);
+    throw error;
+  }
+}
+
+// @types/three r184 does not declare Backend.dispose, although both backends
+// implement it. Check the capability instead of casting between renderer types.
+function disposeBackend(backend: object) {
+  if ('dispose' in backend && typeof backend.dispose === 'function') backend.dispose();
+}
+
+async function createWebGPUCharacterScene(
+  container: HTMLElement,
+  options: DefaultCharacterSceneAsyncOptions,
+): Promise<ReadyDefaultCharacterScene> {
+  if (typeof navigator === 'undefined' || !('gpu' in navigator) || !navigator.gpu) {
+    throw new Error('WebGPU is unavailable. Use WebGL or a browser with WebGPU in a secure context.');
+  }
+  // Keep GPU code out of the default WebGL/Node import path.
+  const { WebGPURenderer, PMREMGenerator: WebGPUPMREMGenerator } = await import('three/webgpu');
+  throwIfAborted(options.signal);
+  const renderer = new WebGPURenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
+  const initialBackend = renderer.backend;
+  const lifetime = createDisposer();
+  let published = false;
+  let lostError: Error | undefined;
+  const originalDeviceLost = renderer.onDeviceLost.bind(renderer);
+  renderer.onDeviceLost = (info) => {
+    originalDeviceLost(info);
+    if (lifetime.isDisposed() || lostError) return;
+    lostError = new Error(`WebGPU device lost: ${info.message || 'Unknown reason'}`);
+    if (published) {
+      void renderer.setAnimationLoop(null).catch(() => {});
+      try { options.onDeviceLost?.(lostError); } catch (error) {
+        console.error('Character scene device-loss callback failed.', error);
+      }
+    }
+  };
+  lifetime.add(() => {
+    // Failed init may have switched backend. Always free the original GPU
+    // backend too. Do not call renderer.dispose before init succeeds: r184's
+    // setAnimationLoop(null) would re-enter the rejected initialization promise.
+    try {
+      if (renderer.hasInitialized()) renderer.dispose();
+      else disposeBackend(renderer.backend);
+    } finally {
+      if (renderer.backend !== initialBackend) disposeBackend(initialBackend);
+    }
+  });
+  let result: ReturnType<typeof constructDefaultCharacterScene<WebGPURenderer>> | undefined;
+  try {
+    await renderer.init();
+    throwIfAborted(options.signal);
+    if (lostError) throw lostError;
+    if (!('isWebGPUBackend' in renderer.backend) || renderer.backend.isWebGPUBackend !== true) {
+      throw new Error('Native WebGPU initialization failed; Three selected WebGL2. Select WebGL to retry.');
+    }
+    result = constructDefaultCharacterScene(container, options, renderer, lifetime.dispose,
+      (scene, settings) => createCharacterLighting(scene, renderer, () => new WebGPUPMREMGenerator(renderer), settings));
+    await renderer.compileAsync(result.handle.scene, result.handle.camera);
+    throwIfAborted(options.signal);
+    if (lostError) throw lostError;
+    result.handle.resize();
+    result.attach();
+    published = true;
+    return Object.assign(result.handle, { backend: 'webgpu' as const });
+  } catch (error) {
+    rollback(result?.handle.dispose ?? lifetime.dispose);
     throwIfAborted(options.signal);
     throw error;
   }

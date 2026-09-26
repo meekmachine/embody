@@ -1,6 +1,7 @@
 import { boneResolutionProfile } from './boneResolutionProfile';
 import { getAnnotationCameraCore, requireAnnotationCameraCore } from './annotationCameraCore';
 import * as THREE from 'three';
+import type { CharacterSceneRenderer } from '../scene';
 import {
   detectAnnotationLaterality,
   fuzzyNameMatch,
@@ -543,13 +544,12 @@ export class DPthreeCameraController {
   private domElement: HTMLElement;
 
   // Renderer and render loop (when controller manages the render loop)
-  private renderer: THREE.WebGLRenderer | null = null;
-  private renderFrame:
-    ((renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera) => void)
-    | null = null;
-  private resizeRenderer:
-    ((renderer: THREE.WebGLRenderer, width: number, height: number) => void)
-    | null = null;
+  private renderer: CharacterSceneRenderer | null = null;
+  private renderFrame: DPthreeCameraControllerConfig['renderFrame'] = undefined;
+  private resizeRenderer: DPthreeCameraControllerConfig['resizeRenderer'] = undefined;
+  private onRenderError: DPthreeCameraControllerConfig['onRenderError'] = undefined;
+  private framePending = false;
+  private renderFailed = false;
   private resizeObserver: ResizeObserver | null = null;
   private boundResizeHandler: (() => void) | null = null;
   private laterality: AnnotationLaterality = getDefaultAnnotationLaterality();
@@ -601,8 +601,9 @@ export class DPthreeCameraController {
     // Store renderer and start render loop if provided
     if (inputConfig.renderer) {
       this.renderer = inputConfig.renderer;
-      this.renderFrame = inputConfig.renderFrame ?? null;
-      this.resizeRenderer = inputConfig.resizeRenderer ?? null;
+      this.renderFrame = inputConfig.renderFrame;
+      this.resizeRenderer = inputConfig.resizeRenderer;
+      this.onRenderError = inputConfig.onRenderError;
       this.startRenderLoop();
       this.setupResizeHandling();
     }
@@ -616,24 +617,48 @@ export class DPthreeCameraController {
    */
   private startRenderLoop(): void {
     if (!this.renderer) return;
+    try {
+      const started = this.renderer.setAnimationLoop(() => {
+        if (this.disposed || this.renderFailed || this.framePending) return;
+        try {
+          this.update();
+          const frame = this.renderFrame
+            ? this.renderFrame(this.renderer!, this.scene, this.camera)
+            : this.renderer!.render(this.scene, this.camera);
+          if (frame) {
+            this.framePending = true;
+            void Promise.resolve(frame).then(
+              () => { this.framePending = false; },
+              (error) => { this.framePending = false; this.handleRenderError(error); },
+            );
+          }
+        } catch (error) { this.handleRenderError(error); }
+      });
+      if (started) void started.catch((error) => this.handleRenderError(error));
+    } catch (error) { this.handleRenderError(error); }
+  }
 
-    this.renderer.setAnimationLoop(() => {
-      this.update();
-      if (this.renderFrame) {
-        this.renderFrame(this.renderer!, this.scene, this.camera);
-        return;
-      }
-      this.renderer!.render(this.scene, this.camera);
-    });
+  private handleRenderError(error: unknown): void {
+    if (this.disposed || this.renderFailed) return;
+    this.renderFailed = true;
+    this.stopRenderLoop();
+    const failure = error instanceof Error ? error : new Error(String(error));
+    try {
+      if (this.onRenderError) this.onRenderError(failure);
+      else console.error('Character camera render loop failed.', failure);
+    } catch (callbackError) {
+      console.error('Character camera render-error callback failed.', callbackError);
+    }
   }
 
   /**
    * Stop the render loop
    */
   private stopRenderLoop(): void {
-    if (this.renderer) {
-      this.renderer.setAnimationLoop(null);
-    }
+    try {
+      const stopped = this.renderer?.setAnimationLoop(null);
+      if (stopped) void stopped.catch((error) => console.error('Character camera render loop stop failed.', error));
+    } catch (error) { console.error('Character camera render loop stop failed.', error); }
   }
 
   private shouldDriveTimerAnimationFallback(): boolean {
@@ -2104,6 +2129,8 @@ export class DPthreeCameraController {
     this.model.traverse((obj) => {
       const mesh = obj as THREE.SkinnedMesh;
       if (!mesh.isSkinnedMesh || mesh.skeleton !== skeleton) return;
+      const boneMatrices = mesh.skeleton.boneMatrices;
+      if (!boneMatrices) return;
 
       // Ensure bone matrices are up to date
       mesh.skeleton.update();
@@ -2145,8 +2172,7 @@ export class DPthreeCameraController {
 
             if (weight > 0) {
               // Get bone matrix (already includes world transform)
-              const boneMatrix = mesh.skeleton.boneMatrices;
-              tempMatrix.fromArray(boneMatrix, skinIdx * 16);
+              tempMatrix.fromArray(boneMatrices, skinIdx * 16);
 
               // Transform vertex: boneMatrix * bindMatrixInverse * vertex
               const transformed = tempVertex.clone();

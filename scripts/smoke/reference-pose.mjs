@@ -163,8 +163,13 @@ const makeRig = () => {
   assert.throws(() => captureModelReferencePose(model), /non-finite values/);
   model.position.x = 0;
   model.matrixAutoUpdate = false;
-  model.matrix.makeScale(0, 1, 1);
-  assert.throws(() => captureModelReferencePose(model), /non-finite values/, 'singular manual matrices must not invent a rotation');
+  for (const scale of [[0, 1, 1], [1, 0, 1], [1, 1, 0]]) {
+    model.matrix.makeScale(...scale);
+    assert.throws(() => captureModelReferencePose(model), /zero-length basis axis/, 'singular manual matrices must not invent a rotation');
+  }
+  model.matrixAutoUpdate = true;
+  model.scale.set(0, 1, 1);
+  assert.doesNotThrow(() => captureModelReferencePose(model), 'explicit TRS retains its authored rotation even with zero scale');
 }
 
 {

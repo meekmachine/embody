@@ -53,17 +53,17 @@
     "test:annotations": "vitest run --config vitest.config.ts"
   },
   "peerDependencies": {
-    "three": ">=0.150.0"
+    "three": ">=0.184.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
-    "@types/three": "^0.170.0",
+    "@types/three": "0.184.0",
     "pkg-pr-new": "0.0.87",
-    "three": "^0.170.0",
+    "three": "0.184.0",
     "tsup": "^8.0.0",
     "typescript": "^5.9.0",
-    "wasm-pack": "^0.15.0",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "wasm-pack": "^0.15.0"
   },
   "keywords": [
     "3d",

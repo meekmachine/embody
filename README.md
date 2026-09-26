@@ -139,23 +139,26 @@ restore them with the existing setters; a zero value releases its live override.
 
 ### Preparing a default scene
 
-`createDefaultCharacterSceneAsync(container, { signal, ...sceneOptions })` from
-`@lovelace_lol/embody/three` creates the existing WebGL scene and awaits
-`renderer.compileAsync(scene, camera)` before attaching its canvas and resize
-listener. Its typed result retains the scene, camera, renderer, lighting,
-`resize()` and `dispose()` handles and reports `backend: 'webgl'`.
-The synchronous `createDefaultCharacterScene` remains available.
+`createDefaultCharacterSceneAsync(container, { renderer, signal, ...sceneOptions })`
+from `@lovelace_lol/embody/three` defaults to WebGL. Explicit `renderer: 'webgpu'`
+uses native WebGPU and rejects if initialization fails or Three selects WebGL2.
+The returned `ReadyDefaultCharacterScene` discriminates its concrete renderer by
+`backend: 'webgl' | 'webgpu'`; both paths await initial scene compilation before
+attaching the canvas. The synchronous factory remains WebGL-specific.
 
-Cancellation during compilation waits for Three's uncancellable preparation
-to settle, then releases acquired resources and rejects with `AbortError`.
-Other setup failures preserve their original error after cleanup. Disposal is
-idempotent; after resolution the caller owns it, and later signal cancellation
-does not dispose the scene. This prepares only the initial lights, environment
-and optional shadow plane: subsequently added models, texture upload, first
-render and application readiness require separate host preparation.
+Cancellation waits for pending initialization/compilation to settle, then
+releases acquired resources and rejects with `AbortError`. Other setup failures
+preserve their original error after cleanup. Disposal is idempotent; after
+resolution the caller owns it. Later signal cancellation does not dispose the
+scene. `onDeviceLost(Error)` reports native GPU loss to the host for recovery,
+while retaining Three's internal handling. The camera controller accepts both
+renderers, serializes asynchronous frame callbacks, and reports failures through
+`onRenderError(Error)`.
 
-See [scene readiness and the WebGPU follow-up](docs/SCENE_READINESS.md) for
-ownership, version requirements and the remaining renderer work.
+Three runtime and types are checked at 0.184.0, with a >=0.184.0 runtime peer.
+Initial scene readiness does not prepare subsequently added models or establish
+first-frame/visual parity. See [renderer selection and scene readiness](docs/SCENE_READINESS.md)
+for ownership, version rationale and remaining real-browser acceptance.
 
 ### Bilateral snippet channels
 

@@ -9,6 +9,8 @@ export const control = {
     this.scenes = [];
     this.failure = Object.create(null);
     this.prepare = undefined;
+    this.initialize = undefined;
+    this.gpuRenderers = [];
   },
 };
 control.reset();

@@ -9,6 +9,7 @@ import {
   type RuntimeCore,
 } from '@lovelace_lol/embody/wasm';
 import { Object3D, type WebGLRenderer } from 'three';
+import type { WebGPURenderer } from 'three/webgpu';
 import {
   bindModelReferencePose,
   captureModelReferencePose,
@@ -18,6 +19,8 @@ import {
   type DefaultCharacterScene,
   type DefaultCharacterSceneAsyncOptions,
   type ReadyDefaultCharacterScene,
+  type CharacterSceneBackend,
+  type CharacterSceneRenderer,
   type ThreeModelReferencePose,
   DPthree,
   DPthreeCameraController,
@@ -124,12 +127,26 @@ extendModelReferencePose(model);
 // Scene readiness is additive and cannot accidentally widen to an `any` renderer.
 declare const container: HTMLElement;
 const sceneOptions: DefaultCharacterSceneAsyncOptions = {
-  type: 'studio', signal: new AbortController().signal, lighting: { envMapEnabled: true },
+  type: 'studio', renderer: 'webgpu', signal: new AbortController().signal, lighting: { envMapEnabled: true },
+  onDeviceLost: (error: Error) => { console.error(error.message); },
 };
 const pendingScene: Promise<ReadyDefaultCharacterScene> = createDefaultCharacterSceneAsync(container, sceneOptions);
 const readyScene = await pendingScene;
-const backend: 'webgl' = readyScene.backend;
-const renderer: WebGLRenderer = readyScene.renderer;
+const backend: CharacterSceneBackend = readyScene.backend;
+const renderer: CharacterSceneRenderer = readyScene.renderer;
+if (readyScene.backend === 'webgpu') {
+  const nativeRenderer: WebGPURenderer = readyScene.renderer;
+  // @ts-expect-error Native WebGPU is not a WebGL renderer.
+  const incorrectRenderer: WebGLRenderer = readyScene.renderer;
+} else {
+  const glRenderer: WebGLRenderer = readyScene.renderer;
+}
+new DPthreeCameraController({
+  ...cameraOptions, renderer,
+  renderFrame: async (activeRenderer, scene, camera) => { activeRenderer.render(scene, camera); },
+  resizeRenderer: (activeRenderer, width, height) => { activeRenderer.setSize(width, height); },
+  onRenderError: (error: Error) => { console.error(error.message); },
+});
 readyScene.resize();
 readyScene.dispose();
 const synchronousScene: DefaultCharacterScene = createDefaultCharacterScene(container);
@@ -138,8 +155,10 @@ synchronousScene.dispose();
 createDefaultCharacterSceneAsync('container');
 // @ts-expect-error Cancellation requires an AbortSignal, not a flag.
 createDefaultCharacterSceneAsync(container, { signal: true });
-// @ts-expect-error No unimplemented WebGPU selection is exposed.
-createDefaultCharacterSceneAsync(container, { backend: 'webgpu' });
+// @ts-expect-error The backend choice must be a supported renderer.
+createDefaultCharacterSceneAsync(container, { renderer: 'vulkan' });
+// @ts-expect-error Native WebGPU creation requires the asynchronous factory.
+createDefaultCharacterScene(container, { renderer: 'webgpu' });
 // @ts-expect-error Lighting values retain their actual type.
 createDefaultCharacterSceneAsync(container, { lighting: { exposure: 'bright' } });
 // @ts-expect-error The caller must await readiness before using the renderer.

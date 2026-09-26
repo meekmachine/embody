@@ -13,6 +13,9 @@ export async function resolve(specifier, context, nextResolve) {
   if (specifier === 'three' && context.parentURL === entry) {
     return { url: fixture, shortCircuit: true };
   }
+  if (specifier === 'three/webgpu' && context.parentURL === entry) {
+    return { url: new URL('./webgpu.mjs', fixture).href, shortCircuit: true };
+  }
   return nextResolve(specifier, context);
 }
 
