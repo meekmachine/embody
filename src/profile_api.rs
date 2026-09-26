@@ -48,6 +48,8 @@ const PROFILE_OVERRIDE_KEYS: &[&str] = &[
     "annotationRegions",
     "disabledRegions",
     "hairPhysics",
+    "humanoidCharacterization",
+    "bodyControls",
 ];
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -212,6 +214,49 @@ fn string_field(value: &Value, key: &str) -> Result<String, String> {
 fn profile_field(value: &Value) -> Result<ProfileData, String> {
     serde_json::from_value(value_field(value, "profile")?.clone())
         .map_err(|error| format!("Invalid profile: {error}"))
+}
+
+/// Edit one action rather than moving a target away from every other action.
+/// The returned value keeps host metadata and persists complete per-AU entries,
+/// because preset overrides replace an AU's entry rather than merge its sides.
+fn set_au_morph_targets(payload: &Value) -> Result<Value, String> {
+    let mut original = value_field(payload, "profile")?.clone();
+    if !original.is_object() { return Err("profile must be an object".into()); }
+    let id = value_field(payload, "auId")?.as_u64()
+        .filter(|id| *id <= u32::MAX as u64)
+        .ok_or("auId must be an unsigned 32-bit integer")?.to_string();
+    let side = string_field(payload, "side")?;
+    if !matches!(side.as_str(), "left" | "right" | "center") {
+        return Err("side must be left, right, or center".into());
+    }
+    let targets = value_field(payload, "targets")?.as_array()
+        .ok_or("targets must be an array of morph names or nonnegative indices")?;
+    let mut unique = Vec::new();
+    for target in targets {
+        if !(target.as_str().is_some_and(|name| !name.trim().is_empty())
+            || target.as_i64().is_some_and(|index| index >= 0)) {
+            return Err("targets must contain nonempty names or nonnegative integer indices".into());
+        }
+        if !unique.contains(target) { unique.push(target.clone()); }
+    }
+    let expanded = extend_profile_config(original.clone())?;
+    let effective: ProfileData = serde_json::from_value(extract_profile_overrides(&expanded))
+        .map_err(|error| format!("Invalid profile: {error}"))?;
+    let mut entry = serde_json::to_value(effective.au_to_morphs.get(&id)
+        .and_then(Option::as_ref).cloned().unwrap_or_default())
+        .map_err(|error| error.to_string())?;
+    entry[&side] = Value::Array(unique);
+    if !original.get("auToMorphs").is_some_and(Value::is_object) {
+        original["auToMorphs"] = json!({});
+    }
+    original["auToMorphs"][&id] = entry.clone();
+    if original.get("profile").is_some_and(Value::is_object) {
+        if !original["profile"].get("auToMorphs").is_some_and(Value::is_object) {
+            original["profile"]["auToMorphs"] = json!({});
+        }
+        original["profile"]["auToMorphs"][&id] = entry;
+    }
+    Ok(original)
 }
 
 fn axis_field(value: &Value) -> Result<Axis, String> {
@@ -383,6 +428,7 @@ fn fuzzy_name_match(object_name: &str, target_name: &str, pattern: Option<&str>)
 }
 
 fn matches_node(profile: &ProfileData, bone_name: &str, node_key: &str) -> bool {
+    let node_key = crate::body_controls::node_key(profile, node_key);
     let Some(base) = profile.bone_nodes.get(node_key) else {
         return false;
     };
@@ -399,6 +445,13 @@ fn matches_node(profile: &ProfileData, bone_name: &str, node_key: &str) -> bool 
 }
 
 fn find_node_key(profile: &ProfileData, bone_name: &str) -> Option<String> {
+    // Prefer the existing composite's authored target (including a VRM role),
+    // so Skeleton edits update its action instead of creating a second axis
+    // for a different alias of the same bone.
+    if let Some(composite) = profile.composite_rotations.iter()
+        .find(|entry| matches_node(profile, bone_name, &entry.node)) {
+        return Some(composite.node.clone());
+    }
     profile
         .bone_nodes
         .keys()
@@ -428,6 +481,7 @@ fn ensure_node(profile: &mut ProfileData, bone_name: &str) -> String {
 }
 
 fn resolve_bone_name(profile: &ProfileData, node: &str) -> Option<String> {
+    let node = crate::body_controls::node_key(profile, node);
     let base = profile.bone_nodes.get(node)?;
     let prefix = profile.bone_prefix.as_deref().unwrap_or("");
     let suffix = profile.bone_suffix.as_deref().unwrap_or("");
@@ -1136,6 +1190,7 @@ fn bilateral_context(
     let other_resolved = resolve_bone_name(profile, &other_node)
         .or_else(|| profile.bone_nodes.get(&other_node).cloned())
         .unwrap_or(other_name);
+    let other_node = find_node_key(profile, &other_resolved).unwrap_or(other_node);
     let (left_node_key, left_bone_name, right_node_key, right_bone_name, selected_scope) =
         if selected_side == "left" {
             (
@@ -1634,7 +1689,12 @@ fn remove_au_rotation_bindings(profile: &mut ProfileData, au_id: u32) {
             .continuum_labels
             .remove(&format!("{}-{}", au_id.min(pair), au_id.max(pair)));
     }
-    for composite in &mut profile.composite_rotations {
+    // Removing a mapping must not turn an inherited table into an explicit
+    // empty table and disable unrelated legacy rotations.
+    if profile.composite_rotations.is_unspecified() {
+        return;
+    }
+    for composite in profile.composite_rotations.iter_mut() {
         for axis in [Axis::Pitch, Axis::Yaw, Axis::Roll] {
             if let Some(config) = axis_config_mut(composite, axis) {
                 config.aus.retain(|id| *id != au_id);
@@ -1906,7 +1966,9 @@ fn extract_profile_overrides(config: &Value) -> Value {
         }
         match (nested.get(*key), top.get(*key)) {
             (Some(base), Some(value)) => {
-                let merged = if base.is_object() && value.is_object() {
+                let merged = if *key == "bodyControls" {
+                    merge_json(base, value)
+                } else if base.is_object() && value.is_object() {
                     let mut object = base.as_object().cloned().unwrap_or_default();
                     object.extend(value.as_object().cloned().unwrap_or_default());
                     Value::Object(object)
@@ -1947,6 +2009,8 @@ fn extend_profile_config(config: Value) -> Result<Value, String> {
     let overrides = extract_profile_overrides(&config);
     let patch = parse_profile_patch(&overrides.to_string())?;
     let merged = extend_preset_with_profile(base, patch);
+    let body_controls = serde_json::to_value(&merged.body_controls)
+        .map_err(|error| error.to_string())?;
     let mut merged_value = serde_json::to_value(merged).map_err(|error| error.to_string())?;
     let disabled = overrides
         .get("disabledRegions")
@@ -2007,7 +2071,20 @@ fn extend_profile_config(config: Value) -> Result<Value, String> {
             object.insert("regions".to_string(), ordered);
         }
     }
-    Ok(merge_json(&config, &merged_value))
+    let mut expanded = merge_json(&config, &merged_value);
+    // Config metadata is preserved above, but this catalog is already fully
+    // resolved. A recursive merge would resurrect removed control tombstones,
+    // especially when all controls were removed and serialization omitted it.
+    expanded["bodyControls"] = body_controls;
+    // Keep authored deletion markers in override metadata so expanding a saved
+    // configuration again cannot restore the deleted preset controls/fields.
+    if let Some(controls) = overrides.get("bodyControls") {
+        if !expanded.get("profile").is_some_and(Value::is_object) {
+            expanded["profile"] = json!({});
+        }
+        expanded["profile"]["bodyControls"] = controls.clone();
+    }
+    Ok(expanded)
 }
 
 fn profile_view(profile: &ProfileData, op: &str, payload: &Value) -> Result<Value, String> {
@@ -2075,6 +2152,16 @@ fn profile_view(profile: &ProfileData, op: &str, payload: &Value) -> Result<Valu
             }
             Ok(json!(result))
         }
+        "profile.resolveHumanoidCharacterization" => Ok(serde_json::to_value(
+            crate::humanoid_characterization::resolve(profile),
+        )
+        .map_err(|error| error.to_string())?),
+        "profile.getBodyControls" => {
+            let model = payload.get("model").filter(|value| !value.is_null())
+                .map(|value| serde_json::from_value(value.clone()))
+                .transpose().map_err(|error| format!("Invalid model descriptor: {error}"))?;
+            Ok(crate::body_controls::resolve(profile, model.as_ref()))
+        },
         _ => Err(format!("Unknown profile query \"{op}\"")),
     }
 }
@@ -2082,6 +2169,7 @@ fn profile_view(profile: &ProfileData, op: &str, payload: &Value) -> Result<Valu
 fn execute(request: Request) -> Result<Value, String> {
     let payload = request.payload;
     match request.op.as_str() {
+        "humanoid.getSpecification" => serde_json::to_value(crate::humanoid_characterization::specification()).map_err(|error| error.to_string()),
         "preset.get" => {
             let id = string_field(&payload, "id")?;
             let canonical = if id == "skeletal" {
@@ -2132,6 +2220,15 @@ fn execute(request: Request) -> Result<Value, String> {
             &string_field(&payload, "targetName")?,
             payload.get("suffixPattern").and_then(Value::as_str),
         ))),
+        "profile.setAUMorphTargets" => set_au_morph_targets(&payload),
+        "profile.setHumanoidRoleBinding" => {
+            let mut profile = profile_field(&payload)?;
+            let role = string_field(&payload, "role")?;
+            let value = value_field(&payload, "boneName")?;
+            let bone_name = if value.is_null() { None } else { Some(value.as_str().ok_or("boneName must be a string or null")?) };
+            crate::humanoid_characterization::set_role_binding(&mut profile, &role, bone_name)?;
+            serde_json::to_value(profile).map_err(|error| error.to_string())
+        }
         op if op.starts_with("profile.") => {
             let profile = profile_field(&payload)?;
             profile_view(&profile, op, &payload)
@@ -2465,6 +2562,184 @@ mod tests {
     }
 
     #[test]
+    fn action_morph_authoring_preserves_shared_targets_and_other_sides() {
+        let original = json!({"assetUrl":"custom.glb", "auToBones":{"1035":[]},
+            "auToMorphs":{"51":{"left":["Head_Turn_L"]},
+                "1035":{"left":["Head_Turn_L"],"right":["Right"],"center":[7]}}});
+        let edited = request("profile.setAUMorphTargets", json!({"profile":original,
+            "auId":1035,"side":"left","targets":["Head_Turn_L","Muscle",9,"Muscle"]}));
+        assert_eq!(edited["auToMorphs"]["1035"]["left"], json!(["Head_Turn_L","Muscle",9]));
+        assert_eq!(edited["auToMorphs"]["1035"]["right"], json!(["Right"]));
+        assert_eq!(edited["auToMorphs"]["1035"]["center"], json!([7]));
+        assert_eq!(edited["auToMorphs"]["51"], original["auToMorphs"]["51"]);
+        assert_eq!(edited["auToBones"], original["auToBones"]);
+        let cleared = request("profile.setAUMorphTargets", json!({"profile":edited,
+            "auId":1035,"side":"left","targets":[]}));
+        assert_eq!(cleared["auToMorphs"]["1035"]["left"], json!([]));
+        assert_eq!(cleared["auToMorphs"]["51"]["left"], json!(["Head_Turn_L"]));
+        assert_eq!(cleared["assetUrl"], "custom.glb");
+    }
+
+    #[test]
+    fn action_morph_authoring_preserves_explicit_clear_across_preset_reload() {
+        for original in [json!({"auPresetType":"cc4"}),
+            json!({"auPresetType":"cc4","profile":{"auMixDefaults":{"61":0.25}}})] {
+            let edited = request("profile.setAUMorphTargets", json!({"profile":original,
+                "auId":61,"side":"left","targets":[]}));
+            let saved: Value = serde_json::from_str(&edited.to_string()).unwrap();
+            let expanded = request("profile.extendConfig", json!({"config":saved}));
+            assert_eq!(expanded["auToMorphs"]["61"]["left"], json!([]));
+            assert_eq!(expanded["auToMorphs"]["61"]["right"], json!(["Eye_R_Look_L"]));
+            assert_eq!(expanded["auToMorphs"]["1035"]["left"], json!(["Head_Turn_L"]));
+            if edited.get("profile").is_some() {
+                assert_eq!(edited["profile"]["auToMorphs"]["61"], edited["auToMorphs"]["61"]);
+                assert_eq!(expanded["auMixDefaults"]["61"], 0.25);
+            }
+        }
+        let edited = request("profile.setAUMorphTargets", json!({"profile":{},"auId":1,"side":"center","targets":[]}));
+        assert_eq!(edited, json!({"auToMorphs":{"1":{"left":[],"right":[],"center":[]}}}));
+    }
+
+    #[test]
+    fn action_morph_authoring_rejects_invalid_inputs() {
+        for update in [json!({"side":"both"}),json!({"auId":-1}),json!({"auId":4294967296u64}),
+            json!({"targets":[-1]}),json!({"targets":[0.5]}),json!({"targets":[""]}),
+            json!({"targets":[{}]}),json!({"profile":null})] {
+            let payload = merge_json(&json!({"profile":{},"auId":1,"side":"left","targets":[]}), &update);
+            assert!(execute(Request{op:"profile.setAUMorphTargets".into(), payload}).is_err());
+        }
+    }
+
+    #[test]
+    fn expanded_body_catalog_removals_reach_queries_and_runtime() {
+        let base = request("preset.get", json!({"id":"cc4"}));
+        let count = base["bodyControls"].as_object().unwrap().len();
+        let remove_all: serde_json::Map<String, Value> = base["bodyControls"].as_object().unwrap().keys()
+            .map(|key| (key.clone(), Value::Null)).collect();
+        let cases = [
+            json!({"bodyControls": {"body.kneeBend": null}}),
+            json!({"profile": {"bodyControls": {"body.kneeBend": null}}}),
+            json!({"bodyControls": remove_all}),
+            json!({"profile": {"bodyControls": remove_all}}),
+        ];
+        for (index, mut config) in cases.into_iter().enumerate() {
+            config["auPresetType"] = json!("cc4");
+            config["assetUrl"] = json!("character.glb");
+            let expanded = request("profile.extendConfig", json!({"config": config}));
+            assert_eq!(expanded["assetUrl"], "character.glb");
+            assert!(expanded["bodyControls"].get("body.kneeBend").is_none());
+            let controls = request("profile.getBodyControls", json!({"profile": expanded}));
+            assert_eq!(controls.as_array().unwrap().len(), if index < 2 { count - 1 } else { 0 });
+            if index >= 2 {
+                assert_eq!(expanded["bodyControls"], json!({}));
+            }
+            let saved: Value = serde_json::from_str(&expanded.to_string()).unwrap();
+            let reexpanded = request("profile.extendConfig", json!({"config": saved}));
+            assert_eq!(reexpanded["bodyControls"], expanded["bodyControls"]);
+            let mut core = crate::runtime::RuntimeCore::new(0);
+            core.configure_with_profile(&expanded.to_string(),
+                r#"{"bones":[{"id":1,"name":"CC_Base_L_Forearm"}]}"#).unwrap();
+            core.set_au(1001, 0.5, 0.0);
+            assert!(!core.evaluate_bone_frame_delta().is_empty(),
+                "catalog removal must leave explicit numeric action bindings intact");
+        }
+    }
+
+    #[test]
+    fn expanded_body_catalog_merges_nested_sparse_metadata_per_field() {
+        let expanded = request("profile.extendConfig", json!({"config": {
+            "auPresetType": "cc4",
+            "profile": {"bodyControls": {
+                "body.elbowFlex": {"label": "My biceps", "order": 20},
+                "body.kneeBend": null
+            }},
+            "bodyControls": {
+                "body.elbowFlex": {"order": 4},
+                "body.torsoTwist": {"negativeAuId": null}
+            }
+        }}));
+        let controls = request("profile.getBodyControls", json!({"profile": expanded}));
+        let elbow = controls.as_array().unwrap().iter()
+            .find(|control| control["id"] == "body.elbowFlex").unwrap();
+        assert_eq!(elbow["label"], "My biceps");
+        assert_eq!(elbow["order"], 4);
+        assert_eq!(elbow["auId"], 1001);
+        assert_eq!(elbow["bilateral"], true);
+        assert_eq!(elbow["roles"], json!(["leftLowerArm", "rightLowerArm"]));
+        assert!(expanded["bodyControls"].get("body.kneeBend").is_none());
+        assert!(expanded["bodyControls"]["body.torsoTwist"].get("negativeAuId").is_none());
+        let reexpanded = request("profile.extendConfig", json!({"config": expanded}));
+        assert_eq!(reexpanded["bodyControls"], expanded["bodyControls"]);
+    }
+
+    #[test]
+    fn explicit_empty_composites_survive_expansion_edits_and_runtime() {
+        for mut config in [
+            json!({"auPresetType": "cc4", "compositeRotations": []}),
+            json!({"auPresetType": "cc4", "profile": {"compositeRotations": []}}),
+        ] {
+            config["auToMorphs"] = json!({"51": {"center": ["HeadEffort"]}});
+            let expanded = request("profile.extendConfig", json!({"config": config}));
+            assert_eq!(expanded["compositeRotations"], json!([]));
+            let edited = request("bone.classifyJointControl", json!({"profile": expanded, "auId": 1001}));
+            assert_eq!(edited["compositeRotations"], json!([]));
+            let controls = request("profile.getBodyControls", json!({"profile": edited}));
+            assert!(controls.as_array().unwrap().iter().all(|control| control["hasBones"] == false));
+            let mut core = crate::runtime::RuntimeCore::new(0);
+            core.configure_with_profile(&edited.to_string(),
+                r#"{"bones":[{"id":1,"name":"CC_Base_Head"},{"id":2,"name":"CC_Base_L_Forearm"}],
+                    "meshes":[{"id":1,"name":"CC_Base_Body","morphTargetIds":[1]}],
+                    "morphTargets":[{"id":1,"meshId":1,"name":"HeadEffort","hostIndex":0}]}"#).unwrap();
+            core.set_au(51, 0.5, 0.0);
+            core.set_au(1001, 0.5, 0.0);
+            assert!(core.evaluate_bone_frame_delta().is_empty());
+            assert!(!core.evaluate_morph_frame_delta().is_empty());
+            let clip: Value = serde_json::from_str(&core.build_clip("disabled-rotation",
+                r#"{"51":[{"time":0,"intensity":0},{"time":1,"intensity":1}]}"#, "{}").unwrap()).unwrap();
+            assert!(clip["tracks"].as_array().unwrap().iter()
+                .all(|track| track["target"]["kind"] != "boneTransform"));
+        }
+    }
+
+    #[test]
+    fn expanded_legacy_facial_snapshot_retains_body_motion() {
+        let mut preset = request("preset.get", json!({"id": "cc4"}));
+        let composites = preset["compositeRotations"].as_array_mut().unwrap();
+        composites.retain(|composite| matches!(composite["node"].as_str(),
+            Some("HEAD" | "EYE_L" | "EYE_R")));
+        assert!(!composites.is_empty());
+        let expanded = request("profile.extendConfig", json!({"config": {
+            "auPresetType": "cc4", "compositeRotations": composites
+        }}));
+        let mut core = crate::runtime::RuntimeCore::new(0);
+        core.configure_with_profile(&expanded.to_string(),
+            r#"{"bones":[{"id":1,"name":"CC_Base_L_Forearm"}]}"#).unwrap();
+        core.set_au(1001, 0.5, 0.0);
+        let frame = core.evaluate_bone_frame_delta();
+        assert!((frame[4] - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn removing_unrelated_bindings_keeps_legacy_composite_fallback() {
+        for omitted in [false, true] {
+            let mut profile = request("preset.get", json!({"id": "cc4"}));
+            profile["compositeRotations"] = Value::Null;
+            if omitted {
+                profile.as_object_mut().unwrap().remove("compositeRotations");
+            }
+            let edited = request("bone.applyAUBindingUpdate", json!({
+                "profile": profile, "auId": 999, "update": {}
+            }));
+            assert!(edited.get("compositeRotations").is_none());
+            let mut core = crate::runtime::RuntimeCore::new(0);
+            core.configure_with_profile(&edited.to_string(),
+                r#"{"bones":[{"id":1,"name":"CC_Base_Head"}]}"#).unwrap();
+            core.set_au(51, 0.5, 0.0);
+            assert!(!core.evaluate_bone_frame_delta().is_empty());
+        }
+    }
+
+    #[test]
     fn authors_single_axis_bindings_and_continuum() {
         let result = request(
             "bone.applyAxisUpdate",
@@ -2501,6 +2776,18 @@ mod tests {
     }
 
     #[test]
+    fn body_role_axes_are_editable_without_duplicate_bone_composites() {
+        let profile: ProfileData = serde_json::from_str(presets::preset_json("cc4").unwrap()).unwrap();
+        let state = get_axis_state(&profile, "CC_Base_L_Forearm", Axis::Pitch).unwrap();
+        assert_eq!(state.positive_au_id, Some(1001));
+        assert_eq!(bilateral_state(&profile, "CC_Base_L_Forearm", Axis::Pitch).unwrap().shared.positive_au_id, Some(1001));
+        let edited = apply_axis_update(profile, "CC_Base_L_Forearm", Axis::Pitch,
+            json!({"positiveMaxDegrees":90}).as_object().unwrap());
+        assert_eq!(edited.composite_rotations.iter().filter(|entry| matches_node(&edited, "CC_Base_L_Forearm", &entry.node)).count(), 1);
+        assert_eq!(get_axis_state(&edited, "CC_Base_L_Forearm", Axis::Pitch).unwrap().positive_max_degrees, Some(90.0));
+    }
+
+    #[test]
     fn keeps_generated_custom_node_names_stable() {
         let result = request(
             "bone.ensureNodeKey",
@@ -2511,6 +2798,37 @@ mod tests {
         );
         assert_eq!(result["nodeKey"], "Jaw.001");
         assert_eq!(result["boneNodes"]["Jaw.001"], "Jaw.001");
+    }
+
+    #[test]
+    fn resolves_humanoid_roles_without_changing_joint_bindings() {
+        let result = request(
+            "profile.resolveHumanoidCharacterization",
+            json!({
+                "profile": {
+                    "boneNodes": {
+                        "HIPS": "Hips", "SPINE": "Spine", "HEAD": "Head",
+                        "UPPERARM_L": "LeftUpperArm", "LOWERARM_L": "LeftLowerArm", "HAND_L": "LeftHand",
+                        "UPPERARM_R": "RightUpperArm", "LOWERARM_R": "RightLowerArm", "HAND_R": "RightHand",
+                        "UPPERLEG_L": "LeftUpperLeg", "LOWERLEG_L": "LeftLowerLeg", "FOOT_L": "LeftFoot",
+                        "UPPERLEG_R": "RightUpperLeg", "LOWERLEG_R": "RightLowerLeg", "FOOT_R": "RightFoot"
+                    },
+                    "humanoidCharacterization": {
+                        "schemaVersion": 1, "standard": "VRMC_vrm-1.0", "status": "characterized",
+                        "roles": {
+                            "hips": { "nodeKey": "HIPS" }, "spine": { "nodeKey": "SPINE" }, "head": { "nodeKey": "HEAD" },
+                            "leftUpperArm": { "nodeKey": "UPPERARM_L" }, "leftLowerArm": { "nodeKey": "LOWERARM_L" }, "leftHand": { "nodeKey": "HAND_L" },
+                            "rightUpperArm": { "nodeKey": "UPPERARM_R" }, "rightLowerArm": { "nodeKey": "LOWERARM_R" }, "rightHand": { "nodeKey": "HAND_R" },
+                            "leftUpperLeg": { "nodeKey": "UPPERLEG_L" }, "leftLowerLeg": { "nodeKey": "LOWERLEG_L" }, "leftFoot": { "nodeKey": "FOOT_L" },
+                            "rightUpperLeg": { "nodeKey": "UPPERLEG_R" }, "rightLowerLeg": { "nodeKey": "LOWERLEG_R" }, "rightFoot": { "nodeKey": "FOOT_R" }
+                        }
+                    }
+                }
+            }),
+        );
+        assert_eq!(result["roles"]["leftUpperArm"]["nodeKey"], "UPPERARM_L");
+        assert_eq!(result["roles"]["leftUpperArm"]["boneName"], "LeftUpperArm");
+        assert!(result["valid"].as_bool().unwrap());
     }
 
     #[test]

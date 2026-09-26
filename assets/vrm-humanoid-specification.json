@@ -1,0 +1,445 @@
+{
+  "standard": "VRMC_vrm-1.0",
+  "bones": [
+    {
+      "role": "hips",
+      "label": "Hips",
+      "section": "Torso",
+      "parent": null,
+      "required": true,
+      "requiresParent": false
+    },
+    {
+      "role": "spine",
+      "label": "Spine",
+      "section": "Torso",
+      "parent": "hips",
+      "required": true,
+      "requiresParent": false
+    },
+    {
+      "role": "chest",
+      "label": "Chest",
+      "section": "Torso",
+      "parent": "spine",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "upperChest",
+      "label": "Upper chest",
+      "section": "Torso",
+      "parent": "chest",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "neck",
+      "label": "Neck",
+      "section": "Torso",
+      "parent": "upperChest",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "head",
+      "label": "Head",
+      "section": "Head",
+      "parent": "neck",
+      "required": true,
+      "requiresParent": false
+    },
+    {
+      "role": "leftEye",
+      "label": "Left eye",
+      "section": "Head",
+      "parent": "head",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "rightEye",
+      "label": "Right eye",
+      "section": "Head",
+      "parent": "head",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "jaw",
+      "label": "Jaw",
+      "section": "Head",
+      "parent": "head",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "leftUpperLeg",
+      "label": "Left upper leg",
+      "section": "Legs",
+      "parent": "hips",
+      "required": true,
+      "requiresParent": false
+    },
+    {
+      "role": "leftLowerLeg",
+      "label": "Left lower leg",
+      "section": "Legs",
+      "parent": "leftUpperLeg",
+      "required": true,
+      "requiresParent": false
+    },
+    {
+      "role": "leftFoot",
+      "label": "Left foot",
+      "section": "Feet",
+      "parent": "leftLowerLeg",
+      "required": true,
+      "requiresParent": false
+    },
+    {
+      "role": "leftToes",
+      "label": "Left toes",
+      "section": "Feet",
+      "parent": "leftFoot",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "rightUpperLeg",
+      "label": "Right upper leg",
+      "section": "Legs",
+      "parent": "hips",
+      "required": true,
+      "requiresParent": false
+    },
+    {
+      "role": "rightLowerLeg",
+      "label": "Right lower leg",
+      "section": "Legs",
+      "parent": "rightUpperLeg",
+      "required": true,
+      "requiresParent": false
+    },
+    {
+      "role": "rightFoot",
+      "label": "Right foot",
+      "section": "Feet",
+      "parent": "rightLowerLeg",
+      "required": true,
+      "requiresParent": false
+    },
+    {
+      "role": "rightToes",
+      "label": "Right toes",
+      "section": "Feet",
+      "parent": "rightFoot",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "leftShoulder",
+      "label": "Left shoulder",
+      "section": "Arms",
+      "parent": "upperChest",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "leftUpperArm",
+      "label": "Left upper arm",
+      "section": "Arms",
+      "parent": "leftShoulder",
+      "required": true,
+      "requiresParent": false
+    },
+    {
+      "role": "leftLowerArm",
+      "label": "Left lower arm",
+      "section": "Arms",
+      "parent": "leftUpperArm",
+      "required": true,
+      "requiresParent": false
+    },
+    {
+      "role": "leftHand",
+      "label": "Left hand",
+      "section": "Hands",
+      "parent": "leftLowerArm",
+      "required": true,
+      "requiresParent": false
+    },
+    {
+      "role": "rightShoulder",
+      "label": "Right shoulder",
+      "section": "Arms",
+      "parent": "upperChest",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "rightUpperArm",
+      "label": "Right upper arm",
+      "section": "Arms",
+      "parent": "rightShoulder",
+      "required": true,
+      "requiresParent": false
+    },
+    {
+      "role": "rightLowerArm",
+      "label": "Right lower arm",
+      "section": "Arms",
+      "parent": "rightUpperArm",
+      "required": true,
+      "requiresParent": false
+    },
+    {
+      "role": "rightHand",
+      "label": "Right hand",
+      "section": "Hands",
+      "parent": "rightLowerArm",
+      "required": true,
+      "requiresParent": false
+    },
+    {
+      "role": "leftThumbMetacarpal",
+      "label": "Left thumb metacarpal",
+      "section": "Hands",
+      "parent": "leftHand",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "leftThumbProximal",
+      "label": "Left thumb proximal",
+      "section": "Hands",
+      "parent": "leftThumbMetacarpal",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "leftThumbDistal",
+      "label": "Left thumb distal",
+      "section": "Hands",
+      "parent": "leftThumbProximal",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "leftIndexProximal",
+      "label": "Left index proximal",
+      "section": "Hands",
+      "parent": "leftHand",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "leftIndexIntermediate",
+      "label": "Left index intermediate",
+      "section": "Hands",
+      "parent": "leftIndexProximal",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "leftIndexDistal",
+      "label": "Left index distal",
+      "section": "Hands",
+      "parent": "leftIndexIntermediate",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "leftMiddleProximal",
+      "label": "Left middle proximal",
+      "section": "Hands",
+      "parent": "leftHand",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "leftMiddleIntermediate",
+      "label": "Left middle intermediate",
+      "section": "Hands",
+      "parent": "leftMiddleProximal",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "leftMiddleDistal",
+      "label": "Left middle distal",
+      "section": "Hands",
+      "parent": "leftMiddleIntermediate",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "leftRingProximal",
+      "label": "Left ring proximal",
+      "section": "Hands",
+      "parent": "leftHand",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "leftRingIntermediate",
+      "label": "Left ring intermediate",
+      "section": "Hands",
+      "parent": "leftRingProximal",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "leftRingDistal",
+      "label": "Left ring distal",
+      "section": "Hands",
+      "parent": "leftRingIntermediate",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "leftLittleProximal",
+      "label": "Left little proximal",
+      "section": "Hands",
+      "parent": "leftHand",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "leftLittleIntermediate",
+      "label": "Left little intermediate",
+      "section": "Hands",
+      "parent": "leftLittleProximal",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "leftLittleDistal",
+      "label": "Left little distal",
+      "section": "Hands",
+      "parent": "leftLittleIntermediate",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "rightThumbMetacarpal",
+      "label": "Right thumb metacarpal",
+      "section": "Hands",
+      "parent": "rightHand",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "rightThumbProximal",
+      "label": "Right thumb proximal",
+      "section": "Hands",
+      "parent": "rightThumbMetacarpal",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "rightThumbDistal",
+      "label": "Right thumb distal",
+      "section": "Hands",
+      "parent": "rightThumbProximal",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "rightIndexProximal",
+      "label": "Right index proximal",
+      "section": "Hands",
+      "parent": "rightHand",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "rightIndexIntermediate",
+      "label": "Right index intermediate",
+      "section": "Hands",
+      "parent": "rightIndexProximal",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "rightIndexDistal",
+      "label": "Right index distal",
+      "section": "Hands",
+      "parent": "rightIndexIntermediate",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "rightMiddleProximal",
+      "label": "Right middle proximal",
+      "section": "Hands",
+      "parent": "rightHand",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "rightMiddleIntermediate",
+      "label": "Right middle intermediate",
+      "section": "Hands",
+      "parent": "rightMiddleProximal",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "rightMiddleDistal",
+      "label": "Right middle distal",
+      "section": "Hands",
+      "parent": "rightMiddleIntermediate",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "rightRingProximal",
+      "label": "Right ring proximal",
+      "section": "Hands",
+      "parent": "rightHand",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "rightRingIntermediate",
+      "label": "Right ring intermediate",
+      "section": "Hands",
+      "parent": "rightRingProximal",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "rightRingDistal",
+      "label": "Right ring distal",
+      "section": "Hands",
+      "parent": "rightRingIntermediate",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "rightLittleProximal",
+      "label": "Right little proximal",
+      "section": "Hands",
+      "parent": "rightHand",
+      "required": false,
+      "requiresParent": false
+    },
+    {
+      "role": "rightLittleIntermediate",
+      "label": "Right little intermediate",
+      "section": "Hands",
+      "parent": "rightLittleProximal",
+      "required": false,
+      "requiresParent": true
+    },
+    {
+      "role": "rightLittleDistal",
+      "label": "Right little distal",
+      "section": "Hands",
+      "parent": "rightLittleIntermediate",
+      "required": false,
+      "requiresParent": true
+    }
+  ]
+}

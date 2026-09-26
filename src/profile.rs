@@ -124,6 +124,40 @@ pub struct CompositeRotationData {
     pub extensions: Map<String, Value>,
 }
 
+/// Missing/null tables inherit legacy defaults; an explicit array, including
+/// an empty one, is authoritative. Keep that distinction across profile edits
+/// and JSON round trips so disabling rotations cannot restore preset motion.
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(transparent)]
+pub struct CompositeRotationTable(Option<Vec<CompositeRotationData>>);
+
+impl CompositeRotationTable {
+    pub fn is_unspecified(&self) -> bool {
+        self.0.is_none()
+    }
+}
+
+impl From<Vec<CompositeRotationData>> for CompositeRotationTable {
+    fn from(value: Vec<CompositeRotationData>) -> Self {
+        Self(Some(value))
+    }
+}
+
+impl std::ops::Deref for CompositeRotationTable {
+    type Target = Vec<CompositeRotationData>;
+
+    fn deref(&self) -> &Self::Target {
+        static EMPTY: Vec<CompositeRotationData> = Vec::new();
+        self.0.as_ref().unwrap_or(&EMPTY)
+    }
+}
+
+impl std::ops::DerefMut for CompositeRotationTable {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.get_or_insert_with(Vec::new)
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ContinuumPairData {
@@ -513,8 +547,8 @@ pub struct ProfileData {
     pub au_face_part_to_mesh_category: HashMap<String, String>,
     #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub au_mix_defaults: HashMap<String, f64>,
-    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "null_default")]
-    pub composite_rotations: Vec<CompositeRotationData>,
+    #[serde(skip_serializing_if = "CompositeRotationTable::is_unspecified")]
+    pub composite_rotations: CompositeRotationTable,
     #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub continuum_pairs: HashMap<String, Option<ContinuumPairData>>,
     #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
@@ -545,6 +579,10 @@ pub struct ProfileData {
     pub hair_physics: Option<HairPhysicsData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gaze_calibration: Option<GazeCalibrationData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub humanoid_characterization: Option<HumanoidCharacterizationData>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", deserialize_with = "null_default")]
+    pub body_controls: BTreeMap<String, BodyControlData>,
     // Typed legacy fish fields retained until that preset schema is normalized.
     #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub action_info: HashMap<String, AuInfoData>,
@@ -574,6 +612,50 @@ pub struct GazeCalibrationData {
     pub left_eye: Option<GazeOpticalCalibrationData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub right_eye: Option<GazeOpticalCalibrationData>,
+}
+
+/// A VRM humanoid role resolves through an existing profile node key. This
+/// keeps current AU-to-bone bindings on their established evaluation path.
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HumanoidRoleData {
+    pub node_key: String,
+    /// Literal model selection; applies while boneNodes[nodeKey] remains unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exact_bone_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HumanoidCharacterizationData {
+    pub schema_version: u32,
+    pub standard: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", deserialize_with = "null_default")]
+    pub roles: BTreeMap<String, HumanoidRoleData>,
+    #[serde(flatten)]
+    pub extensions: Map<String, Value>,
+}
+
+/// Semantic body controls reuse numeric actions and the same bone/morph
+/// evaluator as FACS. VRM identifies the anatomy, not the action vocabulary.
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BodyControlData {
+    pub label: String,
+    pub section: String,
+    pub au_id: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub negative_au_id: Option<u32>,
+    pub bilateral: bool,
+    pub roles: Vec<String>,
+    pub order: i32,
 }
 
 impl ProfileData {
@@ -742,6 +824,8 @@ pub struct ResolvedProfileView {
     pub composite_rotations: Vec<CompositeRotationData>,
     pub continuum_pairs: HashMap<String, Option<ContinuumPairData>>,
     pub hair_physics: Option<HairPhysicsData>,
+    pub humanoid_characterization: Option<HumanoidCharacterizationData>,
+    pub body_controls: BTreeMap<String, BodyControlData>,
 }
 
 pub fn resolve_profile_view(profile: &ProfileData) -> ResolvedProfileView {
@@ -775,9 +859,11 @@ pub fn resolve_profile_view(profile: &ProfileData) -> ResolvedProfileView {
         au_mix_defaults: profile.au_mix_defaults.clone(),
         bone_nodes: profile.bone_nodes.clone(),
         au_to_bones: profile.au_to_bones.clone(),
-        composite_rotations: profile.composite_rotations.clone(),
+        composite_rotations: profile.composite_rotations.to_vec(),
         continuum_pairs: profile.continuum_pairs.clone(),
         hair_physics: profile.hair_physics.clone(),
+        humanoid_characterization: profile.humanoid_characterization.clone(),
+        body_controls: profile.body_controls.clone(),
     }
 }
 
@@ -825,7 +911,6 @@ fn compile_au_morph_bindings(
         };
         let Some(entry) = entry else { continue };
 
-        let mesh_names = mesh_names_for_au(profile, au_id);
         let has_morphs =
             !entry.left.is_empty() || !entry.right.is_empty() || !entry.center.is_empty();
         let has_bones = profile
@@ -833,7 +918,11 @@ fn compile_au_morph_bindings(
             .get(au_text)
             .map(|bindings| !bindings.is_empty())
             .unwrap_or(false);
-        if has_morphs && has_bones {
+        // Body's morph strength remains meaningful when its bone actuator is
+        // absent or deliberately cleared. Keep legacy non-Body morph-only AU
+        // behavior, while compiling the same weighting rule for live controls
+        // and snippet tracks, including shared head/eye/jaw actions.
+        if has_morphs && (has_bones || is_body_action(profile, au_id)) {
             tables.mixed_aus.push(au_id);
         }
 
@@ -843,7 +932,7 @@ fn compile_au_morph_bindings(
             (2u8, &entry.center),
         ] {
             for morph in morphs {
-                for (mesh_id, morph_target_id) in resolver.resolve_morph(morph, &mesh_names) {
+                for (mesh_id, morph_target_id) in resolver.resolve_au_morph(profile, au_id, morph) {
                     tables.au_morph_bindings.extend_from_slice(&[
                         au_id as f32,
                         side as f32,
@@ -913,7 +1002,7 @@ fn compile_bone_tables(
         }
     };
 
-    for composite in &profile.composite_rotations {
+    for composite in profile.composite_rotations.iter() {
         let Some(bone) = find_bone(&composite.node) else {
             continue;
         };
@@ -1322,22 +1411,24 @@ fn viseme_binding_targets(
     Vec::new()
 }
 
-fn mesh_names_for_au(profile: &ProfileData, au_id: u32) -> Vec<String> {
+fn is_body_action(profile: &ProfileData, au_id: u32) -> bool {
+    profile.body_controls.values().any(|control|
+        control.au_id == au_id || control.negative_au_id == Some(au_id))
+}
+
+fn mesh_category_for_au(profile: &ProfileData, au_id: u32) -> &str {
     let face_part = profile
         .au_info
         .get(&au_id.to_string())
         .and_then(|info| info.face_part.as_ref());
-    let category = face_part.and_then(|part| profile.au_face_part_to_mesh_category.get(part));
-    if let Some(category) = category {
-        return profile
-            .morph_to_mesh
-            .get(category)
-            .cloned()
-            .unwrap_or_default();
-    }
+    face_part.and_then(|part| profile.au_face_part_to_mesh_category.get(part))
+        .map(String::as_str).unwrap_or("face")
+}
+
+pub(crate) fn mesh_names_for_au(profile: &ProfileData, au_id: u32) -> Vec<String> {
     profile
         .morph_to_mesh
-        .get("face")
+        .get(mesh_category_for_au(profile, au_id))
         .cloned()
         .unwrap_or_default()
 }
@@ -1392,7 +1483,7 @@ fn resolved_au_mesh_names(profile: &ProfileData) -> BTreeMap<String, Vec<String>
 
 /// Resolves morph/bone names with the profile prefix/suffix conventions,
 /// including the optional suffix regex pattern.
-struct NameResolver {
+pub(crate) struct NameResolver {
     morph_prefix: String,
     morph_suffix: String,
     suffix_regex: Option<Regex>,
@@ -1401,7 +1492,7 @@ struct NameResolver {
 }
 
 impl NameResolver {
-    fn new(profile: &ProfileData, model: &ModelData) -> NameResolver {
+    pub(crate) fn new(profile: &ProfileData, model: &ModelData) -> NameResolver {
         let suffix_regex = profile
             .suffix_pattern
             .as_ref()
@@ -1434,7 +1525,21 @@ impl NameResolver {
         }
     }
 
-    fn resolve_morph(&self, morph: &MorphRef, mesh_names: &[String]) -> Vec<(u32, u32)> {
+    pub(crate) fn resolve_morph(&self, morph: &MorphRef, mesh_names: &[String]) -> Vec<(u32, u32)> {
+        self.resolve_morph_with_fallback(morph, mesh_names, true)
+    }
+
+    pub(crate) fn resolve_au_morph(&self, profile: &ProfileData, au_id: u32, morph: &MorphRef) -> Vec<(u32, u32)> {
+        // Body authoring exposes an explicit category mesh selection. An empty
+        // selection means no outputs, and a target absent from selected meshes
+        // must not silently actuate a similarly named target on another mesh.
+        // Legacy omitted categories and non-Body/viseme mappings keep fallback.
+        let strict_selection = is_body_action(profile, au_id)
+            && profile.morph_to_mesh.contains_key(mesh_category_for_au(profile, au_id));
+        self.resolve_morph_with_fallback(morph, &mesh_names_for_au(profile, au_id), !strict_selection)
+    }
+
+    fn resolve_morph_with_fallback(&self, morph: &MorphRef, mesh_names: &[String], allow_fallback: bool) -> Vec<(u32, u32)> {
         let mut result = Vec::new();
         let candidate_names = self.resolve_mesh_names(mesh_names);
         for mesh_name in &candidate_names {
@@ -1458,7 +1563,7 @@ impl NameResolver {
         // morphToMesh entirely. Preserve the exact profile while resolving its
         // morph against model content rather than making the host fall back to a
         // different preset. Configured/family matches always take precedence.
-        if result.is_empty() {
+        if allow_fallback && result.is_empty() {
             for mesh_name in &self.mesh_names {
                 if candidate_names.contains(mesh_name) {
                     continue;
@@ -1511,12 +1616,21 @@ impl NameResolver {
         })
     }
 
-    fn resolve_bone<'a>(
+    pub(crate) fn resolve_bone<'a>(
         &self,
         model: &'a ModelData,
         profile: &ProfileData,
         node_key: &str,
     ) -> Option<&'a BoneData> {
+        if crate::humanoid_characterization::bone_specification(node_key).is_some()
+            && profile.humanoid_characterization.as_ref().is_some_and(|mapping|
+                mapping.standard == "VRMC_vrm-1.0" && !mapping.roles.contains_key(node_key)) {
+            return None;
+        }
+        if let Some(exact) = crate::body_controls::exact_bone_name(profile, node_key) {
+            return model.bones.iter().find(|bone| bone.name == exact);
+        }
+        let node_key = crate::body_controls::node_key(profile, node_key);
         let configured = profile
             .bone_nodes
             .get(node_key)
@@ -1538,7 +1652,9 @@ impl NameResolver {
         model
             .bones
             .iter()
-            .find(|bone| bone.name == node_key || bone.name == configured || bone.name == full)
+            .find(|bone| bone.name == full)
+            .or_else(|| model.bones.iter().find(|bone| bone.name == configured))
+            .or_else(|| model.bones.iter().find(|bone| bone.name == node_key))
     }
 }
 
