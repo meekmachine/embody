@@ -81,6 +81,8 @@ struct RuntimeCurvePoint {
 #[serde(rename_all = "camelCase", default)]
 struct ClipBuildOptions {
     intensity_scale: Option<f64>,
+    mix_weights: HashMap<u32, f32>,
+    face_curves: BTreeMap<String, Vec<RuntimeCurvePoint>>,
     balance: Option<f32>,
     balance_map: HashMap<String, f32>,
     mesh_names: Vec<String>,
@@ -534,6 +536,124 @@ impl RuntimeCore {
         let copy_scales = self.viseme_jaw_scales.len().min(count);
         next_scales[..copy_scales].copy_from_slice(&self.viseme_jaw_scales[..copy_scales]);
         self.viseme_jaw_scales = next_scales;
+    }
+
+    /// Profile-derived motions and resolved model support for prompt/pose editors.
+    #[wasm_bindgen]
+    pub fn get_semantic_pose_catalog_json(&self) -> String {
+        self.profile.as_ref().map(|profile| crate::semantic_pose::catalog(profile,self.model.as_ref()).to_string()).unwrap_or_else(||"[]".into())
+    }
+
+    /// Full Body property writes, including neutral reference values. Hosts use
+    /// this once when an explicit pose replaces direct legacy bone edits.
+    #[wasm_bindgen]
+    pub fn evaluate_semantic_body_bone_frame(&self)->Box<[f32]>{
+        let (Some(profile),Some(model))=(&self.profile,&self.model) else{return Vec::new().into_boxed_slice();};
+        let resolver=crate::profile::NameResolver::new(profile,model);
+        let mut properties:HashMap<u32,u32>=HashMap::new();
+        for id in &self.body_control_au_ids {
+            for binding in profile.au_to_bones.get(&id.to_string()).into_iter().flatten(){
+                if let Some(bone)=resolver.resolve_bone(model,profile,&binding.node){
+                    let flag=match binding.channel.as_str(){"rx"|"ry"|"rz"=>FLAG_HAS_ROTATION,"tx"|"ty"|"tz"=>FLAG_HAS_POSITION,_=>0};
+                    *properties.entry(bone.id).or_default()|=flag;
+                }
+            }
+        }
+        let mut result=Vec::new();
+        for row in self.evaluate_bone_frame_delta().chunks_exact(9){
+            let flags=(row[8] as u32)&properties.get(&(row[0] as u32)).copied().unwrap_or(0);
+            if flags!=0{result.extend_from_slice(&row[..8]);result.push(flags as f32);}
+        }
+        result.into_boxed_slice()
+    }
+
+    /// Captures manual semantic state; does not infer actions from a mixer pose.
+    #[wasm_bindgen]
+    pub fn capture_semantic_pose_json(&self) -> String {
+        use crate::semantic_pose::{Pose,PoseControl,Channel};
+        let controls=self.profile.as_ref().map(|profile| profile.body_controls.iter().map(|(id,control)| {
+            let capture=|au| Channel{intensity:self.get_au(au),balance:self.get_au_balance(au),
+                morph_strength:Some(*self.mix_weights.get(&au).unwrap_or(&1.0))};
+            PoseControl{control_id:id.clone(),positive:Some(capture(control.au_id)),
+                negative:control.negative_au_id.filter(|au|*au!=control.au_id).map(capture)}
+        }).collect()).unwrap_or_default();
+        serde_json::to_string(&Pose{version:1,controls}).unwrap()
+    }
+
+    /// Validate and fill optional settings without changing runtime or renderer state.
+    #[wasm_bindgen]
+    pub fn validate_semantic_pose_json(&self, json:&str) -> Result<String,JsError> {
+        let mut pose:crate::semantic_pose::Pose=deserialize_json(json,"Invalid semantic pose")
+            .map_err(|error|JsError::new(&error))?;
+        let profile=self.profile.as_ref().ok_or_else(||JsError::new("Runtime is not configured"))?;
+        let actions=crate::semantic_pose::validate_pose(profile,&pose).map_err(|error|JsError::new(&error))?;
+        for row in &mut pose.controls {
+            let control=&profile.body_controls[&row.control_id];
+            if row.positive.is_some() {row.positive=Some(actions[&control.au_id].clone());}
+            if row.negative.is_some() { row.negative=Some(actions[&control.negative_au_id.unwrap()].clone()); }
+        }
+        serialize_runtime_json(&pose,"semantic pose")
+    }
+
+    /// Validate every channel before replacing Body state. Other FACS state remains.
+    #[wasm_bindgen]
+    pub fn apply_semantic_pose_json(&mut self, json:&str) -> Result<(),JsError> {
+        let pose:crate::semantic_pose::Pose=deserialize_json(json,"Invalid semantic pose")
+            .map_err(|error|JsError::new(&error))?;
+        let profile=self.profile.as_ref().ok_or_else(||JsError::new("Runtime is not configured"))?;
+        let actions=crate::semantic_pose::validate_pose(profile,&pose).map_err(|error|JsError::new(&error))?;
+        let defaults:Vec<_>=self.body_control_au_ids.iter().map(|id|(*id,profile.au_mix_defaults.get(&id.to_string()).copied().unwrap_or(1.) as f32)).collect();
+        // A legacy/raw pose may have left direct overrides on these destinations.
+        // Release exact resolved IDs only after the entire new pose validates.
+        let managed_targets:HashSet<_>=self.au_bindings.iter()
+            .filter(|binding|self.body_control_au_ids.contains(&binding.au_id))
+            .map(|binding|(binding.mesh_id,binding.morph_target_id)).collect();
+        self.direct_morph_values.retain(|target,_|!managed_targets.contains(target));
+        self.reset_body_controls();
+        for (id,weight) in defaults {self.mix_weights.insert(id,weight);}
+        for (id,value) in actions { self.set_au(id,value.intensity,value.balance);self.set_au_mix_weight(id,value.morph_strength.unwrap()); }
+        Ok(())
+    }
+
+    /// Compile semantic motions and optional facial curves together without changing live state.
+    #[wasm_bindgen]
+    pub fn build_semantic_clip(&mut self,name:&str,json:&str,options_json:&str)->Result<String,JsError>{
+        let clip=self.compile_semantic_animation(name,json,options_json)?;
+        let result=serialize_runtime_json(&clip,"semantic clip")?;
+        self.animation.insert_clip(clip,"snippet").map_err(|error|JsError::new(&error))?;
+        Ok(result)
+    }
+
+    /// Compile and validate without registering a clip or changing live controls.
+    #[wasm_bindgen]
+    pub fn validate_semantic_animation_json(&self,json:&str,options_json:&str)->Result<(),JsError>{
+        self.compile_semantic_animation("semantic-validation",json,options_json).map(|_|())
+    }
+
+    fn compile_semantic_animation(&self,name:&str,json:&str,options_json:&str)->Result<ClipIR,JsError>{
+        let animation:crate::semantic_pose::Animation=deserialize_json(json,"Invalid semantic animation")
+            .map_err(|error|JsError::new(&error))?;
+        let profile=self.profile.as_ref().ok_or_else(||JsError::new("Runtime is not configured"))?;
+        let tracks=crate::semantic_pose::validate_animation(profile,self.model.as_ref(),&animation)
+            .map_err(|error|JsError::new(&error))?;
+        let mut options:ClipBuildOptions=parse_runtime_json(options_json,"semantic clip options")?;
+        let mut curves=std::mem::take(&mut options.face_curves);
+        for (key,points) in &curves {
+            let id=key.parse::<u32>().map_err(|_|JsError::new("Facial curves must use numeric AU IDs"))?;
+            if self.body_control_au_ids.contains(&id) {return Err(JsError::new("Body actions must use semantic tracks"));}
+            if !profile.au_info.contains_key(key) && !profile.au_to_morphs.contains_key(key) && !profile.au_to_bones.contains_key(key) {return Err(JsError::new("Unknown facial action"));}
+            if points.is_empty()||points.iter().any(|p|!p.time.is_finite()||p.time<0.||p.time>animation.duration_seconds||!p.intensity.is_finite()||p.intensity<0.||p.intensity>1.)||points.windows(2).any(|p|p[0].time>=p[1].time) {return Err(JsError::new("Invalid facial curve"));}
+        }
+        options.snippet_category=None;
+        for (id,value,points) in tracks {
+            options.balance_map.insert(id.to_string(),value.balance);
+            options.mix_weights.insert(id,value.morph_strength.unwrap());
+            curves.insert(id.to_string(),points.into_iter().map(|p|RuntimeCurvePoint{time:p.time,intensity:p.intensity as f64,inherit:false}).collect());
+        }
+        let mut clip=self.compile_curves(name,curves,&options)?;
+        clip.tracks=crate::snippet_compile::merge_semantic_morph_tracks(clip.tracks).map_err(|error|JsError::new(&error))?;
+        clip.duration_seconds=animation.duration_seconds;
+        Ok(clip)
     }
 
     /// Resolved Body descriptors for the configured profile/model. Model
@@ -1537,12 +1657,14 @@ impl RuntimeCore {
             auto_viseme_jaw: options.auto_viseme_jaw.unwrap_or(true),
             jaw_scale: options.jaw_scale.unwrap_or(1.0),
         };
+        let mut mix_weights = self.mix_weights.clone();
+        mix_weights.extend(options.mix_weights.clone());
         let tracks = compile_snippet_tracks(SnippetCompileInput {
             curves: &snippet_curves,
             au_bindings: &au_bindings,
             viseme_bindings: &viseme_bindings,
             viseme_slot_count: self.viseme_values.len(),
-            mix_weights: &self.mix_weights,
+            mix_weights: &mix_weights,
             mixed_aus: &mixed_aus,
             composite_axes: &self.composite_axes,
             translation_rows: &self.translation_rows,

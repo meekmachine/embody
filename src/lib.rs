@@ -5,6 +5,7 @@ mod annotation_markers;
 mod appearance;
 mod bones;
 mod body_controls;
+mod semantic_pose;
 mod clip;
 mod gaze;
 mod hair;
