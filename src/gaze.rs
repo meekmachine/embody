@@ -116,7 +116,7 @@ fn au_capacity(profile: &ProfileData, id: u32) -> f32 {
     // Use the same CC4 composite fallback as RuntimeCore when saved profiles
     // omit their table. A bone rotation mapping without a matching composite
     // cannot be driven by the runtime and therefore supplies no capacity.
-    let composites = if profile.composite_rotations.is_empty() {
+    let composites = if profile.composite_rotations.is_unspecified() {
         &crate::presets::load_profile("cc4")
             .expect("embedded CC4 profile")
             .composite_rotations
@@ -128,7 +128,7 @@ fn au_capacity(profile: &ProfileData, id: u32) -> f32 {
     // limited by its smaller actuator; unequal eyes need per-eye calibration.
     let mut seen = std::collections::HashSet::new();
     let mut capacity = f32::INFINITY;
-    for composite in composites {
+    for composite in composites.iter() {
         let axis = if [51, 52, 61, 62].contains(&id) {
             &composite.yaw
         } else {
@@ -862,12 +862,27 @@ mod tests {
         unused.node = "NotTheHead".into();
         profile.au_to_bones.get_mut("51").unwrap().insert(0, unused);
         assert_eq!(gaze_limits(&profile).head_yaw.positive, 60.0);
-        for composite in &mut profile.composite_rotations {
+        for composite in profile.composite_rotations.iter_mut() {
             if composite.node == "HEAD" {
                 composite.yaw = None;
             }
         }
         assert_eq!(gaze_limits(&profile).head_yaw.positive, 0.0);
+    }
+
+    #[test]
+    fn explicit_empty_composites_disable_gaze_capacity_but_null_and_missing_inherit() {
+        let mut value = serde_json::to_value(canonical_profile()).unwrap();
+        value["compositeRotations"] = serde_json::json!([]);
+        let profile: ProfileData = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(gaze_limits(&profile).head_yaw.positive, 0.0);
+        assert_eq!(gaze_limits(&profile).eye_pitch.positive, 0.0);
+        value["compositeRotations"] = serde_json::Value::Null;
+        let profile: ProfileData = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(gaze_limits(&profile).head_yaw.positive, 60.0);
+        value.as_object_mut().unwrap().remove("compositeRotations");
+        let profile: ProfileData = serde_json::from_value(value).unwrap();
+        assert_eq!(gaze_limits(&profile).head_yaw.positive, 60.0);
     }
 
     #[test]

@@ -267,6 +267,20 @@ fn push_scaled_curve_track(
     *next_id += 1;
 }
 
+/// Semantic pose animations use the live runtime's max-combination when
+/// independent anatomical actions share a corrective morph destination.
+pub(crate) fn merge_semantic_morph_tracks(tracks: Vec<ClipTrackIR>) -> Result<Vec<ClipTrackIR>, String> {
+    let mut other=Vec::new(); let mut morphs=Vec::new();
+    for (index,track) in tracks.into_iter().enumerate() {
+        if track.target["kind"]=="morphTarget" {
+            morphs.push(MorphTrackContribution{channel_index:index,source:MorphSource::Au(0),track,side_enabled:true});
+        } else {other.push(track);}
+    }
+    other.extend(merge_morph_tracks(morphs)?);
+    for (index,track) in other.iter_mut().enumerate(){track.id=index as u32+1;}
+    Ok(other)
+}
+
 fn merge_morph_tracks(tracks: Vec<MorphTrackContribution>) -> Result<Vec<ClipTrackIR>, String> {
     let mut by_target: BTreeMap<(MorphSource, u64, u64), Vec<MorphTrackContribution>> =
         BTreeMap::new();

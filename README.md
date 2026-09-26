@@ -1,5 +1,10 @@
 # Embody
 
+Explicit profiles may be empty: `RuntimeCore.configure_with_profile('{}', modelJson)`
+loads a static or not-yet-mapped model without selecting an embedded preset.
+Missing mappings remain an authoring/validation concern; malformed JSON still
+fails configuration. Existing mapped profiles retain their runtime behavior.
+
 Embody is a Rust/Wasm character animation core for facial action units,
 visemes, bone controls, baked animation clips, and hair motion. Three.js is a
 host adapter, not the runtime implementation.
@@ -206,6 +211,18 @@ step/linear clip conversion, and remaining import work.
 
 ## Presets And Profiles
 
+### Full humanoid skeleton and body authoring
+
+`humanoid.getSpecification` exposes all 55 VRM 1.0 anatomical roles and their
+parent/required rules. CC4 maps all 55 to distinct authored bones and supplies
+58 body controls, including fingers, wrists, shoulders, feet, pelvis, spine,
+head, eyes and jaw. `profile.setHumanoidRoleBinding` edits or clears a role and
+retargets its existing actuators. The runtime keeps the same bone/morph evaluator;
+other rigs must author their own calibrated axes/ranges and optional muscle
+morph targets. See [Body controls](docs/body-controls.md) for migration, validation
+and role-assignment contracts.
+
+
 `cc4` and `fish` are embedded in the Wasm binary. `skeletal` is accepted as a
 host-level alias for `fish`; exact custom profiles use
 `RuntimeCore.configure_with_profile` and are never silently merged with CC4.
@@ -338,3 +355,43 @@ the package; CI checks and publishes that same build.
 ## License
 
 MIT. See [LICENSE](LICENSE) and [AUTHORS.md](AUTHORS.md).
+
+### Semantic poses and generated motion
+
+`RuntimeCore.get_semantic_pose_catalog_json()` returns the configured profile's
+motion identifiers, direction labels, VRM roles, resolved bone/morph names and
+per-direction model support and available sides. VRM names anatomy; profile motion IDs name authored
+actions. Hosts should send only supported directions to generation prompts,
+along with their bounds: intensity and morph strength `0..1`, bilateral balance
+`-1` character-left, `0` both, `1` character-right. Amounts are normalized authored
+motion, not radians or world-space rotation.
+
+`capture_semantic_pose_json()` returns `{version:1,controls:[{controlId,positive,
+negative?}]}`. Each direction stores intensity, balance and morphStrength
+independently, preserving opposed action values. These are manual runtime
+controls; capturing an arbitrary mixer/baked pose would require pose inference.
+`validate_semantic_pose_json()` fills omitted settings without mutation.
+`apply_semantic_pose_json()` validates the complete input before replacing Body
+actions, preserving unrelated facial state. Either direction may be omitted;
+a control requires at least one. Known missing outputs remain portable to partial
+rigs; unknown IDs, duplicate actions and invalid bounds fail. Applying a semantic pose releases prior direct overrides on its exact mapped
+mesh/target IDs, preserving unrelated facial overrides and same-named targets on
+unmapped meshes.
+
+`build_semantic_clip(name, animationJson, optionsJson)` compiles
+`{version:1,durationSeconds,tracks:[{controlId,direction,balance?,morphStrength?,
+keyframes:[{time,intensity}]}]}` through the same AU/bone/morph evaluator.
+Direction is `positive` or `negative`; time is seconds. Unsupported directions,
+unknown controls, duplicate actions and non-increasing/out-of-range keys fail.
+`options.faceCurves` accepts additional non-Body AU curves so face and body compile
+together, including overlapping mapped bones. Compilation preserves live state;
+per-track morph strength changes only the compiled output. The host mixer owns
+playback and interpolation, as with existing snippets.
+
+Catalog `availableSides` identifies actual mapped left/right/center outputs.
+Generated animations reject a negative balance without a left output or positive
+balance without a right output; balance zero may drive the remaining side of a
+partial rig. Stored static poses retain their portability across missing outputs.
+`evaluate_semantic_body_bone_frame()` returns exact Body-owned properties including
+neutral values, allowing an explicit semantic pose/reset to replace old raw bone
+edits without touching unrelated properties.

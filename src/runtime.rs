@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
@@ -81,6 +81,8 @@ struct RuntimeCurvePoint {
 #[serde(rename_all = "camelCase", default)]
 struct ClipBuildOptions {
     intensity_scale: Option<f64>,
+    mix_weights: HashMap<u32, f32>,
+    face_curves: BTreeMap<String, Vec<RuntimeCurvePoint>>,
     balance: Option<f32>,
     balance_map: HashMap<String, f32>,
     mesh_names: Vec<String>,
@@ -109,41 +111,14 @@ struct TypedChannel {
 /// rotations in live frames and in compiled snippet clips (only morph tracks
 /// come out of snippet-to-clip). Composite nodes that don't resolve against
 /// the model are skipped during table compilation, so this is safe for
-/// non-CC4 rigs.
+/// non-CC4 rigs. Explicit arrays, including [], never use this fallback.
 fn apply_composite_rotation_fallback(profile: &mut ProfileData) {
-    if !profile.composite_rotations.is_empty() {
+    if !profile.composite_rotations.is_unspecified() {
         return;
     }
     if let Ok(cc4) = presets::load_profile("cc4") {
         profile.composite_rotations = cc4.composite_rotations.clone();
     }
-}
-
-#[cfg(test)]
-fn compile_resolved_profile_tables(
-    profile_json: &str,
-    model_json: &str,
-) -> Result<CompiledTables, String> {
-    let profile: ProfileData = deserialize_json(profile_json, "Invalid resolved profile JSON")?;
-    if !profile.has_runtime_mappings() {
-        return Err(
-            "Resolved profile is incomplete: expected at least one AU, bone, or viseme mapping"
-                .to_string(),
-        );
-    }
-
-    let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")?;
-    let tables = compile_tables(&profile, &model);
-    if !tables.has_runtime_bindings() {
-        return Err(format!(
-            "Resolved profile is incompatible with the model descriptor: no runtime bindings resolved against {} meshes, {} morph targets, and {} bones",
-            model.meshes.len(),
-            model.morph_targets.len(),
-            model.bones.len(),
-        ));
-    }
-
-    Ok(tables)
 }
 
 /// Host-neutral live morph runtime. Owns AU/viseme/mix state and emits packed
@@ -176,6 +151,10 @@ pub struct RuntimeCore {
     object_rest_scales: HashMap<u32, [f32; 3]>,
     mesh_visibility: HashMap<u32, bool>,
     animation: AnimationCore,
+    procedural_bone_flags: HashMap<u32, u32>,
+    procedural_morph_targets: BTreeSet<(u32, u32)>,
+    body_controls_json: String,
+    body_control_au_ids: BTreeSet<u32>,
 }
 
 #[wasm_bindgen]
@@ -209,6 +188,10 @@ impl RuntimeCore {
             object_rest_scales: HashMap::new(),
             mesh_visibility: HashMap::new(),
             animation: AnimationCore::new(),
+            procedural_bone_flags: HashMap::new(),
+            procedural_morph_targets: BTreeSet::new(),
+            body_controls_json: "[]".into(),
+            body_control_au_ids: BTreeSet::new(),
         }
     }
 
@@ -230,9 +213,9 @@ impl RuntimeCore {
 
     /// Configure from a resolved profile without applying an embedded preset.
     ///
-    /// The profile must contain runtime mappings, but mappings that do not match
-    /// the current model are non-fatal. The character can still render and be
-    /// repaired in the authoring UI without silently substituting a preset.
+    /// Empty profiles and mappings that do not match the current model are
+    /// non-fatal. Static imports can render before authoring any bindings,
+    /// without silently substituting an embedded preset.
     #[wasm_bindgen]
     pub fn configure_with_profile(
         &mut self,
@@ -242,12 +225,9 @@ impl RuntimeCore {
         let mut profile: ProfileData =
             deserialize_json(profile_json, "Invalid resolved profile JSON")
                 .map_err(|err| JsError::new(&err))?;
-        if !profile.has_runtime_mappings() {
-            return Err(JsError::new(
-                "Resolved profile is incomplete: expected at least one AU, bone, or viseme mapping",
-            ));
+        if profile.has_runtime_mappings() {
+            apply_composite_rotation_fallback(&mut profile);
         }
-        apply_composite_rotation_fallback(&mut profile);
         let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")
             .map_err(|err| JsError::new(&err))?;
         let tables = compile_tables(&profile, &model);
@@ -268,8 +248,6 @@ impl RuntimeCore {
         let base = presets::load_profile(preset_id).map_err(|err| JsError::new(&err))?;
         let extension = parse_profile_patch(override_json).map_err(|err| JsError::new(&err))?;
         let mut profile = extend_preset_with_profile(base, extension);
-        // Overrides serialized with `compositeRotations: []` must not wipe the
-        // preset's composite table (bone rotations would silently vanish).
         apply_composite_rotation_fallback(&mut profile);
         let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")
             .map_err(|err| JsError::new(&err))?;
@@ -284,6 +262,11 @@ impl RuntimeCore {
         model: ModelData,
         tables: CompiledTables,
     ) {
+        self.reset_procedural_frame_tracking();
+        self.body_controls_json = crate::body_controls::resolve(&profile, Some(&model)).to_string();
+        self.body_control_au_ids = profile.body_controls.values()
+            .flat_map(|control| std::iter::once(control.au_id).chain(control.negative_au_id))
+            .collect();
         self.initial_morph_values.clear();
         self.bone_rest_scales.clear();
         self.object_rest_positions.clear();
@@ -429,11 +412,12 @@ impl RuntimeCore {
         self.au_balances.insert(id, clamp_signed(balance));
     }
 
-    /// Continuum-aware AU set. Negative values route through the configured
-    /// continuum pair (e.g. eyes left/right) exactly like the legacy runtime.
+    /// Manual directional command: a nonzero value owns its configured pair.
+    /// Negative values select the opposite direction. Zero clears only the
+    /// named AU, so releasing an inactive slider does not stop its partner.
     #[wasm_bindgen]
     pub fn set_au_signed(&mut self, id: u32, value: f32, balance: f32) {
-        if value < 0.0 {
+        if value.is_finite() && value != 0.0 {
             if let Some((pair_id, is_negative)) = self.continuum_pairs.get(&id).copied() {
                 let (neg_au, pos_au) = if is_negative {
                     (id, pair_id)
@@ -515,6 +499,12 @@ impl RuntimeCore {
         *self.au_balances.get(&id).unwrap_or(&0.0)
     }
 
+    /// Current runtime tissue strength, independent of persisted profile defaults.
+    #[wasm_bindgen]
+    pub fn get_au_mix_weight(&self, id:u32)->f32{
+        self.mix_weights.get(&id).copied().unwrap_or(1.0)
+    }
+
     #[wasm_bindgen]
     pub fn set_au_mix_weight(&mut self, id: u32, weight: f32) {
         self.mix_weights.insert(id, clamp01(weight));
@@ -555,6 +545,162 @@ impl RuntimeCore {
         self.viseme_jaw_scales = next_scales;
     }
 
+    /// Profile-derived motions and resolved model support for prompt/pose editors.
+    #[wasm_bindgen]
+    pub fn get_semantic_pose_catalog_json(&self) -> String {
+        self.profile.as_ref().map(|profile| crate::semantic_pose::catalog(profile,self.model.as_ref()).to_string()).unwrap_or_else(||"[]".into())
+    }
+
+    /// Full Body property writes, including neutral reference values. Hosts use
+    /// this once when an explicit pose replaces direct legacy bone edits.
+    #[wasm_bindgen]
+    pub fn evaluate_semantic_body_bone_frame(&self)->Box<[f32]>{
+        let (Some(profile),Some(model))=(&self.profile,&self.model) else{return Vec::new().into_boxed_slice();};
+        let resolver=crate::profile::NameResolver::new(profile,model);
+        let mut properties:HashMap<u32,u32>=HashMap::new();
+        for id in &self.body_control_au_ids {
+            for binding in profile.au_to_bones.get(&id.to_string()).into_iter().flatten(){
+                if let Some(bone)=resolver.resolve_bone(model,profile,&binding.node){
+                    let flag=match binding.channel.as_str(){"rx"|"ry"|"rz"=>FLAG_HAS_ROTATION,"tx"|"ty"|"tz"=>FLAG_HAS_POSITION,_=>0};
+                    *properties.entry(bone.id).or_default()|=flag;
+                }
+            }
+        }
+        let mut result=Vec::new();
+        for row in self.evaluate_bone_frame_delta().chunks_exact(9){
+            let flags=(row[8] as u32)&properties.get(&(row[0] as u32)).copied().unwrap_or(0);
+            if flags!=0{result.extend_from_slice(&row[..8]);result.push(flags as f32);}
+        }
+        result.into_boxed_slice()
+    }
+
+    /// Captures manual semantic state; does not infer actions from a mixer pose.
+    #[wasm_bindgen]
+    pub fn capture_semantic_pose_json(&self) -> String {
+        use crate::semantic_pose::{Pose,PoseControl,Channel};
+        let controls=self.profile.as_ref().map(|profile| profile.body_controls.iter().map(|(id,control)| {
+            let capture=|au| Channel{intensity:self.get_au(au),balance:self.get_au_balance(au),
+                morph_strength:Some(*self.mix_weights.get(&au).unwrap_or(&1.0))};
+            PoseControl{control_id:id.clone(),positive:Some(capture(control.au_id)),
+                negative:control.negative_au_id.filter(|au|*au!=control.au_id).map(capture)}
+        }).collect()).unwrap_or_default();
+        serde_json::to_string(&Pose{version:1,controls}).unwrap()
+    }
+
+    /// Validate and fill optional settings without changing runtime or renderer state.
+    #[wasm_bindgen]
+    pub fn validate_semantic_pose_json(&self, json:&str) -> Result<String,JsError> {
+        let mut pose:crate::semantic_pose::Pose=deserialize_json(json,"Invalid semantic pose")
+            .map_err(|error|JsError::new(&error))?;
+        let profile=self.profile.as_ref().ok_or_else(||JsError::new("Runtime is not configured"))?;
+        let actions=crate::semantic_pose::validate_pose(profile,&pose).map_err(|error|JsError::new(&error))?;
+        for row in &mut pose.controls {
+            let control=&profile.body_controls[&row.control_id];
+            if row.positive.is_some() {row.positive=Some(actions[&control.au_id].clone());}
+            if row.negative.is_some() { row.negative=Some(actions[&control.negative_au_id.unwrap()].clone()); }
+        }
+        serialize_runtime_json(&pose,"semantic pose")
+    }
+
+    /// Validate every channel before replacing Body state. Other FACS state remains.
+    #[wasm_bindgen]
+    pub fn apply_semantic_pose_json(&mut self, json:&str) -> Result<(),JsError> {
+        let pose:crate::semantic_pose::Pose=deserialize_json(json,"Invalid semantic pose")
+            .map_err(|error|JsError::new(&error))?;
+        let profile=self.profile.as_ref().ok_or_else(||JsError::new("Runtime is not configured"))?;
+        let actions=crate::semantic_pose::validate_pose(profile,&pose).map_err(|error|JsError::new(&error))?;
+        let defaults:Vec<_>=self.body_control_au_ids.iter().map(|id|(*id,profile.au_mix_defaults.get(&id.to_string()).copied().unwrap_or(1.) as f32)).collect();
+        // A legacy/raw pose may have left direct overrides on these destinations.
+        // Release exact resolved IDs only after the entire new pose validates.
+        let managed_targets:HashSet<_>=self.au_bindings.iter()
+            .filter(|binding|self.body_control_au_ids.contains(&binding.au_id))
+            .map(|binding|(binding.mesh_id,binding.morph_target_id)).collect();
+        self.direct_morph_values.retain(|target,_|!managed_targets.contains(target));
+        self.reset_body_controls();
+        for (id,weight) in defaults {self.mix_weights.insert(id,weight);}
+        for (id,value) in actions { self.set_au(id,value.intensity,value.balance);self.set_au_mix_weight(id,value.morph_strength.unwrap()); }
+        Ok(())
+    }
+
+    /// Compile semantic motions and optional facial curves together without changing live state.
+    #[wasm_bindgen]
+    pub fn build_semantic_clip(&mut self,name:&str,json:&str,options_json:&str)->Result<String,JsError>{
+        let clip=self.compile_semantic_animation(name,json,options_json)?;
+        let result=serialize_runtime_json(&clip,"semantic clip")?;
+        self.animation.insert_clip(clip,"snippet").map_err(|error|JsError::new(&error))?;
+        Ok(result)
+    }
+
+    /// Compile and validate without registering a clip or changing live controls.
+    #[wasm_bindgen]
+    pub fn validate_semantic_animation_json(&self,json:&str,options_json:&str)->Result<(),JsError>{
+        self.compile_semantic_animation("semantic-validation",json,options_json).map(|_|())
+    }
+
+    fn compile_semantic_animation(&self,name:&str,json:&str,options_json:&str)->Result<ClipIR,JsError>{
+        let animation:crate::semantic_pose::Animation=deserialize_json(json,"Invalid semantic animation")
+            .map_err(|error|JsError::new(&error))?;
+        let profile=self.profile.as_ref().ok_or_else(||JsError::new("Runtime is not configured"))?;
+        let tracks=crate::semantic_pose::validate_animation(profile,self.model.as_ref(),&animation)
+            .map_err(|error|JsError::new(&error))?;
+        let mut options:ClipBuildOptions=parse_runtime_json(options_json,"semantic clip options")?;
+        let mut curves=std::mem::take(&mut options.face_curves);
+        for (key,points) in &curves {
+            let id=key.parse::<u32>().map_err(|_|JsError::new("Facial curves must use numeric AU IDs"))?;
+            if self.body_control_au_ids.contains(&id) {return Err(JsError::new("Body actions must use semantic tracks"));}
+            if !profile.au_info.contains_key(key) && !profile.au_to_morphs.contains_key(key) && !profile.au_to_bones.contains_key(key) {return Err(JsError::new("Unknown facial action"));}
+            if points.is_empty()||points.iter().any(|p|!p.time.is_finite()||p.time<0.||p.time>animation.duration_seconds||!p.intensity.is_finite()||p.intensity<0.||p.intensity>1.)||points.windows(2).any(|p|p[0].time>=p[1].time) {return Err(JsError::new("Invalid facial curve"));}
+        }
+        options.snippet_category=None;
+        for (id,value,points) in tracks {
+            options.balance_map.insert(id.to_string(),value.balance);
+            options.mix_weights.insert(id,value.morph_strength.unwrap());
+            curves.insert(id.to_string(),points.into_iter().map(|p|RuntimeCurvePoint{time:p.time,intensity:p.intensity as f64,inherit:false}).collect());
+        }
+        let mut clip=self.compile_curves(name,curves,&options)?;
+        clip.tracks=crate::snippet_compile::merge_semantic_morph_tracks(clip.tracks).map_err(|error|JsError::new(&error))?;
+        clip.duration_seconds=animation.duration_seconds;
+        Ok(clip)
+    }
+
+    /// Resolved Body descriptors for the configured profile/model. Model
+    /// inspection and descriptor resolution are cached until reconfiguration.
+    #[wasm_bindgen]
+    pub fn get_body_controls_json(&self) -> String {
+        self.body_controls_json.clone()
+    }
+
+    /// Clear each unique configured Body action and bilateral balance together.
+    /// Shared facial aliases are Body actions too. Preserve other actions,
+    /// visemes, direct morph overrides, and authored/current morph mix weights.
+    #[wasm_bindgen]
+    pub fn reset_body_controls(&mut self) {
+        for id in &self.body_control_au_ids {
+            self.au_values.remove(id);
+            self.au_balances.remove(id);
+        }
+    }
+
+    /// Forget ownership when renderer bindings are discarded. Before replacing
+    /// bindings, apply release_procedural_morph_frame through the old IDs.
+    /// Normal clear/reset deliberately retain tracking for the next frame.
+    #[wasm_bindgen]
+    pub fn reset_procedural_frame_tracking(&mut self) {
+        self.procedural_bone_flags.clear();
+        self.procedural_morph_targets.clear();
+    }
+
+    /// Release owned morphs through the old renderer binding IDs before rebind.
+    #[wasm_bindgen]
+    pub fn release_procedural_morph_frame(&mut self) -> Box<[f32]> {
+        let mut out = Vec::with_capacity(self.procedural_morph_targets.len() * 4);
+        for (mesh_id, target_id) in &self.procedural_morph_targets {
+            out.extend_from_slice(&[*mesh_id as f32, *target_id as f32, 0.0, 0.0]);
+        }
+        self.reset_procedural_frame_tracking();
+        out.into_boxed_slice()
+    }
+
     #[wasm_bindgen]
     pub fn clear(&mut self) {
         self.au_values.clear();
@@ -586,6 +732,23 @@ impl RuntimeCore {
             self.direct_morph_values.insert(*target, clamp01(value));
         }
         targets.len() as u32
+    }
+
+    /// Release a direct morph override so AU/viseme/mixer ownership can resume.
+    /// A deliberate `set_morph(..., 0, ...)` still owns and masks the target;
+    /// preview cleanup must release instead of installing a permanent zero.
+    /// Target selection matches `set_morph`; returns overrides actually removed.
+    #[wasm_bindgen]
+    pub fn release_morph(&mut self, morph_name: &str, mesh_names_json: &str) -> u32 {
+        let targets = self.resolve_morph_targets(morph_name, None, mesh_names_json);
+        targets.iter().filter(|target| self.direct_morph_values.remove(target).is_some()).count() as u32
+    }
+
+    /// Index counterpart to `release_morph`, with `set_morph_index` selection.
+    #[wasm_bindgen]
+    pub fn release_morph_index(&mut self, morph_index: i32, mesh_names_json: &str) -> u32 {
+        let targets = self.resolve_morph_targets("", Some(morph_index), mesh_names_json);
+        targets.iter().filter(|target| self.direct_morph_values.remove(target).is_some()).count() as u32
     }
 
     /// Set morph(s) immediately. Duration is ignored — host mixers own timed fades.
@@ -1051,7 +1214,8 @@ impl RuntimeCore {
     }
 
     /// Same rows as `evaluate_morph_frame_delta`, but only channels with a
-    /// non-zero live value. Hosts re-apply this after mixer playback so live
+    /// non-zero live value or an explicit direct override (including zero).
+    /// Hosts re-apply this after mixer playback so live
     /// AU/viseme state wins over clip tracks (Loom3 parity) without resetting
     /// channels the mixer owns.
     #[wasm_bindgen]
@@ -1059,8 +1223,30 @@ impl RuntimeCore {
         self.morph_frame_writes(true)
     }
 
+    /// Emit active morphs plus one neutral release for previously owned
+    /// targets. Direct overrides, including explicit zero, retain ownership.
+    /// Untouched targets are omitted so constant mixer tracks keep their pose.
+    #[wasm_bindgen]
+    pub fn evaluate_procedural_morph_frame(&mut self) -> Box<[f32]> {
+        let dense = self.morph_frame_writes(false);
+        let mut previous = std::mem::take(&mut self.procedural_morph_targets);
+        let mut out = Vec::new();
+        for row in dense.chunks_exact(PACKED_MORPH_FRAME_DELTA_STRIDE as usize) {
+            let target = (row[0] as u32, row[1] as u32);
+            let active = row[2] > 1e-6 || self.direct_morph_values.contains_key(&target);
+            let was_owned = previous.remove(&target);
+            if active { self.procedural_morph_targets.insert(target); }
+            if active || was_owned { out.extend_from_slice(row); }
+        }
+        // Direct-only targets vanish from dense evaluation when cleared.
+        for (mesh_id, target_id) in previous {
+            out.extend_from_slice(&[mesh_id as f32, target_id as f32, 0.0, 0.0]);
+        }
+        out.into_boxed_slice()
+    }
+
     fn morph_frame_writes(&self, active_only: bool) -> Box<[f32]> {
-        let mut writes: HashMap<(u32, u32), f32> = HashMap::new();
+        let mut writes: BTreeMap<(u32, u32), f32> = BTreeMap::new();
 
         for binding in &self.au_bindings {
             let value = *self.au_values.get(&binding.au_id).unwrap_or(&0.0);
@@ -1120,7 +1306,8 @@ impl RuntimeCore {
 
         let mut out = Vec::with_capacity(writes.len() * PACKED_MORPH_FRAME_DELTA_STRIDE as usize);
         for ((mesh_id, morph_target_id), value) in writes {
-            if active_only && value <= 1e-6 {
+            if active_only && value <= 1e-6
+                && !self.direct_morph_values.contains_key(&(mesh_id, morph_target_id)) {
                 continue;
             }
             out.push(mesh_id as f32);
@@ -1149,7 +1336,22 @@ impl RuntimeCore {
         self.bone_frame_writes(true)
     }
 
+    /// Emit only currently/previously owned bone properties. Position and
+    /// rotation ownership are separate; inactive properties release once.
+    #[wasm_bindgen]
+    pub fn evaluate_procedural_bone_frame(&mut self) -> Box<[f32]> {
+        let (frame, active) = self.bone_frame_writes_tracked(false, Some(&self.procedural_bone_flags));
+        self.procedural_bone_flags = active;
+        frame
+    }
+
     fn bone_frame_writes(&self, active_only: bool) -> Box<[f32]> {
+        self.bone_frame_writes_tracked(active_only, None).0
+    }
+
+    fn bone_frame_writes_tracked(&self, active_only: bool, previous: Option<&HashMap<u32, u32>>)
+        -> (Box<[f32]>, HashMap<u32, u32>) {
+        let mut active_flags: HashMap<u32, u32> = HashMap::new();
         let mut order: Vec<u32> = Vec::new();
         let mut writes: HashMap<u32, BoneWrite> = HashMap::new();
 
@@ -1196,6 +1398,7 @@ impl RuntimeCore {
                 composite_index += 1;
             }
 
+            if previous.is_some() && bone_active { *active_flags.entry(bone_id).or_default() |= FLAG_HAS_ROTATION; }
             if !active_only || bone_active {
                 upsert_bone_write(&mut writes, &mut order, bone_id, None, Some(rotation));
             }
@@ -1224,6 +1427,9 @@ impl RuntimeCore {
             entry.1[row.axis.min(2) as usize] = offset;
         }
         for (bone_id, offset) in offsets {
+            if previous.is_some() && offset.iter().any(|component| component.abs() > 1e-6) {
+                *active_flags.entry(bone_id).or_default() |= FLAG_HAS_POSITION;
+            }
             if active_only && offset.iter().all(|component| component.abs() <= 1e-6) {
                 continue;
             }
@@ -1256,6 +1462,9 @@ impl RuntimeCore {
                 .map(|rest| rest.rotation)
                 .unwrap_or([0.0, 0.0, 0.0, 1.0]);
             if jaw_amount > 1e-6 {
+                if previous.is_some() {
+                    *active_flags.entry(jaw.bone_id).or_default() |= FLAG_HAS_ROTATION;
+                }
                 let rotation = multiply_quat(
                     rest,
                     quat_from_channel(
@@ -1284,6 +1493,11 @@ impl RuntimeCore {
             if rotation.is_some() {
                 flags |= FLAG_HAS_ROTATION;
             }
+            if let Some(previous) = previous {
+                flags &= active_flags.get(&bone_id).copied().unwrap_or(0)
+                    | previous.get(&bone_id).copied().unwrap_or(0);
+                if flags == 0 { continue; }
+            }
             let position = position.unwrap_or([0.0, 0.0, 0.0]);
             let rotation = rotation.unwrap_or([0.0, 0.0, 0.0, 1.0]);
             out.push(bone_id as f32);
@@ -1291,7 +1505,7 @@ impl RuntimeCore {
             out.extend_from_slice(&rotation);
             out.push(flags as f32);
         }
-        out.into_boxed_slice()
+        (out.into_boxed_slice(), active_flags)
     }
 
     /// Scene extras for live state. Clip-driven scale/visibility/object writes
@@ -1450,12 +1664,14 @@ impl RuntimeCore {
             auto_viseme_jaw: options.auto_viseme_jaw.unwrap_or(true),
             jaw_scale: options.jaw_scale.unwrap_or(1.0),
         };
+        let mut mix_weights = self.mix_weights.clone();
+        mix_weights.extend(options.mix_weights.clone());
         let tracks = compile_snippet_tracks(SnippetCompileInput {
             curves: &snippet_curves,
             au_bindings: &au_bindings,
             viseme_bindings: &viseme_bindings,
             viseme_slot_count: self.viseme_values.len(),
-            mix_weights: &self.mix_weights,
+            mix_weights: &mix_weights,
             mixed_aus: &mixed_aus,
             composite_axes: &self.composite_axes,
             translation_rows: &self.translation_rows,
@@ -2478,6 +2694,211 @@ mod tests {
     }
 
     #[test]
+    fn procedural_bone_ownership_releases_properties_once_without_touching_mixer_channels() {
+        let mut core = RuntimeCore::new(1);
+        core.load_bone_rest_transforms(&[
+            1.0, 2.0, 3.0, 4.0, 0.0, 0.0, 0.0, 1.0,
+            2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ]);
+        core.load_composite_axes(&[
+            1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0,
+            51.0, 2.0, 0.0, 51.0, 2.0, 0.0, 1.0, 1.0, 30.0,
+        ]);
+        core.load_bone_translations(&[40.0, 1.0, 1.0, 1.0, 0.5]);
+        core.load_jaw_binding(&[2.0, 0.0, 1.0, 30.0]);
+        core.load_viseme_jaw_amounts(&[1.0]);
+        assert!(core.evaluate_procedural_bone_frame().is_empty());
+        core.set_au(51, 0.5, 0.0);
+        let rotation = core.evaluate_procedural_bone_frame();
+        assert_eq!(rotation.len(), 9);
+        assert_eq!(rotation[8], FLAG_HAS_ROTATION as f32);
+        let active = core.evaluate_active_bone_frame();
+        assert_eq!(active[0], rotation[0]);
+        assert_eq!(&active[4..], &rotation[4..]); // position is unowned
+        core.set_au(40, 0.5, 0.0);
+        assert_eq!(core.evaluate_procedural_bone_frame()[8], 3.0);
+        core.set_au(51, 0.0, 0.0);
+        // Pure post-mixer reads must not consume the pending neutral release.
+        assert_eq!(core.evaluate_active_bone_frame()[8], 1.0);
+        let release = core.evaluate_procedural_bone_frame();
+        assert_eq!(release[8], 3.0);
+        assert_eq!(&release[4..8], &[0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(core.evaluate_procedural_bone_frame()[8], 1.0);
+        core.set_viseme(0, 0.5);
+        assert_eq!(core.evaluate_procedural_bone_frame().len(), 18);
+        core.clear();
+        assert!(core.evaluate_active_bone_frame().is_empty());
+        let release = core.evaluate_procedural_bone_frame();
+        assert_eq!(release.len(), 18);
+        assert_eq!(release[8], 1.0);
+        assert_eq!(&release[1..4], &[2.0, 3.0, 4.0]);
+        assert_eq!(release[17], 2.0);
+        assert!(core.evaluate_procedural_bone_frame().is_empty());
+    }
+
+    #[test]
+    fn procedural_morphs_preserve_bilateral_mix_and_release_direct_only_targets_once() {
+        let mut core = RuntimeCore::new(0);
+        core.load_au_morph_bindings(&[
+            1.0, 0.0, 10.0, 100.0, 1.0,
+            1.0, 1.0, 10.0, 101.0, 1.0,
+            2.0, 2.0, 10.0, 102.0, 1.0,
+        ]);
+        assert!(core.evaluate_procedural_morph_frame().is_empty());
+        core.mixed_aus.insert(1, true);
+        core.set_au_mix_weight(1, 0.5);
+        core.set_au(1, 0.8, -1.0);
+        let active = core.evaluate_procedural_morph_frame();
+        assert_eq!(&*active, &[10.0, 100.0, 0.4, 0.0]);
+        assert_eq!(core.evaluate_active_morph_frame(), active);
+        core.set_au(1, 0.8, 1.0);
+        assert_eq!(&*core.evaluate_procedural_morph_frame(),
+            &[10.0, 100.0, 0.0, 0.0, 10.0, 101.0, 0.4, 0.0]);
+        assert_eq!(&*core.evaluate_procedural_morph_frame(), &[10.0, 101.0, 0.4, 0.0]);
+        core.direct_morph_values.insert((9, 2), 0.0);
+        core.direct_morph_values.insert((9, 1), 0.75);
+        let stable = core.evaluate_procedural_morph_frame();
+        assert_eq!(core.evaluate_procedural_morph_frame(), stable);
+        assert_eq!(&stable[..8], &[9.0, 1.0, 0.75, 0.0, 9.0, 2.0, 0.0, 0.0]);
+        core.clear();
+        assert!(core.evaluate_active_morph_frame().is_empty());
+        assert_eq!(&*core.evaluate_procedural_morph_frame(),
+            &[10.0, 101.0, 0.0, 0.0, 9.0, 1.0, 0.0, 0.0, 9.0, 2.0, 0.0, 0.0]);
+        assert!(core.evaluate_procedural_morph_frame().is_empty());
+    }
+
+    #[test]
+    fn procedural_rebind_releases_old_ids_and_reconfigure_cannot_write_reused_ids() {
+        let mut core = RuntimeCore::new(0);
+        let model = r#"{"meshes":[{"id":1,"name":"Body","morphTargetIds":[7]}],"morphTargets":[{"id":7,"meshId":1,"name":"Flex","hostIndex":0}]}"#;
+        core.configure_with_profile("{}", model).unwrap();
+        core.set_morph("Flex", 0.75, "[]");
+        assert_eq!(&*core.evaluate_procedural_morph_frame(), &[1.0, 7.0, 0.75, 0.0]);
+        assert_eq!(&*core.release_procedural_morph_frame(), &[1.0, 7.0, 0.0, 0.0]);
+        assert!(core.release_procedural_morph_frame().is_empty());
+        // Reconfigure also clears ownership even if a caller discards the old
+        // renderer instead of applying a release to it.
+        core.evaluate_procedural_morph_frame();
+        core.configure_with_profile("{}", &model.replace("Flex", "DifferentTarget")).unwrap();
+        assert!(core.evaluate_procedural_morph_frame().is_empty());
+        assert!(core.release_procedural_morph_frame().is_empty());
+        core.load_bone_translations(&[40.0, 1.0, 1.0, 1.0, 0.5]);
+        core.set_au(40, 1.0, 0.0);
+        assert!(!core.evaluate_procedural_bone_frame().is_empty());
+        core.configure_with_profile("{}", "{}").unwrap();
+        core.set_au(40, 0.0, 0.0);
+        core.load_bone_translations(&[40.0, 1.0, 1.0, 1.0, 0.5]);
+        assert!(core.evaluate_procedural_bone_frame().is_empty());
+    }
+
+    #[test]
+    fn configured_body_descriptors_match_authoring_resolution_and_refresh_on_configure() {
+        let mut core = RuntimeCore::new(0);
+        assert_eq!(core.get_body_controls_json(), "[]");
+        let model = r#"{"bones":[{"id":1,"name":"CC_Base_L_Forearm"}]}"#;
+        core.configure_with_preset("cc4", "{}", model).unwrap();
+        let expected = crate::body_controls::resolve(core.profile.as_ref().unwrap(), core.model.as_ref());
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&core.get_body_controls_json()).unwrap(), expected);
+        assert_eq!(expected.as_array().unwrap().len(), 58);
+        let elbow = expected.as_array().unwrap().iter().find(|control| control["id"] == "body.elbowFlex").unwrap();
+        assert_eq!(elbow["hasBones"], true);
+        assert_eq!(elbow["hasMorphs"], false);
+        core.configure_with_preset("cc4", "{}", "{}").unwrap();
+        assert!(serde_json::from_str::<serde_json::Value>(&core.get_body_controls_json()).unwrap()
+            .as_array().unwrap().iter().all(|control| control["available"] == false));
+        core.configure_with_profile("{}", model).unwrap();
+        assert_eq!(core.get_body_controls_json(), "[]");
+    }
+
+    #[test]
+    fn body_reset_uses_unique_configured_actions_preserves_face_and_mix_and_releases_frame() {
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_preset("cc4", "{}", r#"{"bones":[{"id":1,"name":"CC_Base_L_Forearm"}]}"#).unwrap();
+        core.set_au(1001, 0.8, -1.0);
+        core.set_continuum(1003, 1004, -0.5, 0.75);
+        core.set_au(51, 0.5, 0.5); // Shared facial action is in the Body catalog.
+        core.set_au(12, 0.9, -0.25); // Unrelated face control is preserved.
+        core.set_au_mix_weight(1001, 0.25);
+        core.direct_morph_values.insert((10, 9), 0.8);
+        assert!(!core.evaluate_procedural_bone_frame().is_empty());
+        core.reset_body_controls();
+        for id in [1001, 1003, 1004, 51] {
+            assert_eq!(core.get_au(id), 0.0);
+            assert_eq!(core.get_au_balance(id), 0.0);
+        }
+        assert_eq!(core.get_au(12), 0.9);
+        assert_eq!(core.get_au_balance(12), -0.25);
+        assert_eq!(core.mix_weights.get(&1001), Some(&0.25));
+        assert_eq!(core.direct_morph_values.get(&(10, 9)), Some(&0.8));
+        assert_eq!(core.evaluate_procedural_bone_frame()[8], 2.0);
+        assert!(core.evaluate_procedural_bone_frame().is_empty());
+        // Replacing the catalog makes the prior default actions unrelated.
+        core.configure_with_profile(r#"{"bodyControls":{"custom":{"label":"Custom","auId":12},"alias":{"label":"Alias","auId":12,"negativeAuId":12}}}"#, "{}").unwrap();
+        assert_eq!(core.body_control_au_ids.len(), 1);
+        core.set_au(1001, 0.6, 0.5);
+        core.reset_body_controls();
+        assert_eq!(core.get_au(12), 0.0);
+        assert_eq!(core.get_au(1001), 0.6);
+        assert_eq!(core.get_au_balance(1001), 0.5);
+    }
+
+    #[test]
+    fn release_morph_restores_au_output_and_preserves_other_direct_overrides() {
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(r#"{
+            "bodyControls":{"body.elbowFlex":{"label":"Flex","auId":1001}},
+            "auToMorphs":{"1001":{"center":["Flex"]}},
+            "auInfo":{"1001":{"facePart":"Body"}},
+            "auFacePartToMeshCategory":{"Body":"body"},
+            "morphToMesh":{"body":["Skin"],"face":["Skin"]},
+            "auMixDefaults":{"1001":0.25}
+        }"#, r#"{
+            "meshes":[{"id":1,"name":"Skin","morphTargetIds":[2,3,4]},
+                      {"id":5,"name":"Clothing","morphTargetIds":[6]}],
+            "morphTargets":[{"id":2,"meshId":1,"name":"Flex","hostIndex":0},
+                {"id":3,"meshId":1,"name":"Other","hostIndex":1},
+                {"id":4,"meshId":1,"name":"PreviewOnly","hostIndex":2},
+                {"id":6,"meshId":5,"name":"Flex","hostIndex":0}]
+        }"#).unwrap();
+        core.set_au(1001, 0.8, 0.0);
+        core.set_morph("Flex", 1.0, r#"["Skin"]"#);
+        core.set_morph("Other", 0.6, r#"["Skin"]"#);
+        core.set_morph("Flex", 0.7, r#"["Clothing"]"#);
+        assert_eq!(unpack_rows(&core.evaluate_procedural_morph_frame()),
+            vec![(1, 2, 1.0), (1, 3, 0.6), (5, 6, 0.7)]);
+        assert_eq!(core.release_morph("Flex", r#"["Skin"]"#), 1);
+        assert_eq!(unpack_rows(&core.evaluate_procedural_morph_frame()),
+            vec![(1, 2, 0.2), (1, 3, 0.6), (5, 6, 0.7)]);
+        assert_eq!(core.release_morph("Flex", r#"["Skin"]"#), 0);
+        core.set_morph_index(0, 0.0, r#"["Skin"]"#);
+        assert_eq!(unpack_rows(&core.evaluate_active_morph_frame()),
+            vec![(1, 2, 0.0), (1, 3, 0.6), (5, 6, 0.7)], "explicit zero still owns its target");
+        assert_eq!(core.release_morph_index(0, r#"["Skin"]"#), 1);
+        assert_eq!(unpack_rows(&core.evaluate_active_morph_frame()),
+            vec![(1, 2, 0.2), (1, 3, 0.6), (5, 6, 0.7)]);
+        // Empty selection follows set_morph's existing profile-face default.
+        core.set_morph("PreviewOnly", 0.5, "[]");
+        assert!(unpack_rows(&core.evaluate_procedural_morph_frame()).contains(&(1, 4, 0.5)));
+        assert_eq!(core.release_morph("PreviewOnly", "[]"), 1);
+        assert!(unpack_rows(&core.evaluate_procedural_morph_frame()).contains(&(1, 4, 0.0)));
+        assert!(!unpack_rows(&core.evaluate_procedural_morph_frame()).iter().any(|row| row.1 == 4));
+        assert_eq!(core.release_morph("Missing", "[]"), 0);
+        assert_eq!(core.get_au(1001), 0.8);
+    }
+
+    #[test]
+    fn explicit_zero_morph_override_is_active_until_cleared() {
+        let mut core = RuntimeCore::new(0);
+        core.configure(r#"{"auToMorphs":{"12":{"center":["Flex"]}},"morphToMesh":{"face":["Body"]}}"#,
+            r#"{"meshes":[{"id":1,"name":"Body","morphTargetIds":[7]}],"morphTargets":[{"id":7,"meshId":1,"name":"Flex","hostIndex":0}]}"#).unwrap();
+        assert!(core.evaluate_active_morph_frame().is_empty());
+        assert_eq!(core.set_morph("Flex", 0.0, "[]"), 1);
+        assert_eq!(&*core.evaluate_active_morph_frame(), &[1.0, 7.0, 0.0, 0.0]);
+        core.clear();
+        assert!(core.evaluate_active_morph_frame().is_empty());
+    }
+
+    #[test]
     fn active_bone_frame_omits_neutral_bones_but_keeps_active_ones() {
         let mut core = RuntimeCore::new(2);
         core.load_bone_rest_transforms(&[
@@ -2749,6 +3170,60 @@ mod tests {
     }
 
     #[test]
+    fn manual_direction_commands_match_continuum_bone_and_morph_output() {
+        let model = r#"{
+            "bones":[{"id":1,"name":"CC_Base_Head"}],
+            "meshes":[{"id":2,"name":"CC_Base_Body","morphTargetIds":[3,4]}],
+            "morphTargets":[
+                {"id":3,"meshId":2,"name":"Head_Turn_L","hostIndex":0},
+                {"id":4,"meshId":2,"name":"Head_Turn_R","hostIndex":1}]
+        }"#;
+        let mut core = RuntimeCore::new(0);
+        let mut expected = RuntimeCore::new(0);
+        for runtime in [&mut core, &mut expected] {
+            runtime.configure_with_preset("cc4", "{}", model).unwrap();
+            runtime.set_au(53, 0.3, 0.0); // independent pitch survives yaw commands
+            runtime.set_au(12, 0.4, -0.25); // unrelated facial control survives
+            runtime.set_au_mix_weight(51, 0.25);
+            runtime.set_au_mix_weight(52, 0.5);
+        }
+        // Both entry points may follow either direction. A negative value
+        // selects the partner even when called on the negative member.
+        for (id, value, continuum) in [(51, 0.5, -0.5), (52, 0.75, 0.75),
+            (51, 0.2, -0.2), (51, -0.6, 0.6), (52, -0.4, -0.4)] {
+            core.set_au_signed(id, value, -0.5);
+            expected.set_continuum(51, 52, continuum, -0.5);
+            assert_eq!(core.get_continuum(51, 52), continuum);
+            assert_eq!(core.get_au_balance(51), -0.5);
+            assert_eq!(core.get_au_balance(52), -0.5);
+            assert_eq!(core.get_au(53), 0.3);
+            assert_eq!(core.get_au(12), 0.4);
+            assert_eq!(core.get_au_balance(12), -0.25);
+            assert_eq!(core.evaluate_bone_frame_delta(), expected.evaluate_bone_frame_delta());
+            assert_eq!(core.evaluate_morph_frame_delta(), expected.evaluate_morph_frame_delta());
+            let rows = unpack_rows(&core.evaluate_active_morph_frame());
+            assert_eq!(rows.len(), 1, "only the selected tissue direction remains active");
+            assert!(rows[0].2 > 0.0);
+        }
+        core.set_au_signed(52, 0.0, 0.0);
+        assert_eq!(core.get_au(51), 0.4, "inactive direction release keeps its partner");
+        core.transition_au(52, 0.8, 100.0, 0.25);
+        assert_eq!(core.get_au(51), 0.0);
+        assert_eq!(core.get_au(52), 0.8);
+        core.set_au_signed(52, 0.0, 0.25);
+        assert_eq!(core.get_continuum(51, 52), 0.0);
+        assert!(core.evaluate_active_morph_frame().is_empty());
+        core.set_au_signed(12, 0.6, 0.5);
+        assert_eq!(core.get_au(12), 0.6);
+        assert_eq!(core.get_au_balance(12), 0.5);
+        // Low-level state ingestion remains available for authored composition.
+        core.set_au(51, 0.3, 0.0);
+        core.set_au(52, 0.2, 0.0);
+        assert_eq!(core.get_au(51), 0.3);
+        assert_eq!(core.get_au(52), 0.2);
+    }
+
+    #[test]
     fn configured_viseme_drives_preset_tongue_aus_and_jaw_together() {
         let profile = r#"{
             "auToMorphs": {
@@ -2947,7 +3422,7 @@ mod tests {
     }
 
     #[test]
-    fn preset_override_with_empty_composites_keeps_preset_bone_rotations() {
+    fn preset_override_with_empty_composites_disables_preset_bone_rotations() {
         let model = r#"{
             "meshes": [{ "id": 1, "name": "CC_Base_Body", "morphTargetIds": [] }],
             "morphTargets": [],
@@ -2966,23 +3441,60 @@ mod tests {
         core.configure_with_preset("cc4", r#"{"compositeRotations": []}"#, model)
             .unwrap();
         core.set_au(51, 1.0, 0.0);
-        let stride = PACKED_BONE_FRAME_DELTA_STRIDE as usize;
         let packed = core.evaluate_bone_frame_delta();
         assert!(
-            packed.chunks(stride).any(|row| row[0] == 2.0),
-            "empty compositeRotations override must not wipe preset bone rotations"
+            packed.is_empty(),
+            "explicit empty compositeRotations must disable preset bone rotations"
         );
     }
 
     #[test]
-    fn resolved_profile_rejects_incomplete_or_incompatible_profiles() {
-        let empty_model = r#"{"meshes":[],"morphTargets":[],"bones":[]}"#;
-        let incomplete =
-            compile_resolved_profile_tables(r#"{"name":"metadata only"}"#, empty_model)
-                .unwrap_err();
-        assert!(incomplete.contains("Resolved profile is incomplete"));
+    fn au_balance_reports_authoritative_manual_state_across_reconfiguration_and_clear() {
+        let mut core = RuntimeCore::new(0);
+        assert_eq!(core.get_au_balance(1001), 0.0);
+        core.set_au(1001, 0.5, -0.75);
+        assert_eq!(core.get_au_balance(1001), -0.75);
+        core.set_au(1002, 0.4, 2.0);
+        assert_eq!(core.get_au_balance(1002), 1.0);
+        core.set_continuum(1003, 1004, -0.5, 0.25);
+        assert_eq!(core.get_au_balance(1003), 0.25);
+        assert_eq!(core.get_au_balance(1004), 0.25);
+        core.configure_with_preset("cc4", "{}", "{}").unwrap();
+        assert_eq!(core.get_au(1001), 0.5);
+        assert_eq!(core.get_au_balance(1001), -0.75);
+        core.set_au_signed(1004, -0.5, -0.5);
+        assert_eq!(core.get_au_balance(1003), -0.5);
+        assert_eq!(core.get_au_balance(1004), -0.5);
+        core.transition_au(1001, 0.25, 0.0, f32::NAN);
+        assert_eq!(core.get_au_balance(1001), -0.75);
+        core.clear();
+        assert_eq!(core.get_au_balance(1001), 0.0);
+        assert_eq!(core.get_au_balance(1003), 0.0);
+        assert_eq!(core.get_au_balance(1004), 0.0);
+    }
 
-        let incompatible = compile_resolved_profile_tables(
+    #[test]
+    fn resolved_profile_accepts_static_imports_without_injecting_bindings() {
+        let model = r#"{"meshes":[{"id":1,"name":"Static mesh","morphTargetIds":[]}],"morphTargets":[],"bones":[]}"#;
+        for profile in [
+            "{}",
+            r#"{"name":"metadata only"}"#,
+            r#"{"auToMorphs":{},"auToBones":{}}"#,
+        ] {
+            let mut core = RuntimeCore::new(0);
+            core.configure_with_profile(profile, model).unwrap();
+            assert!(core.profile.as_ref().unwrap().composite_rotations.is_empty());
+            core.set_au(51, 1.0, 0.0);
+            assert!(core.evaluate_morph_frame_delta().is_empty());
+            assert!(core.evaluate_bone_frame_delta().is_empty());
+        }
+    }
+
+    #[test]
+    fn resolved_profile_keeps_unmatched_mappings_available_for_authoring() {
+        let empty_model = r#"{"meshes":[],"morphTargets":[],"bones":[]}"#;
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(
             r#"{
                     "auToBones": {
                         "42": [{
@@ -2995,8 +3507,11 @@ mod tests {
                 }"#,
             empty_model,
         )
-        .unwrap_err();
-        assert!(incompatible.contains("Resolved profile is incompatible"));
+        .unwrap();
+        assert!(core.profile.as_ref().unwrap().au_to_bones.contains_key("42"));
+        core.set_au(42, 1.0, 0.0);
+        assert!(core.evaluate_morph_frame_delta().is_empty());
+        assert!(core.evaluate_bone_frame_delta().is_empty());
     }
 
     #[test]
