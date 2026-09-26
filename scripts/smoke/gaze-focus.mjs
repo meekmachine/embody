@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { AnimationClip, AnimationMixer, Bone, Group, Quaternion, QuaternionKeyframeTrack, Vector3 } from 'three';
+import { AnimationClip, AnimationMixer, Bone, Group, PerspectiveCamera, Quaternion, QuaternionKeyframeTrack, Vector3 } from 'three';
 import { captureModelReferencePose, ThreeGazeFocus } from '../../dist/three.js';
 import { initEmbodyCore } from '../../dist/wasm.js';
 
@@ -50,6 +50,49 @@ const focused = (diagnostics, label) => {
   focused(result, 'finite binocular focus');
   assert(result.eyes[0].direction.x > 0);
   assert(result.eyes[1].direction.x < 0);
+}
+
+// LoomLarge mouse/webcam tracking uses the viewer projection. An off-axis
+// camera and a viewer across neutral must not send the following head toward
+// the camera while the eyes compensate in the opposite direction. Exercise
+// the public Wasm endpoint through the actual Three joint constraint.
+{
+  const wasm = await initEmbodyCore();
+  for (const cameraYaw of [-8, 8]) for (const follow of [0, 0.35, 1]) {
+    for (const intensity of [0.5, 1]) {
+      const test = rig();
+      test.model.updateMatrixWorld(true);
+      const origin = test.left.getWorldPosition(new Vector3()).add(test.right.getWorldPosition(new Vector3())).multiplyScalar(0.5);
+      const camera = new PerspectiveCamera(50, 4 / 3);
+      camera.position.copy(origin).add(new Vector3(Math.sin(radians(cameraYaw)), 0, Math.cos(radians(cameraYaw))).multiplyScalar(1.5));
+      camera.lookAt(origin);
+      camera.updateMatrixWorld(true);
+      const result = wasm.solve_profile_viewer_space_gaze_scaled(
+        JSON.stringify(preset), new Float32Array([-Math.sign(cameraYaw), 0, 0.8]),
+        new Float32Array(camera.position.toArray()), new Float32Array(camera.quaternion.toArray()),
+        new Float32Array(origin.toArray()), new Float32Array([0, 0, 0, 1]),
+        50, 4 / 3, true, true, follow, false, 1,
+      );
+      const worldTarget = { x: result[11], y: result[12], z: result[13] };
+      const value = request(test, worldTarget, { headIntensity: intensity });
+      const motor = controls(value, result[4], result[5]);
+      focused(test.focus.apply(value, motor), `viewer alignment ${cameraYaw}/${follow}/${intensity}`);
+      const direction = new Vector3(0, 0, 1).transformDirection(test.head.matrixWorld);
+      const headYaw = Math.atan2(direction.x, direction.z) * 180 / Math.PI;
+      const targetYaw = -result[6];
+      assert(targetYaw * cameraYaw < 0, 'viewer fixture crosses model neutral');
+      near(headYaw, targetYaw * follow * intensity, 'rendered head participates toward viewer', 1e-4);
+      assert(headYaw * targetYaw >= 0, 'rendered head must not oppose the viewer target');
+      // The change is allocation only: existing reference-based composition
+      // must retain a subsequently authored nod and keep both eyes focused.
+      const before = test.head.quaternion.clone();
+      test.focus.restore();
+      const nod = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), radians(3));
+      test.head.quaternion.copy(nod);
+      focused(test.focus.apply(value, motor), 'viewer alignment during authored nod');
+      near(test.head.quaternion.angleTo(nod.clone().multiply(before)), 0, 'target allocation preserves authored nod', 1e-5);
+    }
+  }
 }
 
 // Neck animation, rotated rest frames and optical calibration all enter the

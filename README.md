@@ -181,9 +181,18 @@ camera coincides with the eyes, its local +Z supplies the fallback bearing.
 The depth guard is 0.2–10 scene units. Mouse and webcam can share this contract
 when they use the same calibration.
 
-The head prefers the camera bearing, with configurable following. The legacy
-`lock_head_to_camera` flag retains this preference but permits head movement
-when eyes saturate, or when eyes are disabled. Eye angles are solved in the
+Ordinary head following participates toward the common target from calibrated
+model-neutral +Z: `head_follow_fraction` is a share of the target yaw/pitch,
+defaulting to 0.35 for a non-finite value. Zero prefers neutral, one follows the
+full target, and eye overflow can recruit more head movement within its limits.
+The explicit `lock_head_to_camera` flag instead prefers the camera bearing while
+eyes can reach; a zero follow fraction alone does not select that policy. When
+eyes are disabled the head carries the target regardless of follow or lock.
+This removes the previous implicit camera bias, which could point the head
+opposite the selected target when the camera was off-center. Hosts that intend
+camera-facing behavior must request the explicit viewer-solver lock; Polymer's
+`headFollowEyes: false` maps to zero participation, not an implicit lock.
+Eye angles are solved in the
 rotated head frame, using yaw then pitch to match runtime composition. Limits
 and AU normalization are directional and include each binding's scale. Missing
 or morph-only mappings contribute no inferred angular capacity.
