@@ -209,3 +209,11 @@ or viseme value, or releases the target once if no control remains active.
 Setting a morph to zero deliberately retains direct ownership and masks AU
 output until released; it is not preview cleanup. Other direct overrides,
 AU values and morph-strength settings are preserved by a targeted release.
+
+Manual `set_au_signed` / Polymer `setAU` commands select one direction of a
+configured continuum pair: a nonzero value clears its opposite, matching
+`setContinuum`. A negative value selects the opposite direction; zero releases
+only the named action. This prevents opposite head or body tissue morphs from
+remaining active after switching sliders. Distinct axes and head/neck actions
+remain independent. Raw `set_au` state ingestion and authored clip blending
+retain their existing composition semantics.

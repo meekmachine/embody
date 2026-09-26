@@ -412,11 +412,12 @@ impl RuntimeCore {
         self.au_balances.insert(id, clamp_signed(balance));
     }
 
-    /// Continuum-aware AU set. Negative values route through the configured
-    /// continuum pair (e.g. eyes left/right) exactly like the legacy runtime.
+    /// Manual directional command: a nonzero value owns its configured pair.
+    /// Negative values select the opposite direction. Zero clears only the
+    /// named AU, so releasing an inactive slider does not stop its partner.
     #[wasm_bindgen]
     pub fn set_au_signed(&mut self, id: u32, value: f32, balance: f32) {
-        if value < 0.0 {
+        if value.is_finite() && value != 0.0 {
             if let Some((pair_id, is_negative)) = self.continuum_pairs.get(&id).copied() {
                 let (neg_au, pos_au) = if is_negative {
                     (id, pair_id)
@@ -3160,6 +3161,60 @@ mod tests {
         assert_eq!(bones[0], 4.0);
         let expected_half = (30.0f32).to_radians() / 2.0;
         assert!((bones[4] - expected_half.sin()).abs() < 1e-4);
+    }
+
+    #[test]
+    fn manual_direction_commands_match_continuum_bone_and_morph_output() {
+        let model = r#"{
+            "bones":[{"id":1,"name":"CC_Base_Head"}],
+            "meshes":[{"id":2,"name":"CC_Base_Body","morphTargetIds":[3,4]}],
+            "morphTargets":[
+                {"id":3,"meshId":2,"name":"Head_Turn_L","hostIndex":0},
+                {"id":4,"meshId":2,"name":"Head_Turn_R","hostIndex":1}]
+        }"#;
+        let mut core = RuntimeCore::new(0);
+        let mut expected = RuntimeCore::new(0);
+        for runtime in [&mut core, &mut expected] {
+            runtime.configure_with_preset("cc4", "{}", model).unwrap();
+            runtime.set_au(53, 0.3, 0.0); // independent pitch survives yaw commands
+            runtime.set_au(12, 0.4, -0.25); // unrelated facial control survives
+            runtime.set_au_mix_weight(51, 0.25);
+            runtime.set_au_mix_weight(52, 0.5);
+        }
+        // Both entry points may follow either direction. A negative value
+        // selects the partner even when called on the negative member.
+        for (id, value, continuum) in [(51, 0.5, -0.5), (52, 0.75, 0.75),
+            (51, 0.2, -0.2), (51, -0.6, 0.6), (52, -0.4, -0.4)] {
+            core.set_au_signed(id, value, -0.5);
+            expected.set_continuum(51, 52, continuum, -0.5);
+            assert_eq!(core.get_continuum(51, 52), continuum);
+            assert_eq!(core.get_au_balance(51), -0.5);
+            assert_eq!(core.get_au_balance(52), -0.5);
+            assert_eq!(core.get_au(53), 0.3);
+            assert_eq!(core.get_au(12), 0.4);
+            assert_eq!(core.get_au_balance(12), -0.25);
+            assert_eq!(core.evaluate_bone_frame_delta(), expected.evaluate_bone_frame_delta());
+            assert_eq!(core.evaluate_morph_frame_delta(), expected.evaluate_morph_frame_delta());
+            let rows = unpack_rows(&core.evaluate_active_morph_frame());
+            assert_eq!(rows.len(), 1, "only the selected tissue direction remains active");
+            assert!(rows[0].2 > 0.0);
+        }
+        core.set_au_signed(52, 0.0, 0.0);
+        assert_eq!(core.get_au(51), 0.4, "inactive direction release keeps its partner");
+        core.transition_au(52, 0.8, 100.0, 0.25);
+        assert_eq!(core.get_au(51), 0.0);
+        assert_eq!(core.get_au(52), 0.8);
+        core.set_au_signed(52, 0.0, 0.25);
+        assert_eq!(core.get_continuum(51, 52), 0.0);
+        assert!(core.evaluate_active_morph_frame().is_empty());
+        core.set_au_signed(12, 0.6, 0.5);
+        assert_eq!(core.get_au(12), 0.6);
+        assert_eq!(core.get_au_balance(12), 0.5);
+        // Low-level state ingestion remains available for authored composition.
+        core.set_au(51, 0.3, 0.0);
+        core.set_au(52, 0.2, 0.0);
+        assert_eq!(core.get_au(51), 0.3);
+        assert_eq!(core.get_au(52), 0.2);
     }
 
     #[test]
