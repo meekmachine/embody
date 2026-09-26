@@ -258,20 +258,47 @@ const report = JSON.parse(wasm.analyze_model_descriptor(
 `ThreeGazeFocus` from `@lovelace_lol/embody/three` applies a focus constraint
 inside an animation runtime. It has no clock or target-selection policy:
 call `restore()` before evaluating the base animation, then `apply(request,
-controls)` after it. Controls are the current positions of existing motor
-tracks, rather than newly started transitions. `readControlState({worldTarget})`
-provides initial bearings for a handoff from the rendered pose. When replacing
-legacy head controls at reduced intensity, also provide `headIntensity` and
-the evaluated local `headBaseQuaternion` with those controls excluded. The
-helper inverts gain in joint coordinates and reports `headSeedLimited` if
-the existing pose cannot be represented within the new bounds. Reading the
-seed does not modify the rig.
+controls)` after it. Restoration compares quaternion orientations independently
+of Float32 sample norms, preserving the exact authored sample and any newer
+authored orientation. Repeated applications between mixer ticks do not accumulate
+the constraint's previous correction. Controls are the current positions of existing motor
+tracks. The optional sampled `controls.headIntensity` and `controls.eyeIntensity`
+override the matching request fields, so the host can animate configuration
+changes on its existing motor tracks. Both mean contribution in [0, 1]: zero
+preserves the evaluated base, one applies the full solved excursion, and legacy
+values above one normalize to one. Intermediate eye contribution proportionally
+reduces the correction; it does not shrink anatomical limits. Reduced eye
+contribution deliberately leaves focus error. These controls do not amplify
+input displacement or control response speed.
 
-The helper solves in the actual joint hierarchy, compensates head/neck motion,
-and aims each eye from its own origin. It honors signed actuator limits and
-reports angular residuals for unreachable targets. Head intensity scales joint
-movement from the evaluated base pose; eye intensity bounds the available eye
-excursion. The optional `profile.gazeCalibration` supplies bone-local
+Pass `{ referencePose }` as the constructor's third argument, reusing the
+reference captured at import. Without it, construction captures the current
+pose, so callers must construct before playback. The head solves its bounded
+gaze excursion in that reference hierarchy under the model's current scene
+transform, then composes the excursion onto the evaluated authored head pose.
+Head and neck gestures retain their motion instead of being cancelled or
+reversed by tracking. Each eye then solves toward the same finite target from
+its own origin in the final animated hierarchy. Full eye contribution retains
+binocular focus wherever the combined authored motion and gaze are reachable;
+otherwise diagnostics report the remaining angular error and limits. Authored
+gestures are not suppressed to force a target into range. The signed limits
+bound the tracking excursion; they do not clamp the final authored pose plus
+that excursion against a neutral-reference joint range. Authored motion can
+therefore take the combined pose beyond that range or the eyes' reach.
+
+`readControlState({worldTarget, headIntensity, eyeIntensity})` provides initial
+motor bearings without changing the rig. It inverts existing focus contributions
+against their saved base, and seeds zero added head excursion when enabling on
+a purely authored pose. When replacing legacy AU controls, also provide the
+evaluated local `headBaseQuaternion` and/or `eyeBaseQuaternions` (a map keyed by
+bone name), with those legacy controls excluded. `headSeedLimited` and
+`eyeSeedLimited` report poses that cannot be represented by the bounded motor
+bearings. Parallel legacy eyes cannot both be preserved exactly by a shared
+finite target; inverse eye contribution avoids double attenuation but does not
+remove that convergence residual. This helper supplies no handoff transition
+clock; the host owns activation policy and movement timing.
+
+The optional `profile.gazeCalibration` supplies bone-local
 `head`, `leftEye`, and `rightEye` optical axes and `modelUnitsPerMeter`.
 Without explicit optical axes, signed yaw/pitch bindings determine the optical
 frame. Unresolvable joints remain untouched and are reported in diagnostics.
