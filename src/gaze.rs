@@ -225,16 +225,6 @@ fn direction_angles_degrees(from: [f32; 3], to: [f32; 3], inverse_model: [f32; 4
     ]
 }
 
-fn shortest_angle_delta_degrees(target: f32, origin: f32) -> f32 {
-    let mut delta = (target - origin) % 360.0;
-    if delta > 180.0 {
-        delta -= 360.0;
-    } else if delta < -180.0 {
-        delta += 360.0;
-    }
-    delta
-}
-
 fn gaze_rotation([yaw, pitch]: [f32; 2]) -> [f32; 4] {
     // Same order as RuntimeCore's composite axes: yaw, then local pitch.
     multiply_quat(
@@ -265,22 +255,18 @@ fn clamped_eye(direction: [f32; 3], head: [f32; 2], limits: GazeLimits) -> [f32;
 
 fn allocate_gaze(
     total: [f32; 2],
-    camera: [f32; 2],
-    follow: f32,
+    preferred_head: [f32; 2],
     limits: GazeLimits,
 ) -> ([f32; 2], [f32; 2]) {
     let direction = rotate_by_quat(gaze_rotation(total), [0.0, 0.0, 1.0]);
     let head_limits = [limits.head_yaw, limits.head_pitch];
     let mut head = [
-        limits
-            .head_yaw
-            .clamp(camera[0] + shortest_angle_delta_degrees(total[0], camera[0]) * follow),
-        limits
-            .head_pitch
-            .clamp(camera[1] + (total[1] - camera[1]) * follow),
+        limits.head_yaw.clamp(preferred_head[0]),
+        limits.head_pitch.clamp(preferred_head[1]),
     ];
 
-    // Camera-facing is a preference. When the eyes cannot reach the target,
+    // The requested head participation or camera lock is a preference.
+    // When the eyes cannot reach the target,
     // move the head just enough to reduce the remaining angular error. Solve
     // both axes together: subtracting Euler angles fails on pitched heads.
     // Damped least squares is bounded, only runs for eye overflow, and retains
@@ -378,19 +364,22 @@ fn solution_from_world_target(
     };
     let follow = if !eyes_enabled {
         1.0
-    } else if lock_head_to_camera {
-        0.0
     } else if head_follow_fraction.is_finite() {
         head_follow_fraction.clamp(0.0, 1.0)
     } else {
         0.35
     };
-    let ([eye_yaw, eye_pitch], [head_yaw, head_pitch]) = allocate_gaze(
-        [total_yaw, total_pitch],
-        [camera_yaw, camera_pitch],
-        follow,
-        active,
-    );
+    // Ordinary following participates toward the common target from neutral.
+    // Blending from the camera can put the head on the opposite side of the
+    // target; camera-facing belongs only to the explicit policy. With eyes
+    // disabled the head must carry the target regardless of that preference.
+    let preferred_head = if lock_head_to_camera && eyes_enabled {
+        [camera_yaw, camera_pitch]
+    } else {
+        [total_yaw * follow, total_pitch * follow]
+    };
+    let ([eye_yaw, eye_pitch], [head_yaw, head_pitch]) =
+        allocate_gaze([total_yaw, total_pitch], preferred_head, active);
     let active_yaw_capacity = active.head_yaw.plus(active.eye_yaw);
     let active_pitch_capacity = active.head_pitch.plus(active.eye_pitch);
     let distance = distance3(origin, camera).max(EPSILON);
@@ -529,12 +518,12 @@ fn solve_viewer_scaled(
         DEFAULT_VIEWER_DEPTH,
     )
     .clamp(0.2, 10.0);
-    let world_units_per_meter =
-        if world_units_per_meter.is_finite() && world_units_per_meter > 0.0 {
-            world_units_per_meter
-        } else {
-            1.0
-        };
+    let world_units_per_meter = if world_units_per_meter.is_finite() && world_units_per_meter > 0.0
+    {
+        world_units_per_meter
+    } else {
+        1.0
+    };
     // Depth bounds describe the physical viewer, independent of scene units.
     // Convert before projecting lateral offsets so XYZ use one common scale.
     let viewer_depth = viewer_depth_meters * world_units_per_meter;
@@ -592,6 +581,8 @@ fn solve_viewer_scaled(
 /// Bone availability/rest and optical-axis calibration are not encoded by this
 /// ABI. Missing or morph-only AUs have no inferred angular capacity. Shared eye
 /// outputs cannot represent vergence or independently calibrated eye ranges.
+/// Head follow is participation from model-neutral +Z toward the shared target;
+/// zero prefers neutral, with additional head movement allowed for eye overflow.
 #[wasm_bindgen]
 #[allow(clippy::too_many_arguments)]
 pub fn solve_profile_screen_space_gaze(
@@ -634,6 +625,8 @@ pub fn solve_profile_screen_space_gaze(
 /// without making eye contact depend on where the eyes sit in the image.
 /// `lock_head_to_camera` prefers the camera bearing while eyes can reach; it
 /// allows head overflow correction and follows the viewer with eyes disabled.
+/// Without that explicit lock, head follow participates from model-neutral +Z
+/// toward the shared target. A zero follow fraction does not imply camera lock.
 /// New consumers with metric viewer depth should use
 /// `solve_profile_viewer_space_gaze_scaled` to supply the scene conversion.
 #[wasm_bindgen]
@@ -798,21 +791,23 @@ mod tests {
             for camera_pitch in [-25.0, 0.0, 25.0] {
                 for target_yaw in [-75.0, -35.0, 0.0, 35.0, 75.0] {
                     for target_pitch in [-35.0, -15.0, 0.0, 15.0, 35.0] {
-                        let target = ray(target_yaw, target_pitch);
-                        let result = solution_from_world_target(
-                            target,
-                            ray(camera_yaw, camera_pitch),
-                            [0.0; 3],
-                            &[0.0, 0.0, 0.0, 1.0],
-                            true,
-                            true,
-                            0.35,
-                            true,
-                            gaze_limits(&profile),
-                        );
-                        let actual = runtime_viewing_direction(&mut core, &result);
-                        let error = angular_error(actual, target);
-                        assert!(error < 0.02, "camera {camera_yaw}/{camera_pitch}, target {target_yaw}/{target_pitch}: error {error}, solution {result:?}");
+                        for locked in [false, true] {
+                            let target = ray(target_yaw, target_pitch);
+                            let result = solution_from_world_target(
+                                target,
+                                ray(camera_yaw, camera_pitch),
+                                [0.0; 3],
+                                &[0.0, 0.0, 0.0, 1.0],
+                                true,
+                                true,
+                                0.35,
+                                locked,
+                                gaze_limits(&profile),
+                            );
+                            let actual = runtime_viewing_direction(&mut core, &result);
+                            let error = angular_error(actual, target);
+                            assert!(error < 0.02, "camera {camera_yaw}/{camera_pitch}, target {target_yaw}/{target_pitch}, locked {locked}: error {error}, solution {result:?}");
+                        }
                     }
                 }
             }
@@ -1029,7 +1024,7 @@ mod tests {
     }
 
     #[test]
-    fn camera_center_turns_the_head_to_face_the_camera() {
+    fn camera_center_uses_target_follow_and_eye_overflow() {
         let result = solve_cc4(
             &[0.0, 0.0],
             &[3.0, 1.6, 3.0],
@@ -1038,8 +1033,131 @@ mod tests {
             &[0.0, 0.0, 0.0, 1.0],
         );
         assert!((result[8] + 45.0).abs() < 1.0e-4);
-        assert!((result[4] + 0.75).abs() < 1.0e-4);
-        assert!(result[2].abs() < 1.0e-4);
+        // Default participation prefers 15.75 degrees from neutral, then
+        // overflow advances to 20 so the eyes can supply their remaining 25.
+        assert!((-result[4] * 60.0 - 20.0).abs() < 0.01);
+        assert!((-result[2] * 25.0 - 25.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn target_follow_participates_from_neutral_on_both_axes() {
+        let profile = canonical_profile();
+        let mut core = canonical_runtime(&profile);
+        for target_yaw in [-12.0, 12.0] {
+            for target_pitch in [-8.0, 8.0] {
+                for follow in [0.0, 0.35, 1.0] {
+                    let target = ray(target_yaw, target_pitch);
+                    let result = solution_from_world_target(
+                        target,
+                        ray(-target_yaw, -target_pitch),
+                        [0.0; 3],
+                        &[0.0, 0.0, 0.0, 1.0],
+                        true,
+                        true,
+                        follow,
+                        false,
+                        gaze_limits(&profile),
+                    );
+                    assert!((-result[4] * 60.0 - target_yaw * follow).abs() < 1.0e-4);
+                    assert!((result[5] * 30.0 - target_pitch * follow).abs() < 1.0e-4);
+                    assert!(
+                        angular_error(runtime_viewing_direction(&mut core, &result), target)
+                            < 0.002
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn viewer_projection_keeps_following_head_on_the_target_side() {
+        let profile = canonical_profile();
+        let mut core = canonical_runtime(&profile);
+        let origin = [0.0, 1.6, 0.0];
+        for camera_yaw in [-8.0, 8.0] {
+            let camera = add3(origin, scale3(ray(camera_yaw, 0.0), 1.5));
+            for follow in [0.0, 0.35, 1.0] {
+                let result = solve_viewer_scaled(
+                    &[-camera_yaw.signum(), 0.0, 0.8],
+                    &camera,
+                    &gaze_rotation([camera_yaw, 0.0]),
+                    &origin,
+                    &[0.0, 0.0, 0.0, 1.0],
+                    50.0,
+                    4.0 / 3.0,
+                    true,
+                    true,
+                    follow,
+                    false,
+                    gaze_limits(&profile),
+                    1.0,
+                );
+                let target_yaw = -result[6];
+                let head_yaw = -result[4] * 60.0;
+                assert!(target_yaw * camera_yaw < 0.0, "viewer must cross neutral");
+                assert!((head_yaw - target_yaw * follow).abs() < 1.0e-4);
+                assert!(
+                    head_yaw * target_yaw >= 0.0,
+                    "head must follow target, not camera"
+                );
+                assert!(
+                    angular_error(
+                        runtime_viewing_direction(&mut core, &result),
+                        sub3([result[11], result[12], result[13]], origin),
+                    ) < 0.002
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_camera_lock_is_distinct_from_zero_follow_and_respects_disabled_channels() {
+        let profile = canonical_profile();
+        let mut core = canonical_runtime(&profile);
+        let target = ray(-10.0, 0.0);
+        for (eyes, head, locked, expected_head) in [
+            (true, true, false, 0.0),
+            (true, true, true, 8.0),
+            (false, true, false, -10.0),
+            (false, true, true, -10.0),
+            (true, false, false, 0.0),
+            (true, false, true, 0.0),
+        ] {
+            let result = solution_from_world_target(
+                target,
+                ray(8.0, 0.0),
+                [0.0; 3],
+                &[0.0, 0.0, 0.0, 1.0],
+                eyes,
+                head,
+                0.0,
+                locked,
+                gaze_limits(&profile),
+            );
+            assert!((-result[4] * 60.0 - expected_head).abs() < 1.0e-4);
+            assert!(angular_error(runtime_viewing_direction(&mut core, &result), target) < 0.002);
+        }
+    }
+
+    #[test]
+    fn zero_follow_still_allows_eye_overflow_to_recruit_the_head() {
+        let profile = canonical_profile();
+        let mut core = canonical_runtime(&profile);
+        let target = ray(40.0, 0.0);
+        let result = solution_from_world_target(
+            target,
+            ray(-10.0, 0.0),
+            [0.0; 3],
+            &[0.0, 0.0, 0.0, 1.0],
+            true,
+            true,
+            0.0,
+            false,
+            gaze_limits(&profile),
+        );
+        assert!((-result[4] * 60.0 - 15.0).abs() < 1.0e-3);
+        assert!((result[2] + 1.0).abs() < 1.0e-4);
+        assert!(angular_error(runtime_viewing_direction(&mut core, &result), target) < 0.002);
     }
 
     #[test]
