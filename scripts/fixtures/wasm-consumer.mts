@@ -44,6 +44,8 @@ runtime.load_au_morph_bindings(new Float32Array([12, 2, 0, 0, 1]));
 runtime.set_mixed_aus(new Uint32Array([12]));
 const value: number = runtime.get_au(12);
 const balance: number = runtime.get_au_balance(12);
+const viseme: number = runtime.get_viseme(0);
+const jawScale: number = runtime.get_viseme_jaw_scale(0);
 const frame: Float32Array = runtime.evaluate_active_morph_frame();
 const clip: string = runtime.build_clip('smile', '{}', '{}');
 const removed: boolean = runtime.remove_animation_clip('smile');
@@ -69,6 +71,10 @@ inferredRuntime.set_au('12', 0.5, 0);
 inferredRuntime.get_au_balance('12');
 // @ts-expect-error Stored AU balances retain their generated numeric type.
 const wrongBalance: string = inferredRuntime.get_au_balance(12);
+// @ts-expect-error Direct viseme slots are numeric.
+inferredRuntime.get_viseme('0');
+// @ts-expect-error Direct jaw scales retain their generated numeric type.
+const wrongJawScale: string = inferredRuntime.get_viseme_jaw_scale(0);
 // @ts-expect-error All required arguments remain required.
 inferredRuntime.set_au(12, 0.5);
 // @ts-expect-error Packed Rust f32 slices require Float32Array.

@@ -129,6 +129,14 @@ function update(dtSeconds: number) {
 Application-facing JavaScript APIs belong in the host package. Polymer owns
 the CLJS character host used by LoomLarge and calls the Wasm exports directly.
 
+### Direct viseme snapshots
+
+`RuntimeCore.get_viseme(index)` and `get_viseme_jaw_scale(index)` read the
+canonical direct viseme controls without changing a frame or sampling a host
+mixer. Unset, cleared, or out-of-range slots return `0` and `1` respectively.
+Hosts can snapshot these values before a temporary mouth-shape preview and
+restore them with the existing setters; a zero value releases its live override.
+
 ### Bilateral snippet channels
 
 AU balance uses the character's left/right: `-1` drives the left side,
