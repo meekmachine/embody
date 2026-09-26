@@ -119,33 +119,6 @@ fn apply_composite_rotation_fallback(profile: &mut ProfileData) {
     }
 }
 
-#[cfg(test)]
-fn compile_resolved_profile_tables(
-    profile_json: &str,
-    model_json: &str,
-) -> Result<CompiledTables, String> {
-    let profile: ProfileData = deserialize_json(profile_json, "Invalid resolved profile JSON")?;
-    if !profile.has_runtime_mappings() {
-        return Err(
-            "Resolved profile is incomplete: expected at least one AU, bone, or viseme mapping"
-                .to_string(),
-        );
-    }
-
-    let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")?;
-    let tables = compile_tables(&profile, &model);
-    if !tables.has_runtime_bindings() {
-        return Err(format!(
-            "Resolved profile is incompatible with the model descriptor: no runtime bindings resolved against {} meshes, {} morph targets, and {} bones",
-            model.meshes.len(),
-            model.morph_targets.len(),
-            model.bones.len(),
-        ));
-    }
-
-    Ok(tables)
-}
-
 /// Host-neutral live morph runtime. Owns AU/viseme/mix state and emits packed
 /// morph frame deltas. Engine objects never enter this struct.
 #[wasm_bindgen]
@@ -230,9 +203,9 @@ impl RuntimeCore {
 
     /// Configure from a resolved profile without applying an embedded preset.
     ///
-    /// The profile must contain runtime mappings, but mappings that do not match
-    /// the current model are non-fatal. The character can still render and be
-    /// repaired in the authoring UI without silently substituting a preset.
+    /// Empty profiles and mappings that do not match the current model are
+    /// non-fatal. Static imports can render before authoring any bindings,
+    /// without silently substituting an embedded preset.
     #[wasm_bindgen]
     pub fn configure_with_profile(
         &mut self,
@@ -242,12 +215,9 @@ impl RuntimeCore {
         let mut profile: ProfileData =
             deserialize_json(profile_json, "Invalid resolved profile JSON")
                 .map_err(|err| JsError::new(&err))?;
-        if !profile.has_runtime_mappings() {
-            return Err(JsError::new(
-                "Resolved profile is incomplete: expected at least one AU, bone, or viseme mapping",
-            ));
+        if profile.has_runtime_mappings() {
+            apply_composite_rotation_fallback(&mut profile);
         }
-        apply_composite_rotation_fallback(&mut profile);
         let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")
             .map_err(|err| JsError::new(&err))?;
         let tables = compile_tables(&profile, &model);
@@ -536,6 +506,19 @@ impl RuntimeCore {
             return;
         }
         self.viseme_jaw_scales[index] = finite_or(jaw_scale, 1.0);
+    }
+
+    /// Stored direct viseme value, or zero for an unset or out-of-range slot.
+    /// Host mixer output is not part of this live control state.
+    #[wasm_bindgen]
+    pub fn get_viseme(&self, index: u32) -> f32 {
+        *self.viseme_values.get(index as usize).unwrap_or(&0.0)
+    }
+
+    /// Stored direct viseme jaw scale, or one for an unset or out-of-range slot.
+    #[wasm_bindgen]
+    pub fn get_viseme_jaw_scale(&self, index: u32) -> f32 {
+        *self.viseme_jaw_scales.get(index as usize).unwrap_or(&1.0)
     }
 
     #[wasm_bindgen]
@@ -1989,6 +1972,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn reads_direct_viseme_state_through_set_transition_resize_and_clear() {
+        let mut core = RuntimeCore::new(2);
+        for index in [0, 1, 999] {
+            assert_eq!(core.get_viseme(index), 0.0);
+            assert_eq!(core.get_viseme_jaw_scale(index), 1.0);
+        }
+        core.set_viseme(0, 0.75);
+        core.set_viseme_jaw_scale(0, 0.25);
+        let values = core.viseme_values.clone();
+        let scales = core.viseme_jaw_scales.clone();
+        assert_eq!(core.get_viseme(0), 0.75);
+        assert_eq!(core.get_viseme_jaw_scale(0), 0.25);
+        assert_eq!(core.viseme_values, values);
+        assert_eq!(core.viseme_jaw_scales, scales);
+        core.transition_viseme(0, 0.5, 200.0, 0.0);
+        assert_eq!(core.get_viseme(0), 0.5);
+        assert_eq!(core.get_viseme_jaw_scale(0), 0.0);
+        core.set_viseme(999, 1.0);
+        core.set_viseme_jaw_scale(999, 0.0);
+        assert_eq!(core.get_viseme(999), 0.0);
+        assert_eq!(core.get_viseme_jaw_scale(999), 1.0);
+        core.set_viseme_slot_count(3);
+        assert_eq!(core.get_viseme(0), 0.5);
+        assert_eq!(core.get_viseme_jaw_scale(0), 0.0);
+        assert_eq!(core.get_viseme(2), 0.0);
+        assert_eq!(core.get_viseme_jaw_scale(2), 1.0);
+        core.set_viseme(0, 2.0);
+        core.set_viseme_jaw_scale(0, f32::NAN);
+        assert_eq!(core.get_viseme(0), 1.0);
+        assert_eq!(core.get_viseme_jaw_scale(0), 1.0);
+        core.clear();
+        assert_eq!(core.get_viseme(0), 0.0);
+        assert_eq!(core.get_viseme_jaw_scale(0), 1.0);
+    }
+
+    #[test]
     fn reads_canonical_au_balance_through_updates_and_clear() {
         let mut core = RuntimeCore::new(0);
         assert_eq!(core.get_au_balance(43), 0.0);
@@ -2975,14 +2994,27 @@ mod tests {
     }
 
     #[test]
-    fn resolved_profile_rejects_incomplete_or_incompatible_profiles() {
-        let empty_model = r#"{"meshes":[],"morphTargets":[],"bones":[]}"#;
-        let incomplete =
-            compile_resolved_profile_tables(r#"{"name":"metadata only"}"#, empty_model)
-                .unwrap_err();
-        assert!(incomplete.contains("Resolved profile is incomplete"));
+    fn resolved_profile_accepts_static_imports_without_injecting_bindings() {
+        let model = r#"{"meshes":[{"id":1,"name":"Static mesh","morphTargetIds":[]}],"morphTargets":[],"bones":[]}"#;
+        for profile in [
+            "{}",
+            r#"{"name":"metadata only"}"#,
+            r#"{"auToMorphs":{},"auToBones":{}}"#,
+        ] {
+            let mut core = RuntimeCore::new(0);
+            core.configure_with_profile(profile, model).unwrap();
+            assert!(core.profile.as_ref().unwrap().composite_rotations.is_empty());
+            core.set_au(51, 1.0, 0.0);
+            assert!(core.evaluate_morph_frame_delta().is_empty());
+            assert!(core.evaluate_bone_frame_delta().is_empty());
+        }
+    }
 
-        let incompatible = compile_resolved_profile_tables(
+    #[test]
+    fn resolved_profile_keeps_unmatched_mappings_available_for_authoring() {
+        let empty_model = r#"{"meshes":[],"morphTargets":[],"bones":[]}"#;
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(
             r#"{
                     "auToBones": {
                         "42": [{
@@ -2995,8 +3027,11 @@ mod tests {
                 }"#,
             empty_model,
         )
-        .unwrap_err();
-        assert!(incompatible.contains("Resolved profile is incompatible"));
+        .unwrap();
+        assert!(core.profile.as_ref().unwrap().au_to_bones.contains_key("42"));
+        core.set_au(42, 1.0, 0.0);
+        assert!(core.evaluate_morph_frame_delta().is_empty());
+        assert!(core.evaluate_bone_frame_delta().is_empty());
     }
 
     #[test]

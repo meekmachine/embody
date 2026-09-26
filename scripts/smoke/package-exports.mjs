@@ -43,6 +43,13 @@ const model = {
 const extracted = JSON.parse(core.extract_model_data_json(JSON.stringify(model), '[]'));
 const runtime = new core.RuntimeCore(0);
 runtime.configure_with_preset('cc4', '', JSON.stringify(model));
+const staticRuntime = new core.RuntimeCore(0);
+staticRuntime.configure_with_profile('{}', JSON.stringify(model));
+staticRuntime.set_au(51, 1, 0);
+const staticBoneWrites = staticRuntime.evaluate_bone_frame_delta();
+let rejectsInvalidProfile = false;
+try { staticRuntime.configure_with_profile('not JSON', JSON.stringify(model)); }
+catch { rejectsInvalidProfile = true; }
 const sceneRoot = new Object3D();
 const animatedBone = new Bone();
 const animatedProp = new Object3D();
@@ -96,6 +103,8 @@ const checks = [
   ['Rust humanoid template data', templates[0].id === 'cc4-humanoid'],
   ['Rust model extraction', extracted.morphs[0].meshName === 'Face'],
   ['Rust runtime constructor', runtime.active_transition_count() === 0],
+  ['empty exact profile stays unmapped', staticBoneWrites.length === 0],
+  ['exact profile still rejects malformed JSON', rejectsInvalidProfile],
   ['baked clip channel classification', serialized.channels.map(({ kind }) => kind).join(',') === 'body,scene'],
   ['baked clip channel routing', serialized.tracks.map(({ channelId }) => channelId).join(',') === '1,2'],
   ['position-only authored morph keeps normal channel aligned', morphMesh.geometry.morphAttributes.normal.length === 2],
@@ -110,6 +119,7 @@ const checks = [
 ];
 
 runtime.free();
+staticRuntime.free();
 const failures = checks.filter(([, passed]) => !passed);
 if (failures.length) {
   failures.forEach(([label]) => console.error(`Package export smoke failed: ${label}`));

@@ -1,5 +1,10 @@
 # Embody
 
+Explicit profiles may be empty: `RuntimeCore.configure_with_profile('{}', modelJson)`
+loads a static or not-yet-mapped model without selecting an embedded preset.
+Missing mappings remain an authoring/validation concern; malformed JSON still
+fails configuration. Existing mapped profiles retain their runtime behavior.
+
 Embody is a Rust/Wasm character animation core for facial action units,
 visemes, bone controls, baked animation clips, and hair motion. Three.js is a
 host adapter, not the runtime implementation.
@@ -123,6 +128,14 @@ function update(dtSeconds: number) {
 
 Application-facing JavaScript APIs belong in the host package. Polymer owns
 the CLJS character host used by LoomLarge and calls the Wasm exports directly.
+
+### Direct viseme snapshots
+
+`RuntimeCore.get_viseme(index)` and `get_viseme_jaw_scale(index)` read the
+canonical direct viseme controls without changing a frame or sampling a host
+mixer. Unset, cleared, or out-of-range slots return `0` and `1` respectively.
+Hosts can snapshot these values before a temporary mouth-shape preview and
+restore them with the existing setters; a zero value releases its live override.
 
 ### Bilateral snippet channels
 
