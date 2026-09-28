@@ -2018,27 +2018,9 @@ impl RuntimeCore {
     fn resolve_bone_id(&self, node_key: &str) -> Option<u32> {
         let model = self.model.as_ref()?;
         let profile = self.profile.as_ref()?;
-        let configured = profile
-            .bone_nodes
-            .get(node_key)
-            .map(String::as_str)
-            .unwrap_or(node_key);
-        let prefix = profile.bone_prefix.as_deref().unwrap_or_default();
-        let suffix = profile.bone_suffix.as_deref().unwrap_or_default();
-        let prefixed = if !prefix.is_empty() && !configured.starts_with(prefix) {
-            format!("{prefix}{configured}")
-        } else {
-            configured.to_string()
-        };
-        let full = if !suffix.is_empty() && !prefixed.ends_with(suffix) {
-            format!("{prefixed}{suffix}")
-        } else {
-            prefixed
-        };
-        model
-            .bones
-            .iter()
-            .find(|bone| bone.name == node_key || bone.name == configured || bone.name == full)
+        // Typed clips share role assignments, explicit clears and exact-name
+        // precedence with live AU controls and other profile consumers.
+        crate::profile::NameResolver::resolve_bone_target(model, profile, node_key)
             .map(|bone| bone.id)
     }
 
@@ -2401,6 +2383,113 @@ mod tests {
                 assert!((actual - f64::from(expected)).abs() < 1e-6);
             }
         }
+    }
+
+    fn typed_bone_test_model() -> serde_json::Value {
+        serde_json::json!({
+            "meshes": [{ "id": 10, "name": "Face", "morphTargetIds": [11] }],
+            "morphTargets": [{ "id": 11, "meshId": 10, "name": "Speech", "hostIndex": 0 }],
+            "bones": [
+                { "id": 3, "name": "CC_Base_CustomJaw" },
+                { "id": 1, "name": "CC_Base_JawRoot" },
+                { "id": 2, "name": "CustomJaw", "restTransform": {
+                    "position": [0, 0, 0], "rotation": quat_from_channel(1, 0.2), "scale": [1, 1, 1]
+                } },
+                { "id": 4, "name": "jaw" }
+            ]
+        })
+    }
+
+    fn author_jaw_role(profile: &serde_json::Value, bone_name: Option<&str>) -> serde_json::Value {
+        let request = serde_json::json!({
+            "op": "profile.setHumanoidRoleBinding",
+            "payload": { "profile": profile, "role": "jaw", "boneName": bone_name }
+        });
+        serde_json::from_str(&crate::embody_request(&request.to_string()).unwrap()).unwrap()
+    }
+
+    fn typed_bone_test_clip(core: &mut RuntimeCore, node: &str) -> ClipIR {
+        // The independent morph keeps the clip usable when a missing or cleared
+        // bone is skipped, as in a combined speech articulation clip.
+        let channels = serde_json::json!([
+            { "target": { "type": "bone", "id": node, "channel": "rx", "maxDegrees": 30 },
+              "keyframes": [{ "time": 0, "intensity": 0 }, { "time": 1, "intensity": 0.5 }] },
+            { "target": { "type": "morph", "id": "Speech", "meshNames": ["Face"] },
+              "keyframes": [{ "time": 0, "intensity": 0 }, { "time": 1, "intensity": 0.75 }] }
+        ]);
+        serde_json::from_str(&core.build_typed_clip("speech", &channels.to_string(), "{}").unwrap()).unwrap()
+    }
+
+    #[test]
+    fn typed_bone_uses_authored_role_and_exact_node_key_independent_of_model_order() {
+        let preset = serde_json::to_value(presets::load_profile("cc4").unwrap()).unwrap();
+        let assigned = author_jaw_role(&preset, Some("CustomJaw"));
+        assert_eq!(assigned["auToBones"]["103"][0]["node"], "jaw");
+        let node_key = assigned["humanoidCharacterization"]["roles"]["jaw"]["nodeKey"].as_str().unwrap();
+        let mut model = typed_bone_test_model();
+        for reverse in [false, true] {
+            if reverse { model["bones"].as_array_mut().unwrap().reverse(); }
+            let mut core = RuntimeCore::new(0);
+            core.configure_with_profile(&assigned.to_string(), &model.to_string()).unwrap();
+            core.set_au(26, 0.5, 0.0);
+            assert_eq!(core.evaluate_active_bone_frame()[0], 2.0, "canonical AU selects the authored bone");
+            for node in ["jaw", node_key] {
+                let clip = typed_bone_test_clip(&mut core, node);
+                assert_eq!(clip.tracks.len(), 2);
+                let bone = clip.tracks.iter().find(|track| track.target["kind"] == "boneTransform").unwrap();
+                assert_eq!(bone.target["boneId"], 2, "role/node key must not select either lookalike");
+                assert_eq!(bone.times, vec![0.0, 1.0]);
+                let rest = quat_from_channel(1, 0.2);
+                let peak = multiply_quat(rest, quat_from_channel(0, 15.0_f32.to_radians()));
+                for (actual, expected) in bone.values.iter().zip(rest.into_iter().chain(peak)) {
+                    assert!((actual - f64::from(expected)).abs() < 1e-6, "typed motion retains the selected bone's rest rotation");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn typed_bone_clear_and_missing_exact_selection_do_not_drive_lookalikes() {
+        let preset = serde_json::to_value(presets::load_profile("cc4").unwrap()).unwrap();
+        let assigned = author_jaw_role(&preset, Some("CustomJaw"));
+        let cleared = author_jaw_role(&assigned, None);
+        let missing = author_jaw_role(&assigned, Some("MissingJaw"));
+        let mut model = typed_bone_test_model();
+        model["bones"].as_array_mut().unwrap().push(serde_json::json!({"id": 5, "name": "CC_Base_MissingJaw"}));
+        let mut core = RuntimeCore::new(0);
+        for (profile, expected) in [(&assigned, Some(2)), (&cleared, None), (&missing, None), (&assigned, Some(2))] {
+            // Configuration round trips must not keep a stale bone lookup.
+            core.configure_with_profile(&profile.to_string(), &model.to_string()).unwrap();
+            let clip = typed_bone_test_clip(&mut core, "jaw");
+            let bones: Vec<_> = clip.tracks.iter().filter(|track| track.target["kind"] == "boneTransform").collect();
+            assert_eq!(bones.len(), usize::from(expected.is_some()));
+            if let Some(id) = expected { assert_eq!(bones[0].target["boneId"], id); }
+            let morph = clip.tracks.iter().find(|track| track.target["kind"] == "morphTarget").unwrap();
+            assert_eq!(morph.values, vec![0.0, 0.75], "unrelated channels remain usable");
+        }
+    }
+
+    #[test]
+    fn typed_bone_preserves_canonical_prefix_suffix_and_direct_name_fallbacks() {
+        let profile = r#"{"bonePrefix":"Rig_","boneSuffix":"_end","boneNodes":{"JAW":"Jaw"}}"#;
+        let mut model = typed_bone_test_model();
+        model["bones"] = serde_json::json!([
+            { "id": 1, "name": "JAW" }, { "id": 2, "name": "Jaw" },
+            { "id": 3, "name": "Rig_Jaw_end" }, { "id": 4, "name": "Direct" }
+        ]);
+        let mut core = RuntimeCore::new(0);
+        for expected in [Some(3), Some(2), Some(1), None] {
+            core.configure_with_profile(profile, &model.to_string()).unwrap();
+            let clip = typed_bone_test_clip(&mut core, "JAW");
+            let bone = clip.tracks.iter().find(|track| track.target["kind"] == "boneTransform");
+            assert_eq!(bone.map(|track| track.target["boneId"].as_u64().unwrap()), expected);
+            let direct = typed_bone_test_clip(&mut core, "Direct");
+            assert!(direct.tracks.iter().any(|track| track.target["boneId"] == 4));
+            if let Some(id) = expected { model["bones"].as_array_mut().unwrap().retain(|bone| bone["id"] != id); }
+        }
+        core.configure_with_profile("{}", &typed_bone_test_model().to_string()).unwrap();
+        assert!(typed_bone_test_clip(&mut core, "jaw").tracks.iter().any(|track| track.target["boneId"] == 4),
+            "a static profile without a characterization still permits direct literal names");
     }
 
     #[test]

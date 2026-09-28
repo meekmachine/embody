@@ -1622,6 +1622,15 @@ impl NameResolver {
         profile: &ProfileData,
         node_key: &str,
     ) -> Option<&'a BoneData> {
+        Self::resolve_bone_target(model, profile, node_key)
+    }
+
+    /// Bone resolution needs only the profile and model, not morph indexes.
+    pub(crate) fn resolve_bone_target<'a>(
+        model: &'a ModelData,
+        profile: &ProfileData,
+        node_key: &str,
+    ) -> Option<&'a BoneData> {
         if crate::humanoid_characterization::bone_specification(node_key).is_some()
             && profile.humanoid_characterization.as_ref().is_some_and(|mapping|
                 mapping.standard == "VRMC_vrm-1.0" && !mapping.roles.contains_key(node_key)) {
