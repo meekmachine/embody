@@ -35,6 +35,23 @@
   and evidence. Name the concrete consumer or system impact of an architecture
   violation; a prose preference alone is not a correctness defect.
 
+## Code clarity and contract documentation
+
+- Before changing behavior, read [development guidance](docs/development-guidance.md)
+  and trace the affected path through its owning code. Apply the relevant rules
+  to new and touched code; do not expand a task into an unrelated cleanup.
+- Use domain-specific names, explicit units and identities, and one owner for
+  each mutable state/resource. Make transitions, failure, cancellation, and
+  cleanup visible at the responsible boundary.
+- Keep decisions separate from external effects. Prefer a concrete operation
+  over a speculative abstraction; explain invariants and reasons in comments.
+- Update the existing contract document identified by the development guide
+  when changing a public contract or ownership boundary. Keep examples aligned
+  with exports and distinguish implemented behavior from intended work.
+- Verify changed behavior with focused observable cases, including relevant
+  lifecycle edges. In review, identify the ambiguity and its concrete failure
+  risk rather than imposing subjective style preferences or size limits.
+
 ## Source-only repository
 
 - Commit Rust, TypeScript, configuration, tests, and documentation. Do not commit `dist/`, `target/`, `node_modules/`, npm tarballs, `.wasm` binaries, or other generated output.
