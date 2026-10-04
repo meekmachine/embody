@@ -9,12 +9,14 @@ export class WebGPURenderer extends WebGLRenderer {
     super();
     this.initialBackend = this.backend = backend(true);
     this.initialized = false;
+    this.initCount = 0;
     this.loopCallbacks = [];
     this.internalDeviceLosses = [];
     this.onDeviceLost = (info) => { this.internalDeviceLosses.push(info); };
     control.gpuRenderers.push(this);
   }
   async init() {
+    this.initCount++;
     await control.initialize?.(this);
     if (control.failure.fallback) this.backend = backend(false);
     if (control.failure.init) throw control.failure.init;

@@ -10,6 +10,8 @@ const { createDefaultCharacterScene, createDefaultCharacterSceneAsync } = await 
 
 beforeEach(() => control.reset());
 
+const createWebGLSceneAsync = (host, options = {}) => createDefaultCharacterSceneAsync(host, { ...options, renderer: 'webgl' });
+
 function deferred() {
   let resolve, reject;
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
@@ -62,7 +64,7 @@ test('async readiness waits for real scene preparation before attaching and uses
   const gate = deferred();
   control.prepare = () => gate.promise;
   let settled = false;
-  const pending = createDefaultCharacterSceneAsync(host).then((value) => { settled = true; return value; });
+  const pending = createWebGLSceneAsync(host).then((value) => { settled = true; return value; });
   const renderer = control.renderers[0];
   assert.equal(renderer.compileCount, 1);
   assert.equal(renderer.scene.environment, control.environments[0].texture);
@@ -98,7 +100,7 @@ test('already aborted requests reject with AbortError before acquiring a rendere
   const host = container();
   const controller = new AbortController();
   controller.abort('caller reason');
-  await assert.rejects(createDefaultCharacterSceneAsync(host, { signal: controller.signal }), { name: 'AbortError' });
+  await assert.rejects(createWebGLSceneAsync(host, { signal: controller.signal }), { name: 'AbortError' });
   assert.equal(control.renderers.length, 0);
   assertReleased(host, callbacks);
 });
@@ -109,7 +111,7 @@ test('abort during compilation waits for settlement, then rolls back without att
   const gate = deferred();
   const controller = new AbortController();
   control.prepare = () => gate.promise;
-  const pending = createDefaultCharacterSceneAsync(host, { signal: controller.signal });
+  const pending = createWebGLSceneAsync(host, { signal: controller.signal });
   const rejected = assert.rejects(pending, { name: 'AbortError' });
   controller.abort();
   await Promise.resolve();
@@ -125,7 +127,7 @@ test('abort after readiness does not take ownership of the returned scene', asyn
   const callbacks = resizeEvents(t);
   const host = container();
   const controller = new AbortController();
-  const handle = await createDefaultCharacterSceneAsync(host, { signal: controller.signal });
+  const handle = await createWebGLSceneAsync(host, { signal: controller.signal });
   controller.abort();
   assert.equal(host.children.length, 1);
   assert.equal(handle.renderer.disposeCount, 0);
@@ -139,7 +141,7 @@ for (const stage of ['constructor', 'size', 'pmremConstructor', 'environment', '
     const host = container();
     const failure = new Error(stage);
     control.failure[stage] = failure;
-    await assert.rejects(createDefaultCharacterSceneAsync(host), (error) => error === failure);
+    await assert.rejects(createWebGLSceneAsync(host), (error) => error === failure);
     assertReleased(host, callbacks);
   });
 }
@@ -150,7 +152,7 @@ test('async compilation rejection preserves the original error even when disposa
   const failure = new Error('preparation rejected');
   control.prepare = () => Promise.reject(failure);
   control.failure.dispose = new Error('cleanup failed');
-  await assert.rejects(createDefaultCharacterSceneAsync(host), (error) => error === failure);
+  await assert.rejects(createWebGLSceneAsync(host), (error) => error === failure);
   assertReleased(host, callbacks);
 });
 
@@ -160,7 +162,7 @@ test('cancellation wins over a simultaneous preparation rejection after rollback
   const gate = deferred();
   const controller = new AbortController();
   control.prepare = () => gate.promise;
-  const pending = createDefaultCharacterSceneAsync(host, { signal: controller.signal });
+  const pending = createWebGLSceneAsync(host, { signal: controller.signal });
   const failure = new Error('compile failed');
   const rejected = assert.rejects(pending, { name: 'AbortError' });
   controller.abort();
@@ -173,14 +175,14 @@ test('older renderers without compileAsync fail clearly and release the scene', 
   const callbacks = resizeEvents(t);
   const host = container();
   control.failure.missingCompileAsync = true;
-  await assert.rejects(createDefaultCharacterSceneAsync(host), /require Three.js WebGLRenderer.compileAsync/);
+  await assert.rejects(createWebGLSceneAsync(host), /require Three.js WebGLRenderer.compileAsync/);
   assertReleased(host, callbacks);
 });
 
 test('normal disposal continues after a resource throws and cannot reacquire lighting', async (t) => {
   const callbacks = resizeEvents(t);
   const host = container();
-  const handle = await createDefaultCharacterSceneAsync(host);
+  const handle = await createWebGLSceneAsync(host);
   const failure = new Error('material disposal failed');
   handle.shadowPlane.material.addEventListener('dispose', () => { throw failure; });
   assert.throws(() => handle.dispose(), (error) => error === failure);
@@ -197,14 +199,14 @@ test('attachment failure rolls back already attached canvas and resources', asyn
   Object.defineProperty(globalThis, 'addEventListener', { configurable: true, value(type, callback) {
     callbacks.add(callback); throw failure;
   } });
-  await assert.rejects(createDefaultCharacterSceneAsync(host), (error) => error === failure);
+  await assert.rejects(createWebGLSceneAsync(host), (error) => error === failure);
   assertReleased(host, callbacks);
 });
 
 test('disabled resize management and the void scene retain their settings', async (t) => {
   const callbacks = resizeEvents(t);
   const host = container();
-  const handle = await createDefaultCharacterSceneAsync(host, {
+  const handle = await createWebGLSceneAsync(host, {
     type: 'void', manageResize: false, shadows: false, lighting: { envMapEnabled: false },
   });
   assert.equal(handle.sceneType, 'void');
@@ -233,9 +235,9 @@ test('the synchronous API still immediately returns an attached, unprepared WebG
   assertReleased(host, callbacks);
 });
 
-function webgpuAvailable(t) {
+function webgpuAvailable(t, gpu = {}) {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
-  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { gpu: {} } });
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { gpu } });
   t.after(() => {
     if (descriptor) Object.defineProperty(globalThis, 'navigator', descriptor);
     else delete globalThis.navigator;
@@ -317,21 +319,23 @@ for (const stage of ['environment', 'compile']) {
   });
 }
 
-test('device loss before readiness rejects and never publishes a scene', async (t) => {
-  webgpuAvailable(t);
-  const callbacks = resizeEvents(t), host = container();
-  const losses = [];
-  control.prepare = () => {
-    control.gpuRenderers[0].onDeviceLost({ message: 'lost during compile' });
-    return Promise.resolve();
-  };
-  await assert.rejects(createDefaultCharacterSceneAsync(host, {
-    renderer: 'webgpu', onDeviceLost: (error) => losses.push(error),
-  }), /lost during compile/);
-  assert.equal(losses.length, 0);
-  assert.equal(control.gpuRenderers[0].internalDeviceLosses.length, 1);
-  assertReleased(host, callbacks);
-});
+for (const preference of ['webgpu', 'auto']) {
+  test(`${preference} device loss during compilation rejects and never publishes a scene`, async (t) => {
+    webgpuAvailable(t);
+    const callbacks = resizeEvents(t), host = container();
+    const losses = [];
+    control.prepare = () => {
+      control.gpuRenderers[0].onDeviceLost({ message: 'lost during compile' });
+      return Promise.resolve();
+    };
+    await assert.rejects(createDefaultCharacterSceneAsync(host, {
+      renderer: preference, onDeviceLost: (error) => losses.push(error),
+    }), /lost during compile/);
+    assert.equal(losses.length, 0);
+    assert.equal(control.gpuRenderers[0].internalDeviceLosses.length, 1);
+    assertReleased(host, callbacks);
+  });
+}
 
 test('device loss preserves Three handling, stops the loop, and notifies once until disposal', async (t) => {
   webgpuAvailable(t);
@@ -365,6 +369,164 @@ for (const reject of [false, true]) {
     if (reject) gate.reject(new Error('compile failure after abort'));
     else gate.resolve();
     await assert.rejects(pending, { name: 'AbortError' });
+    assertReleased(host, callbacks);
+  });
+}
+
+test('default auto rejects an already aborted signal without probing or allocating', async (t) => {
+  webgpuAvailable(t, { requestAdapter: () => { throw new Error('unexpected probe'); } });
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(createDefaultCharacterSceneAsync(container(), { signal: controller.signal }), { name: 'AbortError' });
+  assert.equal(control.renderers.length, 0);
+});
+
+for (const absentNavigator of [false, true]) {
+  test(`auto uses WebGL when ${absentNavigator ? 'navigator is absent' : 'navigator.gpu is absent'}`, async (t) => {
+    webgpuAvailable(t, null);
+    if (absentNavigator) delete globalThis.navigator;
+    const host = container(), callbacks = resizeEvents(t);
+    const handle = await createDefaultCharacterSceneAsync(host);
+    assert.equal(handle.backend, 'webgl');
+    assert.equal(control.gpuRenderers.length, 0);
+    assert.equal(control.renderers.length, 1);
+    handle.dispose(); assertReleased(host, callbacks);
+  });
+}
+
+for (const preference of [undefined, 'auto']) {
+  test(`${preference ?? 'omitted'} preference selects native WebGPU with one actual initialization probe`, async (t) => {
+    let adapters = 0, devices = 0;
+    webgpuAvailable(t, { requestAdapter: async () => {
+      adapters++;
+      return { requestDevice: async () => { devices++; } };
+    } });
+    // Model Three's actual probe at its initialization boundary. The facade
+    // must not request another adapter/device before calling renderer.init().
+    control.initialize = async () => { const adapter = await navigator.gpu.requestAdapter(); await adapter.requestDevice(); };
+    const host = container(), callbacks = resizeEvents(t);
+    const handle = await createDefaultCharacterSceneAsync(host, { renderer: preference });
+    assert.equal(handle.backend, 'webgpu');
+    assert.equal(control.renderers.length, 1);
+    assert.equal(handle.renderer.initCount, 1);
+    assert.equal(adapters, 1); assert.equal(devices, 1);
+    handle.dispose(); assertReleased(host, callbacks);
+  });
+}
+
+test('explicit WebGL bypasses native initialization even when WebGPU is available', async (t) => {
+  webgpuAvailable(t, { requestAdapter: () => { throw new Error('unexpected probe'); } });
+  const host = container(), callbacks = resizeEvents(t);
+  const handle = await createDefaultCharacterSceneAsync(host, { renderer: 'webgl' });
+  assert.equal(handle.backend, 'webgl');
+  assert.equal(control.gpuRenderers.length, 0);
+  handle.dispose(); assertReleased(host, callbacks);
+});
+
+for (const failure of ['null adapter', 'init rejection']) {
+  test(`auto releases ${failure} resources before constructing its WebGL fallback`, async (t) => {
+    let adapters = 0;
+    webgpuAvailable(t, { requestAdapter: async () => { adapters++; return null; } });
+    control.initialize = async () => {
+      if (failure === 'init rejection') throw new Error('requestDevice failed');
+      assert.equal(await navigator.gpu.requestAdapter(), null);
+      control.failure.fallback = true; // Three's own initialized WebGL2 fallback.
+    };
+    let checkedCleanup = false;
+    control.rendererAcquired = () => {
+      if (control.renderers.length !== 2) return;
+      const native = control.gpuRenderers[0];
+      assert.equal(native.initialBackend.disposeCount, 1);
+      assert.equal(native.backend.disposeCount, 1);
+      checkedCleanup = true;
+    };
+    const host = container(), callbacks = resizeEvents(t), losses = [];
+    const handle = await createDefaultCharacterSceneAsync(host, { onDeviceLost: (error) => losses.push(error) });
+    assert.equal(handle.backend, 'webgl');
+    assert.equal(checkedCleanup, true);
+    assert.equal(control.renderers.length, 2);
+    assert.equal(control.pmrems.length, 1, 'failed native init never acquires a PMREM');
+    assert.equal(adapters, failure === 'null adapter' ? 1 : 0);
+    assert.equal(host.children.length, 1);
+    assert.deepEqual(losses, []);
+    // A late notification from the rejected attempt must not fail the fallback.
+    control.gpuRenderers[0].onDeviceLost({ message: 'late native failure' });
+    assert.deepEqual(losses, []);
+    handle.dispose(); handle.dispose();
+    assert.equal(handle.renderer.disposeCount, 1);
+    assert.equal(host.children.length, 0);
+    assert.equal(callbacks.size, 0);
+    assert.equal(control.gpuRenderers[0].initialBackend.disposeCount, 1);
+  });
+}
+
+for (const reject of [false, true]) {
+  test(`auto cancellation during init never falls back after ${reject ? 'rejection' : 'success'}`, async (t) => {
+    webgpuAvailable(t);
+    const host = container(), callbacks = resizeEvents(t), gate = deferred(), started = deferred();
+    const controller = new AbortController();
+    control.initialize = () => { started.resolve(); return gate.promise; };
+    const pending = createDefaultCharacterSceneAsync(host, { signal: controller.signal });
+    const rejected = assert.rejects(pending, { name: 'AbortError' });
+    await started.promise;
+    controller.abort();
+    assert.equal(control.gpuRenderers[0].backend.disposeCount, 0);
+    if (reject) gate.reject(new Error('failed after abort')); else gate.resolve();
+    await rejected;
+    assert.equal(control.renderers.length, 1);
+    assert.equal(control.gpuRenderers[0].backend.disposeCount, 1);
+    assert.equal(control.pmrems.length, 0);
+    assert.equal(host.children.length, 0); assert.equal(callbacks.size, 0);
+  });
+}
+
+test('auto preserves an initialization AbortError even without an aborted signal', async (t) => {
+  webgpuAvailable(t);
+  const failure = new DOMException('device initialization cancelled', 'AbortError');
+  control.initialize = async () => { throw failure; };
+  await assert.rejects(createDefaultCharacterSceneAsync(container()), (error) => error === failure);
+  assert.equal(control.renderers.length, 1);
+  assert.equal(control.gpuRenderers[0].backend.disposeCount, 1);
+});
+
+for (const preference of ['auto', 'webgpu']) {
+  test(`${preference} device loss during initialization is handled without notifying the host`, async (t) => {
+    webgpuAvailable(t);
+    const host = container(), callbacks = resizeEvents(t), losses = [];
+    control.initialize = async (renderer) => { renderer.onDeviceLost({ message: 'lost during init' }); };
+    const pending = createDefaultCharacterSceneAsync(host, { renderer: preference, onDeviceLost: (error) => losses.push(error) });
+    if (preference === 'webgpu') await assert.rejects(pending, /lost during init/);
+    else {
+      const handle = await pending;
+      assert.equal(handle.backend, 'webgl');
+      assert.equal(control.gpuRenderers[0].backend.disposeCount, 1);
+      handle.dispose();
+    }
+    assert.deepEqual(losses, []);
+    assert.equal(control.gpuRenderers[0].internalDeviceLosses.length, 1);
+    assertReleased(host, callbacks);
+  });
+}
+
+test('auto device loss after readiness reports the native failure without switching renderer', async (t) => {
+  webgpuAvailable(t);
+  const host = container(), callbacks = resizeEvents(t), losses = [];
+  const handle = await createDefaultCharacterSceneAsync(host, { onDeviceLost: (error) => losses.push(error) });
+  handle.renderer.onDeviceLost({ message: 'device reset after readiness' });
+  assert.equal(handle.backend, 'webgpu');
+  assert.equal(losses.length, 1);
+  assert.match(losses[0].message, /device reset after readiness/);
+  assert.equal(control.renderers.length, 1);
+  assert.equal(handle.renderer.disposeCount, 0, 'returned ownership stays with the host');
+  handle.dispose(); assertReleased(host, callbacks);
+});
+
+for (const stage of ['environment', 'compile']) {
+  test(`auto preserves a post-initialization ${stage} error without falling back`, async (t) => {
+    webgpuAvailable(t);
+    const host = container(), callbacks = resizeEvents(t), failure = new Error(stage);
+    control.failure[stage] = failure;
+    await assert.rejects(createDefaultCharacterSceneAsync(host), (error) => error === failure);
+    assert.equal(control.renderers.length, 1);
     assertReleased(host, callbacks);
   });
 }

@@ -10,6 +10,7 @@ export const control = {
     this.failure = Object.create(null);
     this.prepare = undefined;
     this.initialize = undefined;
+    this.rendererAcquired = undefined;
     this.gpuRenderers = [];
   },
 };
@@ -33,6 +34,7 @@ export class WebGLRenderer {
     this.compileCount = 0;
     if (control.failure.missingCompileAsync) this.compileAsync = undefined;
     control.renderers.push(this);
+    control.rendererAcquired?.(this);
   }
   setPixelRatio(value) { this.pixelRatio = value; }
   setSize(...args) {

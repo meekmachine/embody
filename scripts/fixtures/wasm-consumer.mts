@@ -21,6 +21,7 @@ import {
   type ReadyDefaultCharacterScene,
   type CharacterSceneBackend,
   type CharacterSceneRenderer,
+  type CharacterSceneRendererPreference,
   type ThreeModelReferencePose,
   DPthree,
   DPthreeCameraController,
@@ -131,8 +132,13 @@ const sceneOptions: DefaultCharacterSceneAsyncOptions = {
   onDeviceLost: (error: Error) => { console.error(error.message); },
 };
 const pendingScene: Promise<ReadyDefaultCharacterScene> = createDefaultCharacterSceneAsync(container, sceneOptions);
+const preference: CharacterSceneRendererPreference = 'auto';
+const automaticScene: Promise<ReadyDefaultCharacterScene> = createDefaultCharacterSceneAsync(container, { renderer: preference });
+const defaultScene: Promise<ReadyDefaultCharacterScene> = createDefaultCharacterSceneAsync(container);
 const readyScene = await pendingScene;
 const backend: CharacterSceneBackend = readyScene.backend;
+// @ts-expect-error Auto is a preference, never a resolved backend.
+const unresolvedBackend: CharacterSceneBackend = 'auto';
 const renderer: CharacterSceneRenderer = readyScene.renderer;
 if (readyScene.backend === 'webgpu') {
   const nativeRenderer: WebGPURenderer = readyScene.renderer;
@@ -159,6 +165,8 @@ createDefaultCharacterSceneAsync(container, { signal: true });
 createDefaultCharacterSceneAsync(container, { renderer: 'vulkan' });
 // @ts-expect-error Native WebGPU creation requires the asynchronous factory.
 createDefaultCharacterScene(container, { renderer: 'webgpu' });
+// @ts-expect-error Automatic renderer selection also requires the asynchronous factory.
+createDefaultCharacterScene(container, { renderer: 'auto' });
 // @ts-expect-error Lighting values retain their actual type.
 createDefaultCharacterSceneAsync(container, { lighting: { exposure: 'bright' } });
 // @ts-expect-error The caller must await readiness before using the renderer.

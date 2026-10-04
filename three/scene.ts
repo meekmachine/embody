@@ -65,8 +65,8 @@ export type DefaultCharacterSceneOptions = {
 };
 
 export type DefaultCharacterSceneAsyncOptions = DefaultCharacterSceneOptions & {
-  /** WebGL remains the default. WebGPU requires a native initialized backend. */
-  renderer?: CharacterSceneBackend;
+  /** Auto (default) tries native WebGPU initialization, then falls back to WebGL. */
+  renderer?: CharacterSceneRendererPreference;
   /** Cancels construction, not ownership of a successfully returned scene. */
   signal?: AbortSignal;
   /** Device loss after readiness requires the host to dispose/recreate the scene. */
@@ -75,6 +75,7 @@ export type DefaultCharacterSceneAsyncOptions = DefaultCharacterSceneOptions & {
 
 export type CharacterSceneRenderer = WebGLRenderer | WebGPURenderer;
 export type CharacterSceneBackend = 'webgl' | 'webgpu';
+export type CharacterSceneRendererPreference = 'auto' | CharacterSceneBackend;
 
 type CharacterScene<R extends CharacterSceneRenderer> = {
   container: HTMLElement;
@@ -300,9 +301,14 @@ export async function createDefaultCharacterSceneAsync(
   options: DefaultCharacterSceneAsyncOptions = {},
 ): Promise<ReadyDefaultCharacterScene> {
   throwIfAborted(options.signal);
-  if (options.renderer === 'webgpu') return createWebGPUCharacterScene(container, options);
-  if (options.renderer !== undefined && options.renderer !== 'webgl') {
+  const preference = options.renderer ?? 'auto';
+  if (preference !== 'auto' && preference !== 'webgpu' && preference !== 'webgl') {
     throw new Error(`Unsupported character scene renderer: ${options.renderer}`);
+  }
+  if (preference !== 'webgl') {
+    const nativeScene = await createWebGPUCharacterScene(container, options, preference === 'auto');
+    if (nativeScene) return nativeScene;
+    throwIfAborted(options.signal);
   }
   const { handle, attach } = constructWebGLScene(container, options);
   try {
@@ -332,49 +338,55 @@ function disposeBackend(backend: object) {
 async function createWebGPUCharacterScene(
   container: HTMLElement,
   options: DefaultCharacterSceneAsyncOptions,
-): Promise<ReadyDefaultCharacterScene> {
-  if (typeof navigator === 'undefined' || !('gpu' in navigator) || !navigator.gpu) {
-    throw new Error('WebGPU is unavailable. Use WebGL or a browser with WebGPU in a secure context.');
-  }
-  // Keep GPU code out of the default WebGL/Node import path.
-  const { WebGPURenderer, PMREMGenerator: WebGPUPMREMGenerator } = await import('three/webgpu');
-  throwIfAborted(options.signal);
-  const renderer = new WebGPURenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
-  const initialBackend = renderer.backend;
+  allowInitializationFallback: boolean,
+): Promise<ReadyDefaultCharacterScene | null> {
   const lifetime = createDisposer();
-  let published = false;
-  let lostError: Error | undefined;
-  const originalDeviceLost = renderer.onDeviceLost.bind(renderer);
-  renderer.onDeviceLost = (info) => {
-    originalDeviceLost(info);
-    if (lifetime.isDisposed() || lostError) return;
-    lostError = new Error(`WebGPU device lost: ${info.message || 'Unknown reason'}`);
-    if (published) {
-      void renderer.setAnimationLoop(null).catch(() => {});
-      try { options.onDeviceLost?.(lostError); } catch (error) {
-        console.error('Character scene device-loss callback failed.', error);
-      }
-    }
-  };
-  lifetime.add(() => {
-    // Failed init may have switched backend. Always free the original GPU
-    // backend too. Do not call renderer.dispose before init succeeds: r184's
-    // setAnimationLoop(null) would re-enter the rejected initialization promise.
-    try {
-      if (renderer.hasInitialized()) renderer.dispose();
-      else disposeBackend(renderer.backend);
-    } finally {
-      if (renderer.backend !== initialBackend) disposeBackend(initialBackend);
-    }
-  });
+  let initializing = true;
   let result: ReturnType<typeof constructDefaultCharacterScene<WebGPURenderer>> | undefined;
   try {
+    if (typeof navigator === 'undefined' || !('gpu' in navigator) || !navigator.gpu) {
+      throw new Error('WebGPU is unavailable. Use WebGL or a browser with WebGPU in a secure context.');
+    }
+    // init() performs the real adapter/device probe. Do not request a second
+    // adapter or device just to choose a renderer. Explicit WebGL stays lazy.
+    const { WebGPURenderer, PMREMGenerator: WebGPUPMREMGenerator } = await import('three/webgpu');
+    throwIfAborted(options.signal);
+    const renderer = new WebGPURenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
+    const initialBackend = renderer.backend;
+    let published = false;
+    let lostError: Error | undefined;
+    const originalDeviceLost = renderer.onDeviceLost.bind(renderer);
+    renderer.onDeviceLost = (info) => {
+      originalDeviceLost(info);
+      if (lifetime.isDisposed() || lostError) return;
+      lostError = new Error(`WebGPU device lost: ${info.message || 'Unknown reason'}`);
+      if (published) {
+        void renderer.setAnimationLoop(null).catch(() => {});
+        try { options.onDeviceLost?.(lostError); } catch (error) {
+          console.error('Character scene device-loss callback failed.', error);
+        }
+      }
+    };
+    lifetime.add(() => {
+      // Failed init may have switched backend. Always free the original GPU
+      // backend too. Do not call renderer.dispose before init succeeds: r184's
+      // setAnimationLoop(null) would re-enter the rejected initialization promise.
+      try {
+        if (renderer.hasInitialized()) renderer.dispose();
+        else disposeBackend(renderer.backend);
+      } finally {
+        if (renderer.backend !== initialBackend) disposeBackend(initialBackend);
+      }
+    });
     await renderer.init();
     throwIfAborted(options.signal);
     if (lostError) throw lostError;
     if (!('isWebGPUBackend' in renderer.backend) || renderer.backend.isWebGPUBackend !== true) {
       throw new Error('Native WebGPU initialization failed; Three selected WebGL2. Select WebGL to retry.');
     }
+    // Once a native backend initializes, preparation/attachment errors belong
+    // to that scene. Auto must not hide them by constructing a different scene.
+    initializing = false;
     result = constructDefaultCharacterScene(container, options, renderer, lifetime.dispose,
       (scene, settings) => createCharacterLighting(scene, renderer, () => new WebGPUPMREMGenerator(renderer), settings));
     await renderer.compileAsync(result.handle.scene, result.handle.camera);
@@ -387,6 +399,8 @@ async function createWebGPUCharacterScene(
   } catch (error) {
     rollback(result?.handle.dispose ?? lifetime.dispose);
     throwIfAborted(options.signal);
+    const isAbortError = error !== null && typeof error === 'object' && 'name' in error && error.name === 'AbortError';
+    if (allowInitializationFallback && initializing && !isAbortError) return null;
     throw error;
   }
 }

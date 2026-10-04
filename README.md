@@ -140,8 +140,12 @@ restore them with the existing setters; a zero value releases its live override.
 ### Preparing a default scene
 
 `createDefaultCharacterSceneAsync(container, { renderer, signal, ...sceneOptions })`
-from `@lovelace_lol/embody/three` defaults to WebGL. Explicit `renderer: 'webgpu'`
-uses native WebGPU and rejects if initialization fails or Three selects WebGL2.
+from `@lovelace_lol/embody/three` defaults to `renderer: 'auto'`: it tries native
+WebGPU initialization and falls back to WebGL when unavailable or initialization
+fails. `renderer: 'webgl'` skips the native attempt; explicit `renderer: 'webgpu'`
+rejects if initialization fails or Three selects WebGL2. Auto releases the failed
+attempt before creating WebGL and does not fall back on cancellation or errors
+after native initialization, such as scene compilation failures.
 The returned `ReadyDefaultCharacterScene` discriminates its concrete renderer by
 `backend: 'webgl' | 'webgpu'`; both paths await initial scene compilation before
 attaching the canvas. The synchronous factory remains WebGL-specific.
@@ -150,7 +154,7 @@ Cancellation waits for pending initialization/compilation to settle, then
 releases acquired resources and rejects with `AbortError`. Other setup failures
 preserve their original error after cleanup. Disposal is idempotent; after
 resolution the caller owns it. Later signal cancellation does not dispose the
-scene. `onDeviceLost(Error)` reports native GPU loss to the host for recovery,
+scene. `onDeviceLost(Error)` reports native GPU loss after readiness for recovery,
 while retaining Three's internal handling. The camera controller accepts both
 renderers, serializes asynchronous frame callbacks, and reports failures through
 `onRenderError(Error)`.
