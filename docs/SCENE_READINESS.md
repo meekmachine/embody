@@ -107,7 +107,13 @@ is after `createDefaultCharacterSceneAsync`). The model must be detached or part
 of the controller scene with visible ancestors. Passing the scene itself is an
 error. The model's root may be hidden during loading: preparation temporarily
 exposes that root, preserves authored hidden children and layers, and disables
-culling for its visible objects. Temporary attachment and state changes are
+culling for its visible objects. Before the preparation draw, it initializes
+missing culling spheres from the current world/skin/morph pose. Otherwise,
+unculling would defer Three's lazy skinned-vertex scan to the first visible
+frame. Existing authored spheres are retained; hidden objects and objects with
+culling disabled are left alone. These cached bounds describe the prepared pose,
+not every future animation pose; callers retain Three's responsibility to
+refresh bounds when needed after deformation. Temporary attachment and state changes are
 restored synchronously before any await.
 
 ```ts

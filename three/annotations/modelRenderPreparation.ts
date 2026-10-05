@@ -12,8 +12,24 @@ function captureRenderTarget(renderer: CharacterSceneRenderer): () => void {
   return () => renderer.setRenderTarget(target, face, mip);
 }
 
+/** Match the lazy bounds used by Three's Frustum.intersectsObject. */
+function initializeModelCullingBounds(model: THREE.Object3D): void {
+  model.traverseVisible((object) => {
+    if (!object.frustumCulled) return;
+    const drawable = object as THREE.Mesh & THREE.Line & THREE.Points;
+    if (!(drawable.isMesh || drawable.isLine || drawable.isPoints)) return;
+    if ('boundingSphere' in drawable) {
+      if (drawable.boundingSphere === null && 'computeBoundingSphere' in drawable
+          && typeof drawable.computeBoundingSphere === 'function') drawable.computeBoundingSphere();
+    } else if (drawable.geometry.boundingSphere === null) drawable.geometry.computeBoundingSphere();
+  });
+}
+
 /** Only the model root is exposed; authored child visibility and layers are retained. */
-function withPreparedModel<T>(scene: THREE.Scene, model: THREE.Object3D, operation: () => T): T {
+function withPreparedModel<T>(
+  scene: THREE.Scene, model: THREE.Object3D, operation: () => T,
+  options: { initializeBounds?: boolean } = {},
+): T {
   if (model === scene) throw new Error('Render preparation requires a model, not the controller scene.');
   let ancestor = model;
   while (ancestor.parent) {
@@ -27,6 +43,12 @@ function withPreparedModel<T>(scene: THREE.Scene, model: THREE.Object3D, operati
   try {
     if (detached) scene.add(model);
     model.visible = true;
+    if (options.initializeBounds) {
+      // Skin bounds use bone.matrixWorld and current morph weights, not the
+      // uploaded skeleton buffer. Refresh the same hierarchy the draw will use.
+      scene.updateMatrixWorld(true);
+      initializeModelCullingBounds(model);
+    }
     model.traverseVisible((object) => {
       culling.set(object, object.frustumCulled);
       object.frustumCulled = false;
@@ -96,7 +118,7 @@ export function drawModelForRender(
       renderer.render(scene, camera);
       rendered = true;
       for (const state of shadows) state.remainingUpdate = state.shadow.needsUpdate;
-    });
+    }, { initializeBounds: true });
   } finally {
     // Restore public state even when a native nested shadow draw throws before
     // Three's own restoration. The draw never changes authored layers/materials.

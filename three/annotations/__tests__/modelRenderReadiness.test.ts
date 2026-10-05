@@ -69,6 +69,18 @@ function expectRestored(f: ReturnType<typeof fixture>) {
   expect(f.light.shadow.camera.layers.mask).toBe(8); expect(f.light.shadow.autoUpdate).toBe(false);
 }
 
+function skinnedTriangle() {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([-1, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+  geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Array(12).fill(0), 4));
+  geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], 4));
+  geometry.morphAttributes.position = [new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3)];
+  geometry.morphTargetsRelative = true;
+  const mesh = new THREE.SkinnedMesh(geometry, new THREE.MeshStandardMaterial());
+  const bone = new THREE.Bone(); mesh.add(bone); mesh.bind(new THREE.Skeleton([bone]));
+  return { mesh, bone };
+}
+
 describe('controller model render readiness', () => {
   it.each([false, true])('compiles only the model and draws the complete scene once on the existing frame (native=%s)', async (native) => {
     const f = fixture(native); const compilation = deferred();
@@ -225,5 +237,60 @@ describe('controller model render readiness', () => {
     parent.remove(f.model); f.renderer.hasInitialized.mockReturnValue(false);
     await expect(f.controller.prepareModelForRender(f.model)).rejects.toThrow('initialized WebGPU');
     expect(f.renderer.compileAsync).not.toHaveBeenCalled(); expect(f.renderer.render).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('prepares lazy skinned bounds from the current bone/morph pose before unculling (native=%s)', async (native) => {
+    const f = fixture(native); const { mesh, bone } = skinnedTriangle();
+    f.model.add(mesh); bone.position.x = 4; mesh.morphTargetInfluences![0] = 0.5;
+    expect(bone.matrixWorld.elements[12]).toBe(0); // Deliberately stale until preparation.
+    const compute = vi.spyOn(mesh, 'computeBoundingSphere');
+    f.renderer.render.mockImplementationOnce(() => {
+      expect(mesh.frustumCulled).toBe(false);
+      expect(compute).toHaveBeenCalledOnce();
+      expect(mesh.boundingSphere!.center.x).toBeCloseTo(4);
+      expect(mesh.boundingSphere!.containsPoint(mesh.getVertexPosition(0, new THREE.Vector3()))).toBe(true);
+      expect(bone.matrixWorld.elements[12]).toBe(4);
+      f.light.shadow.needsUpdate = false;
+    });
+    const readiness = f.controller.prepareModelForRender(f.model);
+    expect(mesh.boundingSphere).toBeNull();
+    await Promise.resolve(); f.tick(); await readiness;
+    expect(mesh.frustumCulled).toBe(true);
+    // Use Three's real first-visible culling path, without renderer mock help.
+    const frustum = new THREE.Frustum();
+    frustum.intersectsObject(mesh); frustum.intersectsObject(mesh);
+    expect(compute).toHaveBeenCalledOnce();
+    expectRestored(f);
+  });
+
+  it('initializes null geometry/instance spheres once while preserving authored bounds and hidden or unculled objects', async () => {
+    const f = fixture();
+    const geometryCompute = vi.spyOn(f.body.geometry, 'computeBoundingSphere');
+    const instances = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial(), 2);
+    instances.setMatrixAt(1, new THREE.Matrix4().makeTranslation(8, 0, 0));
+    f.model.add(instances); const instanceCompute = vi.spyOn(instances, 'computeBoundingSphere');
+    const preserved = skinnedTriangle().mesh;
+    const authored = new THREE.Sphere(new THREE.Vector3(2, 3, 4), 20); preserved.boundingSphere = authored;
+    f.model.add(preserved); const preservedCompute = vi.spyOn(preserved, 'computeBoundingSphere');
+    const hidden = skinnedTriangle().mesh; f.hidden.add(hidden);
+    const hiddenCompute = vi.spyOn(hidden, 'computeBoundingSphere');
+    const unculled = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    unculled.frustumCulled = false; f.model.add(unculled);
+    const unculledCompute = vi.spyOn(unculled.geometry, 'computeBoundingSphere');
+    const readiness = f.controller.prepareModelForRender(f.model); await Promise.resolve(); f.tick(); await readiness;
+    new THREE.Frustum().intersectsObject(instances); new THREE.Frustum().intersectsObject(f.body);
+    expect(geometryCompute).toHaveBeenCalledOnce(); expect(instanceCompute).toHaveBeenCalledOnce();
+    expect(instances.boundingSphere!.center.x).toBeCloseTo(4);
+    expect(preserved.boundingSphere).toBe(authored); expect(preservedCompute).not.toHaveBeenCalled();
+    expect(hiddenCompute).not.toHaveBeenCalled(); expect(hidden.boundingSphere).toBeNull();
+    expect(unculledCompute).not.toHaveBeenCalled(); expect(unculled.frustumCulled).toBe(false);
+  });
+
+  it('restores model attachment/visibility when lazy bounds initialization fails', async () => {
+    const f = fixture(); const failure = new Error('invalid skin data');
+    vi.spyOn(f.body.geometry, 'computeBoundingSphere').mockImplementationOnce(() => { throw failure; });
+    const readiness = f.controller.prepareModelForRender(f.model); const rejected = expect(readiness).rejects.toBe(failure);
+    await Promise.resolve(); f.tick(); await rejected;
+    expectRestored(f); expect(f.renderer.render).not.toHaveBeenCalled();
   });
 });
