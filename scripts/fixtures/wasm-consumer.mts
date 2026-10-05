@@ -36,6 +36,13 @@ const annotationProfile: AnnotationCharacterConfig = { characterId: 'consumer', 
 const resolvedAnnotationProfile = await resolveAnnotationCharacterConfig(annotationProfile);
 declare const cameraOptions: DPthreeCameraControllerConfig;
 const controller = new DPthreeCameraController(cameraOptions);
+declare const renderModel: import('three').Object3D;
+const modelReady: Promise<void> = controller.prepareModelForRender(renderModel, { signal: new AbortController().signal });
+void modelReady;
+// @ts-expect-error Readiness requires a Three model, not a serialized profile.
+controller.prepareModelForRender({ characterId: 'consumer' });
+// @ts-expect-error Cancellation uses an AbortSignal.
+controller.prepareModelForRender(renderModel, { signal: true });
 await controller.loadRegions(resolvedAnnotationProfile);
 controller.subscribeMarkerState((state: MarkerStateSnapshot) => { const visible: boolean = state.visible; });
 const preview = createRuntimeAnnotationPreviewLifecycle({ getAutoClearMs: () => undefined });

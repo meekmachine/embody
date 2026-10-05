@@ -98,6 +98,64 @@ handler). Rejections after controller disposal are consumed without notifying a
 stale host. The controller does not own or dispose the supplied renderer.
 The factory does not install a host render loop; keep one owner for scheduling.
 
+## Model readiness
+
+`DPthreeCameraController.prepareModelForRender(model, { signal? }): Promise<void>`
+prepares a loaded model before its first reveal. The controller must own an
+active renderer loop, and a WebGPU renderer must already be initialized (as it
+is after `createDefaultCharacterSceneAsync`). The model must be detached or part
+of the controller scene with visible ancestors. Passing the scene itself is an
+error. The model's root may be hidden during loading: preparation temporarily
+exposes that root, preserves authored hidden children and layers, and disables
+culling for its visible objects. Temporary attachment and state changes are
+restored synchronously before any await.
+
+```ts
+controller.setModel(model);
+await controller.prepareRegionsAndMarkersForReveal(profile, async () => {
+  await controller.prepareModelForRender(model, { signal: request.signal });
+  return !request.signal.aborted;
+});
+// The host still owns reveal and animation start.
+scene.add(model);
+```
+
+The adapter calls `compileAsync(model, camera, scene)` so only the model's
+surface resources are retained by asynchronous compilation. It then performs
+one full-scene, zero-viewport draw at the beginning of the controller's existing
+frame. This initializes visible textures/geometry and real shadow variants,
+including complete static shadow maps, on both WebGL and native WebGPU. The
+normal `renderFrame` callback is skipped for that single preparation frame; it
+resumes on the next frame. There is no additional animation loop, per-object
+queue, WebGL shadow proxy or GPU-completion fence. Legacy region-loading APIs
+do not invoke model readiness automatically. Do not await readiness from inside
+the controller's `renderFrame` callback: readiness itself needs a future frame.
+
+A new preparation supersedes the previous one. `setModel`, clearing/replacing
+region state, signal abort and controller disposal cancel pending preparation
+with `AbortError`. A queued draw cancels without requiring another frame, even
+in a hidden tab. Already-started Three compilation cannot be interrupted:
+rejection waits for it to settle, with cancellation taking precedence over its
+failure. A failed controller render loop also rejects pending preparation.
+Ordinary compilation or preparation-draw failures reject the readiness promise
+and preserve the original cause; the host chooses recovery or retry.
+
+The controller never disposes the supplied model, scene, environment, lights or
+renderer. The caller must keep those borrowed resources alive and must not
+change the model's geometry/materials until the promise settles, including after
+abort or controller disposal. Dispose the controller to cancel its queued work,
+then await readiness settlement before disposing borrowed resources. Marker
+objects are excluded from asynchronous model compilation, so controller-owned
+marker replacement and disposal retain their existing behavior.
+
+Readiness covers currently visible model surfaces and receiving/shadow variants
+under the current scene settings. Authored hidden children, camera-excluded
+layers, later marker styles, material changes and new lights can require later
+compilation. The preparation draw is indivisible and can still take a long
+frame; readiness neither guarantees a frame-time budget nor confirms GPU
+completion or presentation. Renderer/scene state is restored after errors;
+failed or unrefreshed shadow maps remain dirty for the next eligible draw.
+
 ## Three version and remaining browser acceptance
 
 The package requires Three >= 0.184.0 and tests exact runtime/types 0.184.0.
