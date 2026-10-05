@@ -60,7 +60,15 @@ const referenceTransform = (object: Object3D, matrix: Matrix4): ThreeReferencePo
   const position = object.matrixAutoUpdate ? object.position : new Vector3();
   const rotation = object.matrixAutoUpdate ? object.quaternion : new Quaternion();
   const scale = object.matrixAutoUpdate ? object.scale : new Vector3();
-  if (!object.matrixAutoUpdate) matrix.decompose(position, rotation, scale);
+  if (!object.matrixAutoUpdate) {
+    // r184 substitutes identity TRS for singular matrices. Keep rejecting a
+    // missing basis axis instead of inventing its authored rotation and scale.
+    const elements = matrix.elements;
+    if ([0, 4, 8].some((start) => Math.hypot(elements[start], elements[start + 1], elements[start + 2]) === 0)) {
+      throw new Error(`Cannot capture reference pose: manual transform for ${JSON.stringify(object.name)} has a zero-length basis axis`);
+    }
+    matrix.decompose(position, rotation, scale);
+  }
   finite([...position.toArray(), ...rotation.toArray(), ...scale.toArray()], `transform for ${JSON.stringify(object.name)}`);
   return Object.freeze({
     position: Object.freeze({ x: position.x, y: position.y, z: position.z }),
@@ -124,7 +132,7 @@ const incompatible = (object: Object3D, path: string) =>
  * not potentially stale matrixWorld values. All returned data is deeply frozen and
  * JSON-serializable; no object, UUID, or live transform references are retained.
  * Existing morph influences are copied as an optional baseline. Non-finite data
- * or manual matrices without a finite TRS decomposition throw.
+ * or manual matrices with a zero-length basis axis/non-finite TRS decomposition throw.
  */
 export function captureModelReferencePose(model: Object3D): ThreeModelReferencePose {
   const ancestors: Object3D[] = [];

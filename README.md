@@ -137,6 +137,33 @@ mixer. Unset, cleared, or out-of-range slots return `0` and `1` respectively.
 Hosts can snapshot these values before a temporary mouth-shape preview and
 restore them with the existing setters; a zero value releases its live override.
 
+### Preparing a default scene
+
+`createDefaultCharacterSceneAsync(container, { renderer, signal, ...sceneOptions })`
+from `@lovelace_lol/embody/three` defaults to `renderer: 'auto'`: it tries native
+WebGPU initialization and falls back to WebGL when unavailable or initialization
+fails. `renderer: 'webgl'` skips the native attempt; explicit `renderer: 'webgpu'`
+rejects if initialization fails or Three selects WebGL2. Auto releases the failed
+attempt before creating WebGL and does not fall back on cancellation or errors
+after native initialization, such as scene compilation failures.
+The returned `ReadyDefaultCharacterScene` discriminates its concrete renderer by
+`backend: 'webgl' | 'webgpu'`; both paths await initial scene compilation before
+attaching the canvas. The synchronous factory remains WebGL-specific.
+
+Cancellation waits for pending initialization/compilation to settle, then
+releases acquired resources and rejects with `AbortError`. Other setup failures
+preserve their original error after cleanup. Disposal is idempotent; after
+resolution the caller owns it. Later signal cancellation does not dispose the
+scene. `onDeviceLost(Error)` reports native GPU loss after readiness for recovery,
+while retaining Three's internal handling. The camera controller accepts both
+renderers, serializes asynchronous frame callbacks, and reports failures through
+`onRenderError(Error)`.
+
+Three runtime and types are checked at 0.184.0, with a >=0.184.0 runtime peer.
+Initial scene readiness does not prepare subsequently added models or establish
+first-frame/visual parity. See [renderer selection and scene readiness](docs/SCENE_READINESS.md)
+for ownership, version rationale and remaining real-browser acceptance.
+
 ### Bilateral snippet channels
 
 AU balance uses the character's left/right: `-1` drives the left side,

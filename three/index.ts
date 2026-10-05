@@ -411,8 +411,8 @@ export function serializeAnimationClips(
   inspection: ThreeModelInspection,
 ) {
   const meshIds = new Map(Array.from(inspection.meshBindings, ([id, mesh]) => [mesh, id]));
-  const boneIds = new Map(Array.from(inspection.boneBindings, ([id, bone]) => [bone, id]));
-  const objectIds = new Map(Array.from(inspection.objectBindings, ([id, object]) => [object, id]));
+  const boneIds = new Map<object, number>(Array.from(inspection.boneBindings, ([id, bone]) => [bone, id]));
+  const objectIds = new Map<object, number>(Array.from(inspection.objectBindings, ([id, object]) => [object, id]));
   return clips.map((clip) => {
     const tracks: Array<Record<string, unknown>> = [];
     const channelKinds = new Map<string, number>();

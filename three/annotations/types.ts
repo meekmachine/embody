@@ -1,4 +1,5 @@
 import type * as THREE from 'three';
+import type { CharacterSceneRenderer } from '../scene';
 
 export type LineStyle = 'solid' | 'dashed' | 'dotted';
 export type LineCurve = 'straight' | 'bezier' | 'arc';
@@ -182,22 +183,25 @@ export interface DPthreeCameraControllerConfig {
   /** The Three.js scene */
   scene: THREE.Scene;
   /** The Three.js renderer - if provided, camera controller manages the render loop */
-  renderer?: THREE.WebGLRenderer;
+  renderer?: CharacterSceneRenderer;
   /**
    * Optional render callback used when the controller owns the render loop.
-   * Allows overlay passes to render after the main character scene.
+   * Allows overlay passes to render after the main character scene. Pending
+   * asynchronous callbacks skip subsequent frames instead of overlapping.
    */
   renderFrame?: (
-    renderer: THREE.WebGLRenderer,
+    renderer: CharacterSceneRenderer,
     scene: THREE.Scene,
     camera: THREE.PerspectiveCamera,
-  ) => void;
+  ) => void | Promise<void>;
+  /** Rendering failure stops this controller's loop; the host owns recovery. */
+  onRenderError?: (error: Error) => void;
   /**
    * Optional resize callback used when renderer sizing is owned by a higher-level
    * scene manager with its own pixel-ratio policy.
    */
   resizeRenderer?: (
-    renderer: THREE.WebGLRenderer,
+    renderer: CharacterSceneRenderer,
     width: number,
     height: number,
   ) => void;
