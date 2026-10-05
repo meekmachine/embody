@@ -6,6 +6,7 @@ import {
   resolveAutoCloseupAngle,
   resolveFocusCameraDirection,
 } from '../DPthreeCameraController';
+import { DPthree3DMarkers } from '../DPthree3DMarkers';
 
 import { getWorldDirectionForCameraAngle } from '../adapter';
 import { getAnnotationCameraCore, requireAnnotationCameraCore } from '../annotationCameraCore';
@@ -387,12 +388,48 @@ describe('annotation region runtime updates', () => {
     const preparation = controller.prepareRegionsAndMarkersForReveal(config);
 
     expect(loadMarkers).toHaveBeenCalledOnce();
+    expect(loadMarkers).toHaveBeenCalledWith(true);
     expect(playIntro).not.toHaveBeenCalled();
 
     finishMarkerLoad?.();
     await preparation;
 
     expect(playIntro).toHaveBeenCalledOnce();
+  });
+
+  it('keeps each surface query synchronous when rebuilding markers for an active character', async () => {
+    const { controller } = createController();
+    controller.prepareRegionsForReveal({
+      characterId: 'test', characterName: 'Test', modelPath: 'test.glb', regions: [],
+    });
+    const markerLoad = vi.spyOn(DPthree3DMarkers.prototype, 'loadRegions').mockResolvedValue(undefined);
+
+    await controller.loadMarkersForCurrentRegions();
+
+    expect(markerLoad).toHaveBeenCalledWith(controller.getCharacterConfig(), { sliceSurfaceQueries: false });
+    controller.dispose();
+  });
+
+  it('forwards region removal while marker construction is still pending', async () => {
+    const { controller } = createController();
+    controller.prepareRegionsForReveal({
+      characterId: 'test', characterName: 'Test', modelPath: 'test.glb',
+      regions: [{ name: 'head', bones: ['Head'] }],
+    });
+    let finishMarkerLoad!: () => void;
+    vi.spyOn(DPthree3DMarkers.prototype, 'loadRegions').mockImplementation(() => new Promise<void>((resolve) => {
+      finishMarkerLoad = resolve;
+    }));
+    const removeRegion = vi.spyOn(DPthree3DMarkers.prototype, 'removeRegion');
+    const loading = controller.loadMarkersForCurrentRegions(true);
+
+    controller.removeAnnotationRegion('head');
+
+    expect(removeRegion).toHaveBeenCalledWith('head');
+    expect(controller.getRegionNames()).toEqual([]);
+    finishMarkerLoad();
+    await loading;
+    controller.dispose();
   });
 
   it('awaits preset expansion before loading camera regions', async () => {
