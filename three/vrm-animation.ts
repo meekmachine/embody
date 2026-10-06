@@ -1,6 +1,6 @@
 import {
   AnimationClip, InterpolateDiscrete, InterpolateLinear, LoadingManager,
-  Matrix4, Quaternion, QuaternionKeyframeTrack, Texture, TextureLoader,
+  Matrix4, NormalAnimationBlendMode, Quaternion, QuaternionKeyframeTrack, Texture, TextureLoader,
   Vector3, VectorKeyframeTrack,
 } from 'three';
 import type { Object3D, SkinnedMesh, Mesh, Material } from 'three';
@@ -124,6 +124,9 @@ function uniqueBone(objects: Object3D[], name: string) {
 /** Pure conversion with borrowed native objects: no mixer, scene mutation, loading or disposal. */
 export function convertMixamoToVrmAnimation(source: Object3D, clip: AnimationClip, options: MixamoVrmAnimationOptions): Uint8Array {
   const core = requireInitializedEmbodyCore();
+  if (clip.blendMode !== NormalAnimationBlendMode) {
+    throw new Error('VRMA conversion requires absolute local animation keys; additive clips are unsupported');
+  }
   const { rig, objects, ids } = options.referencePose
     ? inspectReference(source, options.referencePose, options.metersPerUnit, true)
     : inspectSkinBind(source, options.metersPerUnit);
@@ -163,9 +166,13 @@ export function createAnimationClipFromVrmAnimation(bytes: Uint8Array, target: O
       valid: boolean; errors: string[]; roles: Record<string, { boneName: string }>;
     };
     if (!result.valid) throw new Error(`Cannot characterize VRMA target: ${result.errors.join('; ')}`);
-    humanoidBones = Object.fromEntries(Object.entries(result.roles).filter(([role]) => role !== 'leftEye' && role !== 'rightEye').map(([role, binding]) => [role, binding.boneName]));
+    humanoidBones = Object.fromEntries(Object.entries(result.roles).map(([role, binding]) => [role, binding.boneName]));
   }
-  for (const [role, name] of Object.entries(humanoidBones)) rig.humanoidBones[role] = ids.get(uniqueBone(objects, name))!;
+  for (const [role, name] of Object.entries(humanoidBones)) {
+    // Eyes may be part of a complete target characterization. They are not body
+    // animation channels, regardless of whether bindings came from a profile.
+    if (role !== 'leftEye' && role !== 'rightEye') rig.humanoidBones[role] = ids.get(uniqueBone(objects, name))!;
+  }
   const retargeted = JSON.parse(core.retarget_vrma_animation(JSON.stringify(document), JSON.stringify(rig))) as VrmAnimationDocument;
   const byId = new Map(objects.map((node) => [ids.get(node)!, node]));
   const tracks = retargeted.tracks.map((track) => {

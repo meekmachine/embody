@@ -124,6 +124,12 @@ Units are never inferred from character size. The source reference comes from
 All source bones must have bind inverses. Alternatively supply `referencePose`
 explicitly, including for animation-only or parented sources. Neither the first
 key nor a currently playing pose is an implicit reference.
+Skin inverses recover bone references, not authored transforms of their non-bone
+ancestors. Keep those ancestors in their authored reference when using this
+default; after changing root/armature transforms, reuse an explicitly captured
+reference instead. Native source clips must contain absolute local transforms;
+Three additive clips reject because their deltas cannot be interpreted as those
+absolute keys.
 
 `convertMixamoFbxToVrmAnimations(arrayBuffer, { metersPerUnit })` parses FBX
 and returns `{ name, bytes }[]`, one standalone VRMA per clip. Skinned exports
@@ -167,7 +173,13 @@ mixer.clipAction(clip).play();
 An explicit `humanoidBones: Record<VRMRole, uniqueBoneName>` option overrides
 profile lookup. Otherwise the adapter uses Rust's existing
 `validate_humanoid_characterization`. Target scene placement is excluded from
-reference math. Conversion neither changes the model nor schedules the mixer.
+reference math. Full target maps may include eye bindings, which this body path
+ignores; eye animation in a VRMA file still rejects. Conversion neither changes
+the model nor schedules the mixer.
+The target model container defines the canonical model frame: any authored
+axis-correction transform must remain beneath that container. A correction stored
+only on the container itself is excluded along with scene placement; wrap such an
+asset in an untransformed container before capturing its reference.
 
 Persist `converted.bytes` as a `.vrma` file. `inspectVrmAnimation(bytes)` returns
 the validated intermediate `{ version: 1, name, durationSeconds, rig, tracks }`,
@@ -200,6 +212,11 @@ must be coherent VRM T-poses: +Y up, +Z forward, character-left +X; arm and leg
 segments must be within 20 degrees of their expected axes. A CC4 or other model
 captured in an A-pose needs an authored T reference first. Arbitrary anatomical
 bases and deformation correction are not inferred.
+Capturing a model before playback or assigning humanoid roles does not establish
+that T reference. With normalized identity rotation, the retarget formula
+returns the target reference rotation; accepting an A-pose would therefore keep
+its shoulder offset for an animation authored in T-pose. Existing CC4 mapping
+metadata alone is not evidence that a particular loaded asset can use this path.
 
 The reader accepts one animation, embedded packed dense float accessors and
 explicit node TRS. It rejects external/multiple buffers, sparse/interleaved data,

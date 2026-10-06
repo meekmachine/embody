@@ -899,6 +899,13 @@ fn decode(bytes: &[u8]) -> Result<Document, String> {
         let path = channel["target"]["path"]
             .as_str()
             .ok_or("Missing target path")?;
+        let interpolation = match sampler.get("interpolation") {
+            None => "LINEAR",
+            Some(Value::String(value)) if matches!(value.as_str(), "LINEAR" | "STEP") => {
+                value.as_str()
+            }
+            _ => return Err("Unsupported or malformed VRMA sampler interpolation".into()),
+        };
         let times = read_accessor(
             &gltf,
             binary,
@@ -928,11 +935,7 @@ fn decode(bytes: &[u8]) -> Result<Document, String> {
         tracks.push(Track {
             node: integer(&channel["target"]["node"], "target.node")?.to_string(),
             path: path.into(),
-            interpolation: sampler
-                .get("interpolation")
-                .and_then(Value::as_str)
-                .unwrap_or("LINEAR")
-                .into(),
+            interpolation: interpolation.into(),
             times,
             values,
         });

@@ -1,5 +1,5 @@
 import {
-  AnimationClip, AnimationMixer, Bone, BufferGeometry, Group, InterpolateDiscrete,
+  AdditiveAnimationBlendMode, AnimationClip, AnimationMixer, Bone, BufferGeometry, Group, InterpolateDiscrete,
   MeshBasicMaterial, QuaternionKeyframeTrack, Skeleton, SkinnedMesh, VectorKeyframeTrack,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -95,6 +95,28 @@ it('rejects missing references, duplicate mappings, animated scale and malformed
   expect(() => inspectVrmAnimation(new Uint8Array(32))).toThrow(/GLB/);
   const duplicate = new Bone(); duplicate.name = 'mixamorigLeftArm'; model.add(duplicate);
   expect(() => convertMixamoToVrmAnimation(model, clip, { metersPerUnit: 0.01, referencePose: captureModelReferencePose(model) })).toThrow(/uniquely/);
+});
+
+it('rejects native additive clips instead of reinterpreting rotation deltas as absolute keys', () => {
+  const { model, clip } = fixture();
+  clip.blendMode = AdditiveAnimationBlendMode;
+  expect(() => convertMixamoToVrmAnimation(model, clip, {
+    metersPerUnit: 0.01, referencePose: captureModelReferencePose(model),
+  })).toThrow(/absolute local.*additive/i);
+});
+
+it('accepts complete explicit target maps without scheduling eye animation', () => {
+  const source = fixture(); const target = fixture();
+  const bytes = convertMixamoToVrmAnimation(source.model, source.clip, {
+    metersPerUnit: 0.01, referencePose: captureModelReferencePose(source.model),
+  });
+  const eye = new Bone(); eye.name = 'EyeLeft'; target.bones.head.add(eye);
+  const clip = createAnimationClipFromVrmAnimation(bytes, target.model, {
+    metersPerUnit: 0.01, referencePose: captureModelReferencePose(target.model),
+    humanoidBones: { ...target.humanoidBones, leftEye: eye.name },
+  });
+  expect(clip.tracks).toHaveLength(2);
+  expect(clip.tracks.some((track) => track.name.startsWith(eye.uuid))).toBe(false);
 });
 
 it('file conversion owns temporary FBX resources on both success and conversion failure', () => {

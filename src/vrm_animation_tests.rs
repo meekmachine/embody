@@ -63,6 +63,25 @@ fn near(actual: &[f32], expected: &[f32]) {
     }
 }
 
+fn rewrite_gltf(bytes: &[u8], edit: impl FnOnce(&mut Value)) -> Vec<u8> {
+    let json_length = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+    let mut gltf: Value = serde_json::from_slice(&bytes[20..20 + json_length]).unwrap();
+    edit(&mut gltf);
+    let mut json = serde_json::to_vec(&gltf).unwrap();
+    while json.len() % 4 != 0 {
+        json.push(b' ');
+    }
+    let binary_chunk = &bytes[20 + json_length..];
+    let total = 20 + json.len() + binary_chunk.len();
+    let mut rewritten = Vec::new();
+    for word in [0x46546c67, 2, total as u32, json.len() as u32, 0x4e4f534a] {
+        rewritten.extend(word.to_le_bytes());
+    }
+    rewritten.extend(json);
+    rewritten.extend(binary_chunk);
+    rewritten
+}
+
 #[test]
 fn mixamo_keys_keep_authored_first_pose_and_convert_centimeters() {
     let doc = normalize_mixamo(mixamo_fixture()).unwrap();
@@ -109,7 +128,7 @@ fn rotation_conversion_uses_rest_basis_and_same_rig_roundtrip() {
     near(&restored.tracks[1].values, &source.tracks[1].values);
 }
 #[test]
-fn translation_respects_target_height_units_and_parent_rotation() {
+fn translation_respects_target_height_and_units() {
     let source = normalize_mixamo(mixamo_fixture()).unwrap();
     let mut target = source.rig.clone();
     target.meters_per_unit = 0.01;
@@ -118,6 +137,53 @@ fn translation_respects_target_height_units_and_parent_rotation() {
     }
     let result = retarget(source, target).unwrap();
     near(&result.tracks[1].values, &[0., 200., 0., 40., 220., 0.]);
+}
+
+#[test]
+fn translation_uses_rotated_scaled_target_parent_space() {
+    let source = normalize_mixamo(mixamo_fixture()).unwrap();
+    let mut target = source.rig.clone();
+    target.meters_per_unit = 0.01;
+    for node in &mut target.nodes {
+        node.translation = scale(node.translation, 100.);
+    }
+    // Parent rotates +90 degrees around Y and doubles model height. Counter-
+    // rotating the hips reference keeps the humanoid itself in the same T-pose.
+    let parent_rotation = [0., 0.70710677, 0., 0.70710677];
+    let hips = target
+        .nodes
+        .iter_mut()
+        .find(|node| node.id == "hips")
+        .unwrap();
+    hips.parent = Some("armature".into());
+    hips.rotation = inv(parent_rotation);
+    target.nodes.insert(
+        0,
+        Node {
+            id: "armature".into(),
+            name: "armature".into(),
+            parent: None,
+            translation: [0.; 3],
+            rotation: parent_rotation,
+            scale: [2.; 3],
+        },
+    );
+    let result = retarget(source, target).unwrap();
+    // World +X displacement becomes local +Z; parent scale is removed once.
+    near(&result.tracks[1].values, &[0., 100., 0., 0., 110., 20.]);
+}
+
+#[test]
+fn a_characterized_target_still_requires_a_t_pose_reference() {
+    let source = normalize_mixamo(mixamo_fixture()).unwrap();
+    let mut target = source.rig.clone();
+    target
+        .nodes
+        .iter_mut()
+        .find(|node| node.id == "leftUpperArm")
+        .unwrap()
+        .rotation = [0., 0., -0.38268343, 0.9238795];
+    assert!(retarget(source, target).unwrap_err().contains("T-pose"));
 }
 #[test]
 fn glb_roundtrip_retains_required_hierarchy_step_and_binary_keys() {
@@ -220,23 +286,31 @@ fn rejects_reused_accessors_before_expanding_unbounded_tracks() {
     source.tracks[0].times = (0..25_000).map(|i| i as f32 / 24_999.).collect();
     source.tracks[0].values = (0..25_000).flat_map(|_| IDENTITY).collect();
     let bytes = encode(source).unwrap();
-    let json_length = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
-    let mut gltf: Value = serde_json::from_slice(&bytes[20..20 + json_length]).unwrap();
-    let channel = gltf["animations"][0]["channels"][0].clone();
-    gltf["animations"][0]["channels"] = json!(vec![channel; 256]);
-    let mut json = serde_json::to_vec(&gltf).unwrap();
-    while json.len() % 4 != 0 {
-        json.push(b' ');
-    }
-    let binary_chunk = &bytes[20 + json_length..];
-    let total = 20 + json.len() + binary_chunk.len();
-    let mut repeated = Vec::new();
-    for word in [0x46546c67, 2, total as u32, json.len() as u32, 0x4e4f534a] {
-        repeated.extend(word.to_le_bytes());
-    }
-    repeated.extend(json);
-    repeated.extend(binary_chunk);
+    let repeated = rewrite_gltf(&bytes, |gltf| {
+        let channel = gltf["animations"][0]["channels"][0].clone();
+        gltf["animations"][0]["channels"] = json!(vec![channel; 256]);
+    });
     assert!(decode(&repeated).unwrap_err().contains("scalar budget"));
+}
+
+#[test]
+fn only_an_omitted_sampler_interpolation_defaults_to_linear() {
+    let bytes = encode(normalize_mixamo(mixamo_fixture()).unwrap()).unwrap();
+    for invalid in [json!(null), json!(42), json!("CUBICSPLINE"), json!({})] {
+        let malformed = rewrite_gltf(&bytes, |gltf| {
+            gltf["animations"][0]["samplers"][0]["interpolation"] = invalid;
+        });
+        assert!(decode(&malformed)
+            .unwrap_err()
+            .contains("sampler interpolation"));
+    }
+    let omitted = rewrite_gltf(&bytes, |gltf| {
+        gltf["animations"][0]["samplers"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("interpolation");
+    });
+    assert_eq!(decode(&omitted).unwrap().tracks[0].interpolation, "LINEAR");
 }
 
 #[test]
