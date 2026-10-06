@@ -2,6 +2,7 @@ import { boneResolutionProfile } from './boneResolutionProfile';
 import { getAnnotationCameraCore, requireAnnotationCameraCore } from './annotationCameraCore';
 import * as THREE from 'three';
 import type { CharacterSceneRenderer } from '../scene';
+import { compileModelForRender, drawModelForRender } from './modelRenderPreparation';
 import {
   detectAnnotationLaterality,
   fuzzyNameMatch,
@@ -80,6 +81,18 @@ type RustCameraAnimation = {
   sample(elapsedMs: number): CameraPose & { done: boolean };
   dispose(): void;
 };
+
+type ModelRenderPreparation = {
+  promise: Promise<void>;
+  draw: (() => void) | null;
+  cancel: (reason: Error) => void;
+};
+
+function renderPreparationAborted(): Error {
+  const error = new Error('Model render preparation was cancelled.');
+  error.name = 'AbortError';
+  return error;
+}
 
 function toFocusPosition(framing: CameraPose & { distance: number }): FocusPosition {
   return {
@@ -549,6 +562,8 @@ export class DPthreeCameraController {
   private resizeRenderer: DPthreeCameraControllerConfig['resizeRenderer'] = undefined;
   private onRenderError: DPthreeCameraControllerConfig['onRenderError'] = undefined;
   private framePending = false;
+  private frameCompletion: Promise<void> | null = null;
+  private modelPreparation: ModelRenderPreparation | null = null;
   private renderFailed = false;
   private resizeObserver: ResizeObserver | null = null;
   private boundResizeHandler: (() => void) | null = null;
@@ -621,13 +636,17 @@ export class DPthreeCameraController {
       const started = this.renderer.setAnimationLoop(() => {
         if (this.disposed || this.renderFailed || this.framePending) return;
         try {
+          // Native shadows are updated once per camera/frame. Prepare the full
+          // scene first and leave its pixels untouched until the next frame.
+          const preparationDraw = this.modelPreparation?.draw;
+          if (preparationDraw) { preparationDraw(); return; }
           this.update();
           const frame = this.renderFrame
             ? this.renderFrame(this.renderer!, this.scene, this.camera)
             : this.renderer!.render(this.scene, this.camera);
           if (frame) {
             this.framePending = true;
-            void Promise.resolve(frame).then(
+            this.frameCompletion = Promise.resolve(frame).then(
               () => { this.framePending = false; },
               (error) => { this.framePending = false; this.handleRenderError(error); },
             );
@@ -641,6 +660,7 @@ export class DPthreeCameraController {
   private handleRenderError(error: unknown): void {
     if (this.disposed || this.renderFailed) return;
     this.renderFailed = true;
+    this.cancelModelPreparation(error instanceof Error ? error : new Error(String(error)));
     this.stopRenderLoop();
     const failure = error instanceof Error ? error : new Error(String(error));
     try {
@@ -738,11 +758,79 @@ export class DPthreeCameraController {
   // ====== CORE PUBLIC METHODS ======
 
   /**
+   * Prepare the currently visible material variants before first reveal.
+   * Borrows model/renderer; callers retain them until this promise settles,
+   * including after cancellation or controller disposal.
+   */
+  prepareModelForRender(model: THREE.Object3D, options: { signal?: AbortSignal } = {}): Promise<void> {
+    if (this.disposed || options.signal?.aborted) return Promise.reject(renderPreparationAborted());
+    if (!this.renderer || this.renderFailed) return Promise.reject(new Error('Model render preparation requires an active controller-owned renderer.'));
+    const renderer = this.renderer;
+    const previous = this.modelPreparation;
+    previous?.cancel(renderPreparationAborted());
+    let cancelled: Error | null = null;
+    let invalidatePreparedShadows: (() => void) | null = null;
+    let rejectDraw: ((error: Error) => void) | null = null;
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
+    const request: ModelRenderPreparation = {
+      promise, draw: null,
+      cancel: (reason) => {
+        cancelled ??= reason;
+        invalidatePreparedShadows?.();
+        request.draw = null;
+        rejectDraw?.(cancelled);
+      },
+    };
+    this.modelPreparation = request;
+    const abort = () => request.cancel(renderPreparationAborted());
+    options.signal?.addEventListener('abort', abort, { once: true });
+    const checkCancelled = () => { if (cancelled) throw cancelled; };
+    void (async () => {
+      try {
+        // Supersession never compiles over a predecessor's borrowed objects.
+        if (previous) await previous.promise.catch(() => undefined);
+        // A host callback may have started while the predecessor was settling.
+        // Read its current completion here, immediately before acquiring state.
+        if (this.framePending && this.frameCompletion) await this.frameCompletion;
+        checkCancelled();
+        const compilation = compileModelForRender(renderer, this.scene, this.camera, model);
+        try { await compilation; }
+        catch (error) { throw cancelled ?? error; }
+        checkCancelled();
+        await new Promise<void>((done, failed) => {
+          rejectDraw = failed;
+          request.draw = () => {
+            request.draw = null;
+            try {
+              checkCancelled();
+              invalidatePreparedShadows = drawModelForRender(renderer, this.scene, this.camera, model);
+              checkCancelled();
+              done();
+            } catch (error) { invalidatePreparedShadows?.(); failed(cancelled ?? error); }
+          };
+        });
+        checkCancelled();
+      } finally {
+        options.signal?.removeEventListener('abort', abort);
+        if (this.modelPreparation === request) this.modelPreparation = null;
+      }
+    })().then(resolve, reject);
+    return promise;
+  }
+
+  private cancelModelPreparation(reason = renderPreparationAborted()): void {
+    this.modelPreparation?.cancel(reason);
+  }
+
+  /**
    * Set the model to use for bone/mesh lookups
    * Must be called after model loads
    */
   setModel(model: THREE.Object3D): void {
     if (this.disposed) return;
+    this.cancelModelPreparation();
     this.regionLoadGeneration += 1;
     this.cameraRequestGeneration += 1;
     this.cancelCameraAnimation();
@@ -803,6 +891,7 @@ export class DPthreeCameraController {
   }
 
   private prepareRegionState(config: CharacterConfig): void {
+    this.cancelModelPreparation();
     this.regionLoadGeneration += 1;
     this.cameraRequestGeneration += 1;
     this.cancelCameraAnimation();
@@ -1216,6 +1305,7 @@ export class DPthreeCameraController {
    */
   clearMarkers(): void {
     if (this.disposed) return;
+    this.cancelModelPreparation();
     this.regionLoadGeneration += 1;
     this.cameraRequestGeneration += 1;
     this.cancelCameraAnimation();
@@ -1973,6 +2063,7 @@ export class DPthreeCameraController {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.cancelModelPreparation();
     this.regionLoadGeneration += 1;
     this.cameraRequestGeneration += 1;
 

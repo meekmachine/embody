@@ -71,6 +71,16 @@ frame drop, and slicing does not reduce total raycast CPU time. Interactive
 annotation changes retain synchronous queries so a marker samples one pose.
 Replacement, clearing and disposal cancel stale loads before scene commits.
 
+For first reveal, call `controller.prepareModelForRender(model, { signal })`
+from the existing `beforeReveal` callback (or directly before attaching the
+model). It compiles the model's visible surfaces, then uses the controller's
+existing render loop for one complete scene preparation draw. No host warmup
+queue, shadow proxies or texture preparation loop is needed. The promise rejects
+on failure or cancellation; retain borrowed model/scene/renderer resources until
+it settles, even after `controller.dispose()`. This prepares visible variants,
+not every future hidden material or animation state. See the
+[model readiness contract](docs/SCENE_READINESS.md#model-readiness).
+
 `createMarkerVisibilityLifecycle` owns automatic reveal/hide timers;
 `createRuntimeAnnotationPreviewLifecycle` owns temporary authoring previews.
 React hosts forward user events and subscribe to controller state. They do not
