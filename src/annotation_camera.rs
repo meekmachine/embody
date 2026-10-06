@@ -1,9 +1,9 @@
-//! DPthree annotation camera core.
+//! ThreeAnnotations annotation camera core.
 //!
-//! Rust port of the pure camera math from the DPthree camera controller:
+//! Rust port of the pure camera math from the ThreeAnnotations camera controller:
 //! region framing, auto closeup angles, camera-angle direction resolution,
 //! and the spherical camera flight / orbit animation state machines.
-//! Scene-graph concerns (bounding boxes, OrbitControls, render loop) stay in
+//! Native scene-graph concerns (bounding-box queries and render loops) stay in
 //! the host; this module only consumes packed floats.
 
 use wasm_bindgen::prelude::*;
@@ -478,7 +478,7 @@ pub(crate) fn ease_in_out_quad(t: f32) -> f32 {
 
 /// Spherical camera flight between two camera poses.
 ///
-/// Mirrors the DPthree camera transition: orbital interpolation with a
+/// Mirrors the ThreeAnnotations camera transition: orbital interpolation with a
 /// pullback arc so large rotations do not pass through the model.
 /// `sample(elapsed_ms)` returns
 /// `[posX, posY, posZ, targetX, targetY, targetZ, done]`.
