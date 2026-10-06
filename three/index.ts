@@ -546,11 +546,15 @@ export class ThreeFrameApplier {
     }
   }
 
-  applyMeshMaterialConfigs(root: Object3D, configs: Record<string, { material?: MaterialConfig }>) {
+  applyMeshMaterialConfigs(root: Object3D, configs: Record<string, { visible?: boolean; material?: MaterialConfig }>) {
     root.traverse((object: any) => {
-      if (object.isMesh && object.name && configs[object.name]?.material) {
-        this.applyMaterial(object, configs[object.name].material!);
-      }
+      if (!object.isMesh || !object.name) return;
+      const config = configs[object.name];
+      if (!config) return;
+      // Profile replay runs when a model binds and when its profile changes.
+      // A visibility-only entry is just as authored as a material override.
+      if (typeof config.visible === 'boolean') object.visible = config.visible;
+      if (config.material) this.applyMaterial(object, config.material);
     });
   }
 
