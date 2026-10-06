@@ -5,6 +5,17 @@ current ownership. [VISION_AND_PRD](../VISION_AND_PRD.md) describes product inte
 it is not proof that an API or renderer integration exists. These rules guide
 new and touched code, not an unsolicited rewrite of existing modules.
 
+## Agent handoff
+
+Follow the root [delivery workflow](../AGENTS.md#default-engineering-delivery-workflow):
+inspect source, implement, commit and push, then provide the PR stack links as
+**ready to test**. Do not execute tests, builds, typechecks, lint, verification
+scripts, or manual/automated browser checks (including Playwright, Cypress,
+screenshots for visual QA and browser performance tools). Do not monitor or wait
+for CI or package publication. Pass the same restrictions to delegated agents;
+only an explicit user request for the particular check changes this default.
+
+
 ## Make the runtime boundary visible
 
 Trace the affected input through validation, profile/runtime computation, the

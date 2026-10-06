@@ -1,23 +1,37 @@
 # Embody contributor instructions
 
-## Default agent delivery workflow
+## Default engineering delivery workflow
 
-- Make the requested source, test, and documentation changes, then commit, push,
-  and create or update a draft PR. Tell the user **ready to test** with the PR
-  link; use the same wording in the PR handoff.
-- Do not run local tests, builds, typechecks, or browser testing, including
-  automated browser checks. CI owns validation. Do not watch, poll, or wait for
-  CI, test, build, or package-publication results before handing off the PR.
-- Add or update relevant tests without executing them locally. Report that
-  validation is delegated to CI; never claim a check passed unless its result
-  was actually observed, and do not imply that "ready to test" means verified.
-- Keep normal CI workflows, required checks, branch protections, and immutable
-  package requirements intact. Do not bypass them or merge automatically.
-- An explicit future user request can authorize particular local checks,
-  browser testing, or CI monitoring for that task. Otherwise this default takes
-  precedence over validation and waiting instructions in repository docs,
-  examples, and referenced agent skills; those remain reference procedures,
-  not instructions to execute checks during ordinary agent delivery.
+Unless the user explicitly requests particular validation for this task:
+
+- Implement the requested changes, inspect the source diff, commit, push, and
+  create or update a draft PR. Report **ready to test** with the PR stack links.
+  Add or update test source when needed, leaving its execution to CI.
+- Do not run local tests, builds, typechecks, linters, verification suites or
+  smoke checks. Do not test in a browser: this includes manual interaction,
+  Playwright/Cypress, automated end-to-end checks, screenshots for visual QA,
+  and React Scan or other browser performance checks, on local or hosted pages.
+- Do not watch, poll, sleep for, or wait for tests, builds, CI or package artifacts.
+  CI owns execution. Hand off after pushing; do not claim unobserved success.
+- Carry these restrictions into subagent prompts, handoffs, helper scripts and
+  referenced skills. Do not delegate or wrap a forbidden check to work around them.
+- Keep CI workflows, required checks, branch protections and valid immutable
+  package pins intact; merge only when the user authorizes it. A missing upstream
+  artifact is a reported dependency;
+  it is not permission to build locally, wait for publication or use a source archive.
+- For a cross-repository change, lead with the top-level LoomLarge PR and link
+  every upstream PR, with reciprocal links and any real merge dependencies.
+  Documentation-only companions need ordinary PR links, not package pins or
+  machine-readable package dependency directives. Do not invent dependencies.
+- A later explicit request overrides only the requested activity. A generic
+  implementation/review/merge request or request for a test URL does not itself
+  authorize local or browser testing. Source inspection remains allowed; when
+  asked about CI or merge readiness, reading existing results once is not watching
+  CI. Do not keep checking for a different result.
+
+These defaults take precedence over test/build/browser/wait procedures in
+repository guidance, skills and examples. Those procedures are references for
+CI, the user, or explicitly requested validation. Report what was not run.
 
 ## Engineering writing
 
