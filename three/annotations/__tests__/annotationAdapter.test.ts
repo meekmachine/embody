@@ -42,11 +42,11 @@ describe('standalone annotation profile and Three adapter', () => {
     const right = new THREE.Bone(); right.name = 'RightEye'; right.position.set(0.1, 0.8, 0.2); model.add(right);
     const head = new THREE.Bone(); head.name = 'Head'; head.position.y = 0.6; model.add(head);
     const face = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2)); face.name = 'Face'; face.position.set(0, 0.7, 0.3); model.add(face);
-    expect(resolveFaceCenter(model, { name: 'face', meshes: ['Face'] }).center.toArray()).toEqual([0, 0.7, 0.3]);
-    expect(resolveFaceCenter(model, { name: 'face' }).center.toArray()).toEqual([0, 0.8, 0.2]);
+    expect(resolveFaceCenter(model, { name: 'face', meshes: ['Face'] }).center.toArray()).toEqual([0, expect.closeTo(0.7), expect.closeTo(0.3)]);
+    expect(resolveFaceCenter(model, { name: 'face' }).center.toArray()).toEqual([0, expect.closeTo(0.8), expect.closeTo(0.2)]);
     model.remove(left, right);
     const fromHead = resolveFaceCenter(model, { name: 'face' });
-    expect(fromHead.center.y).toBe(0.6); expect(fromHead.center.z).toBeCloseTo(0.08 * 2 / 1.8);
+    expect(fromHead.center.y).toBeCloseTo(0.6); expect(fromHead.center.z).toBeCloseTo(0.08 * 2 / 1.8);
     model.remove(head);
     expect(resolveFaceCenter(model, { name: 'face' }).center.y).toBeCloseTo(0.8);
   });

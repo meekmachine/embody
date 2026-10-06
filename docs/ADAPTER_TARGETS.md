@@ -16,3 +16,11 @@ lerping belong to the host mixer — not Rust.
 The current Three.js adapter is in `three/`. Polymer owns the application host
 API (including `AnimationMixer` scheduling) and calls the Wasm module
 directly; LoomLarge does not import Embody internals.
+
+Annotation adapters additionally capture raw pointer/wheel input, inspect native
+bounds/vertex attributes and execute Rust-planned native raycasts. Rust's
+`AnnotationRuntime` owns camera integration, regions, target selection, marker
+placement/state and packed layout. `AnnotationLifecycle` owns deadlines; a browser
+timer only wakes it to emit effects. The adapter keeps native object handles and
+promise/callback resources, never an independent annotation state machine. See
+[the annotation contract](../README.md#annotation-runtime).

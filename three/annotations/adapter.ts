@@ -1,4 +1,6 @@
-import { Box3, Quaternion, Vector3, type Object3D } from 'three';
+import { annotationConfigInput, annotationQuery } from './runtime';
+import { observeAnnotationModel } from './modelObservation';
+import { Quaternion, Vector3, type Object3D } from 'three';
 import { initEmbodyCore, requireInitializedEmbodyCore, type EmbodyCore, type CameraFlight, type CameraOrbit } from '@lovelace_lol/embody/wasm';
 import type { AnnotationCharacterConfig, AnnotationLaterality, BoneResolutionProfile, Region } from './types';
 export { initEmbodyCore } from '@lovelace_lol/embody/wasm';
@@ -82,73 +84,25 @@ export async function resolveAnnotationCharacterConfig<T extends AnnotationChara
   const extended = request<Record<string, unknown>>('profile.extendConfig', { config: input });
   const resolved = { ...config };
   for (const key of keys) if (extended[key] !== undefined) (resolved as Record<string, unknown>)[key] = extended[key];
-  resolved.regions ??= resolved.annotationRegions ?? [];
+  resolved.regions = annotationQuery('regions', { config: annotationConfigInput(resolved) });
   return resolved;
 }
 
 export function resolveBoneNames(names: string[] | undefined, profile?: BoneResolutionProfile | null): string[] {
-  if (!names?.length) return [];
-  return profile ? request('profile.resolveBoneNames', { profile, names }) : [...new Set(names)];
+  return request('profile.resolveBoneNames', { profile: profile ?? {}, names: names ?? [] });
 }
 export function fuzzyNameMatch(objectName: string, targetName: string, suffixPattern?: string): boolean { return request('name.fuzzyMatch', { objectName, targetName, suffixPattern }); }
-export function getDefaultAnnotationLaterality(): AnnotationLaterality { return { leftSideX: -1, confidence: 0, evidence: ['default:left=-X'] }; }
-function semanticSide(name: string) { return /(^|[_\s-])(left|right)(?=$|[_\s-])/i.exec(name)?.[2].toLowerCase() as 'left' | 'right' | undefined; }
-export function getSemanticHorizontalSignForSide(side: 'left' | 'right', laterality: AnnotationLaterality): 1 | -1 { return side === 'left' ? laterality.leftSideX : laterality.leftSideX === 1 ? -1 : 1; }
-export function getSemanticHorizontalSign(name: string, laterality: AnnotationLaterality) { const side = semanticSide(name); return side ? getSemanticHorizontalSignForSide(side, laterality) : null; }
-export function resolveRegionCameraAngle(region: Region, laterality: AnnotationLaterality) {
-  if (region.cameraAngle == null) return undefined;
-  const angle = requireInitializedEmbodyCore().normalize_camera_angle_degrees(region.cameraAngle);
-  const side = semanticSide(region.name);
-  return side && (angle === 90 || angle === 270) ? getSemanticHorizontalSignForSide(side, laterality) > 0 ? 90 : 270 : angle;
+export function getDefaultAnnotationLaterality(): AnnotationLaterality { return annotationQuery('defaultLaterality', {}); }
+export function getSemanticHorizontalSignForSide(side: 'left' | 'right', laterality: AnnotationLaterality): 1 | -1 { return annotationQuery('sideSign', { side, laterality }); }
+export function getSemanticHorizontalSign(name: string, laterality: AnnotationLaterality): 1 | -1 | null { return annotationQuery('semanticSign', { name, laterality }); }
+export function resolveRegionCameraAngle(region: Region, laterality: AnnotationLaterality): number | undefined { return annotationQuery<number | null>('cameraAngle', { region, laterality }) ?? undefined; }
+export function resolveRegionVisibilityCameraAngle(region: Region, laterality: AnnotationLaterality): number | undefined { return annotationQuery<number | null>('visibilityAngle', { region, laterality }) ?? undefined; }
+export function toWorldDirection(model: Object3D | null, direction: Vector3): Vector3 { const value = annotationQuery<Point>('worldDirection', { quaternion: model?.getWorldQuaternion(new Quaternion()).toArray(), direction }); return new Vector3(value.x, value.y, value.z); }
+export function getWorldDirectionForCameraAngle(model: Object3D | null, angle: number): Vector3 { const v = requireInitializedEmbodyCore().world_direction_for_camera_angle(quat(model?.getWorldQuaternion(new Quaternion())), angle); return new Vector3(v[0], v[1], v[2]); }
+export function getModelLocalOrbitAngle(model: Object3D | null, center: Vector3, position: Vector3): number { return annotationQuery('orbitAngle', { quaternion: model?.getWorldQuaternion(new Quaternion()).toArray(), center, position }); }
+export function passesMarkerCameraAngleGate(o: { markerAngle?: number; currentCameraAngle?: number; rangeDegrees?: number }): boolean { return requireInitializedEmbodyCore().passes_marker_camera_angle_gate(o.markerAngle, o.currentCameraAngle, o.rangeDegrees); }
+export function resolveFaceCenter(model: Object3D, region: Region, profile?: BoneResolutionProfile | null): { center: Vector3; headBonePosition?: Vector3; method: string; debugInfo: string[] } {
+  const result = annotationQuery<{ center: Point; headBonePosition: Point | null; method: string; debugInfo: string[] }>('faceCenter', { model: observeAnnotationModel(model), region, profile });
+  return { ...result, center: new Vector3(result.center.x, result.center.y, result.center.z), headBonePosition: result.headBonePosition ? new Vector3(result.headBonePosition.x, result.headBonePosition.y, result.headBonePosition.z) : undefined };
 }
-export function resolveRegionVisibilityCameraAngle(region: Region, laterality: AnnotationLaterality) {
-  const angle = resolveRegionCameraAngle(region, laterality);
-  const side = semanticSide(region.name);
-  return angle ?? (region.parent && side ? getSemanticHorizontalSignForSide(side, laterality) > 0 ? 90 : 270 : undefined);
-}
-function modelQuaternion(model: Object3D | null) { if (!model) return undefined; model.updateMatrixWorld(true); return model.getWorldQuaternion(new Quaternion()); }
-export function toWorldDirection(model: Object3D | null, local: Vector3) { const q = modelQuaternion(model); const direction = local.clone(); return (q ? direction.applyQuaternion(q) : direction).normalize(); }
-export function getWorldDirectionForCameraAngle(model: Object3D | null, angle: number) { const v = requireInitializedEmbodyCore().world_direction_for_camera_angle(quat(modelQuaternion(model)), angle); return new Vector3(v[0], v[1], v[2]); }
-export function getModelLocalOrbitAngle(model: Object3D | null, center: Vector3, position: Vector3) {
-  const local = position.clone().sub(center); const q = modelQuaternion(model); if (q) local.applyQuaternion(q.invert()); local.normalize();
-  return requireInitializedEmbodyCore().normalize_camera_angle_degrees(Math.atan2(local.x, local.z) * 180 / Math.PI);
-}
-export function passesMarkerCameraAngleGate(o: { markerAngle?: number; currentCameraAngle?: number; rangeDegrees?: number }) { return requireInitializedEmbodyCore().passes_marker_camera_angle_gate(o.markerAngle, o.currentCameraAngle, o.rangeDegrees); }
-
-const matches = (name: string, target: string, suffix?: string) => fuzzyNameMatch(name, target, suffix) || name.toLowerCase().includes(target.toLowerCase());
-function matchingObject(model: Object3D, target: string, suffix?: string): Object3D | undefined {
-  let found: Object3D | undefined;
-  model.traverse(object => { if (!found && matches(object.name, target, suffix)) found = object; });
-  return found;
-}
-function matchingCandidates(model: Object3D, targets: string[], suffix?: string) { for (const target of targets) { const object = matchingObject(model, target, suffix); if (object) return object; } }
-
-/** Reduce scene objects to a world-space annotation anchor; numeric camera math stays in Rust. */
-export function resolveFaceCenter(model: Object3D, region: Region, profile?: BoneResolutionProfile | null) {
-  model.updateMatrixWorld(true);
-  const box = new Box3().setFromObject(model); const size = box.getSize(new Vector3());
-  const suffix = profile?.suffixPattern;
-  const heads = resolveBoneNames(region.bones, profile).filter(name => name.toLowerCase().includes('head'));
-  const head = matchingCandidates(model, heads.length ? heads : ['CC_Base_Head', 'Head', 'head', 'Bip01_Head'], suffix);
-  const left = matchingCandidates(model, ['CC_Base_L_Eye', 'LeftEye', 'Eye_L', 'L_Eye'], suffix);
-  const right = matchingCandidates(model, ['CC_Base_R_Eye', 'RightEye', 'Eye_R', 'R_Eye'], suffix);
-  const meshBox = new Box3();
-  if (region.meshes?.length) model.traverse(object => { if ((object as any).isMesh && region.meshes!.some(name => matches(object.name, name, suffix))) { const b = new Box3().setFromObject(object); if (!b.isEmpty()) meshBox.union(b); } });
-  if (!meshBox.isEmpty() && meshBox.getSize(new Vector3()).y <= size.y * 0.7) return { center: meshBox.getCenter(new Vector3()), method: 'mesh-center', debugInfo: [] as string[] };
-  const headBonePosition = head?.getWorldPosition(new Vector3());
-  if (left && right) return { center: left.getWorldPosition(new Vector3()).add(right.getWorldPosition(new Vector3())).multiplyScalar(0.5), headBonePosition, method: 'head-bone-offset', debugInfo: [] as string[] };
-  if (headBonePosition) return { center: headBonePosition.clone().addScaledVector(toWorldDirection(model, new Vector3(0, 0, 1)), 0.08 * size.y / 1.8), headBonePosition, method: 'head-bone-offset', debugInfo: [] as string[] };
-  const center = box.getCenter(new Vector3()); center.y = box.min.y + size.y * 0.9;
-  return { center, method: 'fallback', debugInfo: [] as string[] };
-}
-export function detectAnnotationLaterality(model: Object3D | null, regions: Region[], profile: BoneResolutionProfile | null): AnnotationLaterality {
-  if (!model || !regions.length) return getDefaultAnnotationLaterality();
-  model.updateMatrixWorld(true); let signed = 0; let total = 0;
-  for (const region of regions) {
-    const side = semanticSide(region.name); if (!side) continue;
-    const object = matchingCandidates(model, resolveBoneNames(region.bones, profile), profile?.suffixPattern); if (!object) continue;
-    const x = model.worldToLocal(object.getWorldPosition(new Vector3())).x;
-    if (Math.abs(x) > 0.001) { signed += side === 'left' ? x : -x; total += Math.abs(x); }
-  }
-  return total > 0 ? { leftSideX: signed > 0 ? 1 : -1, confidence: Math.abs(signed) / total, evidence: [] } : getDefaultAnnotationLaterality();
-}
+export function detectAnnotationLaterality(model: Object3D | null, regions: Region[], profile: BoneResolutionProfile | null): AnnotationLaterality { return model ? annotationQuery('laterality', { model: observeAnnotationModel(model), regions, profile }) : getDefaultAnnotationLaterality(); }
