@@ -100,3 +100,21 @@ Then measure real characters in the browser with combined speech, gaze, blink,
 hair, baked animation, and multiple characters. Profile individual slow frames
 and startup separately, and retain the browser, hardware, asset, and package
 revision with every comparison.
+
+### Marker visibility fades
+
+Profile 3D marker show/hide separately from character pose updates. Once the
+marker materials have rendered, call `DPthree3DMarkers.setVisible(false)` and
+`setVisible(true)`, allowing each 220 ms fade to finish while the normal host
+render loop continues. Include the sphere, leader line, label and optional arrow.
+Opacity changes on these already-transparent materials do not increment Three's
+`material.version`; changing an opaque material to transparent still invalidates
+it once. Reversing or completing a fade restores opacity without extra invalidation.
+
+This distinction matters because Three uses material versions to decide whether
+to revalidate program state. A version increment does not itself prove a new GPU
+pipeline or a visible frame stall. Compare warmed fades on the same renderer,
+marker count and character, recording CPU submission times and renderer cache
+activity separately. Keep initial shader/texture preparation outside steady fade
+measurements, and verify final opacity, visibility and depth behavior on both
+WebGL and native WebGPU before claiming a rendering improvement.

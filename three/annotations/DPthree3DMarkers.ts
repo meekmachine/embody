@@ -2021,9 +2021,13 @@ export class DPthree3DMarkers {
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     for (const material of materials) {
       if ('opacity' in material) {
-        material.transparent = true;
+        // Opacity is a uniform; only a transparency mode change needs Three
+        // to revalidate the material's program during a visibility animation.
+        if (!material.transparent) {
+          material.transparent = true;
+          material.needsUpdate = true;
+        }
         material.opacity = opacity;
-        material.needsUpdate = true;
       }
     }
   }
