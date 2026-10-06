@@ -265,7 +265,7 @@ mod tests {
     fn every_body_direction_drives_authored_skin_and_clothing_with_balance_strength_and_reset() {
         let (authored, model) = authored_morph_catalog();
         assert_eq!(authored.body_controls.values().map(|control| control.section.as_str())
-            .collect::<BTreeSet<_>>(), BTreeSet::from(["Torso", "Head", "Arms", "Hands", "Legs", "Feet"]));
+            .collect::<BTreeSet<_>>(), BTreeSet::from(["Torso", "Whole body", "Head", "Arms", "Hands", "Legs", "Feet"]));
         assert_eq!(authored.body_controls.len(), 58);
         // Removing role assignments and removing actuators are distinct authoring
         // operations. Both must leave independent morph mappings usable.

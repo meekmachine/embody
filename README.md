@@ -280,8 +280,8 @@ step/linear clip conversion, and remaining import work.
 
 `humanoid.getSpecification` exposes all 55 VRM 1.0 anatomical roles and their
 parent/required rules. CC4 maps all 55 to distinct authored bones and supplies
-58 body controls, including fingers, wrists, shoulders, feet, pelvis, spine,
-head, eyes and jaw. `profile.setHumanoidRoleBinding` edits or clears a role and
+58 body controls for fingers, wrists, shoulders, feet, whole body motion, the
+spine, head, eyes and jaw. `profile.setHumanoidRoleBinding` edits or clears a role and
 retargets its existing actuators. The runtime keeps the same bone/morph evaluator;
 other rigs must author their own calibrated axes/ranges and optional muscle
 morph targets. See [Body controls](docs/body-controls.md) for migration, validation
