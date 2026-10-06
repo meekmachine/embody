@@ -36,6 +36,7 @@ function fixture() {
     getSettings: () => snapshot.settings, getSnapshot: () => snapshot,
     setSettings: async () => snapshot, subscribe: () => () => {},
     acquireRenderer: () => ({ renderer: first.renderer, release() {} }),
+    releaseSceneResources: async release => { release(); },
   };
   const owner = registerSceneRendering(rendering, scene, camera, () => null, reportFailure);
   return { scene, camera, container, makeRenderer, first, owner, rendering, reportFailure };
@@ -91,6 +92,21 @@ describe('camera binding to scene-owned renderer settings', () => {
     f.first.tick();
     expect(f.reportFailure).toHaveBeenCalledWith(failure, f.first.renderer); expect(fatal).not.toHaveBeenCalled();
     expect(f.first.renderer.setAnimationLoop).toHaveBeenLastCalledWith(null);
+    controller.dispose();
+  });
+
+  it('drains an asynchronous frame before rejecting a failed loop shutdown', async () => {
+    const f = fixture(); let finish!: () => void;
+    const frame = new Promise<void>(resolve => { finish = resolve; });
+    const controller = new DPthreeCameraController({ scene: f.scene, camera: f.camera, domElement: f.container,
+      rendering: f.rendering, showDOMControls: false, renderFrame: () => frame });
+    f.first.tick();
+    vi.mocked(f.first.renderer.setAnimationLoop).mockImplementationOnce(() => Promise.reject(new Error('device lost')));
+    let settled = false;
+    const stopped = f.owner.binding!.suspend().catch(error => { settled = true; expect(error.message).toBe('device lost'); });
+    await Promise.resolve(); await Promise.resolve();
+    expect(settled).toBe(false);
+    finish(); await stopped; expect(settled).toBe(true);
     controller.dispose();
   });
 });

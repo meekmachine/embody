@@ -171,8 +171,9 @@ Auto tries native WebGPU then falls back only on acquisition/initialization
 failure. Explicit WebGPU remains strict; material/preparation errors retain the
 previous usable renderer. Device loss is observable and recoverable through the
 same controller. `acquireRenderer()` leases protect captures and model mutations;
-release them before requesting a switch. Await `runtime.dispose()` before freeing
-borrowed model/overlay resources.
+release them before requesting a switch. `releaseSceneResources()` drains rendering
+before detaching and freeing borrowed resources, including after device loss or
+scene disposal. Await `runtime.dispose()` before freeing resources on scene teardown.
 
 The existing async factory remains available and rejects after cleanup on initial
 failure. Its successful handles expose the same controller and dynamic backend /

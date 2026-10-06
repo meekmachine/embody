@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
 import test, { beforeEach } from 'node:test';
+import { Group, WebGLCoordinateSystem, WebGPUCoordinateSystem } from 'three';
 
 const entry = new URL(process.env.EMBODY_SCENE_SOURCE === '1' ? '../../three/scene.ts' : '../../dist/three.js', import.meta.url);
 const fixture = new URL('../fixtures/character-scene/three.mjs', import.meta.url);
@@ -692,5 +693,112 @@ test('subscriber retry after synchronous construction failure is retained as the
   await retry;
   assert.equal(runtime.rendering.getSnapshot().status, 'ready');
   assert.equal(runtime.backend, 'webgl'); assert.equal(host.children.length, 1);
+  await runtime.dispose(); assertReleased(host, callbacks);
+});
+
+test('WebGPU to WebGL prepares the main and shadow cameras with WebGL depth projections', async (t) => {
+  webgpuAvailable(t);
+  const host = container(), callbacks = resizeEvents(t);
+  const runtime = createDefaultCharacterSceneRuntime(host, { renderer: 'webgpu' });
+  await runtime.ready;
+  runtime.renderer.render(runtime.scene, runtime.camera);
+  const cameras = [runtime.camera, runtime.scene.getObjectByName('embodyCharacterKeyLight').shadow.camera];
+  const expected = cameras.map(camera => {
+    assert.equal(camera.coordinateSystem, WebGPUCoordinateSystem);
+    const copy = camera.clone(); copy.coordinateSystem = WebGLCoordinateSystem; copy.updateProjectionMatrix();
+    return copy.projectionMatrix.elements;
+  });
+  control.prepare = () => {
+    cameras.forEach((camera, index) => {
+      assert.equal(camera.coordinateSystem, WebGLCoordinateSystem);
+      assert.deepEqual(camera.projectionMatrix.elements, expected[index]);
+    });
+  };
+  await runtime.rendering.setSettings({ preference: 'webgl' });
+  cameras.forEach((camera, index) => assert.deepEqual(camera.projectionMatrix.elements, expected[index]));
+  await runtime.dispose(); assertReleased(host, callbacks);
+});
+
+for (const initial of ['webgl', 'webgpu']) {
+  test(`failed replacement restores ${initial} main and shadow projections`, async (t) => {
+    webgpuAvailable(t);
+    const host = container(), callbacks = resizeEvents(t);
+    const runtime = createDefaultCharacterSceneRuntime(host, { renderer: initial }); await runtime.ready;
+    runtime.renderer.render(runtime.scene, runtime.camera);
+    const original = runtime.renderer;
+    const cameras = [runtime.camera, runtime.scene.getObjectByName('embodyCharacterKeyLight').shadow.camera];
+    const saved = cameras.map(camera => ({ coordinates: camera.coordinateSystem, matrix: [...camera.projectionMatrix.elements] }));
+    const append = host.appendChild;
+    host.appendChild = function (canvas) { append.call(this, canvas); throw new Error('candidate attachment failed'); };
+    await assert.rejects(runtime.rendering.setSettings({ preference: initial === 'webgl' ? 'webgpu' : 'webgl' }), /attachment failed/);
+    assert.equal(runtime.renderer, original);
+    cameras.forEach((camera, index) => {
+      assert.equal(camera.coordinateSystem, saved[index].coordinates);
+      assert.deepEqual(camera.projectionMatrix.elements, saved[index].matrix);
+    });
+    host.appendChild = append;
+    await runtime.dispose(); assertReleased(host, callbacks);
+  });
+}
+
+test('lost-renderer cleanup drains captures and precedes a queued recovery', async (t) => {
+  webgpuAvailable(t);
+  const host = container(), callbacks = resizeEvents(t);
+  const runtime = createDefaultCharacterSceneRuntime(host, { renderer: 'webgpu' }); await runtime.ready;
+  const model = new Group(), unrelated = new Group(); runtime.scene.add(model, unrelated);
+  const lease = runtime.rendering.acquireRenderer();
+  runtime.renderer.onDeviceLost({ message: 'device reset' });
+  let released = 0;
+  const cleanup = runtime.rendering.releaseSceneResources(() => { runtime.scene.remove(model); released++; });
+  await Promise.resolve();
+  assert.equal(released, 0);
+  assert.throws(() => runtime.rendering.acquireRenderer(), /not available/);
+  control.prepare = () => { assert.equal(released, 1); assert.equal(model.parent, null); };
+  const recovery = runtime.rendering.setSettings({ preference: 'webgl' });
+  lease.release();
+  await cleanup; await recovery;
+  assert.equal(released, 1); assert.equal(unrelated.parent, runtime.scene);
+  runtime.scene.remove(unrelated);
+  await runtime.dispose(); assertReleased(host, callbacks);
+});
+
+test('resource cleanup still runs after a failed pending renderer switch', async (t) => {
+  webgpuAvailable(t);
+  const host = container(), callbacks = resizeEvents(t), compile = deferred(), entered = deferred();
+  const runtime = createDefaultCharacterSceneRuntime(host, { renderer: 'webgl' }); await runtime.ready;
+  control.prepare = () => { entered.resolve(); return compile.promise; };
+  const switching = runtime.rendering.setSettings({ preference: 'webgpu' });
+  const switchFailure = assert.rejects(switching, /compile failed/);
+  await entered.promise;
+  let released = false;
+  const cleanup = runtime.rendering.releaseSceneResources(() => { released = true; });
+  assert.equal(released, false);
+  assert.equal(runtime.rendering.setSettings({ preference: 'webgpu' }), switching, 'joining a switch must retain its failure even when cleanup is queued');
+  compile.reject(new Error('compile failed'));
+  await switchFailure; await cleanup;
+  assert.equal(released, true); assert.equal(runtime.backend, 'webgl');
+  const lease = runtime.rendering.acquireRenderer(); lease.release();
+  await runtime.dispose(); assertReleased(host, callbacks);
+});
+
+test('resource cleanup after scene disposal waits its borrowers even when owned cleanup fails', async (t) => {
+  const host = container(), callbacks = resizeEvents(t);
+  const runtime = createDefaultCharacterSceneRuntime(host, { renderer: 'webgl' }); await runtime.ready;
+  const lease = runtime.rendering.acquireRenderer();
+  control.failure.dispose = new Error('renderer disposal failed');
+  const disposal = assert.rejects(runtime.dispose(), /renderer disposal failed/);
+  let released = 0;
+  const cleanup = runtime.rendering.releaseSceneResources(() => { released++; });
+  await Promise.resolve(); assert.equal(released, 0);
+  lease.release(); await disposal; await cleanup;
+  assert.equal(released, 1); assert.equal(runtime.rendering.getSnapshot().status, 'disposed');
+  assertReleased(host, callbacks);
+});
+
+test('a failing release callback rejects without blocking later renderer acquisition', async (t) => {
+  const host = container(), callbacks = resizeEvents(t);
+  const runtime = createDefaultCharacterSceneRuntime(host, { renderer: 'webgl' }); await runtime.ready;
+  await assert.rejects(runtime.rendering.releaseSceneResources(() => { throw new Error('model disposal failed'); }), /model disposal failed/);
+  const lease = runtime.rendering.acquireRenderer(); lease.release();
   await runtime.dispose(); assertReleased(host, callbacks);
 });

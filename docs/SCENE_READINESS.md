@@ -86,6 +86,17 @@ operations that never settle have no timeout guarantee. Calling the camera's
 `dispose()` first also defers its owned marker release until the scene operation
 settles, but does not grant permission to free borrowed models early.
 
+To remove caller-owned resources while keeping a borrowed scene, use
+`await rendering.releaseSceneResources(() => { /* detach and dispose */ })`.
+The callback is synchronous: clear any matching camera-controller model reference,
+detach the model, and free its resources inside it. Embody serializes this operation
+with renderer replacement, drains captures and camera work, then resumes a healthy
+renderer. New capture leases are unavailable until cleanup finishes. This operation
+also works with a lost renderer or after scene disposal; it never requests recovery.
+After disposal it waits for owned cleanup to settle, even if that cleanup rejects.
+A callback failure rejects its own completion. Do not call it while holding a lease
+that it needs to drain, or await renderer operations inside the callback.
+
 ## Readiness and resource ownership
 
 Both async paths await `compileAsync(scene, camera)` before attaching the canvas
@@ -94,6 +105,11 @@ and resize listener. WebGPU first dynamically imports `three/webgpu`, awaits
 with the WebGPU PMREM generator. The WebGL path uses the WebGL PMREM generator.
 The default lights, shadow plane, tone mapping and scene settings are shared.
 The size is refreshed after preparation in case the container changed meanwhile.
+
+Before preparing a replacement, Embody sets the main and shadow cameras to that
+backend's coordinate system and updates their projection matrices. Failed
+replacement restores their preceding coordinate systems before resuming the old
+renderer. This matters when returning from WebGPU's depth range to WebGL.
 
 Auto uses WebGL if the API is unavailable or native acquisition fails, including
 module loading, renderer construction, initialization or device loss during

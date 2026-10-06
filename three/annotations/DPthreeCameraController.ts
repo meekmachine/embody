@@ -630,9 +630,17 @@ export class DPthreeCameraController {
           this.renderingSuspended = true;
           const preparation = this.modelPreparation;
           this.cancelModelPreparation();
-          await this.renderer?.setAnimationLoop(null);
-          if (this.frameCompletion) await this.frameCompletion;
-          if (preparation) await preparation.promise.catch(() => undefined);
+          // A lost device can reject loop shutdown. Still drain every borrower
+          // before allowing the scene owner to release its model resources.
+          let stopping: Promise<void>;
+          try { stopping = Promise.resolve(this.renderer?.setAnimationLoop(null)); }
+          catch (failure) { stopping = Promise.reject(failure); }
+          const [stopped] = await Promise.allSettled([
+            stopping,
+            this.frameCompletion,
+            preparation?.promise,
+          ]);
+          if (stopped.status === 'rejected') throw stopped.reason;
         },
         prepare: async (renderer) => {
           if (this.disposed) throw renderPreparationAborted();

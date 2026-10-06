@@ -12,9 +12,11 @@ import {
   Scene,
   ShadowMaterial,
   SRGBColorSpace,
+  WebGLCoordinateSystem,
   WebGLRenderer,
+  WebGPUCoordinateSystem,
 } from 'three';
-import type { ColorRepresentation, RenderTarget, Texture } from 'three';
+import type { ColorRepresentation, CoordinateSystem, Light, LightShadow, OrthographicCamera, RenderTarget, Texture } from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { registerSceneRendering } from './sceneRenderingBinding';
@@ -113,6 +115,8 @@ export interface CharacterSceneRenderingController {
   subscribe(listener: (snapshot: CharacterSceneRenderingSnapshot) => void): () => void;
   /** Borrow for capture/readback; release in finally. Unavailable during switching/loss. */
   acquireRenderer(): CharacterSceneRendererLease;
+  /** Drain borrowed work, then synchronously detach/free caller-owned resources, even after loss/disposal. */
+  releaseSceneResources(release: () => void): Promise<void>;
 }
 export type DefaultCharacterSceneRuntimeOptions = DefaultCharacterSceneAsyncOptions;
 export type DefaultCharacterSceneRuntime = Omit<CharacterScene<CharacterSceneRenderer>, 'renderer' | 'dispose'> & {
@@ -425,6 +429,31 @@ function rendererPreference(value: unknown): CharacterSceneRendererPreference {
   throw new Error(`Unsupported character scene renderer: ${String(value)}`);
 }
 
+/** Three's WebGPU renderer changes these cameras; WebGLRenderer does not undo it. */
+function prepareCameraCoordinates(scene: Scene, camera: PerspectiveCamera, backend: CharacterSceneBackend): () => void {
+  const cameras = new Set<PerspectiveCamera | OrthographicCamera>([camera]);
+  const shadows: LightShadow<PerspectiveCamera | OrthographicCamera>[] = [];
+  scene.traverse(object => {
+    const light = object as Light & { shadow?: LightShadow<PerspectiveCamera | OrthographicCamera> };
+    if (light.isLight && light.shadow) {
+      cameras.add(light.shadow.camera);
+      shadows.push(light.shadow);
+    }
+  });
+  const previous = Array.from(cameras, current => [current, current.coordinateSystem] as const);
+  const apply = (current: PerspectiveCamera | OrthographicCamera, coordinates: CoordinateSystem) => {
+    current.coordinateSystem = coordinates;
+    current.updateProjectionMatrix();
+  };
+  const coordinates = backend === 'webgpu' ? WebGPUCoordinateSystem : WebGLCoordinateSystem;
+  cameras.forEach(current => apply(current, coordinates));
+  shadows.forEach(shadow => { shadow.needsUpdate = true; });
+  return () => {
+    previous.forEach(([current, original]) => apply(current, original));
+    shadows.forEach(shadow => { shadow.needsUpdate = true; });
+  };
+}
+
 /** Stable scene ownership, including a recoverable initial renderer failure. */
 export function createDefaultCharacterSceneRuntime(
   container: HTMLElement,
@@ -456,7 +485,9 @@ export function createDefaultCharacterSceneRuntime(
     let disposal: Promise<void> | null = null;
     let generation = 0;
     let pending: Promise<CharacterSceneRenderingSnapshot> | null = null;
+    let pendingRendererChange: Promise<CharacterSceneRenderingSnapshot> | null = null;
     let leaseCount = 0;
+    let pendingResourceReleases = 0;
     let leasesReleased: (() => void) | null = null;
     let leaseBarrier: Promise<void> | null = null;
     let resizeAttached = false;
@@ -495,7 +526,7 @@ export function createDefaultCharacterSceneRuntime(
       let preference: CharacterSceneRendererPreference;
       try { preference = patch.preference === undefined ? settings.preference : rendererPreference(patch.preference); }
       catch (failure) { return Promise.reject(failure); }
-      if (pending && preference === settings.preference && (status === 'initializing' || status === 'switching')) return pending;
+      if (pendingRendererChange && preference === settings.preference && (status === 'initializing' || status === 'switching')) return pendingRendererChange;
       if (status === 'ready' && preference === settings.preference) return Promise.resolve(getSnapshot());
       settings = { preference };
       const request = ++generation;
@@ -506,6 +537,7 @@ export function createDefaultCharacterSceneRuntime(
         let environment: LightingRenderer | null = null;
         let suspended = false;
         let attached = false;
+        let restoreCameraCoordinates = () => {};
         const check = () => {
           if (disposed || generation !== request) throw renderingAborted();
           if (!active) throwIfAborted(options.signal);
@@ -534,6 +566,7 @@ export function createDefaultCharacterSceneRuntime(
           check();
           if (owner.binding) { suspended = true; await owner.binding.suspend(); }
           check();
+          restoreCameraCoordinates = prepareCameraCoordinates(scene, camera, candidate.backend);
           lighting.hold();
           // Environment changes during asynchronous compilation are deferred. If
           // authored settings changed meanwhile, prepare that revision before commit.
@@ -574,6 +607,7 @@ export function createDefaultCharacterSceneRuntime(
           rollback(() => candidate?.dispose());
           const canceled = disposed || generation !== request || (!active && options.signal?.aborted);
           if (!disposed) {
+            rollback(restoreCameraCoordinates);
             rollback(lighting.restore);
             if (suspended && active && !active.lost) {
               try { await owner.binding?.commit(active.renderer); } catch (resumeError) { owner.reportFailure(resumeError, active.renderer); }
@@ -589,8 +623,13 @@ export function createDefaultCharacterSceneRuntime(
       };
       const operation = previous ? previous.catch(() => undefined).then(execute) : Promise.resolve().then(execute);
       pending = operation;
+      pendingRendererChange = operation;
       notify();
-      void operation.then(() => { if (pending === operation) pending = null; }, () => { if (pending === operation) pending = null; });
+      const settled = () => {
+        if (pending === operation) pending = null;
+        if (pendingRendererChange === operation) pendingRendererChange = null;
+      };
+      void operation.then(settled, settled);
       return operation;
     };
     const rendering: CharacterSceneRenderingController = {
@@ -602,13 +641,40 @@ export function createDefaultCharacterSceneRuntime(
         return () => { listeners.delete(listener); };
       },
       acquireRenderer: () => {
-        if (!active || active.lost || disposed || (status !== 'ready' && status !== 'error')) throw new Error('Character renderer is not available for capture.');
+        if (!active || active.lost || disposed || pendingResourceReleases || (status !== 'ready' && status !== 'error')) throw new Error('Character renderer is not available for capture.');
         if (leaseCount++ === 0) leaseBarrier = new Promise<void>((resolve) => { leasesReleased = resolve; });
         let released = false;
         return { renderer: active.renderer, release: () => {
           if (released) return; released = true;
           if (--leaseCount === 0) { leasesReleased?.(); leasesReleased = null; leaseBarrier = null; }
         } };
+      },
+      releaseSceneResources: (release) => {
+        // Disposal already owns the drain. A later caller can free its resources
+        // once that completion settles, including when owned cleanup failed.
+        if (disposal) return disposal.then(release, release);
+        const previous = pending;
+        pendingResourceReleases++;
+        const operation = Promise.resolve(previous).catch(() => undefined).then(async () => {
+          if (leaseCount) await leaseBarrier;
+          if (owner.drain) await owner.drain.catch(() => undefined);
+          if (owner.binding) {
+            await owner.binding.suspend().catch(failure => owner.reportFailure(failure, active?.renderer));
+          }
+          try {
+            release();
+          } finally {
+            if (!disposed && active && !active.lost) {
+              await owner.binding?.commit(active.renderer).catch(failure => owner.reportFailure(failure, active?.renderer));
+            }
+          }
+          return getSnapshot();
+        }).finally(() => { pendingResourceReleases--; });
+        // Serialize release with replacement so a recovery requested during the
+        // drain cannot compile resources that the callback is about to free.
+        pending = operation;
+        void operation.then(() => { if (pending === operation) pending = null; }, () => { if (pending === operation) pending = null; });
+        return operation.then(() => undefined);
       },
     };
     const owner = registerSceneRendering(rendering, scene, camera, () => pending, (failure, renderer) => {
