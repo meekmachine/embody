@@ -1,5 +1,24 @@
 # Embody contributor instructions
 
+## Default agent delivery workflow
+
+- Make the requested source, test, and documentation changes, then commit, push,
+  and create or update a draft PR. Tell the user **ready to test** with the PR
+  link; use the same wording in the PR handoff.
+- Do not run local tests, builds, typechecks, or browser testing, including
+  automated browser checks. CI owns validation. Do not watch, poll, or wait for
+  CI, test, build, or package-publication results before handing off the PR.
+- Add or update relevant tests without executing them locally. Report that
+  validation is delegated to CI; never claim a check passed unless its result
+  was actually observed, and do not imply that "ready to test" means verified.
+- Keep normal CI workflows, required checks, branch protections, and immutable
+  package requirements intact. Do not bypass them or merge automatically.
+- An explicit future user request can authorize particular local checks,
+  browser testing, or CI monitoring for that task. Otherwise this default takes
+  precedence over validation and waiting instructions in repository docs,
+  examples, and referenced agent skills; those remain reference procedures,
+  not instructions to execute checks during ordinary agent delivery.
+
 ## Engineering writing
 
 - Before drafting issues, implementation plans, design proposals, PR
@@ -48,22 +67,25 @@
 - Update the existing contract document identified by the development guide
   when changing a public contract or ownership boundary. Keep examples aligned
   with exports and distinguish implemented behavior from intended work.
-- Verify changed behavior with focused observable cases, including relevant
-  lifecycle edges. In review, identify the ambiguity and its concrete failure
+- Add focused tests for changed behavior, including relevant lifecycle edges,
+  for CI to execute. In review, identify the ambiguity and its concrete failure
   risk rather than imposing subjective style preferences or size limits.
 
 ## Source-only repository
 
 - Commit Rust, TypeScript, configuration, tests, and documentation. Do not commit `dist/`, `target/`, `node_modules/`, npm tarballs, `.wasm` binaries, or other generated output.
-- Run `npm run check:generated` before committing. CI runs the same deterministic tracked-file guard.
+- CI runs `npm run check:generated`, the deterministic tracked-file guard. Do not run it locally as a prerequisite to committing.
 - Treat `Cargo.lock` and `package-lock.json` as source-controlled dependency inputs; update them intentionally when dependencies change.
 
-## Build and package contract
+## CI build and package contract
 
-- Install with `npm ci`, then use `npm run build` to generate the complete package in `dist/`. A clean checkout has no `dist/` directory.
-- Build before `npm test` or `npm run typecheck`: the public loader is typed from the wasm-bindgen declarations generated in `dist/wasm/`. Rebuild after changing Rust exports; do not commit or hand-maintain a copy of those signatures.
-- Build once per source SHA. After the build, use `npm run test:package` to validate the existing output; package checks and publishing lifecycle scripts must never invoke another build.
-- `npm run test:exports`, `npm run test:pack`, `npm run check:dist`, `prepack`, and `prepublishOnly` are consumers of the existing `dist/`. If one reports missing output, run `npm run build` explicitly rather than adding a hidden rebuild.
+These are CI/package-maintenance requirements, not local agent steps. Follow the
+default delivery workflow unless the user explicitly requests local validation.
+
+- CI installs with `npm ci`, then uses `npm run build` to generate the complete package in `dist/`. A clean checkout has no `dist/` directory.
+- CI must build before `npm test` or `npm run typecheck`: the public loader is typed from the wasm-bindgen declarations generated in `dist/wasm/`. Rebuild after changing Rust exports; do not commit or hand-maintain a copy of those signatures.
+- CI builds once per source SHA. After the build, it uses `npm run test:package` to validate the existing output; package checks and publishing lifecycle scripts must never invoke another build.
+- `npm run test:exports`, `npm run test:pack`, `npm run check:dist`, `prepack`, and `prepublishOnly` are consumers of the existing `dist/`. If one reports missing output, fix the explicit CI build ordering rather than adding a hidden rebuild or building locally by default.
 - Never restore `dist/` from a cache. npm and Cargo caches accelerate dependency downloads and compiler intermediates only; they are not package artifacts or a source of truth.
 
 ## CI and immutable previews
@@ -74,8 +96,8 @@
 
 ## Coordinating Polymer changes
 
-1. Open the Embody PR and wait for its `Verify built package` job to publish the SHA preview.
-2. In the dependent Polymer branch, set the Embody dependency to the exact pkg.pr.new SHA URL printed by Embody CI. Commit Polymer's lockfile update with that temporary preview pin.
+1. Open a draft Embody PR and hand it off as **ready to test**. Do not watch, poll, or wait for its `Verify built package` job or preview publication.
+2. Once an exact compiled preview URL has already been published by Embody CI, use it in the dependent Polymer branch and commit the matching lockfile. If it is not available, report the downstream dependency still pending; do not invent a URL or use a source archive.
 3. Build and publish Polymer from its own CI; LoomLarge should consume Polymer's immutable preview, not compile Embody transitively.
-4. Merge in dependency order: Embody first, then replace Polymer's preview URL with the intended stable Embody release/version before Polymer's stable release, then update LoomLarge.
+4. Only when the user explicitly authorizes merging, merge in dependency order: Embody first, then replace Polymer's preview URL with the intended stable Embody release/version before Polymer's stable release, then update LoomLarge.
 5. For staging or production coordination that needs an older/main SHA republished, send repository dispatch event `publish-pkg-pr-new` with `client_payload.sha`, or run the workflow manually with `ref`. Always pass a concrete commit SHA when another repository will consume the result.
