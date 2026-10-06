@@ -41,6 +41,15 @@ The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
 not sample or lerp clips on the hot path.
 
+For portable body clips, Rust converts Mixamo references/keys into standard
+VRM Animation 1.0 `.vrma` GLB files and retargets supported humanoid tracks.
+The Three adapter exposes `convertMixamoFbxToVrmAnimations`,
+`convertMixamoToVrmAnimation`, `inspectVrmAnimation`, and
+`createAnimationClipFromVrmAnimation`. Initialize Wasm first; supply explicit
+units and a target T-pose reference. See [body-animation interchange](docs/ANIMATION_REFERENCE_POSES.md#mixamo-fbx-and-vrm-animation-body-interchange)
+for examples, supported inputs and errors. VRMA joint rotations remain distinct
+from authored semantic action-space controls and facial/morph snippets.
+
 The TypeScript adapter is intentionally limited to operations that require
 Three.js objects: scene traversal, ClipIR ↔ `AnimationClip` conversion, frame
 application, material writes, model loading/disposal, and default scene

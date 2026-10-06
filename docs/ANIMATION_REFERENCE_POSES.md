@@ -1,10 +1,10 @@
 # Animation reference-pose foundations
 
-This is the first foundation for reliable imported animation retargeting,
-motivated by [LoomLarge#892](https://github.com/meekmachine/LoomLarge/pull/892).
-It supplies explicit reference-pose data and preserves standard step/linear clip
-interpolation. It does **not** retarget clips, infer bind poses, or enable new
-rig combinations in the application.
+Reference capture supplies explicit reference data and preserves step/linear
+clip interpolation. It was introduced for
+[LoomLarge#892](https://github.com/meekmachine/LoomLarge/pull/892).
+The separate VRM Animation APIs below use these references for bounded body
+retargeting. Ordinary capture and ClipIR conversion keep their existing behavior.
 
 ## Reference pose versus the current rendered pose
 
@@ -33,8 +33,8 @@ const later = inspector.inspectModel(model, { profile: editedProfile, referenceP
 
 Capture is explicit and has no hidden cache. Calling capture again samples the
 current pose again. This API cannot establish that a loaded FBX pose is a bind
-pose: extracting/validating bind or authored reference data from import formats
-is subsequent work. A reference is also distinct from an inherited playback
+pose. The separate Mixamo adapter reads skin bind inverses or accepts an explicit
+authored reference. A reference is also distinct from an inherited playback
 start, which intentionally reads the current rendered property before playing.
 
 Without `referencePose`, `inspectModel` retains its existing current-pose
@@ -97,8 +97,8 @@ strict and never extends a snapshot implicitly.
 
 The existing `ClipIR` numeric bindings remain inspection-local and materialized
 Three tracks still use runtime UUIDs. Do not persist those identifiers alone as
-a portable animation binding. A future import asset contract must carry stable
-binding metadata and validate the target rig when loading.
+a portable animation binding. The VRM Animation path below persists standard
+humanoid roles and validates the target rig when loading.
 
 ## Clip conversion fidelity
 
@@ -110,21 +110,120 @@ clips and input ClipIR are not mutated.
 
 This does not promise lossless conversion of every Three track. Existing
 unsupported targets can be omitted, and smooth/custom interpolants are not
-represented losslessly by the current serializer. Diagnostic/strict conversion
-and a portable persistence format remain separate work. The host mixer continues
+represented losslessly by the current serializer. The VRMA path below is a
+separate strict conversion API. The host mixer continues
 to own playback, interpolation, looping and blending.
 
-## Subsequent work
+## Mixamo FBX and VRM Animation body interchange
 
-1. Select supported source/target rig fixtures (initially same-rig and Mixamo/CC4)
-   and identify each asset's explicit source and target reference poses.
-2. Evaluate Three's `SkeletonUtils.retargetClip` against those fixtures before
-   choosing the reusable conversion implementation.
-3. Add renderer-neutral pose conversion, explicit mapping, parent-space/basis
-   handling and root-motion options in Embody; keep Three extraction at the edge.
-4. Integrate through Polymer's existing Animation agency, then replace the
-   application-local importer in LoomLarge. Each downstream PR targets its own
-   main and consumes a tested immutable upstream preview package.
+`convertMixamoToVrmAnimation(source, clip, options)` converts borrowed Three
+objects to standard `.vrma` GLB bytes. Await `initEmbodyCore()` first.
+`metersPerUnit` is required: use `0.01` for a centimeter export, or `1` for meters.
+Units are never inferred from character size. The source reference comes from
+`SkinnedMesh.skeleton.boneInverses`, checked for consistency across skins.
+All source bones must have bind inverses. Alternatively supply `referencePose`
+explicitly, including for animation-only or parented sources. Neither the first
+key nor a currently playing pose is an implicit reference.
+
+`convertMixamoFbxToVrmAnimations(arrayBuffer, { metersPerUnit })` parses FBX
+and returns `{ name, bytes }[]`, one standalone VRMA per clip. Skinned exports
+use bind inverses. For animation-only exports, the pristine FBX-authored default
+transforms serve as the explicit reference; Rust rejects references outside the
+supported T-pose. The browser adapter suppresses texture loading, disallows
+external resource requests and releases temporary meshes/materials/skeletons/
+textures. Input is capped at 64 MiB. Conversion is synchronous and belongs to an
+explicit import action, not the render loop; parser resource use still depends
+on decompressed content.
+Decoded keys are capped at eight million scalar values including timestamps,
+before accessor expansion; rigs/tracks at 4096 entries and labels/IDs at 512
+UTF-8 bytes. An explicit held clip tail is preserved by extending a final value
+to the declared end time because glTF derives duration from its last key.
+
+Rust maps `mixamorigHips`, `mixamorig:Hips` and namespaced Mixamo names to VRM
+roles, including fingers. Duplicate aliases reject conversion. It owns hierarchy
+validation, quaternion basis conversion, units, hip-height scaling, GLB
+encoding/decoding and target-local key generation. Three owns native transform
+inspection, FBX parsing and native clip construction.
+
+```ts
+import { initEmbodyCore } from '@lovelace_lol/embody/wasm';
+import {
+  convertMixamoFbxToVrmAnimations, inspectVrmAnimation,
+  createAnimationClipFromVrmAnimation,
+} from '@lovelace_lol/embody/three';
+
+await initEmbodyCore();
+const [converted] = convertMixamoFbxToVrmAnimations(fbxBytes, { metersPerUnit: 0.01 });
+const info = inspectVrmAnimation(converted.bytes);
+const clip = createAnimationClipFromVrmAnimation(converted.bytes, model, {
+  metersPerUnit: 1,
+  referencePose, // explicit target T reference, captured before playback
+  profile,       // effective humanoidCharacterization and boneNodes
+  name: info.name,
+});
+mixer.clipAction(clip).play();
+```
+
+An explicit `humanoidBones: Record<VRMRole, uniqueBoneName>` option overrides
+profile lookup. Otherwise the adapter uses Rust's existing
+`validate_humanoid_characterization`. Target scene placement is excluded from
+reference math. Conversion neither changes the model nor schedules the mixer.
+
+Persist `converted.bytes` as a `.vrma` file. `inspectVrmAnimation(bytes)` returns
+the validated intermediate `{ version: 1, name, durationSeconds, rig, tracks }`,
+not an alternative file format. Rig nodes have `id`, `name`, `parent`, local
+`translation` XYZ, `rotation` XYZW and `scale` XYZ arrays; `humanoidBones` maps VRM
+roles to node IDs and `metersPerUnit` declares units. Tracks contain `node`,
+`path`, `interpolation`, seconds in `times` and packed numbers in `values`.
+The Wasm APIs are:
+
+- `normalize_mixamo_animation(sourceDocumentJson): string`
+- `encode_vrma_animation(documentJson): Uint8Array`
+- `decode_vrma_animation(bytes): string`
+- `retarget_vrma_animation(documentJson, targetRigJson): string`
+
+Files contain glTF 2 GLB with `VRMC_vrm_animation` 1.0, the complete mapped
+hierarchy including every required humanoid bone, and embedded float accessors.
+Normalized files use meters and identity rest rotations. Conversion follows the
+specification's [rest-rotation equations](https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_vrm_animation-1.0/how_to_transform_human_pose.md):
+normalize with `W * inverse(L) * key * inverse(W)`; retarget with
+`L * inverse(W) * normalized * W`. Hips displacement is transformed through the
+parent reference space and scaled by target/source reference hip height in
+meters, retaining target reference hips position as its origin.
+
+### Supported inputs and limits
+
+The body subset preserves linear/step humanoid rotations and hips translation.
+Constant non-hips translation/scale tracks equal to the reference may be removed;
+changing ones reject conversion. Unknown animated bones also reject. References
+must be coherent VRM T-poses: +Y up, +Z forward, character-left +X; arm and leg
+segments must be within 20 degrees of their expected axes. A CC4 or other model
+captured in an A-pose needs an authored T reference first. Arbitrary anatomical
+bases and deformation correction are not inferred.
+
+The reader accepts one animation, embedded packed dense float accessors and
+explicit node TRS. It rejects external/multiple buffers, sparse/interleaved data,
+cubic interpolation, node matrices, unknown required extensions, malformed keys,
+nonunit quaternions, duplicate/cyclic/missing bindings, nonuniform scales, shear
+and reflections. This is a subset of
+[VRM Animation 1.0](https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_vrm_animation-1.0/README.md),
+not a claim to accept every conformant file. Expressions, LookAt and eye tracks
+are rejected. Existing AU/viseme/morph snippets and semantic action-space controls
+remain separate; joint rotations are not inferred `body.elbowFlex` intensities.
+
+An animated optional role absent from the target rejects with its role name.
+Folding motion into descendants requires curve resampling, which this path does
+not implement. It also does not implement IK, foot locking, root-motion
+extraction or collision correction. Required roles must exist even for a
+single-bone clip.
+
+Rust test source covers basis conversion, unit/height scaling, binary round trips
+and invalid inputs. Three test source covers GLTFLoader intake, host mixer
+sampling, profile resolution, reference reuse and FBX temporary-resource
+cleanup. These are CI checks, not evidence of real Mixamo/CC4 asset or browser
+validation. Polymer integrates these APIs through its Animation agency and must
+consume a published immutable Embody package. LoomLarge owns import/export
+controls, storage and persona association.
 
 `node scripts/smoke/reference-pose.mjs`,
 `node scripts/smoke/inherited-starts.mjs`, and
