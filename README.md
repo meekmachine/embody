@@ -157,25 +157,27 @@ restore them with the existing setters; a zero value releases its live override.
 
 ### Preparing a default scene
 
-`createDefaultCharacterSceneAsync(container, { renderer, signal, ...sceneOptions })`
-from `@lovelace_lol/embody/three` defaults to `renderer: 'auto'`: it tries native
-WebGPU initialization and falls back to WebGL when unavailable or initialization
-fails. `renderer: 'webgl'` skips the native attempt; explicit `renderer: 'webgpu'`
-rejects if initialization fails or Three selects WebGL2. Auto releases the failed
-attempt before creating WebGL and does not fall back on cancellation or errors
-after native initialization, such as scene compilation failures.
-The returned `ReadyDefaultCharacterScene` discriminates its concrete renderer by
-`backend: 'webgl' | 'webgpu'`; both paths await initial scene compilation before
-attaching the canvas. The synchronous factory remains WebGL-specific.
+`createDefaultCharacterSceneRuntime(container, { rendering: { preference: 'auto' } })`
+returns a stable scene, camera, lighting controller and `rendering` settings
+controller immediately. `ready` reports the initial attempt; failure retains the
+controller for recovery through `setSettings`. `getSettings`, `getSnapshot` and
+`subscribe` expose the requested preference, actual backend, status and errors.
+Live changes prepare and replace only backend resources, preserving the character,
+scene, camera, lighting and marker state. `DPthreeCameraController({ rendering,
+scene, camera, domElement: container })` retargets its existing loop and controls;
+hosts persist settings and display status without recreating the scene.
 
-Cancellation waits for pending initialization/compilation to settle, then
-releases acquired resources and rejects with `AbortError`. Other setup failures
-preserve their original error after cleanup. Disposal is idempotent; after
-resolution the caller owns it. Later signal cancellation does not dispose the
-scene. `onDeviceLost(Error)` reports native GPU loss after readiness for recovery,
-while retaining Three's internal handling. The camera controller accepts both
-renderers, serializes asynchronous frame callbacks, and reports failures through
-`onRenderError(Error)`.
+Auto tries native WebGPU then falls back only on acquisition/initialization
+failure. Explicit WebGPU remains strict; material/preparation errors retain the
+previous usable renderer. Device loss is observable and recoverable through the
+same controller. `acquireRenderer()` leases protect captures and model mutations;
+release them before requesting a switch. Await `runtime.dispose()` before freeing
+borrowed model/overlay resources.
+
+The existing async factory remains available and rejects after cleanup on initial
+failure. Its successful handles expose the same controller and dynamic backend /
+renderer getters. The synchronous factory stays WebGL-specific. See the owning
+contract for latest-request handling, capture/model leases and teardown ordering.
 
 Three runtime and types are checked at 0.184.0, with a >=0.184.0 runtime peer.
 Initial scene readiness does not prepare subsequently added models or establish

@@ -2,6 +2,7 @@ import { boneResolutionProfile } from './boneResolutionProfile';
 import { getAnnotationCameraCore, requireAnnotationCameraCore } from './annotationCameraCore';
 import * as THREE from 'three';
 import type { CharacterSceneRenderer } from '../scene';
+import { bindSceneRendering, reportSceneRenderingFailure } from '../sceneRenderingBinding';
 import { compileModelForRender, drawModelForRender } from './modelRenderPreparation';
 import {
   detectAnnotationLaterality,
@@ -39,6 +40,7 @@ import type {
 /** Common interface for marker implementations */
 interface DPthreeMarkers {
   setModel(model: THREE.Object3D): void;
+  setDomElement(element: HTMLElement): void;
   loadRegions(config: CharacterConfig, options?: { sliceSurfaceQueries?: boolean }): void | Promise<void>;
   setCurrentRegion(name: string | null): void;
   update(): void;
@@ -561,6 +563,9 @@ export class DPthreeCameraController {
   private renderFrame: DPthreeCameraControllerConfig['renderFrame'] = undefined;
   private resizeRenderer: DPthreeCameraControllerConfig['resizeRenderer'] = undefined;
   private onRenderError: DPthreeCameraControllerConfig['onRenderError'] = undefined;
+  private renderingSuspended = false;
+  private unbindRendering: (() => Promise<void> | null) | null = null;
+  private renderingFailure: ((error: unknown) => void) | null = null;
   private framePending = false;
   private frameCompletion: Promise<void> | null = null;
   private modelPreparation: ModelRenderPreparation | null = null;
@@ -578,7 +583,8 @@ export class DPthreeCameraController {
     this.camera = inputConfig.camera;
     this.scene = inputConfig.scene;
     this.domElement = inputConfig.domElement;
-    this.controlsContainer = inputConfig.controlsContainer || inputConfig.domElement;
+    this.controlsContainer = inputConfig.controlsContainer || (inputConfig.rendering && inputConfig.domElement.tagName === 'CANVAS'
+      ? inputConfig.domElement.parentElement || inputConfig.domElement : inputConfig.domElement);
 
     // Merge config with defaults
     this.config = {
@@ -613,13 +619,50 @@ export class DPthreeCameraController {
       this.initDOMControls();
     }
 
-    // Store renderer and start render loop if provided
-    if (inputConfig.renderer) {
+    this.renderFrame = inputConfig.renderFrame;
+    this.resizeRenderer = inputConfig.resizeRenderer;
+    this.onRenderError = inputConfig.onRenderError;
+    if (inputConfig.rendering) {
+      const rendering = inputConfig.rendering;
+      this.renderingFailure = (error) => reportSceneRenderingFailure(rendering, error, this.renderer);
+      this.unbindRendering = bindSceneRendering(inputConfig.rendering, this.scene, this.camera, {
+        suspend: async () => {
+          this.renderingSuspended = true;
+          const preparation = this.modelPreparation;
+          this.cancelModelPreparation();
+          await this.renderer?.setAnimationLoop(null);
+          if (this.frameCompletion) await this.frameCompletion;
+          if (preparation) await preparation.promise.catch(() => undefined);
+        },
+        prepare: async (renderer) => {
+          if (this.disposed) throw renderPreparationAborted();
+          const model = this.model;
+          if (model) {
+            await compileModelForRender(renderer, this.scene, this.camera, model);
+            if (this.disposed || model !== this.model) throw renderPreparationAborted();
+            drawModelForRender(renderer, this.scene, this.camera, model);
+          } else renderer.render(this.scene, this.camera);
+        },
+        commit: async (renderer) => {
+          if (this.disposed) throw renderPreparationAborted();
+          this.cleanupResizeHandling();
+          this.controls.disconnect();
+          this.controls.connect(renderer.domElement);
+          this.domElement = renderer.domElement;
+          this.markers?.setDomElement(renderer.domElement);
+          this.renderer = renderer;
+          this.renderFailed = false;
+          this.renderingSuspended = false;
+          this.setupResizeHandling();
+          this.boundResizeHandler?.();
+          await this.startRenderLoop(true);
+          if (this.disposed) { this.stopRenderLoop(); throw renderPreparationAborted(); }
+        },
+        onError: (error) => this.handleRenderError(error),
+      });
+    } else if (inputConfig.renderer) {
       this.renderer = inputConfig.renderer;
-      this.renderFrame = inputConfig.renderFrame;
-      this.resizeRenderer = inputConfig.resizeRenderer;
-      this.onRenderError = inputConfig.onRenderError;
-      this.startRenderLoop();
+      void this.startRenderLoop();
       this.setupResizeHandling();
     }
 
@@ -630,11 +673,12 @@ export class DPthreeCameraController {
   /**
    * Start the render loop (only when renderer is provided)
    */
-  private startRenderLoop(): void {
+  private startRenderLoop(propagateFailure = false): void | Promise<void> {
     if (!this.renderer) return;
+    const renderer = this.renderer;
     try {
-      const started = this.renderer.setAnimationLoop(() => {
-        if (this.disposed || this.renderFailed || this.framePending) return;
+      const started = renderer.setAnimationLoop(() => {
+        if (this.disposed || this.renderFailed || this.renderingSuspended || this.framePending || renderer !== this.renderer) return;
         try {
           // Native shadows are updated once per camera/frame. Prepare the full
           // scene first and leave its pixels untouched until the next frame.
@@ -653,8 +697,14 @@ export class DPthreeCameraController {
           }
         } catch (error) { this.handleRenderError(error); }
       });
-      if (started) void started.catch((error) => this.handleRenderError(error));
-    } catch (error) { this.handleRenderError(error); }
+      if (started) return started.catch((error) => {
+        if (propagateFailure) throw error;
+        if (renderer === this.renderer) this.handleRenderError(error);
+      });
+    } catch (error) {
+      if (propagateFailure) throw error;
+      this.handleRenderError(error);
+    }
   }
 
   private handleRenderError(error: unknown): void {
@@ -663,6 +713,7 @@ export class DPthreeCameraController {
     this.cancelModelPreparation(error instanceof Error ? error : new Error(String(error)));
     this.stopRenderLoop();
     const failure = error instanceof Error ? error : new Error(String(error));
+    if (this.renderingFailure) { this.renderingFailure(failure); return; }
     try {
       if (this.onRenderError) this.onRenderError(failure);
       else console.error('Character camera render loop failed.', failure);
@@ -764,6 +815,7 @@ export class DPthreeCameraController {
    */
   prepareModelForRender(model: THREE.Object3D, options: { signal?: AbortSignal } = {}): Promise<void> {
     if (this.disposed || options.signal?.aborted) return Promise.reject(renderPreparationAborted());
+    if (this.renderingSuspended) return Promise.reject(new Error('Model render preparation is unavailable during renderer replacement.'));
     if (!this.renderer || this.renderFailed) return Promise.reject(new Error('Model render preparation requires an active controller-owned renderer.'));
     const renderer = this.renderer;
     const previous = this.modelPreparation;
@@ -842,6 +894,15 @@ export class DPthreeCameraController {
     if (this.characterConfig && this.regions.length > 0) {
       this.refreshLaterality();
     }
+  }
+
+  /** Release model references before the host disposes it, under a rendering lease. */
+  clearModel(): void {
+    if (this.disposed) return;
+    this.clearMarkers();
+    this.model = null;
+    this.markers?.dispose();
+    this.markers = null;
   }
 
   /**
@@ -2069,6 +2130,8 @@ export class DPthreeCameraController {
 
     // Stop render loop if we're managing it
     this.stopRenderLoop();
+    const renderingSettled = this.unbindRendering?.();
+    this.unbindRendering = null;
 
     // Clean up resize handling
     this.cleanupResizeHandling();
@@ -2079,9 +2142,11 @@ export class DPthreeCameraController {
     this.domControls?.dispose();
     this.domControls = null;
 
-    // Dispose markers
-    this.markers?.dispose();
+    // A candidate may still compile the scene including these owned markers.
+    const markers = this.markers;
     this.markers = null;
+    if (renderingSettled) void renderingSettled.then(() => markers?.dispose());
+    else markers?.dispose();
 
     // Dispose OrbitControls
     this.controls.dispose();

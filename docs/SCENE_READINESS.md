@@ -1,36 +1,90 @@
 # Default scene readiness and renderer selection
 
-The Three adapter owns renderer creation, lighting/environment and the shadow
-plane. Hosts own character loading, animation scheduling, first reveal and
-recovery. The async factory defaults to automatic native WebGPU selection with
-WebGL fallback when native initialization fails. The synchronous factory stays
-WebGL-only.
+The Three adapter owns renderer acquisition, switching, lighting/environment,
+canvas binding and backend recovery. Hosts persist settings and display the
+controller snapshot. Character loading and animation scheduling stay with their
+existing owners. The default preference is `auto`; the synchronous legacy
+factory remains WebGL-only.
 
 ```ts
-import { createDefaultCharacterSceneAsync } from '@lovelace_lol/embody/three';
+import { createDefaultCharacterSceneRuntime, DPthreeCameraController } from '@lovelace_lol/embody/three';
 
-const request = new AbortController();
-const handle = await createDefaultCharacterSceneAsync(container, {
-  type: 'studio',
-  renderer: 'auto', // Default. Use 'webgl' or 'webgpu' for an explicit choice.
-  signal: request.signal,
-  onDeviceLost: (error) => showRendererRecovery(error.message),
+const runtime = createDefaultCharacterSceneRuntime(container, {
+  rendering: { preference: 'auto' },
 });
-// The initial scene is prepared and attached. Prepare later models separately.
-if (handle.backend === 'webgpu') {
-  // handle.renderer is WebGPURenderer here, not WebGLRenderer.
-}
-handle.renderer.render(handle.scene, handle.camera);
-handle.dispose();
+const cameraControls = new DPthreeCameraController({
+  scene: runtime.scene, camera: runtime.camera, domElement: container,
+  rendering: runtime.rendering,
+});
+const unsubscribe = runtime.rendering.subscribe(renderSnapshot);
+// A failed initial attempt leaves this controller available for recovery.
+void runtime.ready.catch(() => {}); // Error/status are also in the snapshot.
+await runtime.rendering.setSettings({ preference: 'webgl' });
+// No scene, character, camera, lighting controller or agency recreation.
+unsubscribe();
+await runtime.dispose(); // Drains compilation, frames and outstanding leases.
+cameraControls.dispose();
+// Caller-owned model/overlay resources may now be disposed.
 ```
 
-`CharacterSceneRenderer` is `WebGLRenderer | WebGPURenderer` and
-`CharacterSceneBackend` is `'webgl' | 'webgpu'`. The requested
-`CharacterSceneRendererPreference` also accepts `'auto'`; that preference is
-never returned as an actual backend. `ReadyDefaultCharacterScene`
-discriminates the renderer by its actual `backend`. The synchronous
-`createDefaultCharacterScene` remains WebGL-specific and returns immediately
-without shader preparation; it does not accept renderer selection.
+`CharacterSceneRenderingController` follows the lighting-controller pattern:
+`getSettings()`, async `setSettings(patch)`, and `subscribe(listener)`. The
+subscription immediately emits `getSnapshot()`: requested settings, actual
+`backend` and `renderer`, status (`initializing`, `switching`, `ready`, `error`,
+`lost`, `disposed`), and an `Error | null`. Backend/renderer are null before the
+first successful attempt. Requested preferences are `auto | webgl | webgpu`;
+actual backends are only `webgl | webgpu`. Snapshots are atomic pairs; scene
+handle getters follow the current renderer. Retain a renderer only with a lease.
+Subscriber exceptions are reported without interrupting publication or cleanup.
+
+A replacement initializes offscreen, drains current borrowed operations, pauses
+the existing camera loop, and prepares the current scene and its model before
+committing the new canvas, controls and environment. Scene, camera, model,
+lights, lighting controller and marker state retain identity. Lighting edits
+received during compilation are prepared before publication. A failed switch
+keeps the previous renderer and environment when they remain healthy. Status
+`error` can therefore include a usable previous backend; `lost` cannot be used
+for new rendering work. A newer preference supersedes pending work with
+`AbortError`, after started Three work settles. Repeating the same pending
+preference joins its promise. Selecting the same preference after an error/loss
+retries it. Auto fallback applies only to native acquisition/initialization;
+material, preparation, attachment and loop-binding failures are visible errors.
+
+`createDefaultCharacterSceneAsync` remains the compatibility factory: it awaits
+initial success and rejects after cleanup on failure. Successful handles also
+expose `rendering`; their backend/renderer getters stay non-null. Its async
+`dispose()` must now be awaited before freeing borrowed character resources.
+`createDefaultCharacterScene` remains synchronous WebGL, with synchronous
+`dispose()`. `rendering.preference` takes precedence over the legacy `renderer`
+option when supplied. No host renderer-switch hook or page reload is required.
+
+## Borrowing renderer and character resources
+
+`rendering.acquireRenderer()` returns `{ renderer, release }`. Release in a
+`finally` block after asynchronous readback, recording or a character-resource
+mutation finishes. New leases are rejected while switching, lost or disposed.
+A switch waits existing leases before touching the current environment or
+renderer; disposal waits them before releasing owned resources. Release is
+idempotent. Never await a switch while holding a lease it needs to drain.
+
+For character replacement, first join any current switch with
+`setSettings(getSettings())`, then acquire a lease around model/preview loading,
+attachment, readiness and cleanup. Call `cameraControls.clearModel()` before
+disposing a removed model, including when a replacement load fails. Catch a failed switch only if its snapshot
+still has a healthy previous renderer; acquisition enforces that condition.
+If another request wins before acquisition, cancel/retry that model operation.
+A pending switch waits this lease while the old loop remains available for model
+readiness; the camera controller does not take a nested lease. Release on success
+and on cancellation/failure. Likewise, marker/material mutations while switching
+must be performed under a lease. Hosts do not schedule renderer replacement.
+
+On teardown, cancel resource users and release their leases, then await
+`runtime.dispose()` before disposing the camera controller, models or overlays.
+It closes immediately and returns the same completion on repeated calls. The
+completion drains in-flight compilation, frame callbacks and captures; Three
+operations that never settle have no timeout guarantee. Calling the camera's
+`dispose()` first also defers its owned marker release until the scene operation
+settles, but does not grant permission to free borrowed models early.
 
 ## Readiness and resource ownership
 
@@ -66,7 +120,7 @@ cancellation. Hosts can offer an explicit WebGL retry after an error.
 - Failure attempts all acquired-resource cleanup even if another disposer throws.
   Cleanup errors do not mask the setup failure.
 - After resolution, the caller owns the scene. Later signal cancellation has no
-  effect; no abort listener is retained. `dispose()` is idempotent and releases
+  effect; no abort listener is retained. `dispose()` is idempotent and its completion releases
   lighting, PMREM targets, shadow plane, renderer and owned DOM/listener entries.
   Caller-added models require separate disposal. `resize()` after disposal is a
   no-op; disposed lighting cannot reacquire resources.
@@ -77,26 +131,21 @@ cancellation. Hosts can offer an explicit WebGL retry after an error.
 
 ## Device loss and camera rendering
 
-On native device loss, Embody preserves Three's internal loss handler and stops
-its animation loop. Loss during initialization makes auto fall back, while an
-explicit WebGPU request rejects. Loss during later scene preparation rejects
-and rolls back for either preference. Neither case notifies the host callback
-for a scene that was never returned. After readiness, `onDeviceLost(Error)`
-reports the first loss, including its message;
-no backend/device object is exposed by that callback. The host must stop its
-work, dispose the scene and offer recovery/recreation. There is no automatic
-fallback or renderer rebuild after readiness. Late loss notifications after
-disposal, including those from a failed auto attempt, are ignored.
-Do not replace `renderer.onDeviceLost`: use the factory option to preserve this
-behavior.
+Native loss preserves Three's internal loss handler and stops the affected loop.
+Loss during initialization follows the strict/auto selection policy; loss during
+candidate preparation rejects that candidate. Unpublished or disposed attempts
+do not notify the compatibility `onDeviceLost` callback. Loss after readiness
+publishes `lost` with the error; `setSettings` can acquire a healthy renderer
+without recreating the scene. Recovery is explicit, never a hidden backend swap.
 
-`DPthreeCameraController` accepts `CharacterSceneRenderer`. Its optional
-`renderFrame` callback can return `void` or `Promise<void>`; another frame is
-skipped until a pending callback settles. A thrown/rejected frame or loop-start
-failure stops rendering and invokes `onRenderError(Error)` (or logs without a
-handler). Rejections after controller disposal are consumed without notifying a
-stale host. The controller does not own or dispose the supplied renderer.
-The factory does not install a host render loop; keep one owner for scheduling.
+Pass `rendering` to `DPthreeCameraController` to bind it to the runtime. Its one
+loop is suspended/drained, then retargeted along with OrbitControls and annotation
+canvas listeners by Embody. Pending model readiness is canceled before switching.
+Bound render/loop failures update the rendering snapshot rather than invoking a
+fatal host `onRenderError` recovery path. The legacy fixed-renderer configuration
+still invokes `onRenderError`. Asynchronous frame callbacks remain serialized.
+The factory itself does not install a second animation loop. Neither controller
+owns or disposes caller-added character resources.
 
 ## Model readiness
 
@@ -191,8 +240,9 @@ Source references for this choice:
   marks itself lost but does not rebuild automatically.
 
 Lifecycle tests mock the renderer/PMREM boundary while retaining real Three
-scene objects. They establish acquisition, cancellation, auto fallback/strict rejection,
-error and disposal ordering, not hardware rendering or visual parity. The host
+scene objects. They cover acquisition, cancellation, auto fallback/strict rejection,
+live replacement, resource leases and disposal ordering. Execution of the new
+cases is delegated to CI; they do not establish hardware rendering or visual parity. The host
 integration for [LoomLarge #957](https://github.com/meekmachine/LoomLarge/issues/957)
 still needs matched browser checks of character materials, transparency/hair,
 shadows, annotations/overlays, background and capture on supported hardware.

@@ -273,6 +273,14 @@ export class DPthree3DMarkers {
     this.domElement.addEventListener('click', this.onClick);
   }
 
+  /** Preserve marker state while a scene replaces its renderer canvas. */
+  setDomElement(element: HTMLElement): void {
+    if (element === this.domElement) return;
+    this.domElement.removeEventListener('click', this.onClick);
+    this.domElement = element;
+    this.domElement.addEventListener('click', this.onClick);
+  }
+
   setModel(model: THREE.Object3D): void {
     this.regionLoadGeneration += 1;
     this.regionLoadHasFreshMatrices = false;
