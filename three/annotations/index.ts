@@ -1,6 +1,7 @@
 export { ThreeAnnotations, CameraController, Markers3D, MarkersHTML, Controls } from './ThreeAnnotations';
 export type { ThreeAnnotationsConfig, CharacterValidationResult, ValidationCategory, ValidationItem } from './ThreeAnnotations';
 export { ThreeAnnotationController } from './ThreeAnnotationController';
+export type { ThreeAnnotationControls } from './ThreeAnnotationControls';
 export type { MarkerStateSnapshot } from './ThreeAnnotationController';
 export { ThreeAnnotationMarkers } from './ThreeAnnotationMarkers';
 export { HtmlAnnotationMarkers } from './HtmlAnnotationMarkers';
