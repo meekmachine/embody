@@ -30,12 +30,15 @@ import {
   type AnnotationCharacterConfig,
   type MarkerStateSnapshot,
   type ThreeAnnotationControllerConfig,
+  type ThreeAnnotationControls,
 } from '@lovelace_lol/embody/three';
 
 const annotationProfile: AnnotationCharacterConfig = { characterId: 'consumer', auPresetType: 'cc4' };
 const resolvedAnnotationProfile = await resolveAnnotationCharacterConfig(annotationProfile);
 declare const cameraOptions: ThreeAnnotationControllerConfig;
 const controller = await ThreeAnnotationController.create(cameraOptions);
+const annotationControls: ThreeAnnotationControls = controller.controls;
+annotationControls.enabled = true;
 declare const renderModel: import('three').Object3D;
 const modelReady: Promise<void> = controller.prepareModelForRender(renderModel, { signal: new AbortController().signal });
 void modelReady;
