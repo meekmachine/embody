@@ -163,11 +163,15 @@ test('cancellation wins over a simultaneous preparation rejection after rollback
   const callbacks = resizeEvents(t);
   const host = container();
   const gate = deferred();
+  const compilationStarted = deferred();
   const controller = new AbortController();
-  control.prepare = () => gate.promise;
+  control.prepare = () => { compilationStarted.resolve(); return gate.promise; };
   const pending = createWebGLSceneAsync(host, { signal: controller.signal });
   const failure = new Error('compile failed');
   const rejected = assert.rejects(pending, { name: 'AbortError' });
+  // Exercise cancellation of borrowed compilation, not cancellation before the
+  // queued renderer attempt starts (which would leave this gate unconsumed).
+  await compilationStarted.promise;
   controller.abort();
   gate.reject(failure);
   await rejected;
@@ -562,7 +566,9 @@ test('live renderer selection retains scene, character, camera, lights and autho
   await runtime.ready;
   const { scene, camera, lighting, shadowPlane } = runtime;
   const lights = scene.children.slice();
-  const model = scene.clone(false); model.name = 'borrowed-character'; scene.add(model);
+  // A character is caller-owned. Cloning the tracked scene would also copy its
+  // environment and register that borrowed clone as another owned scene.
+  const model = new Group(); model.name = 'borrowed-character'; scene.add(model);
   camera.position.set(2, 3, 4); lighting.setSettings({ exposure: 1.3, keyIntensity: .8 });
   const oldRenderer = runtime.renderer, oldEnvironment = lighting.getEnvironmentTexture();
   await runtime.rendering.setSettings({ preference: 'webgpu' });
