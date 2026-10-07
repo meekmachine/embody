@@ -15,6 +15,7 @@ import {
   VectorKeyframeTrack,
 } from 'three';
 export * from './annotations/index';
+export * from './vrm-animation';
 import { bindModelReferencePose } from './reference-pose';
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
 

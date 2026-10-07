@@ -26,6 +26,7 @@ mod skeleton;
 mod snippet_compile;
 mod template_fit_metadata;
 mod validation;
+mod vrm_animation;
 
 pub use abi::*;
 pub use annotation_camera::*;
@@ -41,6 +42,7 @@ pub use profile_api::*;
 pub use runtime::*;
 pub use skeleton::*;
 pub use template_fit_metadata::*;
+pub use vrm_animation::*;
 
 use wasm_bindgen::prelude::*;
 

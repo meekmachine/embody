@@ -16,3 +16,10 @@ lerping belong to the host mixer — not Rust.
 The current Three.js adapter is in `three/`. Polymer owns the application host
 API (including `AnimationMixer` scheduling) and calls the Wasm module
 directly; LoomLarge does not import Embody internals.
+
+VRM Animation body interchange follows the same split. Rust owns Mixamo role
+mapping, reference/hierarchy validation, rotation basis math, hip-height/unit
+conversion and the portable GLB contract. Three inspects explicit references or
+skin bind inverses, parses FBX, releases parser resources and materializes native
+clips. Playback/blending remain host-owned. No Three sampling loop or alternative
+JavaScript retargeting core is introduced. See [the supported contract](ANIMATION_REFERENCE_POSES.md#mixamo-fbx-and-vrm-animation-body-interchange).
