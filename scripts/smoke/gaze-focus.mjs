@@ -158,7 +158,10 @@ for (const tilt of [-10, 10]) {
 for (const [headYaw, headPitch] of [[-0.4, 0], [0.4, 0], [0, -0.4], [0, 0.4]]) {
   for (const eyeIntensity of [0.2, 0.7, 1]) {
     const test = rig();
-    const worldTarget = { x: 0.3, y: 1.8, z: 2 };
+    // Keep the goal on the same side as the head. A fixed rightward goal
+    // paired with a 24-degree left turn needs more than CC4's 25-degree eye
+    // yaw limit, so exact focus would be an invalid expectation for that pose.
+    const worldTarget = { x: -Math.sign(headYaw) * 0.6, y: 1.7 + Math.sign(headPitch) * 0.3, z: 2 };
     const initial = request(test, worldTarget, { eyeIntensity });
     test.focus.apply(initial, controls(initial, headYaw, headPitch));
     // Match a host refreshing camera geometry while the tracking pose is on.
@@ -180,7 +183,7 @@ for (const [headYaw, headPitch] of [[-0.4, 0], [0.4, 0], [0, -0.4], [0, 0.4]]) {
         if (offset === 0) {
           near(new Vector3().copy(result.target).distanceTo(new Vector3().copy(worldTarget)), 0,
             'settled motor reaches the exact world target');
-          if (eyeIntensity === 1) focused(result, 'endpoint focus');
+          if (eyeIntensity === 1) focused(result, `endpoint focus at head ${headYaw}/${headPitch}`);
         }
         previous = current;
         previousTarget = new Vector3().copy(result.target);
