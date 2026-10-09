@@ -3565,37 +3565,37 @@
     },
     "1011": {
       "id": "1011",
-      "name": "Pelvis bend — Forward",
+      "name": "Whole body bend — Forward",
       "faceArea": "Body",
       "facePart": "Body"
     },
     "1010": {
       "id": "1010",
-      "name": "Pelvis bend — Back",
+      "name": "Whole body bend — Back",
       "faceArea": "Body",
       "facePart": "Body"
     },
     "1013": {
       "id": "1013",
-      "name": "Pelvis twist — Left",
+      "name": "Whole body twist — Left",
       "faceArea": "Body",
       "facePart": "Body"
     },
     "1012": {
       "id": "1012",
-      "name": "Pelvis twist — Right",
+      "name": "Whole body twist — Right",
       "faceArea": "Body",
       "facePart": "Body"
     },
     "1015": {
       "id": "1015",
-      "name": "Pelvis side bend — Right",
+      "name": "Whole body side bend — Right",
       "faceArea": "Body",
       "facePart": "Body"
     },
     "1014": {
       "id": "1014",
-      "name": "Pelvis side bend — Left",
+      "name": "Whole body side bend — Left",
       "faceArea": "Body",
       "facePart": "Body"
     },
@@ -4815,9 +4815,9 @@
     "41-42": "Tongue — Tilt",
     "73-74": "Tongue — Width",
     "76-77": "Tongue Tip — Vertical",
-    "1011": "Pelvis bend",
-    "1013": "Pelvis twist",
-    "1015": "Pelvis side bend",
+    "1011": "Whole body bend",
+    "1013": "Whole body twist",
+    "1015": "Whole body side bend",
     "1017": "Lower spine bend",
     "1019": "Lower spine twist",
     "1021": "Lower spine side bend",
@@ -6276,8 +6276,8 @@
       "order": 30
     },
     "body.hipsBend": {
-      "label": "Pelvis bend",
-      "section": "Torso",
+      "label": "Whole body bend",
+      "section": "Whole body",
       "auId": 1011,
       "bilateral": false,
       "roles": [
@@ -6287,8 +6287,8 @@
       "negativeAuId": 1010
     },
     "body.hipsTwist": {
-      "label": "Pelvis twist",
-      "section": "Torso",
+      "label": "Whole body twist",
+      "section": "Whole body",
       "auId": 1013,
       "bilateral": false,
       "roles": [
@@ -6298,8 +6298,8 @@
       "negativeAuId": 1012
     },
     "body.hipsSideBend": {
-      "label": "Pelvis side bend",
-      "section": "Torso",
+      "label": "Whole body side bend",
+      "section": "Whole body",
       "auId": 1015,
       "bilateral": false,
       "roles": [

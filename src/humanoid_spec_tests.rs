@@ -141,6 +141,67 @@ fn every_catalog_control_moves_its_authored_bones_with_signed_and_bilateral_outp
 }
 
 #[test]
+fn torso_catalog_actions_write_only_waist_and_spine_bones() {
+    let profile = cc4();
+    let model = cc4_model();
+    // These are the authored upper-body branch, below Hip and separate from
+    // Pelvis/Thigh. Do not derive the expected targets from the preset bindings.
+    let torso_bones: std::collections::BTreeSet<_> = model.bones.iter()
+        .filter(|bone| matches!(bone.name.as_str(),
+            "CC_Base_Waist" | "CC_Base_Spine01" | "CC_Base_Spine02"))
+        .map(|bone| bone.id)
+        .collect();
+    assert_eq!(torso_bones.len(), 3);
+    let controls: Vec<_> = profile.body_controls.iter()
+        .filter(|(_, control)| control.section == "Torso")
+        .collect();
+    assert!(!controls.is_empty());
+    let mut core = compiled(&profile, &model);
+    for (id, control) in controls {
+        for action in std::iter::once(control.au_id).chain(control.negative_au_id) {
+            core.clear();
+            core.set_au(action, 0.5, 0.0);
+            let frame = core.evaluate_active_bone_frame();
+            assert!(!frame.is_empty(), "{id} action {action} must move the torso");
+            for row in frame.chunks_exact(9) {
+                let bone_id = row[0] as u32;
+                let bone = model.bones.iter().find(|bone| bone.id == bone_id).unwrap();
+                assert!(torso_bones.contains(&bone_id),
+                    "{id} action {action} moves {} outside the torso branch", bone.name);
+            }
+        }
+    }
+}
+
+#[test]
+fn whole_body_hip_controls_keep_their_existing_actions_and_root_motion() {
+    let profile = cc4();
+    let model = cc4_model();
+    let hip = model.bones.iter().find(|bone| bone.name == "CC_Base_Hip").unwrap();
+    let descriptors = crate::body_controls::resolve(&profile, Some(&model));
+    let mut core = compiled(&profile, &model);
+    for (id, negative, positive) in [
+        ("body.hipsBend", 1010, 1011),
+        ("body.hipsTwist", 1012, 1013),
+        ("body.hipsSideBend", 1014, 1015),
+    ] {
+        let control = descriptors.as_array().unwrap().iter()
+            .find(|control| control["id"] == id).unwrap();
+        assert_eq!(control["section"], "Whole body");
+        assert!(control["label"].as_str().unwrap().starts_with("Whole body "));
+        assert_eq!(control["auIds"], json!([positive, negative]));
+        for action in [negative, positive] {
+            core.clear();
+            core.set_au(action, 0.5, 0.0);
+            let frame = core.evaluate_active_bone_frame();
+            assert_eq!(frame.len(), 9, "{id} action {action} retains one hip output");
+            assert_eq!(frame[0], hip.id as f32);
+            assert!(frame[4..7].iter().any(|value| value.abs() > 0.001));
+        }
+    }
+}
+
+#[test]
 fn new_finger_motion_can_mix_bone_skin_and_clothing_targets() {
     let mut profile=cc4();let mut model=cc4_model();
     let action=profile.body_controls["body.indexDistalCurl"].au_id;
