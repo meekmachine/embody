@@ -354,11 +354,19 @@ export class ThreeGazeFocus {
     const active = this.controlLimits();
     const intendedWorldTarget = vector(request.worldTarget);
     const origin = this.origin();
-    const settled = Math.abs(finite(controls.eyeYaw) - finite(request.target?.x)) < 1e-5
-      && Math.abs(finite(controls.eyePitch) - finite(request.target?.y)) < 1e-5;
-    const target = settled ? intendedWorldTarget : origin.clone().addScaledVector(
-      this.direction(this.degrees(-finite(controls.eyeYaw), active.yaw), this.degrees(finite(controls.eyePitch), active.pitch)),
-      Math.max(EPSILON, origin.distanceTo(intendedWorldTarget)),
+    const intendedOffset = intendedWorldTarget.clone().sub(origin);
+    const intendedBearing = this.angles(intendedOffset);
+    const remainingYaw = this.degrees(-finite(controls.eyeYaw), active.yaw)
+      - this.degrees(-finite(request.target?.x), active.yaw);
+    const remainingPitch = this.degrees(finite(controls.eyePitch), active.pitch)
+      - this.degrees(finite(request.target?.y), active.pitch);
+    // The requested bearing was read from the rendered eye midpoint, while
+    // restore() returns that midpoint to the authored base. Reconstructing a
+    // point from the base and then switching to worldTarget at a threshold
+    // makes the eyes jump. Rotate the finite target by the remaining sampled
+    // bearing instead; zero remaining travel reaches worldTarget continuously.
+    const target = origin.clone().addScaledVector(
+      this.direction(intendedBearing.yaw + remainingYaw, intendedBearing.pitch + remainingPitch), intendedOffset.length(),
     );
     let headLimited = false;
     const headControlsPresent = controls.headYaw !== undefined || controls.headPitch !== undefined || controls.headRoll !== undefined;

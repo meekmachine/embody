@@ -569,6 +569,109 @@ fn solve_viewer_scaled(
     )
 }
 
+/// Map a normalized tracking axis around the camera bearing onto the complete
+/// signed AU range. Projection FOV and viewer distance must not shrink it.
+fn tracking_axis(value: f32, center: f32, limits: AxisLimits) -> f32 {
+    let center = limits.clamp(center);
+    let value = value.clamp(-1.0, 1.0);
+    let endpoint = if value < 0.0 { -limits.negative } else { limits.positive };
+    center + (endpoint - center) * value.abs()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn solve_tracking(
+    tracking_target: &[f32],
+    camera_position: &[f32],
+    camera_quaternion: &[f32],
+    gaze_origin: &[f32],
+    model_quaternion: &[f32],
+    eyes_enabled: bool,
+    head_enabled: bool,
+    head_follow_fraction: f32,
+    lock_head_to_camera: bool,
+    limits: GazeLimits,
+    world_units_per_meter: f32,
+) -> [f32; SCREEN_SPACE_GAZE_SOLUTION_STRIDE as usize] {
+    let camera = finite_vec3(camera_position);
+    let origin = finite_vec3(gaze_origin);
+    let inverse_model = inverse_unit_quat(model_quaternion);
+    let center = direction_angles_degrees(origin, camera, inverse_model);
+    // Project display right/up onto the model's bearing tangents. This keeps
+    // source parity when the camera is rolled or the character is rotated.
+    let camera_rotation = quat_or_identity(camera_quaternion);
+    let model_right = rotate_by_quat(inverse_model, rotate_by_quat(camera_rotation, [1.0, 0.0, 0.0]));
+    let model_up = rotate_by_quat(inverse_model, rotate_by_quat(camera_rotation, [0.0, 1.0, 0.0]));
+    let center_rotation = gaze_rotation(center);
+    let yaw_tangent = rotate_by_quat(center_rotation, [1.0, 0.0, 0.0]);
+    let pitch_tangent = rotate_by_quat(center_rotation, [0.0, 1.0, 0.0]);
+    let dot = |a: [f32; 3], b: [f32; 3]| -> f32 { a.iter().zip(b).map(|(x, y)| x * y).sum() };
+    let display_axis = |axis| {
+        let yaw = dot(axis, yaw_tangent);
+        let pitch = dot(axis, pitch_tangent);
+        let length = (yaw * yaw + pitch * pitch).sqrt();
+        if length > EPSILON { [yaw / length, pitch / length] } else { [0.0; 2] }
+    };
+    let right = display_axis(model_right);
+    let up = display_axis(model_up);
+    let x = normalized_coordinate(tracking_target, 0);
+    let y = normalized_coordinate(tracking_target, 1);
+    let (yaw_limits, pitch_limits) = if head_enabled {
+        (limits.head_yaw, limits.head_pitch)
+    } else if eyes_enabled {
+        (limits.eye_yaw, limits.eye_pitch)
+    } else {
+        (AxisLimits::default(), AxisLimits::default())
+    };
+    let angles = [
+        tracking_axis(x * right[0] + y * up[0], center[0], yaw_limits),
+        tracking_axis(x * right[1] + y * up[1], center[1], pitch_limits),
+    ];
+    let direction = rotate_by_quat(
+        quat_or_identity(model_quaternion),
+        rotate_by_quat(gaze_rotation(angles), [0.0, 0.0, 1.0]),
+    );
+    // Retain a finite binocular target. Depth affects convergence, not travel.
+    let depth = finite_positive(tracking_target.get(2).copied().unwrap_or(DEFAULT_VIEWER_DEPTH), DEFAULT_VIEWER_DEPTH)
+        .clamp(0.2, 10.0) * finite_positive(world_units_per_meter, 1.0);
+    let target = add3(origin, scale3(direction, distance3(origin, camera) + depth));
+    solution_from_world_target(
+        target, camera, origin, model_quaternion, eyes_enabled, head_enabled,
+        head_follow_fraction, lock_head_to_camera, limits,
+    )
+}
+
+/// Normalized tracking controls span the active profile's signed head AU range
+/// (or eye range with the head disabled). At full head participation, +/-1 on
+/// an aligned display axis reaches the same rotation as its AU at intensity 1.
+/// Zero input retains the camera bearing, bounded by that range. Camera roll
+/// rotates display axes into the model frame. X/Y are clamped to [-1, 1]; Z is
+/// finite-target depth in meters and does not attenuate angular movement.
+/// Pass 1 for full head participation; smaller explicit fractions retain the
+/// existing allocation policy. Output layout matches the physical gaze solvers.
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn solve_profile_tracking_gaze(
+    profile_json: &str,
+    tracking_target: &[f32],
+    camera_position: &[f32],
+    camera_quaternion: &[f32],
+    gaze_origin: &[f32],
+    model_quaternion: &[f32],
+    eyes_enabled: bool,
+    head_enabled: bool,
+    head_follow_fraction: f32,
+    lock_head_to_camera: bool,
+    world_units_per_meter: f32,
+) -> Result<Box<[f32]>, JsError> {
+    let profile: ProfileData = deserialize_json(profile_json, "Invalid gaze profile JSON")
+        .map_err(|error| JsError::new(&error))?;
+    Ok(solve_tracking(
+        tracking_target, camera_position, camera_quaternion, gaze_origin,
+        model_quaternion, eyes_enabled, head_enabled, head_follow_fraction,
+        lock_head_to_camera, gaze_limits(&profile), world_units_per_meter,
+    ).to_vec().into_boxed_slice())
+}
+
 /// Solve a screen-space eye target against rendered-camera and character-eye
 /// geometry using the profile's authored AU rotation limits.
 ///
@@ -781,6 +884,108 @@ mod tests {
             pitch.sin(),
             yaw.cos() * pitch.cos(),
         ]
+    }
+
+    #[test]
+    fn full_tracking_input_matches_full_head_au_with_authored_signed_limits() {
+        let mut profile = canonical_profile();
+        profile.au_to_bones.get_mut("51").unwrap()[0].scale = 0.5;
+        profile.au_to_bones.get_mut("53").unwrap()[0].max_degrees = Some(18.0);
+        for (input, au, head_target) in [
+            ([1.0, 0.0, 0.8], 51, [-1.0, 0.0]),
+            ([-1.0, 0.0, 0.8], 52, [1.0, 0.0]),
+            ([0.0, 1.0, 0.8], 53, [0.0, 1.0]),
+            ([0.0, -1.0, 0.8], 54, [0.0, -1.0]),
+        ] {
+            let result = solve_tracking(
+                &input, &[0.0, 0.0, 3.0], &[0.0, 0.0, 0.0, 1.0],
+                &[0.0; 3], &[0.0, 0.0, 0.0, 1.0], true, true, 1.0, false,
+                gaze_limits(&profile), 1.0,
+            );
+            assert!((result[4] - head_target[0]).abs() < 1.0e-5, "AU {au}: {result:?}");
+            assert!((result[5] - head_target[1]).abs() < 1.0e-5, "AU {au}: {result:?}");
+
+            let mut direct = canonical_runtime(&profile);
+            direct.set_au(au, 1.0, 0.0);
+            let mut tracking = canonical_runtime(&profile);
+            for (value, negative, positive) in [(result[4], 51, 52), (result[5], 54, 53)] {
+                tracking.set_au(negative, (-value).max(0.0), 0.0);
+                tracking.set_au(positive, value.max(0.0), 0.0);
+            }
+            let direct_frame = direct.evaluate_bone_frame_delta();
+            let tracking_frame = tracking.evaluate_bone_frame_delta();
+            let expected = direct_frame.chunks(9).find(|row| row[0] == 1.0).unwrap();
+            let actual = tracking_frame.chunks(9).find(|row| row[0] == 1.0).unwrap();
+            for i in 4..8 {
+                assert!((actual[i] - expected[i]).abs() < 1.0e-5, "AU {au}: bone quaternion differs");
+            }
+        }
+    }
+
+    #[test]
+    fn tracking_range_is_independent_of_viewer_depth_and_camera_distance() {
+        for distance in [0.5, 3.0, 100.0] {
+            for depth in [0.2, 0.8, 10.0] {
+                for input in [-2.0_f32, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0] {
+                    let result = solve_tracking(
+                        &[input, 0.0, depth], &[0.0, 0.0, distance], &[0.0, 0.0, 0.0, 1.0],
+                        &[0.0; 3], &[0.0, 0.0, 0.0, 1.0], true, true, 1.0, false,
+                        gaze_limits(cc4_profile()), 1.0,
+                    );
+                    assert!((result[4] + input.clamp(-1.0, 1.0)).abs() < 1.0e-5);
+                    assert!(result.iter().all(|value| value.is_finite()));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn tracking_retains_camera_center_and_rotates_display_axes() {
+        let limits = gaze_limits(cc4_profile());
+        let camera = ray(25.0, 10.0);
+        let camera_rotation = gaze_rotation([25.0, 10.0]);
+        for (input, expected) in [
+            ([0.0, 0.0, 0.8], [-25.0 / 60.0, 10.0 / 30.0]),
+            ([1.0, 0.0, 0.8], [-1.0, 10.0 / 30.0]),
+            ([-1.0, 0.0, 0.8], [1.0, 10.0 / 30.0]),
+            ([0.0, 1.0, 0.8], [-25.0 / 60.0, 1.0]),
+            ([0.0, -1.0, 0.8], [-25.0 / 60.0, -1.0]),
+        ] {
+            let result = solve_tracking(
+                &input, &camera, &camera_rotation, &[0.0; 3], &[0.0, 0.0, 0.0, 1.0],
+                true, true, 1.0, false, limits, 1.0,
+            );
+            assert!((result[4] - expected[0]).abs() < 1.0e-4);
+            assert!((result[5] - expected[1]).abs() < 1.0e-4);
+        }
+        let rolled = solve_tracking(
+            &[1.0, 0.0, 0.8], &[0.0, 0.0, 1.0], &quat_from_channel(2, std::f32::consts::FRAC_PI_2),
+            &[0.0; 3], &[0.0, 0.0, 0.0, 1.0], true, true, 1.0, false, limits, 1.0,
+        );
+        assert!(rolled[4].abs() < 1.0e-5);
+        assert!((rolled[5] - 1.0).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn tracking_handles_disabled_missing_and_invalid_controls_without_inventing_range() {
+        for (eyes, head) in [(true, false), (false, true), (false, false)] {
+            let result = solve_tracking(
+                &[1.0, 0.0, 0.8], &[0.0, 0.0, 1.0], &[0.0, 0.0, 0.0, 1.0],
+                &[0.0; 3], &[0.0, 0.0, 0.0, 1.0], eyes, head, 1.0, false,
+                gaze_limits(cc4_profile()), 1.0,
+            );
+            assert!((result[4] - if head { -1.0 } else { 0.0 }).abs() < 1.0e-5);
+            assert!((result[2] - if eyes && !head { -1.0 } else { 0.0 }).abs() < 1.0e-5);
+        }
+        let mut unmapped = canonical_profile();
+        unmapped.au_to_bones.clear();
+        let result = solve_tracking(
+            &[f32::NAN, f32::INFINITY, f32::NAN], &[0.0; 3], &[0.0, 0.0, 0.0, 1.0],
+            &[0.0; 3], &[0.0, 0.0, 0.0, 1.0], true, true, 1.0, false,
+            gaze_limits(&unmapped), f32::NAN,
+        );
+        assert!(result.iter().all(|value| value.is_finite()));
+        assert!(result[..6].iter().all(|value| value.abs() < 1.0e-5));
     }
 
     #[test]

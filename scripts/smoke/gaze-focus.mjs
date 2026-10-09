@@ -52,6 +52,38 @@ const focused = (diagnostics, label) => {
   assert(result.eyes[1].direction.x < 0);
 }
 
+// Normalized tracking endpoints must reach each signed AU's authored rotation,
+// including asymmetric limits and scaled bindings, through the real renderer.
+{
+  const wasm = await initEmbodyCore();
+  const profile = structuredClone(preset);
+  profile.auToBones['51'][0].scale = 0.5;
+  profile.auToBones['53'][0].maxDegrees = 18;
+  for (const [input, au] of [
+    [[1, 0, 0.8], 51], [[-1, 0, 0.8], 52],
+    [[0, 1, 0.8], 53], [[0, -1, 0.8], 54],
+  ]) {
+    for (const strength of [0, 0.5, 1]) {
+      const test = rig(profile);
+      test.model.updateMatrixWorld(true);
+      const origin = test.left.getWorldPosition(new Vector3()).add(test.right.getWorldPosition(new Vector3())).multiplyScalar(0.5);
+      const result = wasm.solve_profile_tracking_gaze(
+        JSON.stringify(profile), new Float32Array(input),
+        new Float32Array(origin.clone().add(new Vector3(0, 0, 3)).toArray()), new Float32Array([0, 0, 0, 1]),
+        new Float32Array(origin.toArray()), new Float32Array([0, 0, 0, 1]),
+        true, true, 1, false, 1,
+      );
+      const value = request(test, { x: result[11], y: result[12], z: result[13] }, { headIntensity: strength });
+      const diagnostics = test.focus.apply(value, controls(value, result[4], result[5]));
+      const binding = profile.auToBones[au][0];
+      const axis = binding.channel === 'ry' ? new Vector3(0, 1, 0) : new Vector3(1, 0, 0);
+      const expected = new Quaternion().setFromAxisAngle(axis, radians(binding.maxDegrees * binding.scale * strength));
+      near(test.head.quaternion.angleTo(expected), 0, `AU ${au} at strength ${strength}`, 1e-4);
+      if (strength === 1) focused(diagnostics, `full-range AU ${au}`);
+    }
+  }
+}
+
 // LoomLarge mouse/webcam tracking uses the viewer projection. An off-axis
 // camera and a viewer across neutral must not send the following head toward
 // the camera while the eyes compensate in the opposite direction. Exercise
@@ -119,6 +151,45 @@ for (const tilt of [-10, 10]) {
   test.left.rotation.x += radians(5); test.right.rotation.x -= radians(4);
   const value = request(test, { x: 0, y: 1.7, z: 1.5 });
   focused(test.focus.apply(value, controls(value)), 'independent eye rest offsets');
+}
+
+// Crossing a held target must not switch between targets reconstructed from
+// the authored and rendered eye origins. The larger head turn separates them.
+for (const [headYaw, headPitch] of [[-0.4, 0], [0.4, 0], [0, -0.4], [0, 0.4]]) {
+  for (const eyeIntensity of [0.2, 0.7, 1]) {
+    const test = rig();
+    // Keep the goal on the same side as the head. A fixed rightward goal
+    // paired with a 24-degree left turn needs more than CC4's 25-degree eye
+    // yaw limit, so exact focus would be an invalid expectation for that pose.
+    const worldTarget = { x: -Math.sign(headYaw) * 0.6, y: 1.7 + Math.sign(headPitch) * 0.3, z: 2 };
+    const initial = request(test, worldTarget, { eyeIntensity });
+    test.focus.apply(initial, controls(initial, headYaw, headPitch));
+    // Match a host refreshing camera geometry while the tracking pose is on.
+    const value = request(test, worldTarget, { eyeIntensity });
+    for (const axis of ['eyeYaw', 'eyePitch']) {
+      let previous;
+      let previousTarget;
+      for (const offset of [2e-5, 1.0001e-5, 0.9999e-5, 0, -0.9999e-5, -1.0001e-5, -2e-5]) {
+        const motor = controls(value, headYaw, headPitch);
+        motor[axis] += offset;
+        const result = test.focus.apply(value, motor);
+        const current = [test.left, test.right].map(eye => eye.quaternion.clone().normalize());
+        if (previous) {
+          current.forEach((pose, index) => assert(pose.angleTo(previous[index]) < radians(0.02),
+            `${axis} endpoint crossing at head ${headYaw}/${headPitch}, strength ${eyeIntensity}`));
+          assert(new Vector3().copy(result.target).distanceTo(previousTarget) < 0.001,
+            'finite target must stay continuous across the endpoint');
+        }
+        if (offset === 0) {
+          near(new Vector3().copy(result.target).distanceTo(new Vector3().copy(worldTarget)), 0,
+            'settled motor reaches the exact world target');
+          if (eyeIntensity === 1) focused(result, `endpoint focus at head ${headYaw}/${headPitch}`);
+        }
+        previous = current;
+        previousTarget = new Vector3().copy(result.target);
+      }
+    }
+  }
 }
 
 // The same motor bearing continues to focus while the head travels slowly.
