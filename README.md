@@ -362,6 +362,12 @@ reduces the correction; it does not shrink anatomical limits. Reduced eye
 contribution deliberately leaves focus error. These controls do not amplify
 input displacement or control response speed.
 
+During travel, the remaining sampled bearing rotates the requested finite
+target. At the endpoint that rotation becomes identity, reaching the exact
+world target continuously. There is no settled-threshold switch between targets
+constructed from the authored and tracking-shifted eye origins; a larger head
+turn must not introduce a final eye snap.
+
 Pass `{ referencePose }` as the constructor's third argument, reusing the
 reference captured at import. Without it, construction captures the current
 pose, so callers must construct before playback. The head solves its bounded

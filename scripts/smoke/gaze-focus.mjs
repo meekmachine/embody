@@ -153,6 +153,42 @@ for (const tilt of [-10, 10]) {
   focused(test.focus.apply(value, controls(value)), 'independent eye rest offsets');
 }
 
+// Crossing a held target must not switch between targets reconstructed from
+// the authored and rendered eye origins. The larger head turn separates them.
+for (const [headYaw, headPitch] of [[-0.4, 0], [0.4, 0], [0, -0.4], [0, 0.4]]) {
+  for (const eyeIntensity of [0.2, 0.7, 1]) {
+    const test = rig();
+    const worldTarget = { x: 0.3, y: 1.8, z: 2 };
+    const initial = request(test, worldTarget, { eyeIntensity });
+    test.focus.apply(initial, controls(initial, headYaw, headPitch));
+    // Match a host refreshing camera geometry while the tracking pose is on.
+    const value = request(test, worldTarget, { eyeIntensity });
+    for (const axis of ['eyeYaw', 'eyePitch']) {
+      let previous;
+      let previousTarget;
+      for (const offset of [2e-5, 1.0001e-5, 0.9999e-5, 0, -0.9999e-5, -1.0001e-5, -2e-5]) {
+        const motor = controls(value, headYaw, headPitch);
+        motor[axis] += offset;
+        const result = test.focus.apply(value, motor);
+        const current = [test.left, test.right].map(eye => eye.quaternion.clone().normalize());
+        if (previous) {
+          current.forEach((pose, index) => assert(pose.angleTo(previous[index]) < radians(0.02),
+            `${axis} endpoint crossing at head ${headYaw}/${headPitch}, strength ${eyeIntensity}`));
+          assert(new Vector3().copy(result.target).distanceTo(previousTarget) < 0.001,
+            'finite target must stay continuous across the endpoint');
+        }
+        if (offset === 0) {
+          near(new Vector3().copy(result.target).distanceTo(new Vector3().copy(worldTarget)), 0,
+            'settled motor reaches the exact world target');
+          if (eyeIntensity === 1) focused(result, 'endpoint focus');
+        }
+        previous = current;
+        previousTarget = new Vector3().copy(result.target);
+      }
+    }
+  }
+}
+
 // The same motor bearing continues to focus while the head travels slowly.
 {
   const test = rig();
