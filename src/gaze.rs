@@ -1,13 +1,14 @@
-//! Profile-aware screen-space gaze geometry.
+//! Profile-aware gaze geometry and compatibility gaze solvers.
 //!
 //! Hosts own scene objects and reduce them to packed camera/model facts. This
-//! module reconstructs a viewer target on the rendered-camera plane, measures
-//! the trajectory from the character's eye origin, converts it to model-local
-//! angles, and distributes those angles across the rig's head and eye AUs.
+//! module exposes camera bearings and authored angular capacities independently
+//! of tracking policy. The existing solvers also reconstruct viewer targets and
+//! distribute their angles across head and eye AUs for compatibility.
 
+use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
-use crate::annotation_camera::{distance3, quat_or_identity, read_vec3, rotate_by_quat, sub3};
+use crate::annotation_camera::{distance3, dot3, quat_or_identity, read_vec3, rotate_by_quat, sub3};
 use crate::bones::{multiply_quat, quat_from_channel};
 use crate::profile::{deserialize_json, AuSelector, ProfileData};
 
@@ -25,7 +26,7 @@ pub fn screen_space_gaze_solution_stride() -> u32 {
     SCREEN_SPACE_GAZE_SOLUTION_STRIDE
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize)]
 struct AxisLimits {
     negative: f32,
     positive: f32,
@@ -61,12 +62,31 @@ impl AxisLimits {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct GazeLimits {
     head_yaw: AxisLimits,
     head_pitch: AxisLimits,
     eye_yaw: AxisLimits,
     eye_pitch: AxisLimits,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+struct Bearing {
+    yaw: f32,
+    pitch: f32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GazeGeometry {
+    camera_bearing_degrees: Option<Bearing>,
+    camera_distance_scene_units: f32,
+    display_right_in_model: [f32; 3],
+    display_up_in_model: [f32; 3],
+    display_right_in_bearing: Option<Bearing>,
+    display_up_in_bearing: Option<Bearing>,
+    limits_degrees: GazeLimits,
 }
 
 fn finite_positive(value: f32, fallback: f32) -> f32 {
@@ -231,6 +251,90 @@ fn gaze_rotation([yaw, pitch]: [f32; 2]) -> [f32; 4] {
         quat_from_channel(1, yaw.to_radians()),
         quat_from_channel(0, -pitch.to_radians()),
     )
+}
+
+fn profile_gaze_geometry(
+    profile: &ProfileData,
+    camera_position: &[f32],
+    camera_quaternion: &[f32],
+    gaze_origin: &[f32],
+    model_quaternion: &[f32],
+) -> GazeGeometry {
+    let camera = finite_vec3(camera_position);
+    let origin = finite_vec3(gaze_origin);
+    let inverse_model = inverse_unit_quat(model_quaternion);
+    let camera_rotation = quat_or_identity(camera_quaternion);
+    let display_axis = |axis| rotate_by_quat(inverse_model, rotate_by_quat(camera_rotation, axis));
+    let right = display_axis([1.0, 0.0, 0.0]);
+    let up = display_axis([0.0, 1.0, 0.0]);
+    let distance = distance3(origin, camera);
+    let bearing = (distance > EPSILON).then(|| {
+        let [yaw, pitch] = direction_angles_degrees(origin, camera, inverse_model);
+        Bearing { yaw, pitch }
+    });
+    let project = |axis| {
+        bearing.map(|bearing| {
+            let rotation = gaze_rotation([bearing.yaw, bearing.pitch]);
+            // These are raw geometric projections. Whether to normalize them
+            // when mapping a display control into travel is consumer policy.
+            Bearing {
+                yaw: dot3(axis, rotate_by_quat(rotation, [1.0, 0.0, 0.0])),
+                pitch: dot3(axis, rotate_by_quat(rotation, [0.0, 1.0, 0.0])),
+            }
+        })
+    };
+    GazeGeometry {
+        camera_bearing_degrees: bearing,
+        camera_distance_scene_units: distance,
+        display_right_in_model: right,
+        display_up_in_model: up,
+        display_right_in_bearing: project(right),
+        display_up_in_bearing: project(up),
+        limits_degrees: gaze_limits(profile),
+    }
+}
+
+/// Read camera geometry and authored angular capacities without selecting a
+/// target or allocating motion. Returns named JSON fields with camelCase keys.
+/// Positions use a common world frame and scene units; quaternions are XYZW.
+/// Model-neutral +Z is forward and +Y is up. Bearings use geometric degrees:
+/// positive yaw points toward model +X, positive pitch toward +Y. This yaw sign
+/// is opposite the existing solvers' subject-relative FACS output sign.
+///
+/// `cameraBearingDegrees` is {yaw, pitch}, without clamping to AU limits;
+/// `cameraDistanceSceneUnits` is the distance from gaze origin to camera.
+/// `displayRightInModel` and
+/// `displayUpInModel` are unit XYZ vectors. `displayRightInBearing` and
+/// `displayUpInBearing` are dimensionless {yaw, pitch} dot products against the
+/// camera bearing's unit tangents, without renormalizing their projection.
+/// At distance <= 1e-5 scene units, bearing and its projections are null.
+///
+/// `limitsDegrees` contains headYaw/headPitch/eyeYaw/eyePitch, each with
+/// nonnegative `negative` and `positive` capacities in geometric coordinates.
+/// It retains the profile solver's selected-composite, binding-scale and
+/// missing-mapping semantics; it does not inspect a live skeleton or pose.
+/// Missing/nonfinite position components become zero, finite components clamp
+/// to +/-1e12; invalid quaternions use identity and valid ones are normalized.
+/// Invalid profile JSON returns an error. No runtime state is read or mutated.
+#[wasm_bindgen]
+pub fn resolve_profile_gaze_geometry_json(
+    profile_json: &str,
+    camera_position: &[f32],
+    camera_quaternion: &[f32],
+    gaze_origin: &[f32],
+    model_quaternion: &[f32],
+) -> Result<String, JsError> {
+    let profile: ProfileData = deserialize_json(profile_json, "Invalid gaze profile JSON")
+        .map_err(|error| JsError::new(&error))?;
+    let geometry = profile_gaze_geometry(
+        &profile,
+        camera_position,
+        camera_quaternion,
+        gaze_origin,
+        model_quaternion,
+    );
+    serde_json::to_string(&geometry)
+        .map_err(|error| JsError::new(&format!("Failed to serialize gaze geometry: {error}")))
 }
 
 fn eye_angles(direction: [f32; 3], head: [f32; 2]) -> [f32; 2] {
@@ -816,6 +920,178 @@ mod tests {
 
     fn cc4_profile() -> &'static ProfileData {
         crate::presets::load_profile("cc4").expect("cc4 preset")
+    }
+
+    fn geometry_json(
+        profile: &ProfileData,
+        camera: &[f32],
+        camera_quaternion: &[f32],
+        origin: &[f32],
+        model_quaternion: &[f32],
+    ) -> serde_json::Value {
+        let result = resolve_profile_gaze_geometry_json(
+            &serde_json::to_string(profile).unwrap(),
+            camera,
+            camera_quaternion,
+            origin,
+            model_quaternion,
+        )
+        .unwrap();
+        serde_json::from_str(&result).unwrap()
+    }
+
+    fn assert_geometry_number(value: &serde_json::Value, expected: f64) {
+        let actual = value.as_f64().expect("finite geometry number");
+        assert!((actual - expected).abs() < 1.0e-4, "{actual} != {expected}");
+    }
+
+    #[test]
+    fn geometry_reports_unbounded_camera_bearing_and_raw_display_projections() {
+        let result = geometry_json(cc4_profile(), &[2.0, 1.0, 2.0], &[], &[0.0; 3], &[]);
+        assert_geometry_number(&result["cameraBearingDegrees"]["yaw"], 45.0);
+        assert_geometry_number(
+            &result["cameraBearingDegrees"]["pitch"],
+            (1.0_f64 / 8.0_f64.sqrt()).atan().to_degrees(),
+        );
+        assert_geometry_number(&result["cameraDistanceSceneUnits"], 3.0);
+        assert_geometry_number(&result["displayRightInBearing"]["yaw"], 0.5_f64.sqrt());
+        assert_geometry_number(
+            &result["displayRightInBearing"]["pitch"],
+            -1.0 / (3.0 * 2.0_f64.sqrt()),
+        );
+        assert_geometry_number(&result["displayUpInBearing"]["yaw"], 0.0);
+        assert_geometry_number(
+            &result["displayUpInBearing"]["pitch"],
+            8.0_f64.sqrt() / 3.0,
+        );
+        // The query reports geometry even when no head AU can reach it. Both
+        // choosing a target and clamping it belong to the consumer's policy.
+        for (x, expected) in [(2.0, 135.0), (-2.0, -135.0)] {
+            let behind = geometry_json(cc4_profile(), &[x, 0.0, -2.0], &[], &[0.0; 3], &[]);
+            assert_geometry_number(&behind["cameraBearingDegrees"]["yaw"], expected);
+            assert!(
+                expected.abs()
+                    > behind["limitsDegrees"]["headYaw"]["positive"]
+                        .as_f64()
+                        .unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn geometry_resolves_model_orientation_and_camera_roll_in_separate_frames() {
+        let model = quat_from_channel(1, std::f32::consts::FRAC_PI_2);
+        let rolled_camera = multiply_quat(model, quat_from_channel(2, std::f32::consts::FRAC_PI_2));
+        let result = geometry_json(
+            cc4_profile(),
+            &[7.0, 7.0, -3.0],
+            &rolled_camera,
+            &[5.0, 7.0, -3.0],
+            &model,
+        );
+        // The camera lies on world +X, which is this model's neutral +Z.
+        assert_geometry_number(&result["cameraBearingDegrees"]["yaw"], 0.0);
+        assert_geometry_number(&result["cameraBearingDegrees"]["pitch"], 0.0);
+        assert_geometry_number(&result["cameraDistanceSceneUnits"], 2.0);
+        for (axis, expected) in [
+            ("displayRightInModel", [0.0, 1.0, 0.0]),
+            ("displayUpInModel", [-1.0, 0.0, 0.0]),
+        ] {
+            for (index, component) in expected.iter().enumerate() {
+                assert_geometry_number(&result[axis][index], *component);
+            }
+        }
+        assert_geometry_number(&result["displayRightInBearing"]["yaw"], 0.0);
+        assert_geometry_number(&result["displayRightInBearing"]["pitch"], 1.0);
+        assert_geometry_number(&result["displayUpInBearing"]["yaw"], -1.0);
+        assert_geometry_number(&result["displayUpInBearing"]["pitch"], 0.0);
+
+        // Removing only model orientation changes bearing but not camera world
+        // position, proving that character-front orientation is an input.
+        let unrotated = geometry_json(
+            cc4_profile(),
+            &[7.0, 7.0, -3.0],
+            &rolled_camera,
+            &[5.0, 7.0, -3.0],
+            &[],
+        );
+        assert_geometry_number(&unrotated["cameraBearingDegrees"]["yaw"], 90.0);
+    }
+
+    #[test]
+    fn geometry_reports_asymmetric_scaled_and_missing_au_capacities() {
+        let mut profile = cc4_profile().clone();
+        for (id, degrees, scale) in [
+            (51, 80.0, 0.25),
+            (52, 30.0, -1.5),
+            (53, 50.0, -0.6),
+            (54, 90.0, 0.2),
+            (61, 28.0, 0.5),
+            (64, 20.0, 0.8),
+        ] {
+            for binding in profile.au_to_bones.get_mut(&id.to_string()).unwrap() {
+                binding.max_degrees = Some(degrees);
+                binding.scale = scale;
+            }
+        }
+        profile.au_to_bones.get_mut("61").unwrap()[0].max_degrees = Some(35.0);
+        profile.au_to_bones.remove("62");
+        for binding in profile.au_to_bones.get_mut("63").unwrap() {
+            binding.channel = "tx".into();
+        }
+        // Duplicate and unrelated mappings cannot inflate the selected head
+        // composite's capacity; both must retain existing runtime semantics.
+        let mut duplicate = profile.au_to_bones["51"][0].clone();
+        duplicate.max_degrees = Some(180.0);
+        profile
+            .au_to_bones
+            .get_mut("51")
+            .unwrap()
+            .push(duplicate.clone());
+        duplicate.node = "NotTheHead".into();
+        profile.au_to_bones.get_mut("51").unwrap().insert(0, duplicate);
+        let result = geometry_json(&profile, &[0.0, 0.0, 2.0], &[], &[0.0; 3], &[]);
+        for (axis, negative, positive) in [
+            ("headYaw", 45.0, 20.0),
+            ("headPitch", 18.0, 30.0),
+            ("eyeYaw", 0.0, 14.0),
+            ("eyePitch", 16.0, 0.0),
+        ] {
+            assert_geometry_number(&result["limitsDegrees"][axis]["negative"], negative);
+            assert_geometry_number(&result["limitsDegrees"][axis]["positive"], positive);
+        }
+
+        let mut value = serde_json::to_value(&profile).unwrap();
+        value["compositeRotations"] = serde_json::json!([]);
+        let cleared: ProfileData = serde_json::from_value(value).unwrap();
+        let result = geometry_json(&cleared, &[0.0, 0.0, 2.0], &[], &[0.0; 3], &[]);
+        for axis in ["headYaw", "headPitch", "eyeYaw", "eyePitch"] {
+            assert_geometry_number(&result["limitsDegrees"][axis]["negative"], 0.0);
+            assert_geometry_number(&result["limitsDegrees"][axis]["positive"], 0.0);
+        }
+    }
+
+    #[test]
+    fn geometry_marks_coincident_bearing_absent_and_normalizes_invalid_facts() {
+        let result = geometry_json(
+            cc4_profile(),
+            &[f32::NAN, f32::INFINITY],
+            &[0.0; 4],
+            &[],
+            &[f32::NAN; 4],
+        );
+        assert!(result["cameraBearingDegrees"].is_null());
+        assert!(result["displayRightInBearing"].is_null());
+        assert!(result["displayUpInBearing"].is_null());
+        assert_geometry_number(&result["cameraDistanceSceneUnits"], 0.0);
+        assert_eq!(
+            result["displayRightInModel"],
+            serde_json::json!([1.0, 0.0, 0.0])
+        );
+        assert_eq!(
+            result["displayUpInModel"],
+            serde_json::json!([0.0, 1.0, 0.0])
+        );
     }
 
     fn canonical_profile() -> ProfileData {

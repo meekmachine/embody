@@ -234,6 +234,50 @@ inheritance behavior.
 
 ### Gaze geometry contract
 
+`resolve_profile_gaze_geometry_json(profile_json, camera_position,
+camera_quaternion, gaze_origin, model_quaternion)` returns camera geometry and
+authored angular capacities as JSON. It accepts world-space XYZ positions and
+XYZW quaternions, using model-neutral +Z as character front and +Y as up. All
+positions must share scene units. It neither reads nor changes runtime state.
+
+| Result field | Meaning |
+| --- | --- |
+| `cameraBearingDegrees` | `{yaw, pitch}` from the gaze origin toward the camera, relative to character front. The bearing is **not clamped** to AU limits. |
+| `cameraDistanceSceneUnits` | Distance from gaze origin to camera, in the supplied scene units. |
+| `displayRightInModel`, `displayUpInModel` | Camera-local +X/+Y unit directions expressed as model-local XYZ arrays. |
+| `displayRightInBearing`, `displayUpInBearing` | Dimensionless `{yaw, pitch}` dot products of those display directions against the camera bearing's unit yaw/pitch tangents. These projections are **not renormalized**. |
+| `limitsDegrees` | `headYaw`, `headPitch`, `eyeYaw`, `eyePitch`, each containing nonnegative `negative` and `positive` angular-capacity magnitudes. |
+
+The query uses **geometric signs**: positive yaw points toward model +X and
+positive pitch toward +Y. FACS horizontal AU output uses the opposite sign:
+geometric positive head/eye yaw corresponds to AU 51/61; negative yaw to 52/62.
+Positive head/eye pitch corresponds to 53/63; negative pitch to 54/64. The signed
+range for each axis is `[-negative, positive]` degrees. Capacity comes from the
+existing profile solver's selected composite and first matching rotation
+binding, including `maxDegrees * scale` magnitude. Shared eye capacity uses the
+smaller mapped actuator. Absent, morph-only or undriven mappings supply zero
+angular capacity. This is profile metadata, not a live skeleton/reachability
+inspection, and does not include evaluated head/eye poses or optical calibration.
+
+At camera distance <= 0.00001 scene units, `cameraBearingDegrees` and both
+`display*InBearing` fields are `null`: the query does not choose a substitute
+gaze direction. Model-space display axes remain available. Missing/nonfinite
+position components become zero, finite coordinates clamp to +/-1e12, and
+invalid quaternions use identity; other quaternions are normalized. Invalid
+profile JSON throws an error. A model quaternion describes rotation only;
+reflection from a negative model scale is not represented by this interface.
+
+This query is the first stage of moving tracking behavior into Polymer. It has
+no tracking input, enablement, strength, head-follow, camera-lock or allocation
+parameters. Polymer can use these facts to choose input-to-AU range, eye/head
+participation and timing without copying Embody's profile mapping rules. **No
+Polymer consumer is migrated by this API addition.** Existing solvers and
+`ThreeGazeFocus` remain unchanged. Moving posed eye compensation to Polymer and
+routing that result through normal AU application is a separate migration;
+this query does not replace the posed constraint or its binocular convergence.
+
+The existing projection and allocation APIs retain their current contracts:
+
 `solve_profile_screen_space_gaze` and `solve_profile_viewer_space_gaze` return
 14 floats: combined target XY, eye target XY, head target XY, total yaw/pitch,
 camera yaw/pitch, eye-to-camera distance, and viewer world XYZ. XY outputs are
