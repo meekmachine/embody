@@ -82,6 +82,30 @@ function skinnedTriangle() {
 }
 
 describe('controller model render readiness', () => {
+  it('prepares joint indices when binding the model, before its first renderer frame', () => {
+    const f = fixture(); const { mesh } = skinnedTriangle();
+    const geometry = mesh.geometry, skeleton = mesh.skeleton;
+    f.controller.setModel(mesh);
+    expect(geometry.getAttribute('skinIndex').array).toBeInstanceOf(Float32Array);
+    expect(mesh.geometry).toBe(geometry); expect(mesh.skeleton).toBe(skeleton);
+    expect(f.renderer.compileAsync).not.toHaveBeenCalled();
+    expect(f.renderer.render).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('prepares separately supplied skinned models before compile (native=%s)', async (native) => {
+    const f = fixture(native); const { mesh } = skinnedTriangle();
+    const original = mesh.geometry.getAttribute('skinIndex');
+    f.renderer.compileAsync.mockImplementationOnce(async model => {
+      expect(model).toBe(mesh);
+      const indices = mesh.geometry.getAttribute('skinIndex');
+      expect(indices.array).toBeInstanceOf(Float32Array);
+      expect(Array.from(indices.array)).toEqual(Array.from(original.array));
+    });
+    const readiness = f.controller.prepareModelForRender(mesh);
+    await Promise.resolve(); f.tick(); await readiness;
+    expect(mesh.parent).toBeNull(); expect(mesh.visible).toBe(true);
+  });
+
   it.each([false, true])('compiles only the model and draws the complete scene once on the existing frame (native=%s)', async (native) => {
     const f = fixture(native); const compilation = deferred();
     const background = new THREE.Color(0xabcdef); f.scene.background = background;

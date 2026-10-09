@@ -5,6 +5,7 @@ import {
   HemisphereLight,
   MathUtils,
   Mesh,
+  PCFShadowMap,
   PCFSoftShadowMap,
   PerspectiveCamera,
   PlaneGeometry,
@@ -20,6 +21,7 @@ import type { ColorRepresentation, CoordinateSystem, Light, LightShadow, Orthogr
 import type { WebGPURenderer } from 'three/webgpu';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { registerSceneRendering } from './sceneRenderingBinding';
+import { prepareModelSkinning } from './modelSkinning';
 
 export type DefaultCharacterLightingSettings = {
   envMapEnabled: boolean;
@@ -314,7 +316,7 @@ function constructDefaultCharacterScene<R extends CharacterSceneRenderer>(
     const width = Math.max(1, container.clientWidth || globalThis.innerWidth || 1);
     const height = Math.max(1, container.clientHeight || globalThis.innerHeight || 1);
     const ratio = () => Math.min(globalThis.devicePixelRatio || 1, options.pixelRatioCap ?? 1.5);
-    renderer.setPixelRatio(ratio()); renderer.setSize(width, height, true); renderer.shadowMap.enabled = options.shadows ?? true; renderer.shadowMap.type = PCFSoftShadowMap;
+    renderer.setPixelRatio(ratio()); renderer.setSize(width, height, true); renderer.shadowMap.enabled = options.shadows ?? true; renderer.shadowMap.type = PCFShadowMap;
     Object.assign(renderer.domElement.style, { display: 'block', width: '100%', height: '100%' });
     const scene = new Scene(); const background = options.background === undefined ? sceneType.background : options.background; scene.background = background == null ? null : new Color(background);
     const camera = new PerspectiveCamera(options.cameraFov ?? 45, width / height, .1, 1000);
@@ -538,6 +540,7 @@ export function createDefaultCharacterSceneRuntime(
         let suspended = false;
         let attached = false;
         let restoreCameraCoordinates = () => {};
+        let restoreModelSkinning = () => {};
         const check = () => {
           if (disposed || generation !== request) throw renderingAborted();
           if (!active) throwIfAborted(options.signal);
@@ -558,7 +561,10 @@ export function createDefaultCharacterSceneRuntime(
           candidateInUse = candidate;
           const renderer = candidate.renderer;
           sizeRenderer(renderer, true);
-          renderer.shadowMap.enabled = options.shadows ?? true; renderer.shadowMap.type = PCFSoftShadowMap;
+          renderer.shadowMap.enabled = options.shadows ?? true;
+          // WebGL PCF is already soft in supported Three versions; the old
+          // constant warns and is replaced on the first draw. Keep native filtering.
+          renderer.shadowMap.type = candidate.backend === 'webgl' ? PCFShadowMap : PCFSoftShadowMap;
           Object.assign(renderer.domElement.style, { display: 'block', width: '100%', height: '100%' });
           if (leaseCount) await leaseBarrier;
           check();
@@ -567,6 +573,7 @@ export function createDefaultCharacterSceneRuntime(
           if (owner.binding) { suspended = true; await owner.binding.suspend(); }
           check();
           restoreCameraCoordinates = prepareCameraCoordinates(scene, camera, candidate.backend);
+          restoreModelSkinning = prepareModelSkinning(scene);
           lighting.hold();
           // Environment changes during asynchronous compilation are deferred. If
           // authored settings changed meanwhile, prepare that revision before commit.
@@ -607,6 +614,7 @@ export function createDefaultCharacterSceneRuntime(
           rollback(() => candidate?.dispose());
           const canceled = disposed || generation !== request || (!active && options.signal?.aborted);
           if (!disposed) {
+            rollback(restoreModelSkinning);
             rollback(restoreCameraCoordinates);
             rollback(lighting.restore);
             if (suspended && active && !active.lost) {
