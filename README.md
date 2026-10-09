@@ -267,14 +267,14 @@ invalid quaternions use identity; other quaternions are normalized. Invalid
 profile JSON throws an error. A model quaternion describes rotation only;
 reflection from a negative model scale is not represented by this interface.
 
-This query is the first stage of moving tracking behavior into Polymer. It has
+This query supports moving tracking behavior into Polymer. It has
 no tracking input, enablement, strength, head-follow, camera-lock or allocation
 parameters. Polymer can use these facts to choose input-to-AU range, eye/head
-participation and timing without copying Embody's profile mapping rules. **No
-Polymer consumer is migrated by this API addition.** Existing solvers and
-`ThreeGazeFocus` remain unchanged. Moving posed eye compensation to Polymer and
-routing that result through normal AU application is a separate migration;
-this query does not replace the posed constraint or its binocular convergence.
+participation and timing without copying Embody's profile mapping rules. The
+sampled AU contribution API below supplies the evaluated rig facts and ordinary
+AU application needed for Polymer-owned posed compensation. Polymer must adopt
+these APIs to migrate its tracking path; this package alone does not change a
+consumer. Existing solvers and `ThreeGazeFocus` retain their compatibility APIs.
 
 The existing projection and allocation APIs retain their current contracts:
 
@@ -389,6 +389,77 @@ const report = JSON.parse(wasm.analyze_model_descriptor(
 ```
 
 ## Pose-aware focus
+
+### Sampled AU contributions and observed geometry
+
+`ThreeAuContribution` from `@lovelace_lol/embody/three` accepts scheduled unsigned
+AU samples and applies all their mapped bone and morph outputs through the
+canonical Rust runtime. It has no focus target, strength/follow settings, timer,
+filter or target solver. Await `initEmbodyCore()` before constructing it, and pass
+the reference captured before playback:
+
+```ts
+const contribution = new ThreeAuContribution(model, profile, { referencePose });
+contribution.restore();                // Before the host evaluates authored playback.
+// The host samples its existing mixer here.
+const geometry = contribution.readPose();
+// Polymer's planner/scheduler produces this sample from its existing clocks.
+contribution.apply([{ id: 51, intensity: 0.5, balance: 0 }]);
+// On rebind/disposal, restore the contribution before releasing the old model.
+contribution.dispose();
+```
+
+`readPose()` returns detached plain data: `bindingRevision`, `modelNodeId`, full
+current/reference node transforms and matrices, and resolved head/leftEye/rightEye
+joint metadata. Matrices are column-major and include non-bone parents. Preserve
+the observed matrices for unchanged/manual-matrix nodes instead of reconstructing
+them from decomposed TRS. `name` retains each actual joint/node name. Changed
+hierarchy, nonfinite geometry or use after disposal rejects the observation.
+The read refreshes Three's local/world matrix caches with `updateWorldMatrix`;
+it does not restore or write TRS/morph values. The host chooses its observation
+boundary. Rebinding the same model reuses its original reference unless an
+explicit replacement is supplied. Bind a new model with its own pre-playback
+reference. Each rebind produces a new revision, so consumers can discard plans
+tied to previous bindings.
+
+Joint `axes.{yaw,pitch,roll}.{negative,positive}` responses contain `auId`,
+`side`, a bone-local unit `axis`, signed `radians` at AU intensity one, and
+`order` (the compiled composite-axis index). A custom profile can author a
+different multiplication order from its semantic yaw/pitch/roll names. Sort
+response rotations by ascending `order` when constructing a geometric seed;
+canonical candidate evaluation remains authoritative for the combined result.
+Negative/positive name FACS control coordinates: yaw 51/61 is negative, 52/62
+positive; pitch 54/64 is negative, 53/63 positive; roll 55 is negative, 56 positive.
+They do not name the sign of the physical rotation. The Rust
+`RuntimeCore.get_gaze_kinematics_json()` query derives these responses from the
+bound composite tables and resolves optical calibration. Missing bones produce
+null joints; missing or multiple-axis responses produce null actuators; unknown
+optical frames remain null. A single response describes that joint, not every
+destination of its AU. Candidate evaluation remains authoritative for combined
+AU effects and extra mapped destinations.
+
+`evaluate(samples)` returns detached `{bindingRevision, bones, morphs}` without
+scene writes. Bone rows identify `boneId`/`nodeId` and optional `rotationDelta`
+(XYZW) and `positionDelta` (XYZ). Rotation is `inverse(reference) * evaluatedAU`;
+translation is `evaluatedAU - reference`. `apply(samples)` restores its previous
+contribution, then composes `base * rotationDelta` and adds translation deltas.
+It adds each canonical morph `value` to the authored base, bounded to [0,1].
+Reference morph values are not subtracted. This preserves authored animation
+while retaining every mapped AU output; it does not clamp the combined authored
+bone pose against neutral joint limits. Manual-matrix bones cannot be written
+by this TRS contribution adapter; application rejects them before scene writes.
+
+Samples replace the complete contribution and require unique unsigned numeric
+`id`, `intensity` in [0,1], and optional `balance` in [-1,1]. Invalid batches reject
+before changing the visible contribution. Opposite AUs may coexist: independent
+left/right amounts L/R for one AU can be represented by
+`intensity = max(L,R)` and `balance = (R-L)/intensity`, with zero balance at zero
+intensity. Unsided outputs receive the same maximum once. This does not use the
+signed setter that clears an opposite continuum direction. `apply([])` releases
+all owned outputs. Repeated application does not accumulate; `restore()`,
+successful `rebind(...)` and `dispose()` preserve newer external writes.
+
+### Compatibility focus constraint
 
 `ThreeGazeFocus` from `@lovelace_lol/embody/three` applies a focus constraint
 inside an animation runtime. It has no clock or target-selection policy:
