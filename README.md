@@ -400,6 +400,32 @@ presentation's uniform root scale. The original viewer solver keeps its
 existing scale-one behavior. Neither solver infers physical webcam/display
 placement from face landmarks.
 
+`solve_profile_tracking_gaze` maps normalized display-right/up controls to the
+profile's full signed head AU rotation range. Pass `head_follow_fraction = 1`
+for full participation: on an aligned display axis, an input endpoint of +/-1
+requests the same head rotation as the corresponding AU at intensity 1. Binding
+scale and asymmetric `maxDegrees` remain authoritative. Camera distance and FOV
+do not reduce this range. Intermediate inputs interpolate between the bounded
+camera bearing at zero and the corresponding signed endpoint; camera roll
+rotates the display axes into the model frame. With head tracking disabled,
+the target spans the eye AU range instead.
+
+The signature is `(profile_json, tracking_target, camera_position,
+camera_quaternion, gaze_origin, model_quaternion, eyes_enabled, head_enabled,
+head_follow_fraction, lock_head_to_camera, world_units_per_meter)`. It returns
+the same 14-float layout as the existing physical projection solvers. Target Z
+is depth in meters, clamped to 0.2–10 before scene scaling; it sets a finite
+binocular focus distance without attenuating the angular range. X/Y clamp to
+[-1, 1], nonfinite coordinates become zero, invalid positive depth/scale use
+0.8/1 respectively, and absent AU bindings supply no angular capacity.
+
+This is an input-range mapping, not a physical reconstruction of the viewer's
+position. The existing screen/viewer projection APIs retain their contracts.
+Consumers must select this entry point and request full head participation to
+use it; adding the export alone does not change LoomLarge tracking. Eye focus
+still uses the resulting finite target and reports residual error when reduced
+strength, authored motion, or rig limits make that target unreachable.
+
 ## Development
 
 ```bash

@@ -52,6 +52,38 @@ const focused = (diagnostics, label) => {
   assert(result.eyes[1].direction.x < 0);
 }
 
+// Normalized tracking endpoints must reach each signed AU's authored rotation,
+// including asymmetric limits and scaled bindings, through the real renderer.
+{
+  const wasm = await initEmbodyCore();
+  const profile = structuredClone(preset);
+  profile.auToBones['51'][0].scale = 0.5;
+  profile.auToBones['53'][0].maxDegrees = 18;
+  for (const [input, au] of [
+    [[1, 0, 0.8], 51], [[-1, 0, 0.8], 52],
+    [[0, 1, 0.8], 53], [[0, -1, 0.8], 54],
+  ]) {
+    for (const strength of [0, 0.5, 1]) {
+      const test = rig(profile);
+      test.model.updateMatrixWorld(true);
+      const origin = test.left.getWorldPosition(new Vector3()).add(test.right.getWorldPosition(new Vector3())).multiplyScalar(0.5);
+      const result = wasm.solve_profile_tracking_gaze(
+        JSON.stringify(profile), new Float32Array(input),
+        new Float32Array(origin.clone().add(new Vector3(0, 0, 3)).toArray()), new Float32Array([0, 0, 0, 1]),
+        new Float32Array(origin.toArray()), new Float32Array([0, 0, 0, 1]),
+        true, true, 1, false, 1,
+      );
+      const value = request(test, { x: result[11], y: result[12], z: result[13] }, { headIntensity: strength });
+      const diagnostics = test.focus.apply(value, controls(value, result[4], result[5]));
+      const binding = profile.auToBones[au][0];
+      const axis = binding.channel === 'ry' ? new Vector3(0, 1, 0) : new Vector3(1, 0, 0);
+      const expected = new Quaternion().setFromAxisAngle(axis, radians(binding.maxDegrees * binding.scale * strength));
+      near(test.head.quaternion.angleTo(expected), 0, `AU ${au} at strength ${strength}`, 1e-4);
+      if (strength === 1) focused(diagnostics, `full-range AU ${au}`);
+    }
+  }
+}
+
 // LoomLarge mouse/webcam tracking uses the viewer projection. An off-axis
 // camera and a viewer across neutral must not send the following head toward
 // the camera while the eyes compensate in the opposite direction. Exercise
