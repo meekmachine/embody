@@ -72,6 +72,12 @@ in its pitch group. Signed controls additionally declare `continuumPairs`.
 Use `auInfo.facePart: "Body"`, `auFacePartToMeshCategory.Body: "body"` and
 `morphToMesh.body` to route body and clothing targets through the same evaluator.
 
+CC4's jaw-opening group includes speech control 103 alongside AUs 25, 26 and 27.
+Its existing `auToBones` entry supplies the jaw bone, axis and rotation limit.
+Speech sends an AU 103 curve through the normal animation system; the same
+compiler produces its bone output and any configured morph output. The group
+uses the existing strongest-opening rule when these AUs play together.
+
 Head and eye controls use the original AU IDs (51–56 and 61–64), so their
 facial and semantic editors read and write the same `auToMorphs` and
 `auMixDefaults` entries. Neck actions 1032–1037 use the corresponding CC4

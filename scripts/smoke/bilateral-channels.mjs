@@ -148,3 +148,53 @@ try {
   mixer.stopAllAction(); core.free(); geometry.dispose(); mesh.material.dispose();
 }
 console.log('Bilateral typed-channel Wasm/Three smoke passed');
+
+// Speech supplies an ordinary AU and separate viseme shape curves. Embody
+// uses the character's configured AU bone and morph outputs.
+const speechModel = new Group();
+const speechGeometry = new BufferGeometry();
+speechGeometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0], 3));
+const speechMesh = new Mesh(speechGeometry, new MeshBasicMaterial());
+speechMesh.name = 'SpeechFace';
+speechMesh.morphTargetDictionary = { Support: 0, Talk: 1 };
+speechMesh.morphTargetInfluences = [0, 0];
+const speechBone = new Bone(); speechBone.name = 'SavedSpeechBone';
+const decoyJaw = new Bone(); decoyJaw.name = 'Jaw';
+speechModel.add(speechMesh, speechBone, decoyJaw);
+const speechProfile = {
+  boneNodes: { SPEECH_SUPPORT: 'SavedSpeechBone', JAW: 'Jaw' },
+  auToBones: {
+    103: [{ node: 'SPEECH_SUPPORT', channel: 'ry', scale: -0.5, maxDegrees: 40 }],
+    26: [{ node: 'JAW', channel: 'rz', maxDegrees: 30 }],
+  },
+  auToMorphs: { 103: { center: ['Support'] } },
+  compositeRotations: [{ node: 'SPEECH_SUPPORT', yaw: { aus: [103], axis: 'ry' } }],
+  morphToMesh: { face: ['SpeechFace'], viseme: ['SpeechFace'] },
+  auMixDefaults: { 103: 0.25 },
+  visemeKeys: ['Talk'],
+};
+const speechInspection = new ThreeModelInspector().inspectModel(speechModel, { profile: speechProfile });
+const speechCore = new wasm.RuntimeCore(0);
+const speechMixer = new AnimationMixer(speechModel);
+try {
+  speechCore.configure_with_profile(JSON.stringify(speechProfile), JSON.stringify(speechInspection.descriptor));
+  const ir = JSON.parse(speechCore.build_typed_clip('speech-mapped-outputs', JSON.stringify([
+    { target: { type: 'au', id: 103 }, keyframes: curve(0.8) },
+    { target: { type: 'viseme', id: 0 }, keyframes: curve(0.6) },
+  ]), JSON.stringify({ autoVisemeJaw: false })));
+  const clip = createAnimationClipFromClipIR(ir, speechInspection);
+  assert.equal(clip.tracks.length, 3, 'mapped bone, AU tissue, and viseme shape');
+  assert.equal(new Set(clip.tracks.map(track => track.name)).size, 3);
+  const action = speechMixer.clipAction(clip).setLoop(LoopOnce, 1);
+  action.clampWhenFinished = true;
+  action.play();
+  speechMixer.update(1);
+  near(speechBone.rotation.y, -16 * Math.PI / 180, 'saved AU binding axis and calibrated range');
+  near(speechMesh.morphTargetInfluences[0], 0.2, 'AU also drives its mapped morph');
+  near(speechMesh.morphTargetInfluences[1], 0.6, 'viseme keeps its own shape');
+  near(decoyJaw.rotation.z, 0, 'speech does not substitute the legacy jaw');
+  action.stop(); speechMixer.uncacheClip(clip);
+} finally {
+  speechMixer.stopAllAction(); speechCore.free(); speechGeometry.dispose(); speechMesh.material.dispose();
+}
+console.log('Mapped speech AU Wasm/Three smoke passed');

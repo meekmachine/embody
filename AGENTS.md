@@ -78,6 +78,11 @@ CI, the user, or explicitly requested validation. Report what was not run.
   cleanup visible at the responsible boundary.
 - Keep decisions separate from external effects. Prefer a concrete operation
   over a speculative abstraction; explain invariants and reasons in comments.
+- For missing AU animation output, trace the existing caller, profile compiler,
+  and bone/morph evaluator before patching. Repair the owning profile or Rust code with
+  regression coverage. Do not bypass an AU by constructing caller-side bone
+  rotations, dropping its mapped morphs, or replacing LipSync/Animation agency
+  responsibilities. Follow the [AU ownership guidance](docs/development-guidance.md#make-the-runtime-boundary-visible).
 - Update the existing contract document identified by the development guide
   when changing a public contract or ownership boundary. Keep examples aligned
   with exports and distinguish implemented behavior from intended work.

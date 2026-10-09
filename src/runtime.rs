@@ -2218,6 +2218,74 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cc4_speech_au_103_uses_the_existing_jaw_opening_group() {
+        let model = r#"{"bones":[{"id":1,"name":"CC_Base_JawRoot"}]}"#;
+        for (au26, au103, degrees) in [(0.0, 0.8, 24.0_f32), (0.8, 0.6, 24.0), (0.4, 1.0, 30.0)] {
+            let mut core = RuntimeCore::new(0);
+            core.configure_with_preset("cc4", "{}", model).unwrap();
+            core.set_au(26, au26, 0.0);
+            core.set_au(103, au103, 0.0);
+            let expected = quat_from_channel(2, degrees.to_radians());
+            let live = core.evaluate_active_bone_frame();
+            assert_eq!(live.len(), 9);
+            assert_eq!(live[0], 1.0);
+            for (actual, expected) in live[4..8].iter().zip(expected) {
+                assert!((actual - expected).abs() < 1e-6);
+            }
+            let channels = serde_json::json!([
+                {"target":{"type":"au","id":26},"keyframes":[
+                    {"time":0,"intensity":0},{"time":1,"intensity":au26},{"time":2,"intensity":0}]},
+                {"target":{"type":"au","id":103},"keyframes":[
+                    {"time":0,"intensity":0},{"time":1,"intensity":au103},{"time":2,"intensity":0}]}
+            ]);
+            let clip: ClipIR = serde_json::from_str(&core.build_typed_clip(
+                "speech-jaw", &channels.to_string(), r#"{"autoVisemeJaw":false}"#,
+            ).unwrap()).unwrap();
+            assert_eq!(clip.tracks.len(), 1, "one jaw rotation, with the strongest opening AU winning");
+            assert_eq!(clip.tracks[0].target["boneId"], 1);
+            for (actual, expected) in clip.tracks[0].values[4..8].iter().zip(expected) {
+                assert!((actual - f64::from(expected)).abs() < 1e-6);
+            }
+            assert_eq!(&clip.tracks[0].values[8..12], &[0.0, 0.0, 0.0, 1.0]);
+        }
+    }
+
+    #[test]
+    fn speech_au_103_keeps_custom_bone_and_morph_outputs_with_visemes() {
+        let profile = r#"{
+            "boneNodes":{"JAW":"CustomJaw"},
+            "auToBones":{"103":[{"node":"JAW","channel":"rx","scale":-0.5,"maxDegrees":40}]},
+            "compositeRotations":[{"node":"JAW","pitch":{"aus":[103],"axis":"rx"}}],
+            "auToMorphs":{"103":{"center":["JawSupport"]}},
+            "morphToMesh":{"face":["Face"],"viseme":["Face"]},
+            "auMixDefaults":{"103":0.25},"visemeKeys":["Talk"]
+        }"#;
+        let model = r#"{
+            "bones":[{"id":1,"name":"CustomJaw"}],
+            "meshes":[{"id":1,"name":"Face","morphTargetIds":[10,11]}],
+            "morphTargets":[{"id":10,"meshId":1,"name":"JawSupport"},{"id":11,"meshId":1,"name":"Talk"}]
+        }"#;
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(profile, model).unwrap();
+        let channels = r#"[
+            {"target":{"type":"au","id":103},"keyframes":[{"time":0,"intensity":0},{"time":1,"intensity":0.8}]},
+            {"target":{"type":"viseme","id":0},"keyframes":[{"time":0,"intensity":0},{"time":1,"intensity":0.6}]}
+        ]"#;
+        let clip: ClipIR = serde_json::from_str(&core.build_typed_clip(
+            "mapped-speech", channels, r#"{"autoVisemeJaw":false}"#,
+        ).unwrap()).unwrap();
+        assert_eq!(clip.tracks.len(), 3);
+        let bone = clip.tracks.iter().find(|track| track.target["boneId"] == 1).unwrap();
+        for (actual, expected) in bone.values[4..8].iter().zip(quat_from_channel(0, -16.0_f32.to_radians())) {
+            assert!((actual - f64::from(expected)).abs() < 1e-6);
+        }
+        let support = clip.tracks.iter().find(|track| track.target["morphTargetId"] == 10).unwrap();
+        assert!((support.values[1] - 0.2).abs() < 1e-6);
+        let viseme = clip.tracks.iter().find(|track| track.target["morphTargetId"] == 11).unwrap();
+        assert!((viseme.values[1] - 0.6).abs() < 1e-6);
+    }
+
+    #[test]
     fn reads_direct_viseme_state_through_set_transition_resize_and_clear() {
         let mut core = RuntimeCore::new(2);
         for index in [0, 1, 999] {
