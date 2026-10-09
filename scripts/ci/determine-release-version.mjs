@@ -1,81 +1,45 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { assertNewReleaseDescendsFromPublished, readNpmMetadata, selectRelease } from './npm-release.mjs';
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-const outputPath = process.env.GITHUB_OUTPUT;
-
-const currentVersion = pkg.version;
-const releaseTag = execFileSync('git', ['tag', '--points-at', 'HEAD', '--list', 'v*'], {
+const sourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+const tags = execFileSync('git', ['tag', '--points-at', 'HEAD', '--list', 'v*'], {
   encoding: 'utf8',
-})
-  .trim()
-  .split('\n')
-  .filter(Boolean)[0];
-
-function parse(version) {
-  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
-  if (!match) {
-    throw new Error(`Unsupported semver: ${version}`);
-  }
-  return match.slice(1).map(Number);
-}
-
-function compare(a, b) {
-  const left = parse(a);
-  const right = parse(b);
-  for (let i = 0; i < 3; i += 1) {
-    if (left[i] !== right[i]) {
-      return left[i] - right[i];
+}).trim().split('\n').filter(Boolean);
+const metadata = await readNpmMetadata(pkg.name);
+const release = selectRelease(metadata, pkg.version, sourceSha, tags);
+if (!release.exists) {
+  assertNewReleaseDescendsFromPublished(metadata, sourceSha, (ancestor, descendant) => {
+    try {
+      execFileSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], { stdio: 'pipe' });
+      return true;
+    } catch (error) {
+      if (error.status === 1) return false;
+      throw new Error('Cannot read the commit history needed to verify npm release order.', { cause: error });
     }
-  }
-  return 0;
+  });
 }
 
-function bumpPatch(version) {
-  const [major, minor, patch] = parse(version);
-  return `${major}.${minor}.${patch + 1}`;
+// Store the source identity inside the tarball as well as in npm metadata.
+// Do not run npm version lifecycle scripts or change the source checkout's tag.
+pkg.version = release.version;
+pkg.gitHead = sourceSha;
+writeFileSync('package.json', `${JSON.stringify(pkg, null, 2)}\n`);
+if (existsSync('package-lock.json')) {
+  const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
+  lock.version = release.version;
+  if (lock.packages?.['']) lock.packages[''].version = release.version;
+  writeFileSync('package-lock.json', `${JSON.stringify(lock, null, 2)}\n`);
 }
 
-let version;
-let existingTag = 'false';
-let publishedVersion = '';
-
-if (releaseTag) {
-  version = releaseTag.replace(/^v/, '');
-  parse(version);
-  existingTag = 'true';
-} else {
-  try {
-    publishedVersion = execFileSync('npm', ['view', pkg.name, 'version'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch (_error) {
-    publishedVersion = '';
-  }
-
-  const baseVersion =
-    publishedVersion && compare(publishedVersion, currentVersion) > 0
-      ? publishedVersion
-      : currentVersion;
-  version = bumpPatch(baseVersion);
-}
-
-execFileSync('npm', ['version', version, '--no-git-tag-version'], { stdio: 'inherit' });
-
-const lines = [
+const output = [
   `package_name=${pkg.name}`,
-  `version=${version}`,
-  `tag=v${version}`,
-  `existing_tag=${existingTag}`,
-  `published_version=${publishedVersion}`,
-  `release_commit=${execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()}`,
-];
-
-const output = `${lines.join('\n')}\n`;
-if (outputPath) {
-  appendFileSync(outputPath, output);
-} else {
-  process.stdout.write(output);
-}
+  `version=${release.version}`,
+  `tag=v${release.version}`,
+  `existing_version=${release.exists}`,
+  `release_commit=${sourceSha}`,
+].join('\n') + '\n';
+if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, output);
+else process.stdout.write(output);

@@ -432,6 +432,29 @@ use it; adding the export alone does not change LoomLarge tracking. Eye focus
 still uses the resulting finite target and reports residual error when reduced
 strength, authored motion, or rig limits make that target unreachable.
 
+## npm releases and PR previews
+
+Production consumers install an exact published `@lovelace_lol/embody` version
+from npm and commit their lockfile. A stable release contains the compiled JS,
+TypeScript declarations, and Wasm; consumers do not build Embody from Git.
+
+The `Verify and publish package` workflow publishes a stable npm release after
+a push to `main`, or a manual run on `main` with the `ref` input left empty.
+It chooses the next patch version, records the source commit in `gitHead`, and
+builds and validates once. The separate publish job uses the `npm` environment's
+`NPM_KEY` to publish the packed output from that job, then creates its Git tag
+and GitHub release. Stable releases are serialized through version selection and
+publication; failed registry lookups stop the release. Retrying a published
+commit reuses its existing version, and an older unpublished commit cannot
+replace a newer source release.
+
+Non-draft PRs, manual runs with an explicit `ref`, and `publish-pkg-pr-new`
+repository dispatches publish immutable `pkg.pr.new` previews. These are for
+testing linked upstream changes. Before Polymer publishes a stable npm release,
+replace its Embody preview URL with the exact stable npm version containing
+those changes. An explicit ref remains a preview request even when it names
+`main`; it does not publish to npm.
+
 ## Development
 
 ```bash
