@@ -3442,6 +3442,78 @@ mod tests {
     }
 
     #[test]
+    fn facial_mesh_selection_limits_live_and_compiled_au_morphs_without_clearing_bones() {
+        let model = serde_json::json!({
+            "bones": [{"id": 1, "name": "CustomJaw"}],
+            "meshes": [
+                {"id": 1, "name": "Skin", "morphTargetIds": [11]},
+                {"id": 2, "name": "Brows", "morphTargetIds": [21]},
+                {"id": 3, "name": "Lashes", "morphTargetIds": [31]},
+                {"id": 4, "name": "Accessory", "morphTargetIds": [41, 42, 43]}
+            ],
+            "morphTargets": [
+                {"id": 11, "meshId": 1, "name": "Smile", "hostIndex": 0},
+                {"id": 21, "meshId": 2, "name": "BrowLift", "hostIndex": 1},
+                {"id": 31, "meshId": 3, "name": "Blink", "hostIndex": 2},
+                {"id": 41, "meshId": 4, "name": "Smile", "hostIndex": 0},
+                {"id": 42, "meshId": 4, "name": "BrowLift", "hostIndex": 1},
+                {"id": 43, "meshId": 4, "name": "Blink", "hostIndex": 2}
+            ]
+        }).to_string();
+        let channels = r#"[{"target":{"type":"au","id":900},"keyframes":[
+            {"time":0,"intensity":0},{"time":1,"intensity":0.5}
+        ]}]"#;
+        // Named and numeric mappings must both stay inside the selected meshes.
+        for targets in [serde_json::json!(["Smile", "BrowLift", "Blink"]), serde_json::json!([0, 1, 2])] {
+            let mut core = RuntimeCore::new(0);
+            let mut expected_bones = None;
+            for (selection, expected_targets) in [
+                (vec!["Skin", "Brows", "Lashes"], vec![11, 21, 31]),
+                (vec!["Skin", "Brows"], vec![11, 21]),
+                (vec!["Lashes"], vec![31]),
+                (vec!["Skin"], vec![11]),
+                (vec![], vec![]),
+                (vec!["MissingMesh"], vec![]),
+                (vec!["Skin", "Brows", "Lashes"], vec![11, 21, 31]),
+            ] {
+                let profile = serde_json::json!({
+                    "auToMorphs": {"900": {"center": targets}},
+                    "morphToMesh": {"face": selection},
+                    "auToBones": {"900": [{"node":"JAW", "channel":"rx", "scale":1, "maxDegrees":40}]},
+                    "boneNodes": {"JAW": "CustomJaw"},
+                    "compositeRotations": [{"node":"JAW", "pitch":{"aus":[900], "axis":"rx"}}],
+                    "auMixDefaults": {"900": 1}
+                }).to_string();
+                // Reconfigure the same runtime to exercise removing old bindings.
+                core.configure_with_profile(&profile, &model).unwrap();
+                core.set_au(900, 0.5, 0.0);
+                let rows = unpack_rows(&core.evaluate_active_morph_frame());
+                assert_eq!(rows.iter().map(|row| row.1).collect::<Vec<_>>(), expected_targets,
+                    "live selection: {selection:?}, targets: {targets}");
+                assert!(rows.iter().all(|row| (row.2 - 0.5).abs() < 1e-6));
+                let bones = core.evaluate_active_bone_frame();
+                assert!(!bones.is_empty(), "mesh selection does not clear a mapped bone");
+                if let Some(expected) = &expected_bones {
+                    assert_eq!(&bones, expected);
+                } else {
+                    expected_bones = Some(bones);
+                }
+
+                let clip: ClipIR = serde_json::from_str(&core.build_typed_clip(
+                    "selected-face", channels, r#"{"autoVisemeJaw":false}"#,
+                ).unwrap()).unwrap();
+                let mut morph_ids = clip.tracks.iter()
+                    .filter_map(|track| track.target["morphTargetId"].as_u64())
+                    .collect::<Vec<_>>();
+                morph_ids.sort_unstable();
+                assert_eq!(morph_ids, expected_targets.iter().map(|id| u64::from(*id)).collect::<Vec<_>>(),
+                    "compiled selection: {selection:?}, targets: {targets}");
+                assert_eq!(clip.tracks.iter().filter(|track| track.target["boneId"] == 1).count(), 1);
+            }
+        }
+    }
+
+    #[test]
     fn resolved_profile_with_stale_bindings_does_not_block_character_loading() {
         let profile = r#"{
             "auToMorphs": {

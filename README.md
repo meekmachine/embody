@@ -50,6 +50,17 @@ already supplies a jaw AU curve, its existing `autoVisemeJaw: false` option
 keeps automatic viseme jaw synthesis from replacing that curve; it does not
 disable the AU's mapped morphs or the viseme shapes.
 
+An explicit `morphToMesh` category limits AU morph output to the selected meshes.
+For a split face, select each skin, eyebrow and eyelash mesh that should receive
+the mapped morphs. An empty list disables that category's morph output; a missing
+mesh or a morph absent from the selected meshes does not search other meshes.
+Bone mappings remain independent. Visemes follow the same rule for their chosen
+category (or `face` when no separate viseme category is assigned). Legacy profiles
+that omit mesh routing entirely retain discovery by morph content. Exact mesh
+names take precedence; older unsuffixed names can still resolve GLTF primitive
+names when the model contains no exact match. Live controls and newly compiled
+AU/viseme clips use these same compiled bindings.
+
 The TypeScript adapter is intentionally limited to operations that require
 Three.js objects: scene traversal, ClipIR ↔ `AnimationClip` conversion, frame
 application, material writes, model loading/disposal, and default scene
