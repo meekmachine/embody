@@ -5,6 +5,7 @@ import {
   HemisphereLight,
   MathUtils,
   Mesh,
+  PCFShadowMap,
   PCFSoftShadowMap,
   PerspectiveCamera,
   PlaneGeometry,
@@ -314,7 +315,7 @@ function constructDefaultCharacterScene<R extends CharacterSceneRenderer>(
     const width = Math.max(1, container.clientWidth || globalThis.innerWidth || 1);
     const height = Math.max(1, container.clientHeight || globalThis.innerHeight || 1);
     const ratio = () => Math.min(globalThis.devicePixelRatio || 1, options.pixelRatioCap ?? 1.5);
-    renderer.setPixelRatio(ratio()); renderer.setSize(width, height, true); renderer.shadowMap.enabled = options.shadows ?? true; renderer.shadowMap.type = PCFSoftShadowMap;
+    renderer.setPixelRatio(ratio()); renderer.setSize(width, height, true); renderer.shadowMap.enabled = options.shadows ?? true; renderer.shadowMap.type = PCFShadowMap;
     Object.assign(renderer.domElement.style, { display: 'block', width: '100%', height: '100%' });
     const scene = new Scene(); const background = options.background === undefined ? sceneType.background : options.background; scene.background = background == null ? null : new Color(background);
     const camera = new PerspectiveCamera(options.cameraFov ?? 45, width / height, .1, 1000);
@@ -558,7 +559,10 @@ export function createDefaultCharacterSceneRuntime(
           candidateInUse = candidate;
           const renderer = candidate.renderer;
           sizeRenderer(renderer, true);
-          renderer.shadowMap.enabled = options.shadows ?? true; renderer.shadowMap.type = PCFSoftShadowMap;
+          renderer.shadowMap.enabled = options.shadows ?? true;
+          // WebGL PCF is already soft in supported Three versions; the old
+          // constant warns and is replaced on the first draw. Keep native filtering.
+          renderer.shadowMap.type = candidate.backend === 'webgl' ? PCFShadowMap : PCFSoftShadowMap;
           Object.assign(renderer.domElement.style, { display: 'block', width: '100%', height: '100%' });
           if (leaseCount) await leaseBarrier;
           check();

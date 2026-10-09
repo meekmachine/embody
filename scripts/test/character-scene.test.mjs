@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
 import test, { beforeEach } from 'node:test';
-import { Group, WebGLCoordinateSystem, WebGPUCoordinateSystem } from 'three';
+import { Group, PCFShadowMap, WebGLCoordinateSystem, WebGPUCoordinateSystem } from 'three';
 
 const entry = new URL(process.env.EMBODY_SCENE_SOURCE === '1' ? '../../three/scene.ts' : '../../dist/three.js', import.meta.url);
 const fixture = new URL('../fixtures/character-scene/three.mjs', import.meta.url);
@@ -79,6 +79,7 @@ test('async readiness waits for real scene preparation before attaching and uses
   gate.resolve();
   const handle = await pending;
   assert.equal(handle.backend, 'webgl');
+  assert.equal(handle.renderer.shadowMap.type, PCFShadowMap);
   assert.equal(handle.ownsScene, true);
   assert.equal(handle.renderer, renderer);
   assert.equal(handle.camera.aspect, 900 / 480);
@@ -231,6 +232,7 @@ test('the synchronous API still immediately returns an attached, unprepared WebG
   const handle = createDefaultCharacterScene(host, { cameraFov: 50, type: 'showcase' });
   assert.equal(typeof handle.then, 'undefined');
   assert.equal(handle.renderer.compileCount, 0);
+  assert.equal(handle.renderer.shadowMap.type, PCFShadowMap);
   assert.equal(handle.camera.fov, 50);
   assert.equal(handle.sceneType, 'showcase');
   assert.equal(handle.scene.background.getHex(), 0x101216);

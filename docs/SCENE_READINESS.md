@@ -104,6 +104,9 @@ and resize listener. WebGPU first dynamically imports `three/webgpu`, awaits
 `renderer.init()`, verifies a native WebGPU backend, and creates its environment
 with the WebGPU PMREM generator. The WebGL path uses the WebGL PMREM generator.
 The default lights, shadow plane, tone mapping and scene settings are shared.
+WebGL selects `PCFShadowMap` directly, matching Three's current soft-shadow
+fallback without emitting its `PCFSoftShadowMap` deprecation warning. Native
+WebGPU retains its existing filter; shadow selection does not reload the character.
 The size is refreshed after preparation in case the container changed meanwhile.
 
 Before preparing a replacement, Embody sets the main and shadow cameras to that
