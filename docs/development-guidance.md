@@ -26,6 +26,15 @@ semantics and computation. Adapters operate on renderer objects; the host mixer
 owns clip playback and blending. Do not create a parallel TypeScript semantic
 runtime or a second copy of live AU/viseme state.
 
+For an AU animation bug, trace the caller's AU curve through profile compilation
+to its bone and morph outputs before changing the caller. A mapped AU must drive
+all of its available outputs in both live controls and compiled clips. Fix a
+missing output in the owning Rust compiler/evaluator and add a regression there.
+Do not make Polymer or LoomLarge read bone mappings, substitute a hardcoded jaw
+rotation, or drop mapped morphs to make speech appear to work. Preserve the
+existing LipSync timing and Animation scheduling flow; its AU/viseme curves are
+the inputs to Embody, not a reason to duplicate Embody's mapping logic.
+
 The boundary has real feature-specific responsibilities: annotation camera and
 marker math live in Rust, while Three owns native inspection, labels, DOM controls,
 marker state and disposal. Follow the README's annotation contract rather than

@@ -107,10 +107,9 @@ struct TypedChannel {
 ///
 /// Saved character profiles carry `auToBones` rotation bindings but rarely
 /// embed a composite rotation table. Loom3 fell back to the built-in CC4
-/// composites; without the same fallback every such profile loses AU bone
-/// rotations in live frames and in compiled snippet clips (only morph tracks
-/// come out of snippet-to-clip). Composite nodes that don't resolve against
-/// the model are skipped during table compilation, so this is safe for
+/// composites. Keep those max/opposed-direction rules for stored profiles;
+/// ungrouped bone bindings compile independently. Composite nodes that don't
+/// resolve against the model are skipped during table compilation, so this is safe for
 /// non-CC4 rigs. Explicit arrays, including [], never use this fallback.
 fn apply_composite_rotation_fallback(profile: &mut ProfileData) {
     if !profile.composite_rotations.is_unspecified() {
@@ -2216,6 +2215,214 @@ fn clamp_signed(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn mapped_jaw_model() -> &'static str {
+        r#"{
+            "meshes": [{"id": 1, "name": "Face", "morphTargetIds": [10, 11]}],
+            "morphTargets": [
+                {"id": 10, "meshId": 1, "name": "JawTissue"},
+                {"id": 11, "meshId": 1, "name": "Talk"}
+            ],
+            "bones": [
+                {"id": 1, "name": "CC_Base_JawRoot"},
+                {"id": 2, "name": "SelectedJaw", "restTransform": {
+                    "rotation": {"x": 0, "y": 0.6, "z": 0, "w": 0.8}
+                }},
+                {"id": 3, "name": "jaw"},
+                {"id": 4, "name": "CC_Base_SelectedJaw"}
+            ]
+        }"#
+    }
+
+    fn mapped_jaw_profile() -> ProfileData {
+        serde_json::from_value(serde_json::json!({
+            "bonePrefix": "CC_Base_",
+            "boneNodes": {"JAW": "JawRoot"},
+            "humanoidCharacterization": {
+                "schemaVersion": 1, "standard": "VRMC_vrm-1.0", "status": "incomplete",
+                "authored": true, "roles": {"jaw": {"nodeKey": "JAW"}}
+            },
+            "auToBones": {"103": [{"node": "jaw", "channel": "rx", "scale": -0.5, "maxDegrees": 40}]},
+            "auToMorphs": {"103": {"center": ["JawTissue"]}},
+            "morphToMesh": {"face": ["Face"], "viseme": ["Face"]},
+            "auMixDefaults": {"103": 0.25},
+            "visemeKeys": ["Talk"], "visemeJawAmounts": [0.9]
+        })).unwrap()
+    }
+
+    fn mapped_au_clip(core: &mut RuntimeCore, au_id: u32, with_viseme: bool) -> ClipIR {
+        let keys = serde_json::json!([
+            {"time": 0, "intensity": 0}, {"time": 1, "intensity": 0.8},
+            {"time": 2, "intensity": 0}
+        ]);
+        let mut channels = vec![serde_json::json!({
+            "target": {"type": "au", "id": au_id}, "keyframes": keys
+        })];
+        if with_viseme {
+            channels.push(serde_json::json!({
+                "target": {"type": "viseme", "id": 0},
+                "keyframes": [{"time": 0, "intensity": 0}, {"time": 1, "intensity": 0.6}, {"time": 2, "intensity": 0}]
+            }));
+        }
+        // LipSync authors its jaw AU curve, so it already disables automatic
+        // viseme jaw synthesis. Viseme shape curves remain independent.
+        let clip = core.build_typed_clip(
+            "mapped-action", &serde_json::to_string(&channels).unwrap(),
+            r#"{"autoVisemeJaw": false}"#,
+        ).unwrap();
+        serde_json::from_str(&clip).unwrap()
+    }
+
+    fn assert_rotation(actual: &[f64], expected: [f32; 4]) {
+        assert_eq!(actual.len(), 4);
+        for (actual, expected) in actual.iter().zip(expected) {
+            assert!((actual - f64::from(expected)).abs() < 1e-6, "{actual} != {expected}");
+        }
+    }
+
+    #[test]
+    fn cc4_au_103_drives_its_mapped_jaw_in_live_controls_and_clips() {
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_preset("cc4", "{}", mapped_jaw_model()).unwrap();
+        core.set_au(103, 0.8, 0.0);
+        let expected = quat_from_channel(2, 30.0_f32.to_radians() * 0.8);
+        let live = core.evaluate_active_bone_frame();
+        assert_eq!(live.len(), 9);
+        assert_eq!(live[0], 1.0);
+        assert_rotation(&live[4..8].iter().map(|value| f64::from(*value)).collect::<Vec<_>>(), expected);
+        let clip = mapped_au_clip(&mut core, 103, false);
+        assert_eq!(clip.tracks.len(), 1, "CC4 103 has only its mapped bone output");
+        assert_eq!(clip.tracks[0].target["boneId"], 1);
+        assert_rotation(&clip.tracks[0].values[4..8], expected);
+        assert_rotation(&clip.tracks[0].values[8..12], [0.0, 0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn au_clips_keep_mapped_bones_and_morphs_alongside_viseme_shapes() {
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(&serde_json::to_string(&mapped_jaw_profile()).unwrap(), mapped_jaw_model()).unwrap();
+        core.set_au(103, 0.8, 0.0);
+        let clip = mapped_au_clip(&mut core, 103, true);
+        assert_eq!(clip.tracks.len(), 3);
+        let bone = clip.tracks.iter().find(|track| track.target["boneId"] == 1).unwrap();
+        assert_rotation(&bone.values[4..8], quat_from_channel(0, -16.0_f32.to_radians()));
+        let morph = clip.tracks.iter().find(|track| track.target["morphTargetId"] == 10).unwrap();
+        assert!((morph.values[1] - 0.2).abs() < 1e-6, "AU mix scales morphs, not bones");
+        let viseme = clip.tracks.iter().find(|track| track.target["morphTargetId"] == 11).unwrap();
+        assert!((viseme.values[1] - 0.6).abs() < 1e-6);
+        let live = core.evaluate_active_bone_frame();
+        assert_rotation(&bone.values[4..8], [live[4], live[5], live[6], live[7]]);
+        assert!((core.evaluate_morph_frame_delta()[2] - 0.2).abs() < 1e-6);
+        core.set_au(103, 0.0, 0.0);
+        assert!(core.evaluate_active_bone_frame().is_empty());
+        assert_rotation(&bone.values[8..12], [0.0, 0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn mapped_au_rotations_follow_role_reassignment_and_clear_without_losing_morphs() {
+        let mut profile = mapped_jaw_profile();
+        let mut core = RuntimeCore::new(0);
+        crate::humanoid_characterization::set_role_binding(&mut profile, "jaw", Some("SelectedJaw")).unwrap();
+        core.configure_with_profile(&serde_json::to_string(&profile).unwrap(), mapped_jaw_model()).unwrap();
+        core.set_au(103, 0.8, 0.0);
+        let live = core.evaluate_active_bone_frame();
+        assert_eq!(live[0], 2.0, "literal authored bone wins over the prefixed twin");
+        let clip = mapped_au_clip(&mut core, 103, true);
+        let bone = clip.tracks.iter().find(|track| track.target["kind"] == "boneTransform").unwrap();
+        assert_eq!(bone.target["boneId"], 2);
+        assert_rotation(&bone.values[4..8], multiply_quat([0.0, 0.6, 0.0, 0.8], quat_from_channel(0, -16.0_f32.to_radians())));
+        assert_rotation(&bone.values[8..12], [0.0, 0.6, 0.0, 0.8]);
+        crate::humanoid_characterization::set_role_binding(&mut profile, "jaw", None).unwrap();
+        core.configure_with_profile(&serde_json::to_string(&profile).unwrap(), mapped_jaw_model()).unwrap();
+        assert!(core.evaluate_active_bone_frame().is_empty(), "cleared jaw cannot fall back to the literal jaw bone");
+        let clip = mapped_au_clip(&mut core, 103, true);
+        assert_eq!(clip.tracks.len(), 2);
+        assert!(clip.tracks.iter().all(|track| track.target["kind"] == "morphTarget"));
+        assert!(clip.tracks.iter().any(|track| track.target["morphTargetId"] == 10));
+    }
+
+    #[test]
+    fn morph_only_au_remains_available_without_any_bone_mapping() {
+        let mut profile = mapped_jaw_profile();
+        profile.au_to_bones.clear();
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(&serde_json::to_string(&profile).unwrap(), mapped_jaw_model()).unwrap();
+        core.set_au(103, 0.8, 0.0);
+        assert!(core.evaluate_active_bone_frame().is_empty());
+        let clip = mapped_au_clip(&mut core, 103, false);
+        assert_eq!(clip.tracks.len(), 1);
+        assert_eq!(clip.tracks[0].target["morphTargetId"], 10);
+        assert!((clip.tracks[0].values[1] - 0.8).abs() < 1e-6);
+    }
+
+    #[test]
+    fn ungrouped_au_compiles_every_bone_binding_with_its_axis_range_and_side() {
+        let profile = serde_json::json!({
+            "auToBones": {"777": [
+                {"node": "SelectedJaw", "channel": "rx", "maxDegrees": 40, "side": "left"},
+                {"node": "SelectedJaw", "channel": "rz", "maxDegrees": 20, "side": "left"},
+                {"node": "jaw", "channel": "ry", "maxDegrees": 60, "scale": -0.5, "side": "right"}
+            ]}
+        });
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(&profile.to_string(), mapped_jaw_model()).unwrap();
+        let clip = mapped_au_clip(&mut core, 777, false);
+        assert_eq!(clip.tracks.len(), 2, "one combined rotation track per mapped bone");
+        let left = clip.tracks.iter().find(|track| track.target["boneId"] == 2).unwrap();
+        let expected = multiply_quat(
+            multiply_quat([0.0, 0.6, 0.0, 0.8], quat_from_channel(0, 32.0_f32.to_radians())),
+            quat_from_channel(2, 16.0_f32.to_radians()),
+        );
+        assert_rotation(&left.values[4..8], expected);
+        let right = clip.tracks.iter().find(|track| track.target["boneId"] == 3).unwrap();
+        let right_expected = quat_from_channel(1, -24.0_f32.to_radians());
+        assert_rotation(&right.values[4..8], right_expected);
+        core.set_au(777, 0.8, 1.0);
+        let live = core.evaluate_active_bone_frame();
+        assert_eq!(live.len(), 9, "right-only balance disables both left bindings");
+        assert_eq!(live[0], 3.0);
+        assert_rotation(&live[4..8].iter().map(|value| f64::from(*value)).collect::<Vec<_>>(), right_expected);
+    }
+
+    #[test]
+    fn explicit_empty_composites_disable_ungrouped_rotations_and_keep_au_morphs() {
+        let mut profile = mapped_jaw_profile();
+        profile.composite_rotations = Vec::new().into();
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(&serde_json::to_string(&profile).unwrap(), mapped_jaw_model()).unwrap();
+        core.set_au(103, 0.8, 0.0);
+        assert!(core.evaluate_active_bone_frame().is_empty());
+        let clip = mapped_au_clip(&mut core, 103, false);
+        assert_eq!(clip.tracks.len(), 1);
+        assert_eq!(clip.tracks[0].target["morphTargetId"], 10);
+        assert!((clip.tracks[0].values[1] - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn declared_jaw_composites_keep_max_and_opposed_direction_behavior() {
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_preset("cc4", "{}", mapped_jaw_model()).unwrap();
+        core.set_au(25, 0.5, 0.0);
+        core.set_au(26, 0.8, 0.0);
+        core.set_au(30, 0.6, 0.0);
+        core.set_au(35, 0.2, 0.0);
+        let expected = multiply_quat(
+            quat_from_channel(1, -15.0_f32.to_radians() * 0.4),
+            quat_from_channel(2, 30.0_f32.to_radians() * 0.8),
+        );
+        let live = core.evaluate_active_bone_frame();
+        assert_eq!(live.len(), 9);
+        assert_rotation(&live[4..8].iter().map(|value| f64::from(*value)).collect::<Vec<_>>(), expected);
+        let curves = r#"{
+            "25": [{"time": 0, "intensity": 0.5}, {"time": 1, "intensity": 0.5}],
+            "26": [{"time": 0, "intensity": 0.8}, {"time": 1, "intensity": 0.8}],
+            "30": [{"time": 0, "intensity": 0.6}, {"time": 1, "intensity": 0.6}],
+            "35": [{"time": 0, "intensity": 0.2}, {"time": 1, "intensity": 0.2}]
+        }"#;
+        let clip: ClipIR = serde_json::from_str(&core.build_clip("jaw-composite", curves, "{}").unwrap()).unwrap();
+        assert_eq!(clip.tracks.len(), 1);
+        assert_rotation(&clip.tracks[0].values[4..8], expected);
+    }
 
     #[test]
     fn reads_direct_viseme_state_through_set_transition_resize_and_clear() {

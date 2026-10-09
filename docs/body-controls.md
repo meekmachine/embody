@@ -66,9 +66,15 @@ meshes are included in its category.
 The complete definition is `{label, section, auId, negativeAuId?, bilateral,
 roles, order}`. Bone bindings target a role, for example
 `{node: "leftLowerArm", channel: "rx", scale: 1, maxDegrees: 120, side: "left"}`.
-The characterization maps that role to a `boneNodes` key. The corresponding
+The characterization maps that role to a `boneNodes` key. The preset's
 `compositeRotations` entry also targets `leftLowerArm` and includes action 1001
-in its pitch group. Signed controls additionally declare `continuumPairs`.
+in its pitch group. A rotation binding omitted from those groups still drives
+its mapped bone in live controls and compiled AU clips, using its own channel,
+scale, maximum degrees and side. Hosts do not need to construct a bone channel
+to activate it. Declared groups keep their existing maximum/opposed-direction
+rules; ungrouped bindings compose afterward in numeric AU order and then binding
+order. All rotations compose from the bone's saved rest rotation. Signed controls
+additionally declare `continuumPairs`.
 Use `auInfo.facePart: "Body"`, `auFacePartToMeshCategory.Body: "body"` and
 `morphToMesh.body` to route body and clothing targets through the same evaluator.
 
@@ -107,8 +113,8 @@ to consumers of the resolved top-level catalog.
 
 Existing nonempty facial composite snapshots retain untouched default body
 composites; explicit entries for the same body node override them. An explicit
-`compositeRotations: []` disables all composite rotations, including facial and
-body rotations, through profile expansion, editing and runtime configuration.
+`compositeRotations: []` disables AU rotations, including ungrouped bone bindings,
+through profile expansion, editing and runtime configuration.
 Missing or `null` tables retain the legacy preset fallback. Morph bindings
 continue to work independently of this table.
 

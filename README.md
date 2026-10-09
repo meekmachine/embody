@@ -41,6 +41,15 @@ The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
 not sample or lerp clips on the hot path.
 
+An AU animation drives its profile's mapped bones and morphs through the same
+Rust evaluation used by live AU controls. For example, speech can send an AU
+103 curve and separate viseme shape curves; the profile decides which bones
+and morphs AU 103 moves. Hosts must not replace that AU with a hardcoded jaw
+rotation or read `auToBones` to construct their own bone tracks. When LipSync
+already supplies a jaw AU curve, its existing `autoVisemeJaw: false` option
+keeps automatic viseme jaw synthesis from replacing that curve; it does not
+disable the AU's mapped morphs or the viseme shapes.
+
 The TypeScript adapter is intentionally limited to operations that require
 Three.js objects: scene traversal, ClipIR ↔ `AnimationClip` conversion, frame
 application, material writes, model loading/disposal, and default scene
