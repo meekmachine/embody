@@ -273,6 +273,14 @@ export class DPthree3DMarkers {
     this.domElement.addEventListener('click', this.onClick);
   }
 
+  /** Preserve marker state while a scene replaces its renderer canvas. */
+  setDomElement(element: HTMLElement): void {
+    if (element === this.domElement) return;
+    this.domElement.removeEventListener('click', this.onClick);
+    this.domElement = element;
+    this.domElement.addEventListener('click', this.onClick);
+  }
+
   setModel(model: THREE.Object3D): void {
     this.regionLoadGeneration += 1;
     this.regionLoadHasFreshMatrices = false;
@@ -2021,9 +2029,13 @@ export class DPthree3DMarkers {
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     for (const material of materials) {
       if ('opacity' in material) {
-        material.transparent = true;
+        // Opacity is a uniform; only a transparency mode change needs Three
+        // to revalidate the material's program during a visibility animation.
+        if (!material.transparent) {
+          material.transparent = true;
+          material.needsUpdate = true;
+        }
         material.opacity = opacity;
-        material.needsUpdate = true;
       }
     }
   }

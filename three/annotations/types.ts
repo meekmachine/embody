@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { CharacterSceneRenderer } from '../scene';
+import type { CharacterSceneRenderer, CharacterSceneRenderingController } from '../scene';
 
 export type LineStyle = 'solid' | 'dashed' | 'dotted';
 export type LineCurve = 'straight' | 'bezier' | 'arc';
@@ -184,6 +184,8 @@ export interface DPthreeCameraControllerConfig {
   scene: THREE.Scene;
   /** The Three.js renderer - if provided, camera controller manages the render loop */
   renderer?: CharacterSceneRenderer;
+  /** Owns live backend replacement; pass the matching scene/camera and stable container. */
+  rendering?: CharacterSceneRenderingController;
   /**
    * Optional render callback used when the controller owns the render loop.
    * Allows overlay passes to render after the main character scene. Pending

@@ -12,11 +12,14 @@ import {
   Scene,
   ShadowMaterial,
   SRGBColorSpace,
+  WebGLCoordinateSystem,
   WebGLRenderer,
+  WebGPUCoordinateSystem,
 } from 'three';
-import type { ColorRepresentation, RenderTarget, Texture } from 'three';
+import type { ColorRepresentation, CoordinateSystem, Light, LightShadow, OrthographicCamera, RenderTarget, Texture } from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { registerSceneRendering } from './sceneRenderingBinding';
 
 export type DefaultCharacterLightingSettings = {
   envMapEnabled: boolean;
@@ -67,9 +70,11 @@ export type DefaultCharacterSceneOptions = {
 export type DefaultCharacterSceneAsyncOptions = DefaultCharacterSceneOptions & {
   /** Auto (default) tries native WebGPU initialization, then falls back to WebGL. */
   renderer?: CharacterSceneRendererPreference;
+  /** Persistent settings take precedence over the legacy renderer option. */
+  rendering?: Partial<CharacterSceneRenderingSettings>;
   /** Cancels construction, not ownership of a successfully returned scene. */
   signal?: AbortSignal;
-  /** Device loss after readiness requires the host to dispose/recreate the scene. */
+  /** Compatibility notification; rendering snapshots also expose device loss. */
   onDeviceLost?: (error: Error) => void;
 };
 
@@ -91,9 +96,40 @@ type CharacterScene<R extends CharacterSceneRenderer> = {
 };
 
 export type DefaultCharacterScene = CharacterScene<WebGLRenderer>;
-export type ReadyDefaultCharacterScene =
-  | (DefaultCharacterScene & { readonly backend: 'webgl' })
-  | (CharacterScene<WebGPURenderer> & { readonly backend: 'webgpu' });
+export type CharacterSceneRenderingSettings = { preference: CharacterSceneRendererPreference };
+export type CharacterSceneRenderingStatus = 'initializing' | 'switching' | 'ready' | 'error' | 'lost' | 'disposed';
+export type CharacterSceneRenderingSnapshot = {
+  readonly settings: CharacterSceneRenderingSettings;
+  readonly status: CharacterSceneRenderingStatus;
+  readonly error: Error | null;
+} & (
+  | { readonly backend: 'webgl'; readonly renderer: WebGLRenderer }
+  | { readonly backend: 'webgpu'; readonly renderer: WebGPURenderer }
+  | { readonly backend: null; readonly renderer: null }
+);
+export type CharacterSceneRendererLease = { readonly renderer: CharacterSceneRenderer; release(): void };
+export interface CharacterSceneRenderingController {
+  getSettings(): CharacterSceneRenderingSettings;
+  getSnapshot(): CharacterSceneRenderingSnapshot;
+  setSettings(patch: Partial<CharacterSceneRenderingSettings>): Promise<CharacterSceneRenderingSnapshot>;
+  subscribe(listener: (snapshot: CharacterSceneRenderingSnapshot) => void): () => void;
+  /** Borrow for capture/readback; release in finally. Unavailable during switching/loss. */
+  acquireRenderer(): CharacterSceneRendererLease;
+  /** Drain borrowed work, then synchronously detach/free caller-owned resources, even after loss/disposal. */
+  releaseSceneResources(release: () => void): Promise<void>;
+}
+export type DefaultCharacterSceneRuntimeOptions = DefaultCharacterSceneAsyncOptions;
+export type DefaultCharacterSceneRuntime = Omit<CharacterScene<CharacterSceneRenderer>, 'renderer' | 'dispose'> & {
+  readonly renderer: CharacterSceneRenderer | null;
+  readonly backend: CharacterSceneBackend | null;
+  dispose(): Promise<void>;
+  readonly rendering: CharacterSceneRenderingController;
+  readonly ready: Promise<CharacterSceneRenderingSnapshot>;
+};
+export type ReadyDefaultCharacterScene = (
+  | (Omit<DefaultCharacterScene, 'dispose'> & { readonly backend: 'webgl' })
+  | (Omit<CharacterScene<WebGPURenderer>, 'dispose'> & { readonly backend: 'webgpu' })
+) & { readonly rendering: CharacterSceneRenderingController; dispose(): Promise<void> };
 
 // Register each resource as it is acquired. A failing disposer must not prevent
 // later resources from being released, and repeated disposal is harmless.
@@ -163,7 +199,22 @@ export function createDefaultCharacterLighting(scene: Scene, renderer: WebGLRend
 
 type ScenePMREM = { fromScene(scene: Scene, sigma?: number): RenderTarget; dispose(): void };
 
+type LightingRenderer = {
+  renderer: CharacterSceneRenderer;
+  pmrem: ScenePMREM;
+  environment: RenderTarget | null;
+  revision: number;
+  dispose(): void;
+};
+
 function createCharacterLighting(scene: Scene, renderer: CharacterSceneRenderer, createPMREM: () => ScenePMREM, initial: Partial<DefaultCharacterLightingSettings>) {
+  const lighting = createMutableCharacterLighting(scene, initial);
+  try { lighting.commit(lighting.prepare(renderer, createPMREM)); return lighting.controller; }
+  catch (error) { rollback(lighting.controller.dispose); throw error; }
+}
+
+/** Lights/settings stay stable; only backend-specific environment resources move. */
+function createMutableCharacterLighting(scene: Scene, initial: Partial<DefaultCharacterLightingSettings>) {
   const lifetime = createDisposer();
   try {
     const ambient = new HemisphereLight(0xf7fbff, 0x6b7280, 0);
@@ -178,47 +229,75 @@ function createCharacterLighting(scene: Scene, renderer: CharacterSceneRenderer,
     lifetime.add(() => scene.remove(ambient, key, fill, rim));
     for (const light of [key, fill, rim]) lifetime.add(() => light.dispose());
     scene.add(ambient, key, fill, rim);
-    const pmrem = createPMREM();
-    lifetime.add(() => pmrem.dispose());
     const listeners = new Set<(value: DefaultCharacterLightingSettings) => void>();
     lifetime.add(() => listeners.clear());
-    let environment: RenderTarget | null = null;
-    lifetime.add(() => { scene.environment = null; environment?.dispose(); environment = null; });
+    let active: LightingRenderer | null = null;
+    let held = false;
+    let closed = false;
+    let revision = 0;
     let settings = normalize({ ...DEFAULT_CHARACTER_LIGHTING_SETTINGS, ...initial });
-    const rebuild = () => {
-      environment?.dispose(); environment = null;
-      if (!settings.envMapEnabled) { scene.environment = null; return; }
-      const room = new RoomEnvironment();
-      try { environment = pmrem.fromScene(room, settings.environmentBlur); } finally { room.dispose(); }
-      scene.environment = environment.texture;
+    lifetime.add(() => { scene.environment = null; active?.dispose(); active = null; });
+    const rebuild = (target: LightingRenderer) => {
+      let environment: RenderTarget | null = null;
+      if (settings.envMapEnabled) {
+        const room = new RoomEnvironment();
+        try { environment = target.pmrem.fromScene(room, settings.environmentBlur); } finally { room.dispose(); }
+      }
+      target.environment?.dispose(); target.environment = environment; target.revision = revision;
     };
-    const apply = () => {
-      renderer.outputColorSpace = SRGBColorSpace; renderer.toneMapping = ACESFilmicToneMapping; renderer.toneMappingExposure = settings.exposure;
+    const show = (target: LightingRenderer | null) => {
+      if (target) {
+        target.renderer.outputColorSpace = SRGBColorSpace;
+        target.renderer.toneMapping = ACESFilmicToneMapping;
+        target.renderer.toneMappingExposure = settings.exposure;
+      }
+      scene.environment = target?.environment?.texture ?? null;
       scene.environmentIntensity = settings.envMapEnabled ? settings.environmentIntensity : 0;
       ambient.intensity = settings.ambientIntensity; key.intensity = settings.keyIntensity; fill.intensity = settings.fillIntensity; rim.intensity = settings.rimIntensity;
       const plane = scene.getObjectByName('shadowPlane') as Mesh | undefined;
       for (const material of plane ? (Array.isArray(plane.material) ? plane.material : [plane.material]) : []) if (material instanceof ShadowMaterial) material.opacity = settings.shadowOpacity;
     };
-    rebuild(); apply();
-    const setSettings = (patch: Partial<DefaultCharacterLightingSettings>) => {
-      if (lifetime.isDisposed()) throw new Error('Character lighting has been disposed.');
-      const previous = settings; settings = normalize({ ...settings, ...patch });
-      if (previous.envMapEnabled !== settings.envMapEnabled || previous.environmentBlur !== settings.environmentBlur) rebuild();
-      apply(); listeners.forEach((listener) => listener({ ...settings })); return { ...settings };
+    const prepare = (renderer: CharacterSceneRenderer, createPMREM: () => ScenePMREM): LightingRenderer => {
+      const resources = createDisposer();
+      try {
+        const pmrem = createPMREM(); resources.add(() => pmrem.dispose());
+        const target: LightingRenderer = { renderer, pmrem, environment: null, revision, dispose: resources.dispose };
+        resources.add(() => { target.environment?.dispose(); target.environment = null; });
+        rebuild(target); return target;
+      } catch (error) { rollback(resources.dispose); throw error; }
     };
-    return {
-      getSettings: () => ({ ...settings }), getEnvironmentTexture: (): Texture | null => environment?.texture ?? null,
+    const setSettings = (patch: Partial<DefaultCharacterLightingSettings>) => {
+      if (closed || lifetime.isDisposed()) throw new Error('Character lighting has been disposed.');
+      const previous = settings; settings = normalize({ ...settings, ...patch }); revision++;
+      if (!held) {
+        if (active && (previous.envMapEnabled !== settings.envMapEnabled || previous.environmentBlur !== settings.environmentBlur)) rebuild(active);
+        show(active);
+      }
+      listeners.forEach((listener) => listener({ ...settings })); return { ...settings };
+    };
+    show(null);
+    const controller = {
+      getSettings: () => ({ ...settings }), getEnvironmentTexture: (): Texture | null => active?.environment?.texture ?? null,
       setSettings, setPreset: (id: DefaultCharacterLightingPresetId) => setSettings(DEFAULT_CHARACTER_LIGHTING_PRESETS[id]?.settings ?? {}),
       subscribe: (listener: (value: DefaultCharacterLightingSettings) => void) => {
-        if (lifetime.isDisposed()) throw new Error('Character lighting has been disposed.');
+        if (closed || lifetime.isDisposed()) throw new Error('Character lighting has been disposed.');
         listeners.add(listener); listener({ ...settings }); return () => { listeners.delete(listener); };
       },
       dispose: lifetime.dispose,
     };
-  } catch (error) {
-    rollback(lifetime.dispose);
-    throw error;
-  }
+    return {
+      controller, prepare, show, close: () => { closed = true; }, revision: () => revision,
+      hold: () => { held = true; },
+      restore: () => {
+        held = false;
+        try { if (active && active.revision !== revision) rebuild(active); } finally { show(active); }
+      },
+      commit: (target: LightingRenderer) => {
+        const previous = active; active = target; held = false; show(active);
+        return previous;
+      },
+    };
+  } catch (error) { rollback(lifetime.dispose); throw error; }
 }
 
 function constructDefaultCharacterScene<R extends CharacterSceneRenderer>(
@@ -290,87 +369,44 @@ function throwIfAborted(signal?: AbortSignal) {
   if (signal?.aborted) throw new DOMException('Character scene creation was aborted.', 'AbortError');
 }
 
-/**
- * Prepares the initial scene before attaching its canvas and resize listener.
- * Later character models still require their own preparation. Three's compilation
- * cannot be interrupted: cancellation waits for it to settle before disposing and
- * rejecting with AbortError. The signal does not dispose a returned scene.
- */
-export async function createDefaultCharacterSceneAsync(
-  container: HTMLElement,
-  options: DefaultCharacterSceneAsyncOptions = {},
-): Promise<ReadyDefaultCharacterScene> {
-  throwIfAborted(options.signal);
-  const preference = options.renderer ?? 'auto';
-  if (preference !== 'auto' && preference !== 'webgpu' && preference !== 'webgl') {
-    throw new Error(`Unsupported character scene renderer: ${options.renderer}`);
-  }
-  if (preference !== 'webgl') {
-    const nativeScene = await createWebGPUCharacterScene(container, options, preference === 'auto');
-    if (nativeScene) return nativeScene;
-    throwIfAborted(options.signal);
-  }
-  const { handle, attach } = constructWebGLScene(container, options);
-  try {
-    throwIfAborted(options.signal);
-    if (typeof handle.renderer.compileAsync !== 'function') {
-      throw new Error('Async character scenes require Three.js WebGLRenderer.compileAsync.');
-    }
-    await handle.renderer.compileAsync(handle.scene, handle.camera);
-    throwIfAborted(options.signal);
-    // The container may have resized while compilation was pending.
-    handle.resize();
-    attach();
-    return Object.assign(handle, { backend: 'webgl' as const });
-  } catch (error) {
-    rollback(handle.dispose);
-    throwIfAborted(options.signal);
-    throw error;
-  }
+type RendererCandidate = (
+  | { backend: 'webgl'; renderer: WebGLRenderer }
+  | { backend: 'webgpu'; renderer: WebGPURenderer }
+) & { createPMREM(): ScenePMREM; dispose(): void; lost: Error | null };
+
+function acquireWebGLRenderer(): RendererCandidate {
+  const renderer = new WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
+  const lifetime = createDisposer(); lifetime.add(() => renderer.dispose());
+  return { backend: 'webgl', renderer, createPMREM: () => new PMREMGenerator(renderer), dispose: lifetime.dispose, lost: null };
 }
 
-// @types/three r184 does not declare Backend.dispose, although both backends
-// implement it. Check the capability instead of casting between renderer types.
+// @types/three r184 omits this backend capability, which failed init still owns.
 function disposeBackend(backend: object) {
   if ('dispose' in backend && typeof backend.dispose === 'function') backend.dispose();
 }
 
-async function createWebGPUCharacterScene(
-  container: HTMLElement,
-  options: DefaultCharacterSceneAsyncOptions,
-  allowInitializationFallback: boolean,
-): Promise<ReadyDefaultCharacterScene | null> {
+async function acquireNativeRenderer(check: () => void, onLoss: (candidate: RendererCandidate) => void): Promise<RendererCandidate> {
   const lifetime = createDisposer();
-  let initializing = true;
-  let result: ReturnType<typeof constructDefaultCharacterScene<WebGPURenderer>> | undefined;
   try {
     if (typeof navigator === 'undefined' || !('gpu' in navigator) || !navigator.gpu) {
       throw new Error('WebGPU is unavailable. Use WebGL or a browser with WebGPU in a secure context.');
     }
-    // init() performs the real adapter/device probe. Do not request a second
-    // adapter or device just to choose a renderer. Explicit WebGL stays lazy.
     const { WebGPURenderer, PMREMGenerator: WebGPUPMREMGenerator } = await import('three/webgpu');
-    throwIfAborted(options.signal);
+    check();
     const renderer = new WebGPURenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
     const initialBackend = renderer.backend;
-    let published = false;
-    let lostError: Error | undefined;
+    const candidate: RendererCandidate = {
+      backend: 'webgpu', renderer, lost: null,
+      createPMREM: () => new WebGPUPMREMGenerator(renderer), dispose: lifetime.dispose,
+    };
     const originalDeviceLost = renderer.onDeviceLost.bind(renderer);
     renderer.onDeviceLost = (info) => {
       originalDeviceLost(info);
-      if (lifetime.isDisposed() || lostError) return;
-      lostError = new Error(`WebGPU device lost: ${info.message || 'Unknown reason'}`);
-      if (published) {
-        void renderer.setAnimationLoop(null).catch(() => {});
-        try { options.onDeviceLost?.(lostError); } catch (error) {
-          console.error('Character scene device-loss callback failed.', error);
-        }
-      }
+      if (lifetime.isDisposed() || candidate.lost) return;
+      candidate.lost = new Error(`WebGPU device lost: ${info.message || 'Unknown reason'}`);
+      onLoss(candidate);
     };
     lifetime.add(() => {
-      // Failed init may have switched backend. Always free the original GPU
-      // backend too. Do not call renderer.dispose before init succeeds: r184's
-      // setAnimationLoop(null) would re-enter the rejected initialization promise.
       try {
         if (renderer.hasInitialized()) renderer.dispose();
         else disposeBackend(renderer.backend);
@@ -378,29 +414,326 @@ async function createWebGPUCharacterScene(
         if (renderer.backend !== initialBackend) disposeBackend(initialBackend);
       }
     });
-    await renderer.init();
-    throwIfAborted(options.signal);
-    if (lostError) throw lostError;
+    await renderer.init(); check();
+    if (candidate.lost) throw candidate.lost;
     if (!('isWebGPUBackend' in renderer.backend) || renderer.backend.isWebGPUBackend !== true) {
       throw new Error('Native WebGPU initialization failed; Three selected WebGL2. Select WebGL to retry.');
     }
-    // Once a native backend initializes, preparation/attachment errors belong
-    // to that scene. Auto must not hide them by constructing a different scene.
-    initializing = false;
-    result = constructDefaultCharacterScene(container, options, renderer, lifetime.dispose,
-      (scene, settings) => createCharacterLighting(scene, renderer, () => new WebGPUPMREMGenerator(renderer), settings));
-    await renderer.compileAsync(result.handle.scene, result.handle.camera);
-    throwIfAborted(options.signal);
-    if (lostError) throw lostError;
-    result.handle.resize();
-    result.attach();
-    published = true;
-    return Object.assign(result.handle, { backend: 'webgpu' as const });
-  } catch (error) {
-    rollback(result?.handle.dispose ?? lifetime.dispose);
-    throwIfAborted(options.signal);
-    const isAbortError = error !== null && typeof error === 'object' && 'name' in error && error.name === 'AbortError';
-    if (allowInitializationFallback && initializing && !isAbortError) return null;
-    throw error;
+    return candidate;
+  } catch (error) { rollback(lifetime.dispose); check(); throw error; }
+}
+
+function renderingAborted() { return new DOMException('Character scene renderer request was cancelled.', 'AbortError'); }
+function rendererPreference(value: unknown): CharacterSceneRendererPreference {
+  if (value === 'auto' || value === 'webgl' || value === 'webgpu') return value;
+  throw new Error(`Unsupported character scene renderer: ${String(value)}`);
+}
+
+/** Three's WebGPU renderer changes these cameras; WebGLRenderer does not undo it. */
+function prepareCameraCoordinates(scene: Scene, camera: PerspectiveCamera, backend: CharacterSceneBackend): () => void {
+  const cameras = new Set<PerspectiveCamera | OrthographicCamera>([camera]);
+  const shadows: LightShadow<PerspectiveCamera | OrthographicCamera>[] = [];
+  scene.traverse(object => {
+    const light = object as Light & { shadow?: LightShadow<PerspectiveCamera | OrthographicCamera> };
+    if (light.isLight && light.shadow) {
+      cameras.add(light.shadow.camera);
+      shadows.push(light.shadow);
+    }
+  });
+  const previous = Array.from(cameras, current => [current, current.coordinateSystem] as const);
+  const apply = (current: PerspectiveCamera | OrthographicCamera, coordinates: CoordinateSystem) => {
+    current.coordinateSystem = coordinates;
+    current.updateProjectionMatrix();
+  };
+  const coordinates = backend === 'webgpu' ? WebGPUCoordinateSystem : WebGLCoordinateSystem;
+  cameras.forEach(current => apply(current, coordinates));
+  shadows.forEach(shadow => { shadow.needsUpdate = true; });
+  return () => {
+    previous.forEach(([current, original]) => apply(current, original));
+    shadows.forEach(shadow => { shadow.needsUpdate = true; });
+  };
+}
+
+/** Stable scene ownership, including a recoverable initial renderer failure. */
+export function createDefaultCharacterSceneRuntime(
+  container: HTMLElement,
+  options: DefaultCharacterSceneRuntimeOptions = {},
+): DefaultCharacterSceneRuntime {
+  throwIfAborted(options.signal);
+  const lifetime = createDisposer();
+  try {
+    const sceneType = CHARACTER_SCENE_TYPES[options.type as CharacterSceneTypeId] ?? CHARACTER_SCENE_TYPES.studio;
+    const scene = new Scene();
+    const background = options.background === undefined ? sceneType.background : options.background;
+    scene.background = background == null ? null : new Color(background);
+    const camera = new PerspectiveCamera(options.cameraFov ?? 45, 1, .1, 1000);
+    const preset = DEFAULT_CHARACTER_LIGHTING_PRESETS[(options.lightingPreset ?? sceneType.lightingPreset) as DefaultCharacterLightingPresetId]?.settings ?? DEFAULT_CHARACTER_LIGHTING_SETTINGS;
+    const lighting = createMutableCharacterLighting(scene, { ...preset, ...options.lighting });
+    lifetime.add(lighting.controller.dispose);
+    const shadowPlane = (options.shadowPlane ?? sceneType.shadowPlane) ? createShadowPlane(scene, { opacity: lighting.controller.getSettings().shadowOpacity }) : null;
+    if (shadowPlane) {
+      lifetime.add(() => shadowPlane.material.dispose());
+      lifetime.add(() => shadowPlane.geometry.dispose());
+      lifetime.add(() => scene.remove(shadowPlane));
+    }
+    let settings: CharacterSceneRenderingSettings = { preference: rendererPreference(options.rendering?.preference ?? options.renderer ?? 'auto') };
+    let active: RendererCandidate | null = null;
+    let candidateInUse: RendererCandidate | null = null;
+    let status: CharacterSceneRenderingStatus = 'initializing';
+    let error: Error | null = null;
+    let disposed = false;
+    let disposal: Promise<void> | null = null;
+    let generation = 0;
+    let pending: Promise<CharacterSceneRenderingSnapshot> | null = null;
+    let pendingRendererChange: Promise<CharacterSceneRenderingSnapshot> | null = null;
+    let leaseCount = 0;
+    let pendingResourceReleases = 0;
+    let leasesReleased: (() => void) | null = null;
+    let leaseBarrier: Promise<void> | null = null;
+    let resizeAttached = false;
+    const listeners = new Set<(snapshot: CharacterSceneRenderingSnapshot) => void>();
+    const getSnapshot = (): CharacterSceneRenderingSnapshot => {
+      const common = { settings: { ...settings }, status, error };
+      if (active?.backend === 'webgl') return { ...common, backend: 'webgl', renderer: active.renderer };
+      if (active?.backend === 'webgpu') return { ...common, backend: 'webgpu', renderer: active.renderer };
+      return { ...common, backend: null, renderer: null };
+    };
+    const notify = () => {
+      const snapshot = getSnapshot();
+      for (const listener of listeners) {
+        try { listener(snapshot); } catch (failure) { console.error('Character rendering subscriber failed.', failure); }
+      }
+    };
+    const sizeRenderer = (renderer: CharacterSceneRenderer, style = false) => {
+      const w = Math.max(1, container.clientWidth || globalThis.innerWidth || 1);
+      const h = Math.max(1, container.clientHeight || globalThis.innerHeight || 1);
+      camera.aspect = w / h; camera.updateProjectionMatrix();
+      renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, options.pixelRatioCap ?? 1.5));
+      renderer.setSize(w, h, style);
+    };
+    const resize = () => { if (!disposed && active) sizeRenderer(active.renderer); };
+    lifetime.add(() => { if (resizeAttached) globalThis.removeEventListener?.('resize', resize); });
+    const onLoss = (candidate: RendererCandidate) => {
+      if (disposed || candidate !== active) return;
+      status = status === 'switching' ? 'switching' : 'lost'; error = candidate.lost;
+      void Promise.resolve().then(() => candidate.renderer.setAnimationLoop(null)).catch(() => undefined);
+      void owner.binding?.suspend().catch((failure) => console.error('Character renderer suspension failed.', failure));
+      notify();
+      try { options.onDeviceLost?.(candidate.lost!); } catch (failure) { console.error('Character scene device-loss callback failed.', failure); }
+    };
+    const setSettings = (patch: Partial<CharacterSceneRenderingSettings>): Promise<CharacterSceneRenderingSnapshot> => {
+      if (disposed) return Promise.reject(renderingAborted());
+      let preference: CharacterSceneRendererPreference;
+      try { preference = patch.preference === undefined ? settings.preference : rendererPreference(patch.preference); }
+      catch (failure) { return Promise.reject(failure); }
+      if (pendingRendererChange && preference === settings.preference && (status === 'initializing' || status === 'switching')) return pendingRendererChange;
+      if (status === 'ready' && preference === settings.preference) return Promise.resolve(getSnapshot());
+      settings = { preference };
+      const request = ++generation;
+      const previous = pending;
+      status = active ? 'switching' : 'initializing'; error = null;
+      const execute = async (): Promise<CharacterSceneRenderingSnapshot> => {
+        let candidate: RendererCandidate | null = null;
+        let environment: LightingRenderer | null = null;
+        let suspended = false;
+        let attached = false;
+        let restoreCameraCoordinates = () => {};
+        const check = () => {
+          if (disposed || generation !== request) throw renderingAborted();
+          if (!active) throwIfAborted(options.signal);
+          if (candidate?.lost) throw candidate.lost;
+        };
+        try {
+          check();
+          if (preference === 'webgl') candidate = acquireWebGLRenderer();
+          else {
+            try { candidate = await acquireNativeRenderer(check, onLoss); }
+            catch (failure) {
+              check();
+              if (preference !== 'auto' || (failure instanceof Error && failure.name === 'AbortError')) throw failure;
+              candidate = acquireWebGLRenderer();
+            }
+          }
+          check();
+          candidateInUse = candidate;
+          const renderer = candidate.renderer;
+          sizeRenderer(renderer, true);
+          renderer.shadowMap.enabled = options.shadows ?? true; renderer.shadowMap.type = PCFSoftShadowMap;
+          Object.assign(renderer.domElement.style, { display: 'block', width: '100%', height: '100%' });
+          if (leaseCount) await leaseBarrier;
+          check();
+          if (owner.drain) await owner.drain;
+          check();
+          if (owner.binding) { suspended = true; await owner.binding.suspend(); }
+          check();
+          restoreCameraCoordinates = prepareCameraCoordinates(scene, camera, candidate.backend);
+          lighting.hold();
+          // Environment changes during asynchronous compilation are deferred. If
+          // authored settings changed meanwhile, prepare that revision before commit.
+          do {
+            environment?.dispose(); environment = lighting.prepare(renderer, candidate.createPMREM);
+            lighting.show(environment);
+            if (typeof renderer.compileAsync !== 'function') throw new Error('Async character scenes require Three.js WebGLRenderer.compileAsync.');
+            await renderer.compileAsync(scene, camera); check();
+            if (owner.binding) await owner.binding.prepare(renderer);
+            else if (active) renderer.render(scene, camera);
+            check();
+          } while (environment.revision !== lighting.revision());
+          sizeRenderer(renderer);
+          // Stage the new canvas before removing the old one. A failed attach
+          // or library binding leaves the old scene/renderer available.
+          attached = true; container.appendChild(renderer.domElement);
+          if (!resizeAttached && options.manageResize !== false) {
+            resizeAttached = true; globalThis.addEventListener?.('resize', resize);
+          }
+          check();
+          await owner.binding?.commit(renderer);
+          check();
+          const oldRenderer = active;
+          const oldEnvironment = lighting.commit(environment); environment = null;
+          active = candidate; candidate = null; attached = false;
+          rollback(() => { if (oldRenderer?.renderer.domElement.parentElement === container) container.removeChild(oldRenderer.renderer.domElement); });
+          rollback(() => oldEnvironment?.dispose());
+          rollback(() => oldRenderer?.dispose());
+          status = 'ready'; error = null;
+          const snapshot = getSnapshot(); notify(); return snapshot;
+        } catch (failure) {
+          if (suspended) {
+            try { await owner.binding?.suspend(); } catch { /* Preserve the switch failure. */ }
+            if (owner.drain) await owner.drain.catch(() => undefined);
+          }
+          if (attached && candidate?.renderer.domElement.parentElement === container) container.removeChild(candidate.renderer.domElement);
+          rollback(() => environment?.dispose());
+          rollback(() => candidate?.dispose());
+          const canceled = disposed || generation !== request || (!active && options.signal?.aborted);
+          if (!disposed) {
+            rollback(restoreCameraCoordinates);
+            rollback(lighting.restore);
+            if (suspended && active && !active.lost) {
+              try { await owner.binding?.commit(active.renderer); } catch (resumeError) { owner.reportFailure(resumeError, active.renderer); }
+            }
+            if (generation === request) {
+              status = active?.lost ? 'lost' : 'error';
+              error = failure instanceof Error ? failure : new Error(String(failure)); notify();
+            }
+          }
+          if (canceled) throw renderingAborted();
+          throw failure;
+        } finally { candidateInUse = null; }
+      };
+      const operation = previous ? previous.catch(() => undefined).then(execute) : Promise.resolve().then(execute);
+      pending = operation;
+      pendingRendererChange = operation;
+      notify();
+      const settled = () => {
+        if (pending === operation) pending = null;
+        if (pendingRendererChange === operation) pendingRendererChange = null;
+      };
+      void operation.then(settled, settled);
+      return operation;
+    };
+    const rendering: CharacterSceneRenderingController = {
+      getSettings: () => ({ ...settings }), getSnapshot, setSettings,
+      subscribe: (listener) => {
+        if (disposed) throw new Error('Character scene rendering has been disposed.');
+        listeners.add(listener);
+        try { listener(getSnapshot()); } catch (failure) { console.error('Character rendering subscriber failed.', failure); }
+        return () => { listeners.delete(listener); };
+      },
+      acquireRenderer: () => {
+        if (!active || active.lost || disposed || pendingResourceReleases || (status !== 'ready' && status !== 'error')) throw new Error('Character renderer is not available for capture.');
+        if (leaseCount++ === 0) leaseBarrier = new Promise<void>((resolve) => { leasesReleased = resolve; });
+        let released = false;
+        return { renderer: active.renderer, release: () => {
+          if (released) return; released = true;
+          if (--leaseCount === 0) { leasesReleased?.(); leasesReleased = null; leaseBarrier = null; }
+        } };
+      },
+      releaseSceneResources: (release) => {
+        // Disposal already owns the drain. A later caller can free its resources
+        // once that completion settles, including when owned cleanup failed.
+        if (disposal) return disposal.then(release, release);
+        const previous = pending;
+        pendingResourceReleases++;
+        const operation = Promise.resolve(previous).catch(() => undefined).then(async () => {
+          if (leaseCount) await leaseBarrier;
+          if (owner.drain) await owner.drain.catch(() => undefined);
+          if (owner.binding) {
+            await owner.binding.suspend().catch(failure => owner.reportFailure(failure, active?.renderer));
+          }
+          try {
+            release();
+          } finally {
+            if (!disposed && active && !active.lost) {
+              await owner.binding?.commit(active.renderer).catch(failure => owner.reportFailure(failure, active?.renderer));
+            }
+          }
+          return getSnapshot();
+        }).finally(() => { pendingResourceReleases--; });
+        // Serialize release with replacement so a recovery requested during the
+        // drain cannot compile resources that the callback is about to free.
+        pending = operation;
+        void operation.then(() => { if (pending === operation) pending = null; }, () => { if (pending === operation) pending = null; });
+        return operation.then(() => undefined);
+      },
+    };
+    const owner = registerSceneRendering(rendering, scene, camera, () => pending, (failure, renderer) => {
+      if (disposed) return;
+      const problem = failure instanceof Error ? failure : new Error(String(failure));
+      if (candidateInUse && renderer === candidateInUse.renderer && renderer !== active?.renderer) { candidateInUse.lost = problem; return; }
+      if (active) active.lost = problem;
+      status = active ? 'lost' : 'error'; error = problem;
+      void owner.binding?.suspend().catch(() => undefined);
+      notify();
+    });
+    const dispose = (): Promise<void> => {
+      if (disposal) return disposal;
+      let resolve!: () => void;
+      let reject!: (failure: unknown) => void;
+      disposal = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
+      void disposal.catch(() => undefined);
+      disposed = true; owner.disposed = true; generation++; lighting.close();
+      status = 'disposed'; notify(); listeners.clear();
+      const drain = owner.binding?.suspend() ?? owner.drain;
+      const cleanup = () => {
+        try {
+          if (active?.renderer.domElement.parentElement === container) container.removeChild(active.renderer.domElement);
+          try { lifetime.dispose(); } finally { active?.dispose(); }
+          resolve();
+        } catch (failure) { reject(failure); }
+      };
+      // Callers await this before releasing borrowed character resources. The
+      // same completion also drains captures and a recently disposed camera.
+      if (pending || leaseCount || drain) void Promise.allSettled([pending, drain, leaseBarrier]).then(cleanup);
+      else cleanup();
+      return disposal;
+    };
+    const ready = setSettings(settings);
+    return { container, scene, camera, lighting: lighting.controller, shadowPlane, sceneType: sceneType.id, ownsScene: true,
+      rendering, ready, get renderer() { return active?.renderer ?? null; }, get backend() { return active?.backend ?? null; }, resize, dispose };
+  } catch (failure) { rollback(lifetime.dispose); throw failure; }
+}
+
+/** Compatibility factory: failure releases all owned resources. Use the runtime factory for initial retry. */
+export async function createDefaultCharacterSceneAsync(
+  container: HTMLElement,
+  options: DefaultCharacterSceneAsyncOptions = {},
+): Promise<ReadyDefaultCharacterScene> {
+  const runtime = createDefaultCharacterSceneRuntime(container, options);
+  try {
+    const snapshot = await runtime.ready;
+    if (!snapshot.renderer) throw new Error('Character scene renderer was not initialized.');
+    const handle: ReadyDefaultCharacterScene = snapshot.backend === 'webgl'
+      ? { ...runtime, renderer: snapshot.renderer, backend: 'webgl' }
+      : { ...runtime, renderer: snapshot.renderer, backend: 'webgpu' };
+    // Existing callers keep their non-null contract after first success. Read
+    // rendering.getSnapshot() when an atomic backend/renderer pair is needed.
+    Object.defineProperties(handle, {
+      renderer: { get: () => runtime.renderer }, backend: { get: () => runtime.backend },
+    });
+    return handle;
+  } catch (failure) {
+    try { await runtime.dispose(); } catch { /* Preserve acquisition failure. */ }
+    throw failure;
   }
 }

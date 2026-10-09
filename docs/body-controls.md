@@ -143,6 +143,14 @@ to a similarly named model bone. Reassigning the role reactivates those bindings
 Persist the complete returned profile (including `continuumPairs`). An explicit
 empty/static profile stays static: role assignment never seeds CC4 actuators.
 
+Animation clips use these same saved bone assignments. When `jaw` is assigned
+to `CustomJaw`, a bone channel passed to `RuntimeCore.build_typed_clip` selects
+`CustomJaw`, even if the model also has a bone literally named `jaw`. Clearing
+the role, or selecting a bone absent from the model, skips that bone channel;
+unrelated morph channels still compile. These rules apply to bone channels
+throughout the body, not only the jaw. The assignment is resolved when the clip
+is built, so consumers must rebuild clips after changing the runtime's profile.
+
 `humanoidCharacterization` otherwise remains a complete versioned replacement
 contract. The exact previously shipped 17-role CC4 preset snapshot migrates to
 55 roles and acquires new axes on older body composites; existing physical

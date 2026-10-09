@@ -22,6 +22,8 @@ vi.mock('three/examples/jsm/controls/OrbitControls.js', () => ({
     minDistance = 0;
     maxDistance = 0;
     update() {}
+    connect() {}
+    disconnect() {}
     dispose() {}
   },
 }));

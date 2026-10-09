@@ -2018,8 +2018,8 @@ impl RuntimeCore {
     fn resolve_bone_id(&self, node_key: &str) -> Option<u32> {
         let model = self.model.as_ref()?;
         let profile = self.profile.as_ref()?;
-        // Typed clips share role assignments, explicit clears and exact-name
-        // precedence with live AU controls and other profile consumers.
+        // Clips must use the same saved bone assignments as live controls,
+        // including cleared roles and exact names selected by the user.
         crate::profile::NameResolver::resolve_bone_target(model, profile, node_key)
             .map(|bone| bone.id)
     }
