@@ -94,6 +94,11 @@ The `controls` bridge retains `target`, `enabled`, damping/distance settings,
 `update()`, and `change`/`start`/`end` listeners, but is not a Three `OrbitControls`
 instance. Region and camera snapshots are observations; mutate through controller
 methods. Explicit `undefined` fields in `updateAnnotationRegion` remove overrides.
+`getCharacterConfig()` retains snapshot identity until configuration content or
+the model changes; selection, visibility and camera input do not replace it.
+Call `clearModel()` before releasing a removed model's native resources. The
+controller retains renderer rebinding, canvas input reconnect and resource-drain
+support through the scene's rendering controller.
 Runtime preview region IDs retain the `runtime:annotation:` namespace.
 
 ```ts
