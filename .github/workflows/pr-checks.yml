@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Git ref or SHA to verify and publish (default: current ref)"
+        description: "Preview ref/SHA; leave empty on main to publish a stable npm release"
         required: false
         type: string
         default: ""
@@ -17,8 +17,9 @@ on:
     types: [publish-pkg-pr-new]
 
 concurrency:
-  group: embody-package-${{ github.event.pull_request.number || github.event.client_payload.sha || github.event.inputs.ref || github.ref }}
-  cancel-in-progress: true
+  # Serialize the entire stable release, including choosing its npm version.
+  group: embody-${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.ref == '')) && 'npm-main' || format('preview-{0}', github.event.pull_request.number || github.event.client_payload.sha || inputs.ref || github.ref) }}
+  cancel-in-progress: ${{ !(github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.ref == ''))) }}
 
 permissions:
   contents: read
@@ -30,6 +31,11 @@ jobs:
     name: Verify built package
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      stable_release: ${{ steps.source.outputs.stable_release }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      release_commit: ${{ steps.release.outputs.release_commit }}
     env:
       CARGO_INCREMENTAL: "0"
       CI: "true"
@@ -42,6 +48,7 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           DISPATCH_SHA: ${{ github.event.client_payload.sha }}
           REQUESTED_REF: ${{ github.event.inputs.ref }}
+          STABLE_RELEASE: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.ref == '')) }}
         run: |
           set -euo pipefail
           case "${EVENT_NAME}" in
@@ -63,11 +70,13 @@ jobs:
             exit 1
           fi
           echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
+          echo "stable_release=${STABLE_RELEASE}" >> "${GITHUB_OUTPUT}"
 
       - name: Checkout source
         uses: actions/checkout@v5
         with:
           ref: ${{ steps.source.outputs.ref }}
+          fetch-depth: 0
 
       - name: Reject tracked generated output
         run: npm run check:generated
@@ -92,6 +101,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Test npm release version and source checks
+        # Older source refs requested for preview may predate these helpers.
+        if: hashFiles('scripts/test/npm-release.test.mjs') != ''
+        run: node --test scripts/test/npm-release.test.mjs
+
+      - name: Prepare stable npm version and source commit
+        if: steps.source.outputs.stable_release == 'true'
+        id: release
+        run: node scripts/ci/determine-release-version.mjs
+
       - name: Test Rust
         run: npm run rust:test
 
@@ -110,6 +129,7 @@ jobs:
         run: npm run test:package
 
       - name: Publish immutable preview
+        if: steps.source.outputs.stable_release != 'true'
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -125,3 +145,63 @@ jobs:
             args+=(--comment=off)
           fi
           npx --no-install pkg-pr-new "${args[@]}"
+
+      - name: Pack the verified npm release
+        if: steps.source.outputs.stable_release == 'true'
+        run: |
+          mkdir release-package
+          npm pack --pack-destination release-package
+
+      - name: Upload the verified npm tarball
+        if: steps.source.outputs.stable_release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-release-${{ github.sha }}
+          path: release-package/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-npm:
+    name: Publish verified package to npm
+    needs: verify
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.ref == '')) && needs.verify.outputs.stable_release == 'true'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.verify.outputs.release_commit }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-release-${{ github.sha }}
+          path: release-package
+
+      - name: Publish the tarball without rebuilding
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_KEY }}
+          RELEASE_COMMIT: ${{ needs.verify.outputs.release_commit }}
+          RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          if [[ -z "${NODE_AUTH_TOKEN}" ]]; then
+            echo "::error::NPM_KEY is not configured in the npm environment."
+            exit 1
+          fi
+          node scripts/ci/publish-npm-release.mjs release-package/*.tgz
+
+      - name: Record the published source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.verify.outputs.release_commit }}
+          RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+          RELEASE_TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          bash scripts/ci/create-release-tag.sh --tag "${RELEASE_TAG}" --commit "${RELEASE_COMMIT}" --push
+          bash scripts/ci/upsert-github-release.sh --tag "${RELEASE_TAG}" --commit "${RELEASE_COMMIT}" --package-name @lovelace_lol/embody --package-version "${RELEASE_VERSION}"

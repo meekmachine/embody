@@ -107,16 +107,18 @@ default delivery workflow unless the user explicitly requests local validation.
 - `npm run test:exports`, `npm run test:pack`, `npm run check:dist`, `prepack`, and `prepublishOnly` are consumers of the existing `dist/`. If one reports missing output, fix the explicit CI build ordering rather than adding a hidden rebuild or building locally by default.
 - Never restore `dist/` from a cache. npm and Cargo caches accelerate dependency downloads and compiler intermediates only; they are not package artifacts or a source of truth.
 
-## CI and immutable previews
+## Stable npm releases and immutable previews
 
-- `.github/workflows/pr-checks.yml` is the only build/publish workflow. Its single job installs once, tests Rust, builds the Rust/Wasm and JavaScript package once, tests TypeScript against the generated bindings, validates that output, then publishes that exact output to pkg.pr.new.
-- Non-draft pull requests publish a preview whose install URL includes the Embody commit SHA. Main pushes, manual dispatches, and `publish-pkg-pr-new` repository dispatches publish the checked-out SHA without creating a PR comment.
+- `.github/workflows/pr-checks.yml` is the only build/publish workflow. Its verification job installs once, tests Rust, builds the Rust/Wasm and JavaScript package once, tests TypeScript against the generated bindings, and validates that output.
+- Pushes to `main` and manual runs on `main` with an empty `ref` input publish a stable npm version. The separate `npm` environment job publishes the verified tarball without rebuilding. Version and `gitHead` identify the exact released source; registry or source-history errors must stop publication.
+- Stable release version selection and publication share one serialized workflow group. Retry an existing source/version without overwriting it; do not publish an older source as a newer version.
+- Non-draft pull requests publish a preview whose install URL includes the Embody commit SHA. Manual runs with explicit refs, non-main manual runs, and `publish-pkg-pr-new` repository dispatches publish previews, never stable npm releases.
 - Keep preview dependencies immutable: use the pkg.pr.new URL containing the full requested commit SHA. Do not use mutable branch URLs and do not make downstream repositories install Embody from a Git/codeload dependency, because Git installs would need Rust/Wasm build tooling.
 
 ## Coordinating Polymer changes
 
 1. Open a draft Embody PR and hand it off as **ready to test**. Do not watch, poll, or wait for its `Verify built package` job or preview publication.
 2. Once an exact compiled preview URL has already been published by Embody CI, use it in the dependent Polymer branch and commit the matching lockfile. If it is not available, report the downstream dependency still pending; do not invent a URL or use a source archive.
-3. Build and publish Polymer from its own CI; LoomLarge should consume Polymer's immutable preview, not compile Embody transitively.
+3. Build and publish Polymer from its own CI; LoomLarge PR testing may consume Polymer's immutable preview, without compiling Embody transitively. Production consumes exact npm versions and a committed lockfile.
 4. Only when the user explicitly authorizes merging, merge in dependency order: Embody first, then replace Polymer's preview URL with the intended stable Embody release/version before Polymer's stable release, then update LoomLarge.
-5. For staging or production coordination that needs an older/main SHA republished, send repository dispatch event `publish-pkg-pr-new` with `client_payload.sha`, or run the workflow manually with `ref`. Always pass a concrete commit SHA when another repository will consume the result.
+5. For preview testing that needs a source SHA republished, send repository dispatch event `publish-pkg-pr-new` with `client_payload.sha`, or run the workflow manually with `ref`. This does not create a production release. Do not use the preview URL in Polymer's stable npm package.
