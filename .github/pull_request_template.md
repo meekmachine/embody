@@ -3,6 +3,7 @@
 ## Problem
 
 <!-- Who encounters what limitation, in which user/developer flow? Link the relevant issue and summarize enough context to understand it here. Use Closes only when this PR completes that issue. -->
+<!-- Coding agents fixing a bug: state what should happen, what happens instead, and the cause, with code references. Label hypotheses. If adding a workaround, explain why correcting the existing code or configuration is insufficient. See docs/development-guidance.md#coding-agents-explain-the-bug-before-implementing-a-fix. -->
 
 ## Change and affected behavior
 

@@ -73,6 +73,12 @@ CI, the user, or explicitly requested validation. Report what was not run.
 - Before changing behavior, read [development guidance](docs/development-guidance.md)
   and trace the affected path through its owning code. Apply the relevant rules
   to new and touched code; do not expand a task into an unrelated cleanup.
+- Before implementing a bug fix, coding agents must explain what should happen,
+  what happens instead, and the code or configuration that causes the difference.
+  Put that explanation in a short progress update with code references; label
+  uncertain causes and include the confirmed diagnosis in the PR description.
+  Check existing configuration and installed dependency versions before changing
+  algorithms. Follow the [coding-agent diagnosis guidance](docs/development-guidance.md#coding-agents-explain-the-bug-before-implementing-a-fix).
 - Use domain-specific names, explicit units and identities, and one owner for
   each mutable state/resource. Make transitions, failure, cancellation, and
   cleanup visible at the responsible boundary.
