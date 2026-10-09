@@ -11,7 +11,7 @@ async function fadeFixture() {
   let now = 0;
   vi.spyOn(performance, 'now').mockImplementation(() => now);
   const scene = new THREE.Scene();
-  controller = new ThreeAnnotationController({ scene, camera: new THREE.PerspectiveCamera(45, 4 / 3), domElement, showDOMControls: false });
+  controller = await ThreeAnnotationController.create({ scene, camera: new THREE.PerspectiveCamera(45, 4 / 3), domElement, showDOMControls: false });
   controller.setModel(new THREE.Group());
   controller.setMarkersVisible(true);
   controller.prepareRegionsForReveal({ characterId: 'fade', regions: [{ name: 'point',
