@@ -21,6 +21,7 @@ import type { ColorRepresentation, CoordinateSystem, Light, LightShadow, Orthogr
 import type { WebGPURenderer } from 'three/webgpu';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { registerSceneRendering } from './sceneRenderingBinding';
+import { prepareModelSkinning } from './modelSkinning';
 
 export type DefaultCharacterLightingSettings = {
   envMapEnabled: boolean;
@@ -539,6 +540,7 @@ export function createDefaultCharacterSceneRuntime(
         let suspended = false;
         let attached = false;
         let restoreCameraCoordinates = () => {};
+        let restoreModelSkinning = () => {};
         const check = () => {
           if (disposed || generation !== request) throw renderingAborted();
           if (!active) throwIfAborted(options.signal);
@@ -571,6 +573,7 @@ export function createDefaultCharacterSceneRuntime(
           if (owner.binding) { suspended = true; await owner.binding.suspend(); }
           check();
           restoreCameraCoordinates = prepareCameraCoordinates(scene, camera, candidate.backend);
+          restoreModelSkinning = prepareModelSkinning(scene);
           lighting.hold();
           // Environment changes during asynchronous compilation are deferred. If
           // authored settings changed meanwhile, prepare that revision before commit.
@@ -611,6 +614,7 @@ export function createDefaultCharacterSceneRuntime(
           rollback(() => candidate?.dispose());
           const canceled = disposed || generation !== request || (!active && options.signal?.aborted);
           if (!disposed) {
+            rollback(restoreModelSkinning);
             rollback(restoreCameraCoordinates);
             rollback(lighting.restore);
             if (suspended && active && !active.lost) {

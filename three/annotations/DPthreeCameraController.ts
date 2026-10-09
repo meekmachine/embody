@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import type { CharacterSceneRenderer } from '../scene';
 import { bindSceneRendering, reportSceneRenderingFailure } from '../sceneRenderingBinding';
 import { compileModelForRender, drawModelForRender } from './modelRenderPreparation';
+import { prepareModelSkinning } from '../modelSkinning';
 import {
   detectAnnotationLaterality,
   fuzzyNameMatch,
@@ -890,6 +891,7 @@ export class DPthreeCameraController {
    */
   setModel(model: THREE.Object3D): void {
     if (this.disposed) return;
+    prepareModelSkinning(model);
     this.cancelModelPreparation();
     this.regionLoadGeneration += 1;
     this.cameraRequestGeneration += 1;

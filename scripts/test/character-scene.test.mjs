@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
 import test, { beforeEach } from 'node:test';
-import { Group, PCFShadowMap, WebGLCoordinateSystem, WebGPUCoordinateSystem } from 'three';
+import { BufferGeometry, Group, MeshStandardMaterial, PCFShadowMap, SkinnedMesh, Uint32BufferAttribute, WebGLCoordinateSystem, WebGPUCoordinateSystem } from 'three';
 
 const entry = new URL(process.env.EMBODY_SCENE_SOURCE === '1' ? '../../three/scene.ts' : '../../dist/three.js', import.meta.url);
 const fixture = new URL('../fixtures/character-scene/three.mjs', import.meta.url);
@@ -583,6 +583,61 @@ test('live renderer selection retains scene, character, camera, lights and autho
   assert.equal(oldRenderer.disposeCount, 1); assert.equal(host.children.length, 1);
   assert.equal(runtime.renderer.renderCount, 1, 'prepare current scene on the candidate before publication');
   scene.remove(model); await runtime.dispose(); assertReleased(host, callbacks);
+});
+
+test('renderer replacement prepares widened joint indices before compilation and retains them across switches', async (t) => {
+  webgpuAvailable(t);
+  const host = container(), callbacks = resizeEvents(t);
+  const runtime = createDefaultCharacterSceneRuntime(host, { renderer: 'webgpu' });
+  await runtime.ready;
+  const geometry = new BufferGeometry();
+  // Match Three's native upload of a glTF Uint16 JOINTS_0 buffer.
+  const original = new Uint32BufferAttribute([0, 1, 255, 65535], 4);
+  geometry.setAttribute('skinIndex', original);
+  const material = new MeshStandardMaterial(), model = new SkinnedMesh(geometry, material);
+  runtime.scene.add(model);
+  let prepared;
+  control.prepare = (scene) => {
+    assert.equal(scene, runtime.scene);
+    const joints = geometry.getAttribute('skinIndex');
+    assert.ok(joints.array instanceof Float32Array);
+    assert.deepEqual(Array.from(joints.array), [0, 1, 255, 65535]);
+    if (prepared) assert.equal(joints, prepared);
+    prepared = joints;
+    return Promise.resolve();
+  };
+  for (const preference of ['webgl', 'webgpu', 'webgl']) {
+    await runtime.rendering.setSettings({ preference });
+    assert.equal(runtime.backend, preference);
+    assert.equal(model.parent, runtime.scene);
+    assert.equal(model.geometry, geometry); assert.equal(model.material, material);
+    assert.equal(geometry.getAttribute('skinIndex'), prepared);
+  }
+  runtime.scene.remove(model); geometry.dispose(); material.dispose();
+  await runtime.dispose(); assertReleased(host, callbacks);
+});
+
+test('failed renderer replacement restores joint buffers for the preceding native pipeline', async (t) => {
+  webgpuAvailable(t);
+  const host = container(), callbacks = resizeEvents(t);
+  const runtime = createDefaultCharacterSceneRuntime(host, { renderer: 'webgpu' });
+  await runtime.ready;
+  const renderer = runtime.renderer, geometry = new BufferGeometry();
+  const original = new Uint32BufferAttribute([0, 1, 2, 3], 4);
+  geometry.setAttribute('skinIndex', original);
+  const material = new MeshStandardMaterial(), model = new SkinnedMesh(geometry, material);
+  runtime.scene.add(model);
+  const failure = new Error('candidate compilation failed');
+  control.prepare = () => {
+    assert.ok(geometry.getAttribute('skinIndex').array instanceof Float32Array);
+    return Promise.reject(failure);
+  };
+  await assert.rejects(runtime.rendering.setSettings({ preference: 'webgl' }), error => error === failure);
+  assert.equal(geometry.getAttribute('skinIndex'), original);
+  assert.equal(runtime.renderer, renderer); assert.equal(renderer.disposeCount, 0);
+  assert.equal(model.parent, runtime.scene);
+  runtime.scene.remove(model); geometry.dispose(); material.dispose();
+  await runtime.dispose(); assertReleased(host, callbacks);
 });
 
 test('failed compilation or canvas attachment keeps the previous working renderer', async (t) => {

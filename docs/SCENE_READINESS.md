@@ -114,6 +114,17 @@ backend's coordinate system and updates their projection matrices. Failed
 replacement restores their preceding coordinate systems before resuming the old
 renderer. This matters when returning from WebGPU's depth range to WebGL.
 
+Embody also prepares skinned meshes' joint indices as `Float32BufferAttribute`
+before renderer compilation. Three's native backend widens integer joint buffers
+to `Uint32Array` in place; WebGL binds those as integer shader inputs even though
+its skinning shader expects `vec4`, preventing the character from drawing after a
+switch. Float32 represents every glTF joint index exactly and works with both
+backends. `setModel` and model render preparation perform this conversion before
+the first draw, including interleaved indices and hidden skinned meshes. Geometry,
+skin weights, skeletons, animation and model identity remain intact. A failed
+renderer replacement restores any joint attributes it converted for that attempt
+before resuming the preceding renderer's cached pipeline.
+
 Auto uses WebGL if the API is unavailable or native acquisition fails, including
 module loading, renderer construction, initialization or device loss during
 initialization. If Three initializes its own WebGL2 fallback, Embody disposes
