@@ -150,7 +150,7 @@ try {
 console.log('Bilateral typed-channel Wasm/Three smoke passed');
 
 // Speech supplies an ordinary AU and separate viseme shape curves. Embody
-// resolves every mapped output even when the AU is absent from composite groups.
+// uses the character's configured AU bone and morph outputs.
 const speechModel = new Group();
 const speechGeometry = new BufferGeometry();
 speechGeometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0], 3));
@@ -168,6 +168,7 @@ const speechProfile = {
     26: [{ node: 'JAW', channel: 'rz', maxDegrees: 30 }],
   },
   auToMorphs: { 103: { center: ['Support'] } },
+  compositeRotations: [{ node: 'SPEECH_SUPPORT', yaw: { aus: [103], axis: 'ry' } }],
   morphToMesh: { face: ['SpeechFace'], viseme: ['SpeechFace'] },
   auMixDefaults: { 103: 0.25 },
   visemeKeys: ['Talk'],

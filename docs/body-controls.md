@@ -66,17 +66,17 @@ meshes are included in its category.
 The complete definition is `{label, section, auId, negativeAuId?, bilateral,
 roles, order}`. Bone bindings target a role, for example
 `{node: "leftLowerArm", channel: "rx", scale: 1, maxDegrees: 120, side: "left"}`.
-The characterization maps that role to a `boneNodes` key. The preset's
+The characterization maps that role to a `boneNodes` key. The corresponding
 `compositeRotations` entry also targets `leftLowerArm` and includes action 1001
-in its pitch group. A rotation binding omitted from those groups still drives
-its mapped bone in live controls and compiled AU clips, using its own channel,
-scale, maximum degrees and side. Hosts do not need to construct a bone channel
-to activate it. Declared groups keep their existing maximum/opposed-direction
-rules; ungrouped bindings compose afterward in numeric AU order and then binding
-order. All rotations compose from the bone's saved rest rotation. Signed controls
-additionally declare `continuumPairs`.
+in its pitch group. Signed controls additionally declare `continuumPairs`.
 Use `auInfo.facePart: "Body"`, `auFacePartToMeshCategory.Body: "body"` and
 `morphToMesh.body` to route body and clothing targets through the same evaluator.
+
+CC4's jaw-opening group includes speech control 103 alongside AUs 25, 26 and 27.
+Its existing `auToBones` entry supplies the jaw bone, axis and rotation limit.
+Speech sends an AU 103 curve through the normal animation system; the same
+compiler produces its bone output and any configured morph output. The group
+uses the existing strongest-opening rule when these AUs play together.
 
 Head and eye controls use the original AU IDs (51–56 and 61–64), so their
 facial and semantic editors read and write the same `auToMorphs` and
@@ -113,8 +113,8 @@ to consumers of the resolved top-level catalog.
 
 Existing nonempty facial composite snapshots retain untouched default body
 composites; explicit entries for the same body node override them. An explicit
-`compositeRotations: []` disables AU rotations, including ungrouped bone bindings,
-through profile expansion, editing and runtime configuration.
+`compositeRotations: []` disables all composite rotations, including facial and
+body rotations, through profile expansion, editing and runtime configuration.
 Missing or `null` tables retain the legacy preset fallback. Morph bindings
 continue to work independently of this table.
 

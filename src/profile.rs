@@ -5,7 +5,7 @@
 //! rotation axes, bone translations, jaw binding, and rest transforms. Hosts
 //! only pass data in; no mapping resolution happens in JavaScript.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use regex_lite::Regex;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -1002,10 +1002,6 @@ fn compile_bone_tables(
         }
     };
 
-    // Live controls and clips share these tables. Keep every bone's axes
-    // contiguous so additional mapped outputs compose with its declared groups.
-    let mut axes_by_bone: BTreeMap<u32, Vec<f32>> = BTreeMap::new();
-    let mut grouped_bindings = HashSet::new();
     for composite in profile.composite_rotations.iter() {
         let Some(bone) = find_bone(&composite.node) else {
             continue;
@@ -1055,12 +1051,12 @@ fn compile_bone_tables(
             let mut binding_rows: Vec<[f32; 6]> = Vec::new();
             let mut push_binding_rows = |au_ids: &[u32], group: u8| {
                 for au_id in au_ids {
-                    let Some((binding_index, binding)) =
+                    let Some(binding) =
                         profile
                             .au_to_bones
                             .get(&au_id.to_string())
                             .and_then(|bindings| {
-                                bindings.iter().enumerate().find(|(_, candidate)| {
+                                bindings.iter().find(|candidate| {
                                     resolver
                                         .resolve_bone(model, profile, &candidate.node)
                                         .map(|bone| bone.id == bone_id)
@@ -1076,7 +1072,6 @@ fn compile_bone_tables(
                     let Some(channel) = rotation_channel(&binding.channel) else {
                         continue;
                     };
-                    grouped_bindings.insert((*au_id, binding_index));
                     binding_rows.push([
                         *au_id as f32,
                         group as f32,
@@ -1091,8 +1086,7 @@ fn compile_bone_tables(
             push_binding_rows(&positive, GROUP_POSITIVE);
             push_binding_rows(&config.aus, GROUP_PLAIN);
 
-            let packed = axes_by_bone.entry(bone_id).or_default();
-            packed.extend_from_slice(&[
+            tables.composite_axes.extend_from_slice(&[
                 bone_id as f32,
                 axis as f32,
                 if has_directional { 1.0 } else { 0.0 },
@@ -1103,46 +1097,13 @@ fn compile_bone_tables(
                 0.0,
             ]);
             for row in value_rows {
-                packed.extend_from_slice(&row);
+                tables.composite_axes.extend_from_slice(&row);
             }
             for row in binding_rows {
-                packed.extend_from_slice(&row);
+                tables.composite_axes.extend_from_slice(&row);
             }
         }
     }
-
-    // A bone mapping does not require a second declaration in a composite
-    // group. Compile ungrouped rotations using their own calibrated binding;
-    // explicit groups retain their existing max/opposed-direction behavior.
-    // An explicitly empty table remains the profile's rotation opt-out.
-    if profile.composite_rotations.is_unspecified() || !profile.composite_rotations.is_empty() {
-        let mut actions: Vec<_> = profile.au_to_bones.iter().collect();
-        actions.sort_by_key(|(id, _)| id.parse::<u32>().unwrap_or(u32::MAX));
-        for (au_text, bindings) in actions {
-            let Ok(au_id) = au_text.parse::<u32>() else { continue };
-            for (binding_index, binding) in bindings.iter().enumerate() {
-                if grouped_bindings.contains(&(au_id, binding_index)) {
-                    continue;
-                }
-                let (Some(channel), Some(max_degrees)) =
-                    (rotation_channel(&binding.channel), binding.max_degrees)
-                else { continue };
-                let Some(bone) = find_bone(&binding.node) else { continue };
-                let side = match binding.side.as_deref() {
-                    Some("left") => SIDE_LEFT,
-                    Some("right") => SIDE_RIGHT,
-                    _ => SIDE_NONE,
-                };
-                axes_by_bone.entry(bone.id).or_default().extend_from_slice(&[
-                    bone.id as f32, channel as f32, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0,
-                    au_id as f32, GROUP_PLAIN as f32, side as f32,
-                    au_id as f32, GROUP_PLAIN as f32, side as f32,
-                    channel as f32, binding.scale as f32, max_degrees as f32,
-                ]);
-            }
-        }
-    }
-    tables.composite_axes = axes_by_bone.into_values().flatten().collect();
 
     for (au_text, bindings) in &profile.au_to_bones {
         let Ok(au_id) = au_text.parse::<u32>() else {
