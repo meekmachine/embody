@@ -114,6 +114,45 @@ represented losslessly by the current serializer. Diagnostic/strict conversion
 and a portable persistence format remain separate work. The host mixer continues
 to own playback, interpolation, looping and blending.
 
+## Typed bone channels with absolute local rotations
+
+`RuntimeCore.build_typed_clip` accepts `rotationSpace: 'local'` on a typed
+bone target for authored local XYZ Euler angles. Send all three `rx`, `ry`, and
+`rz` channels for each bone, including zero axes. They must have the same
+nonempty, strictly increasing, nonnegative key times and inheritance flags.
+For example, one axis is:
+
+```ts
+{
+  target: { type: 'bone', id: 'LEFT_HAND', channel: 'rx', rotationSpace: 'local', maxDegrees: 1 },
+  keyframes: [
+    { time: 0, intensity: -30 },
+    { time: 0.5, intensity: 0 },
+    { time: 1, intensity: 30 },
+  ],
+}
+```
+
+With `maxDegrees: 1`, intensity is an angle in degrees; the target `scale`,
+channel `intensityScale`, and global `intensityScale` still multiply that angle.
+Times are seconds. Rust combines XYZ into one quaternion track per concrete
+bone without multiplying by its reference quaternion. The host mixer interpolates
+orientations, so this is not preservation of Euler winding or multi-turn motion.
+Only the first key may inherit; all axes must agree, and the Three adapter then
+samples the current quaternion when materializing the clip.
+
+Missing or duplicate axes (including aliases), unresolved bones, non-finite
+angles, mismatched timelines, and overlapping relative or AU rotation tracks
+for that bone reject the clip. Position tracks are a separate property.
+Without `rotationSpace`, existing typed bone rotations remain reference-relative.
+Consumers must opt in explicitly; existing saved snapshots are not migrated.
+Polymer's Gesture agency forwards this mode for newly authored local-angle
+timelines. Application authoring, saving, and previews remain downstream work.
+
+`node scripts/smoke/local-bone-rotations.mjs` checks the built Wasm package and
+Three mixer with a nonidentity reference, simultaneous XYZ, zeros, sign changes,
+inheritance, stopping, invalid inputs, and unchanged legacy behavior.
+
 ## Subsequent work
 
 1. Select supported source/target rig fixtures (initially same-rig and Mixamo/CC4)
