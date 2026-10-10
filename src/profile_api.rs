@@ -2791,6 +2791,10 @@ mod tests {
     #[test]
     fn cc4_head_aliases_read_edit_and_clear_existing_rotations() {
         let original = request("preset.get", json!({"id": "cc4"}));
+        // Profile edits serialize numeric binding fields as floats, even for integer preset values.
+        let expected_eye_bindings: Vec<BoneBindingData> =
+            serde_json::from_value(original["auToBones"]["61"].clone()).unwrap();
+        let expected_eye_bindings = serde_json::to_value(expected_eye_bindings).unwrap();
         for (axis, negative, positive, channel) in [
             ("pitch", "54", "53", "rx"), ("yaw", "51", "52", "ry"), ("roll", "55", "56", "rz"),
         ] {
@@ -2816,7 +2820,7 @@ mod tests {
                 assert!(cleared["auToBones"].get(id).is_none());
                 assert!(cleared["continuumPairs"].get(id).is_none());
             }
-            assert_eq!(cleared["auToBones"]["61"], original["auToBones"]["61"]);
+            assert_eq!(cleared["auToBones"]["61"], expected_eye_bindings);
             assert_eq!(cleared["auToMorphs"], original["auToMorphs"]);
         }
     }
@@ -2825,6 +2829,10 @@ mod tests {
     fn eye_aliases_preserve_shared_and_independent_scope_edits() {
         for custom in [false, true] {
             let mut original = request("preset.get", json!({"id": "cc4"}));
+            // Compare the untouched bindings using the same numeric representation as edited profiles.
+            let expected_head_bindings: Vec<BoneBindingData> =
+                serde_json::from_value(original["auToBones"]["51"].clone()).unwrap();
+            let expected_head_bindings = serde_json::to_value(expected_head_bindings).unwrap();
             let mut selected = "CC_Base_L_Eye";
             if custom {
                 selected = "Studio_L_Eye.001";
@@ -2878,7 +2886,7 @@ mod tests {
                 assert!(state["shared"]["negativeAuId"].is_null());
                 assert_eq!(state["left"]["negativeAuId"], left_negative);
                 assert_eq!(state["right"]["positiveAuId"], right_positive);
-                assert_eq!(cleared["auToBones"]["51"], original["auToBones"]["51"]);
+                assert_eq!(cleared["auToBones"]["51"], expected_head_bindings);
                 assert_eq!(cleared["auToMorphs"], original["auToMorphs"]);
             }
         }
