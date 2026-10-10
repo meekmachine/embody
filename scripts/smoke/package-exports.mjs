@@ -39,6 +39,18 @@ const core = await wasm.initEmbodyCore();
 const distEntries = await readdir(new URL('../../dist/', import.meta.url));
 const wasmEntrySource = await readFile(new URL('../../dist/wasm.js', import.meta.url), 'utf8');
 const preset = JSON.parse(core.get_preset_json('cc4'));
+// Importing TypeScript source would not prove that wasm-bindgen and packaging
+// expose the new Rust query. Call it through the initialized public loader with
+// world-space positions and identity XYZW quaternions, then decode its JSON.
+// Numeric/sign cases belong to the focused Rust tests; this is the package ABI
+// and loader path that real downstream Polymer consumers will install.
+const gazeGeometry = JSON.parse(core.resolve_profile_gaze_geometry_json(JSON.stringify(preset),
+  new Float32Array([0, 1, 2]), new Float32Array([0, 0, 0, 1]), new Float32Array([0, 1, 0]), new Float32Array([0, 0, 0, 1])));
+// A malformed profile must reject at the public boundary rather than silently
+// selecting a preset or returning apparently usable geometry with fake limits.
+let rejectsInvalidGazeProfile = false;
+try { core.resolve_profile_gaze_geometry_json('not JSON', new Float32Array(3), new Float32Array(4), new Float32Array(3), new Float32Array(4)); }
+catch { rejectsInvalidGazeProfile = true; }
 const hairPresets = JSON.parse(core.hair_color_presets_json());
 const templates = JSON.parse(core.list_humanoid_skeleton_templates_json());
 const model = {
@@ -89,6 +101,13 @@ new three.ThreeFrameApplier().addMorphTarget(morphRoot, {
 });
 
 const checks = [
+  // Both helpers are public renderer exports, separate from the Wasm geometry
+  // fact API. Their presence does not claim optical success; dedicated smokes
+  // exercise native clip lifecycle and measured rays after the CI build.
+  ['Three native target slots', typeof three.ThreeClipSlots === 'function'],
+  ['Three rendered gaze observer', typeof three.ThreeGazeObserver === 'function'],
+  ['geometry-only gaze query', gazeGeometry && typeof gazeGeometry === 'object'],
+  ['gaze geometry rejects invalid JSON', rejectsInvalidGazeProfile],
   ['root ESM Three adapter', typeof root.ThreeModelInspector === 'function'],
   ...['DPthree', 'DPthreeCameraController', 'DPthree3DMarkers', 'DPthreeHTMLMarkers', 'DPthreeMarkers', 'CameraDOMControls', 'createMarkerVisibilityLifecycle', 'createRuntimeAnnotationPreviewLifecycle'].map(name => [`annotation runtime ${name}`, typeof three[name] === 'function']),
   ['annotation adapter shares initialized Wasm', markerAngleVisible],

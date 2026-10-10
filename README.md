@@ -156,6 +156,91 @@ function update(dtSeconds: number) {
 Application-facing JavaScript APIs belong in the host package. Polymer owns
 the CLJS character host used by LoomLarge and calls the Wasm exports directly.
 
+`resolve_profile_gaze_geometry_json` returns camera bearings, camera distance,
+display basis vectors and signed head/eye AU capacities from the saved profile
+and supplied camera/model geometry. It receives no animation engine or live pose
+and selects no tracking target. Polymer uses these facts to plan bounded AU
+destinations. Secondary mapped bones remain clip outputs without shrinking the
+designated head or eye role's capacity; empty mappings contribute no capacity.
+
+Positions passed to this query share one world frame and the application's
+scene units. Quaternions use XYZW order; model-neutral +Z is forward and +Y is
+up. `cameraBearingDegrees` uses geometric yaw toward model +X and pitch toward
++Y, while horizontal FACS controls have the opposite sign. The `negative` and
+`positive` limit fields are nonnegative magnitudes for the two named AU
+directions. They preserve `abs(maxDegrees * scale)` and asymmetric authored
+limits; they do not change a custom binding's signed physical rotation axis.
+Display-axis projections are dimensionless dot products, not angular requests
+or percentages of available travel. Polymer decides how to turn these facts
+into normalized input range, head participation, strength, and timing.
+
+Camera bearing is reported even beyond AU reach so that clamping remains an
+explicit consumer decision. A coincident camera/origin reports a null bearing
+and null bearing projections. This orientation-only query cannot represent
+negative-scale reflection or infer posed head/eye compensation from a live
+skeleton. Shared eye capacity uses the smaller mapped eye response; it does not
+prove that both configured eye objects are bound. The renderer observer below
+reports actual binding/calibration availability and optical error separately.
+The existing gaze solver exports remain available for compatibility; this fact
+query does not call them or install `ThreeGazeFocus`.
+
+### Interruptible additive target clips
+
+`ThreeClipSlots`, exported from `@lovelace_lol/embody/three`, lets a host replace
+an ordinary constant AU target without dropping its outgoing contribution.
+Polymer selects the AU targets and duration; Rust `build_clip` or
+`build_typed_clip` compiles every mapped bone and morph output. Supply all
+simultaneous head axes in one head clip, and the eye axes together in an eye
+clip, so the profile compiler retains its authored rotation order.
+
+```ts
+const slots = new ThreeClipSlots(mixer);
+const handle = slots.replace('tracking/head', targetClip, {
+  durationSec: 0.2,
+  referenceClip: neutralClip,
+  order: 10,
+});
+await handle.finished; // Native completion, replacement, removal or disposal.
+// Keep advancing the application's existing mixer; slots adds no frame loop.
+```
+
+The target clip has constant values. Compile its neutral reference separately
+from the same semantic channels with every intensity set to zero, using the
+same immutable authored reference pose and profile. An arbitrary first frame
+or the current rendered pose is not that reference. The helper uses Three's
+additive conversion, reaches the complete mapped target, and holds it until
+replacement or removal. At replacement it samples
+only the outgoing slot's concrete tracks with native Three interpolants at
+that action's actual local time. It creates ordinary numeric/vector/quaternion
+tracks from those samples to the new target, with outgoing-only properties
+returning to additive neutral. One action remains per slot regardless of input
+frequency; all subsequent interpolation belongs to the existing Three mixer.
+It never captures an unrelated nod or estimates a playhead in an agency.
+
+The compiler's opt-in `{ allowEmpty: true }` option
+allows intentionally unmapped targets to emit an empty clip, releasing the
+slot's previous outputs without inventing mappings. Ordinary compilation still
+rejects empty output by default.
+
+`pause`, `resume`, `pauseAll`, `resumeAll`, `remove`, `clear`, and `dispose` own
+the slot lifecycle. Generation-specific handles cannot remove newer targets.
+Call `slots.reorder()` after an unrelated authored action starts or stops;
+native completion also restores stable composition order. This uses public
+Three action methods at discrete commands and preserves each action's local time.
+It does not install custom interpolants, run a pose solver, or advance time.
+An additive Prosodic nod retains its own contribution beneath tracking; combined
+authored and tracking rotations are not subject to a new aggregate joint clamp.
+
+`ThreeGazeObserver(model, profile).observe(worldTarget)` reads the actual rendered
+eye rays and returns detached optical facts. It owns no target selection or
+playback. A host can observe once after native completion, outside the mixer's
+`finished` callback stack, when property bindings have been applied. Both eyes
+must be available for an aggregate angular error; missing calibration or mapping
+returns `unavailable`. Watching a goal, reading a cached result, or receiving a
+clip completion alone is not evidence of optical convergence. Recreate the
+observer and release old slots after model/profile rebinding, and invalidate
+previous observations when pose-changing work begins.
+
 ### Direct viseme snapshots
 
 `RuntimeCore.get_viseme(index)` and `get_viseme_jaw_scale(index)` read the
@@ -457,6 +542,17 @@ Run the build before `npm test` or `npm run typecheck` in a clean checkout, and
 rebuild after changing Rust exports. The build generates the Wasm bindings before
 TypeScript declarations. Neither typechecking nor package verification rebuilds
 the package; CI checks and publishes that same build.
+
+The `test:exports` script also includes `scripts/smoke/clip-slots.mjs` and
+`scripts/smoke/gaze-observation.mjs`. The first sends semantic AUs through the
+packaged Rust compiler and a real Three mixer, then checks complete bone/morph
+endpoints, interrupted movement, property release, stable action count, and
+composition with an independently authored nod. The second measures calibrated
+eye rays without applying a pose, including missing mappings, one-eye results,
+and transformed parents. `package-exports.mjs` covers public export/loading and
+invalid-profile rejection; the isolated `wasm-consumer.mts` fixture covers the
+generated declaration boundary. These sources are checks for CI's existing
+build, not evidence that a LoomLarge browser or a physical webcam was tested.
 
 ## License
 
