@@ -163,6 +163,27 @@ and selects no tracking target. Polymer uses these facts to plan bounded AU
 destinations. Secondary mapped bones remain clip outputs without shrinking the
 designated head or eye role's capacity; empty mappings contribute no capacity.
 
+Positions passed to this query share one world frame and the application's
+scene units. Quaternions use XYZW order; model-neutral +Z is forward and +Y is
+up. `cameraBearingDegrees` uses geometric yaw toward model +X and pitch toward
++Y, while horizontal FACS controls have the opposite sign. The `negative` and
+`positive` limit fields are nonnegative magnitudes for the two named AU
+directions. They preserve `abs(maxDegrees * scale)` and asymmetric authored
+limits; they do not change a custom binding's signed physical rotation axis.
+Display-axis projections are dimensionless dot products, not angular requests
+or percentages of available travel. Polymer decides how to turn these facts
+into normalized input range, head participation, strength, and timing.
+
+Camera bearing is reported even beyond AU reach so that clamping remains an
+explicit consumer decision. A coincident camera/origin reports a null bearing
+and null bearing projections. This orientation-only query cannot represent
+negative-scale reflection or infer posed head/eye compensation from a live
+skeleton. Shared eye capacity uses the smaller mapped eye response; it does not
+prove that both configured eye objects are bound. The renderer observer below
+reports actual binding/calibration availability and optical error separately.
+The existing gaze solver exports remain available for compatibility; this fact
+query does not call them or install `ThreeGazeFocus`.
+
 ### Interruptible additive target clips
 
 `ThreeClipSlots`, exported from `@lovelace_lol/embody/three`, lets a host replace
@@ -521,6 +542,17 @@ Run the build before `npm test` or `npm run typecheck` in a clean checkout, and
 rebuild after changing Rust exports. The build generates the Wasm bindings before
 TypeScript declarations. Neither typechecking nor package verification rebuilds
 the package; CI checks and publishes that same build.
+
+The `test:exports` script also includes `scripts/smoke/clip-slots.mjs` and
+`scripts/smoke/gaze-observation.mjs`. The first sends semantic AUs through the
+packaged Rust compiler and a real Three mixer, then checks complete bone/morph
+endpoints, interrupted movement, property release, stable action count, and
+composition with an independently authored nod. The second measures calibrated
+eye rays without applying a pose, including missing mappings, one-eye results,
+and transformed parents. `package-exports.mjs` covers public export/loading and
+invalid-profile rejection; the isolated `wasm-consumer.mts` fixture covers the
+generated declaration boundary. These sources are checks for CI's existing
+build, not evidence that a LoomLarge browser or a physical webcam was tested.
 
 ## License
 

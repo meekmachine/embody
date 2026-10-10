@@ -2,8 +2,15 @@
 //!
 //! Hosts own scene objects and reduce them to packed camera/model facts. This
 //! module exposes camera bearings and authored angular capacities independently
-//! of tracking policy. The existing solvers also reconstruct viewer targets and
+//! of tracking decisions. The existing solvers also reconstruct viewer targets and
 //! distribute their angles across head and eye AUs for compatibility.
+//!
+//! The geometry-only entry point is `resolve_profile_gaze_geometry_json`.
+//! It deliberately receives no tracking input, strength, follow fraction,
+//! enablement, or time. Polymer owns those movement decisions and schedules
+//! ordinary AU clips; RuntimeCore still compiles their saved bone/morph outputs.
+//! Sharing the capacity reader below with compatibility solvers keeps an edited
+//! profile's range consistent without making the new query invoke a solver.
 
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
@@ -28,6 +35,10 @@ pub fn screen_space_gaze_solution_stride() -> u32 {
     SCREEN_SPACE_GAZE_SOLUTION_STRIDE
 }
 
+// These are two nonnegative magnitudes in degrees, not signed output values.
+// Keeping the directions independent preserves asymmetric authored limits and
+// one-sided mappings. Converting a requested angle to a normalized AU value is
+// a consumer decision that divides by the corresponding directional capacity.
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 struct AxisLimits {
     negative: f32,
@@ -64,6 +75,8 @@ impl AxisLimits {
     }
 }
 
+// The field names are semantic gaze controls. They do not require a profile to
+// store its physical rotation in a correspondingly named composite slot.
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GazeLimits {
@@ -73,12 +86,18 @@ struct GazeLimits {
     eye_pitch: AxisLimits,
 }
 
+// This pair is used both for degree-valued bearings and dimensionless tangent
+// projections. The enclosing JSON field name/doc contract distinguishes them;
+// a projection must not be mistaken for a requested angular displacement.
 #[derive(Clone, Copy, Debug, Serialize)]
 struct Bearing {
     yaw: f32,
     pitch: f32,
 }
 
+// Named JSON avoids adding another positional packed-array ABI for facts with
+// different units. Optional bearings become JSON null when no camera ray exists;
+// capacities remain useful even in that case because they depend only on profile.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GazeGeometry {
@@ -116,12 +135,17 @@ fn normalized_coordinate(values: &[f32], index: usize) -> f32 {
 }
 
 fn au_capacity(profile: &ProfileData, id: u32) -> f32 {
+    // Capacity describes the unit AU's authored rotational response. This is a
+    // profile query, not a live skeleton query: it cannot tell whether a named
+    // bone is currently bound, measure its optical accuracy, or alter its pose.
     let Some(bindings) = profile.au_to_bones.get(&id.to_string()) else {
         return 0.0;
     };
     // Use the same CC4 composite fallback as RuntimeCore when saved profiles
     // omit their table. A bone rotation mapping without a matching composite
     // cannot be driven by the runtime and therefore supplies no capacity.
+    // `unspecified` differs from explicit []: the latter is an author's clear
+    // operation and must never be replaced by an embedded preset here.
     let composites = if profile.composite_rotations.is_unspecified() {
         &crate::presets::load_profile("cc4")
             .expect("embedded CC4 profile")
@@ -131,6 +155,9 @@ fn au_capacity(profile: &ProfileData, id: u32) -> f32 {
     };
     // A secondary output of a head/eye AU must not shrink the optical joint's
     // range. Runtime still applies all those outputs when the AU is sampled.
+    // For example, AU51 may rotate HEAD by 60 degrees and an auxiliary bone by
+    // 7 degrees. Both outputs belong in the clip, but its head travel is 60,
+    // not the minimum of every downstream bone affected by that AU.
     let roles: &[&str] = if id < 60 { &["HEAD"] } else { &["EYE_L", "EYE_R"] };
     let nodes: Vec<_> = roles.iter().map(|node| configured_bone_name(profile, node)).collect();
     let mut responses: std::collections::HashMap<String, (usize, f32)> = std::collections::HashMap::new();
@@ -150,6 +177,10 @@ fn au_capacity(profile: &ProfileData, id: u32) -> f32 {
         if !matches!(binding.channel.as_str(), "rx" | "ry" | "rz") {
             continue;
         }
+        // Use the evaluator's scalar defaults and preserve authored scaling.
+        // A negative physical axis/scale changes actual rotation direction;
+        // the capacity exposes only its nonnegative magnitude. The saved
+        // binding, not this query's yaw label, controls the resulting quaternion.
         let angle = (finite_or(binding.max_degrees.unwrap_or(0.0) as f32, 0.0)
             * finite_or(binding.scale as f32, 1.0)).abs();
         for axis in [&composite.yaw, &composite.pitch, &composite.roll].into_iter().flatten() {
@@ -162,6 +193,10 @@ fn au_capacity(profile: &ProfileData, id: u32) -> f32 {
             }
             let negative = ids(&axis.negative);
             let positive = ids(&axis.positive);
+            // Directional selectors are active as a pair, matching the core
+            // compiler. With only one selector side present, its plain AU list
+            // remains authoritative. Inspect all composition slots because an
+            // authored head-yaw AU can legitimately live in pitch or roll order.
             let active = if !negative.is_empty() && !positive.is_empty() {
                 // A unit probe present on both directional sides cancels in
                 // composite_axis_value and supplies no rotation.
@@ -176,9 +211,11 @@ fn au_capacity(profile: &ProfileData, id: u32) -> f32 {
             }
         }
     }
-    // Multiple rotations on one joint cannot be represented as a single
-    // angular capacity. Shared eye commands use the
-    // smaller mapped actuator; absent/ambiguous mappings invent no range.
+    // Multiple responses on one joint cannot be advertised as one axis's range.
+    // Shared eye commands use the smaller response among mapped eye actuators;
+    // an absent eye is not inserted as a synthetic zero response. With no mapped
+    // response at all, the result is zero. Live binding availability and actual
+    // binocular measurements belong to the renderer observation boundary.
     responses.values().map(|(count, angle)| if *count == 1 { *angle } else { 0.0 })
         .reduce(f32::min).unwrap_or(0.0)
 }
@@ -186,7 +223,10 @@ fn au_capacity(profile: &ProfileData, id: u32) -> f32 {
 fn gaze_limits(profile: &ProfileData) -> GazeLimits {
     GazeLimits {
         // Limits are in geometric (+X yaw / +Y pitch) coordinates. FACS
-        // horizontal output is inverted only at the public result boundary.
+        // horizontal output is inverted only by compatibility solver results
+        // (or by Polymer when it emits AU controls). The geometry query itself
+        // leaves these signs untouched: negative yaw selects AU52/AU62 and
+        // positive yaw selects AU51/AU61, regardless of a custom physical axis.
         head_yaw: AxisLimits {
             negative: au_capacity(profile, 52),
             positive: au_capacity(profile, 51),
@@ -246,14 +286,25 @@ fn profile_gaze_geometry(
     gaze_origin: &[f32],
     model_quaternion: &[f32],
 ) -> GazeGeometry {
+    // Normalize the supplied facts once. Position differences are taken in a
+    // common world frame, then orientation-only inverse model rotation makes
+    // the result relative to the character's neutral front (+Z). No current
+    // head/eye pose is subtracted, and no scene node is read or changed.
     let camera = finite_vec3(camera_position);
     let origin = finite_vec3(gaze_origin);
     let inverse_model = inverse_unit_quat(model_quaternion);
     let camera_rotation = quat_or_identity(camera_quaternion);
+    // Screen right/up first travel from camera-local to world, then to model
+    // coordinates. Camera position determines bearing; camera orientation
+    // determines these display axes. Keeping those inputs separate matters for
+    // oblique framing and camera roll, even when the camera faces elsewhere.
     let display_axis = |axis| rotate_by_quat(inverse_model, rotate_by_quat(camera_rotation, axis));
     let right = display_axis([1.0, 0.0, 0.0]);
     let up = display_axis([0.0, 1.0, 0.0]);
     let distance = distance3(origin, camera);
+    // A coincident origin/camera has distance zero but no meaningful direction.
+    // Returning null here prevents a consumer from confusing missing geometry
+    // with a measured neutral-facing camera. Reach limits do not clamp a ray.
     let bearing = (distance > EPSILON).then(|| {
         let [yaw, pitch] = direction_angles_degrees(origin, camera, inverse_model);
         Bearing { yaw, pitch }
@@ -262,7 +313,10 @@ fn profile_gaze_geometry(
         bearing.map(|bearing| {
             let rotation = gaze_rotation([bearing.yaw, bearing.pitch]);
             // These are raw geometric projections. Whether to normalize them
-            // when mapping a display control into travel is consumer policy.
+            // when mapping a display control into travel is a consumer decision.
+            // Rotate +X/+Y tangents into the bearing frame and take dot products
+            // with each display axis. These are dimensionless components, not
+            // degrees, head participation, or a percentage of the AU range.
             Bearing {
                 yaw: dot3(axis, rotate_by_quat(rotation, [1.0, 0.0, 0.0])),
                 pitch: dot3(axis, rotate_by_quat(rotation, [0.0, 1.0, 0.0])),
@@ -302,8 +356,9 @@ fn profile_gaze_geometry(
 /// eye yaw selects AU62/AU61 and pitch AU64/AU63. These labels do not override
 /// the signed physical channel in the saved AU binding. Capacities describe
 /// the named HEAD or EYE_L/EYE_R actuators, ignoring auxiliary mapped bones.
-/// Shared eye capacity is the smaller mapped eye response. Missing, cleared,
-/// nonrotational and ambiguous multi-axis mappings supply zero range. The
+/// Shared eye capacity is the smaller mapped eye response, excluding unmapped
+/// eyes. An AU with no usable mapped response supplies zero range; a mapped
+/// zero/ambiguous response also bounds the shared capacity to zero. The
 /// query does not inspect a live skeleton or pose or modify any AU binding.
 /// Missing/nonfinite position components become zero, finite components clamp
 /// to +/-1e12; invalid quaternions use identity and valid ones are normalized.
@@ -316,6 +371,10 @@ pub fn resolve_profile_gaze_geometry_json(
     gaze_origin: &[f32],
     model_quaternion: &[f32],
 ) -> Result<String, JsError> {
+    // Deserialize through the same typed profile boundary used by the core.
+    // Malformed JSON is an error, while an explicitly empty profile is valid
+    // and reports geometry with no invented AU capacity. Serialization names
+    // and units above are the public contract; no RuntimeCore is constructed.
     let profile: ProfileData = deserialize_json(profile_json, "Invalid gaze profile JSON")
         .map_err(|error| JsError::new(&error))?;
     let geometry = profile_gaze_geometry(
@@ -914,6 +973,9 @@ mod tests {
         crate::presets::load_profile("cc4").expect("cc4 preset")
     }
 
+    // Exercise the public JSON boundary instead of asserting only private
+    // structs. This catches field naming/nullability drift for Wasm consumers;
+    // package smoke separately covers the generated JavaScript export.
     fn geometry_json(
         profile: &ProfileData,
         camera: &[f32],
@@ -939,6 +1001,9 @@ mod tests {
 
     #[test]
     fn geometry_reports_unbounded_camera_bearing_and_raw_display_projections() {
+        // A 2/1/2 world offset gives independently calculable bearing, distance,
+        // and non-unit projection magnitudes. Normalizing the projections here
+        // would silently introduce an input-range decision into the fact API.
         let result = geometry_json(cc4_profile(), &[2.0, 1.0, 2.0], &[], &[0.0; 3], &[]);
         assert_geometry_number(&result["cameraBearingDegrees"]["yaw"], 45.0);
         assert_geometry_number(
@@ -972,6 +1037,9 @@ mod tests {
 
     #[test]
     fn geometry_resolves_model_orientation_and_camera_roll_in_separate_frames() {
+        // Translation, a nonidentity model orientation, and camera roll vary
+        // independently. A world-axis-only implementation can pass frontal
+        // examples but fails this separation of model front and display right.
         let model = quat_from_channel(1, std::f32::consts::FRAC_PI_2);
         let rolled_camera = multiply_quat(model, quat_from_channel(2, std::f32::consts::FRAC_PI_2));
         let result = geometry_json(
@@ -1012,6 +1080,10 @@ mod tests {
 
     #[test]
     fn geometry_reports_asymmetric_scaled_and_missing_au_capacities() {
+        // Deliberately asymmetric maxDegrees and signed scales distinguish
+        // authored unit-AU capacity from a hardcoded angle or a fixed fraction.
+        // The eyes differ so the shared result must honor the smaller mapped
+        // actuator; a missing opposite AU and a translation-only AU yield zero.
         let mut profile = cc4_profile().clone();
         for (id, degrees, scale) in [
             (51, 80.0, 0.25),
@@ -1053,6 +1125,8 @@ mod tests {
             assert_geometry_number(&result["limitsDegrees"][axis]["positive"], positive);
         }
 
+        // Explicitly clearing composites must remain a clear operation, even
+        // though the same profile still contains otherwise valid AU bindings.
         let mut value = serde_json::to_value(&profile).unwrap();
         value["compositeRotations"] = serde_json::json!([]);
         let cleared: ProfileData = serde_json::from_value(value).unwrap();
@@ -1065,6 +1139,9 @@ mod tests {
 
     #[test]
     fn geometry_marks_coincident_bearing_absent_and_normalizes_invalid_facts() {
+        // Packed callers can supply short slices, NaN, and degenerate quats.
+        // Safe coordinate/quaternion fallbacks must still mark the resulting
+        // coincident bearing as absent rather than claiming a zero-degree ray.
         let result = geometry_json(
             cc4_profile(),
             &[f32::NAN, f32::INFINITY],
@@ -1340,6 +1417,9 @@ mod tests {
 
     #[test]
     fn geometry_capacities_ignore_secondary_outputs_and_follow_compiled_actuators() {
+        // Compare reported capacity to the core's actual unit-AU bone frame,
+        // not to a second hand-written mapping evaluator. This keeps custom
+        // physical channels and composition slots tied to runtime semantics.
         let mut profile = canonical_profile();
         let mut extra = profile.au_to_bones["51"][0].clone();
         extra.node = "Extra".into();
