@@ -17,6 +17,45 @@ function fixture(options: Partial<ThreeAnnotationControllerConfig> = {}) {
   return { ...dom, controller, model, bone, camera, scene };
 }
 describe('Rust-owned annotation controller contract', () => {
+  it.each(['3d', 'html'] as const)('builds deferred %s markers on first reveal and reuses them across visibility changes', style => {
+    const { controller, scene } = fixture();
+    const markerObjects = () => {
+      const objects: THREE.Object3D[] = [];
+      scene.traverse(object => { if (object.userData.annotationId !== undefined) objects.push(object); });
+      return objects;
+    };
+    controller.prepareRegionsForReveal({ characterId: 'deferred', markerStyle: style, regions: [{
+      name: 'saved', markerAnchor: { type: 'point', position: { x: 0, y: 0.8, z: 0.3 } },
+    }] });
+    expect(controller.getMarkerPosition('saved')).toBeNull();
+    expect(markerObjects()).toEqual([]);
+    controller.setMarkersVisible(false);
+    expect(markerObjects()).toEqual([]);
+
+    controller.setMarkersVisible(true);
+    expect(controller.getMarkerPosition('saved')).toEqual({ x: 0, y: expect.closeTo(0.8), z: expect.closeTo(0.3) });
+    const builtObjects = markerObjects();
+    expect(builtObjects.length).toBeGreaterThan(0);
+    controller.setMarkersVisible(false);
+    controller.setMarkersVisible(true);
+    const revealedObjects = markerObjects();
+    expect(revealedObjects).toHaveLength(builtObjects.length);
+    revealedObjects.forEach((object, index) => expect(object).toBe(builtObjects[index]));
+  });
+  it('builds the replacement character regions on their first reveal', () => {
+    const { controller } = fixture();
+    const regions = (name: string) => [{ name, markerAnchor: { type: 'point' as const, position: { x: 0, y: 0.8, z: 0.3 } } }];
+    controller.prepareRegionsForReveal({ characterId: 'first', regions: regions('old') });
+    controller.setMarkersVisible(true);
+    expect(controller.getMarkerPosition('old')).not.toBeNull();
+    controller.setMarkersVisible(false);
+    controller.setModel(new THREE.Group());
+    controller.prepareRegionsForReveal({ characterId: 'second', regions: regions('new') });
+    expect(controller.getMarkerPosition('old')).toBeNull();
+    expect(controller.getMarkerPosition('new')).toBeNull();
+    controller.setMarkersVisible(true);
+    expect(controller.getMarkerPosition('new')).toEqual({ x: 0, y: expect.closeTo(0.8), z: expect.closeTo(0.3) });
+  });
   it('frames a point independently of its marker and mirrors exact immediate poses into Three', async () => {
     const { controller, camera } = fixture();
     controller.prepareRegionsForReveal({ characterId: 'point', regions: [{ name: 'eye', markerAnchor: { type: 'point', position: { x: -0.2, y: 0.7, z: 0.3 } }, focusTarget: { type: 'point', position: { x: 0.3, y: 0.6, z: 0.2 } } }] });
