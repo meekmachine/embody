@@ -91,7 +91,14 @@ uses the existing strongest-opening rule when these AUs play together.
 
 Head and eye controls use the original AU IDs (51–56 and 61–64), so their
 facial and semantic editors read and write the same `auToMorphs` and
-`auMixDefaults` entries. Neck actions 1032–1037 use the corresponding CC4
+`auMixDefaults` entries. Skeleton axis reads, edits and clears resolve role,
+`boneNodes` key and literal bone targets to the same configured bone, including
+authored exact bone selections. Mixing these aliases across `auToBones`,
+`compositeRotations` and `continuumPairs` does not hide existing mappings or
+add duplicate rotations when an axis is edited. Clearing a bone axis keeps its
+AU's morph targets and other bones' mappings.
+
+Neck actions 1032–1037 use the corresponding CC4
 head-turn/tilt targets as their initial tissue mappings: back/up 1032→53,
 forward/down 1033→54, right turn 1034→52, left turn 1035→51, left tilt
 1036→55 and right tilt 1037→56. These are independently editable neck actions,
