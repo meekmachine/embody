@@ -565,7 +565,7 @@ impl RuntimeCore {
     }
 
     /// Bound optical frames and signed AU responses, without a focus target or
-    /// movement policy. Responses come from the same selected composite tables
+    /// movement decisions. Responses come from the same selected composite tables
     /// as normal AU evaluation. Missing/ambiguous actuators are null. Radians
     /// describe an AU at intensity one; negative/positive name FACS control
     /// coordinates, not the sign of the physical bone rotation. `order` is the
@@ -612,7 +612,14 @@ impl RuntimeCore {
                 normalize([yaw[1]*pitch[2]-yaw[2]*pitch[1], yaw[2]*pitch[0]-yaw[0]*pitch[2], yaw[0]*pitch[1]-yaw[1]*pitch[0]])
             });
             let optical = optical.and_then(|calibration| calibration.optical_axis.as_ref())
-                .and_then(|axis| normalize([axis.x as f32, axis.y as f32, axis.z as f32])).or(inferred);
+                // Profile vectors permit omitted/null components. They are
+                // zero, as in the renderer adapter; malformed numeric types
+                // still reject during profile deserialization.
+                .and_then(|axis| normalize([
+                    axis.x.unwrap_or(0.0) as f32,
+                    axis.y.unwrap_or(0.0) as f32,
+                    axis.z.unwrap_or(0.0) as f32,
+                ])).or(inferred);
             let binding = |index: usize| responses[index].map(|(order, row)| {
                 let mut axis = [0.0; 3];
                 axis[row.channel as usize] = 1.0;
@@ -2333,6 +2340,17 @@ mod tests {
         assert!(facts["head"]["axes"]["yaw"]["negative"].is_null());
         assert!(facts["head"]["axes"]["yaw"]["positive"].is_object());
         assert_eq!(facts["head"]["opticalAxis"], serde_json::json!([0.0,0.0,1.0]));
+
+        // ProfileVec3Data components are optional, not bare f64 fields.
+        // Sparse/null coordinates follow the renderer's zero-component rule.
+        profile["gazeCalibration"]["head"]["opticalAxis"] = serde_json::json!({"x":null,"z":2});
+        profile["gazeCalibration"]["leftEye"] = serde_json::json!({"opticalAxis":{}});
+        core.configure_with_profile(&profile.to_string(), model).unwrap();
+        let facts: serde_json::Value = serde_json::from_str(&core.get_gaze_kinematics_json()).unwrap();
+        assert_eq!(facts["head"]["opticalAxis"], serde_json::json!([0.0,0.0,1.0]));
+        assert!(facts["leftEye"]["opticalAxis"].is_null());
+        profile["gazeCalibration"]["head"]["opticalAxis"]["z"] = serde_json::json!("not a number");
+        assert!(serde_json::from_value::<ProfileData>(profile).is_err());
     }
 
     #[test]

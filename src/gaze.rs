@@ -10,6 +10,8 @@ use wasm_bindgen::prelude::*;
 
 use crate::annotation_camera::{distance3, dot3, quat_or_identity, read_vec3, rotate_by_quat, sub3};
 use crate::bones::{multiply_quat, quat_from_channel};
+use crate::body_controls::configured_bone_name;
+use crate::math::finite_or;
 use crate::profile::{deserialize_json, AuSelector, ProfileData};
 
 pub const SCREEN_SPACE_GAZE_SOLUTION_STRIDE: u32 = 14;
@@ -113,22 +115,6 @@ fn normalized_coordinate(values: &[f32], index: usize) -> f32 {
     finite_coordinate(values.get(index).copied().unwrap_or(0.0)).clamp(-1.0, 1.0)
 }
 
-fn configured_bone_name(profile: &ProfileData, node: &str) -> String {
-    let base = profile
-        .bone_nodes
-        .get(node)
-        .map(String::as_str)
-        .unwrap_or(node);
-    let prefix = profile.bone_prefix.as_deref().unwrap_or("");
-    let suffix = profile.bone_suffix.as_deref().unwrap_or("");
-    format!(
-        "{}{}{}",
-        if base.starts_with(prefix) { "" } else { prefix },
-        base,
-        if base.ends_with(suffix) { "" } else { suffix }
-    )
-}
-
 fn au_capacity(profile: &ProfileData, id: u32) -> f32 {
     let Some(bindings) = profile.au_to_bones.get(&id.to_string()) else {
         return 0.0;
@@ -143,58 +129,58 @@ fn au_capacity(profile: &ProfileData, id: u32) -> f32 {
     } else {
         &profile.composite_rotations
     };
-    // Runtime selects the first binding for an AU on each bone. Repeated
-    // bindings must not inflate its capacity. A shared binocular command is
-    // limited by its smaller actuator; unequal eyes need per-eye calibration.
-    let mut seen = std::collections::HashSet::new();
-    let mut capacity = f32::INFINITY;
+    // A secondary output of a head/eye AU must not shrink the optical joint's
+    // range. Runtime still applies all those outputs when the AU is sampled.
+    let roles: &[&str] = if id < 60 { &["HEAD"] } else { &["EYE_L", "EYE_R"] };
+    let nodes: Vec<_> = roles.iter().map(|node| configured_bone_name(profile, node)).collect();
+    let mut responses: std::collections::HashMap<String, (usize, f32)> = std::collections::HashMap::new();
     for composite in composites.iter() {
-        let axis = if [51, 52, 61, 62].contains(&id) {
-            &composite.yaw
-        } else {
-            &composite.pitch
-        };
-        let Some(axis) = axis else {
-            continue;
-        };
-        fn ids(selector: &Option<AuSelector>) -> &[u32] {
-            match selector {
-                Some(AuSelector::One(id)) => std::slice::from_ref(id),
-                Some(AuSelector::Many(ids)) => ids,
-                None => &[],
-            }
-        }
-        let negative = ids(&axis.negative);
-        let positive = ids(&axis.positive);
-        let active = if !negative.is_empty() && !positive.is_empty() {
-            negative.contains(&id) || positive.contains(&id)
-        } else {
-            axis.aus.contains(&id)
-        };
-        if !active {
-            continue;
-        }
         let node = configured_bone_name(profile, &composite.node);
+        if !nodes.contains(&node) { continue; }
+        // The compiler selects the FIRST binding on this bone, independent of
+        // which composite slot was authored. Do not search past a cleared or
+        // non-rotation first binding, and do not assume semantic yaw is stored
+        // in the compiler's yaw slot.
         let Some(binding) = bindings
             .iter()
             .find(|binding| configured_bone_name(profile, &binding.node) == node)
         else {
             continue;
         };
-        if !seen.insert(node) {
-            continue;
-        }
         if !matches!(binding.channel.as_str(), "rx" | "ry" | "rz") {
             continue;
         }
-        let angle = (binding.max_degrees.unwrap_or(0.0) * binding.scale).abs() as f32;
-        capacity = capacity.min(if angle.is_finite() { angle } else { 0.0 });
+        let angle = (finite_or(binding.max_degrees.unwrap_or(0.0) as f32, 0.0)
+            * finite_or(binding.scale as f32, 1.0)).abs();
+        for axis in [&composite.yaw, &composite.pitch, &composite.roll].into_iter().flatten() {
+            fn ids(selector: &Option<AuSelector>) -> &[u32] {
+                match selector {
+                    Some(AuSelector::One(id)) => std::slice::from_ref(id),
+                    Some(AuSelector::Many(ids)) => ids,
+                    None => &[],
+                }
+            }
+            let negative = ids(&axis.negative);
+            let positive = ids(&axis.positive);
+            let active = if !negative.is_empty() && !positive.is_empty() {
+                // A unit probe present on both directional sides cancels in
+                // composite_axis_value and supplies no rotation.
+                negative.contains(&id) != positive.contains(&id)
+            } else {
+                axis.aus.contains(&id)
+            };
+            if active {
+                let angle = if angle.is_finite() && angle > 1e-8 { angle } else { 0.0 };
+                let response = responses.entry(node.clone()).or_insert((0, angle));
+                response.0 += 1;
+            }
+        }
     }
-    if capacity.is_finite() {
-        capacity
-    } else {
-        0.0
-    }
+    // Match the bound kinematics query: multiple rotations on one joint cannot
+    // be represented as a single angular capacity. Shared eye commands use the
+    // smaller mapped actuator; absent/ambiguous mappings invent no range.
+    responses.values().map(|(count, angle)| if *count == 1 { *angle } else { 0.0 })
+        .reduce(f32::min).unwrap_or(0.0)
 }
 
 fn gaze_limits(profile: &ProfileData) -> GazeLimits {
@@ -1343,6 +1329,46 @@ mod tests {
                 composite.yaw = None;
             }
         }
+        assert_eq!(gaze_limits(&profile).head_yaw.positive, 0.0);
+    }
+
+    #[test]
+    fn geometry_capacities_ignore_secondary_outputs_and_follow_compiled_actuators() {
+        let mut profile = canonical_profile();
+        let mut extra = profile.au_to_bones["51"][0].clone();
+        extra.node = "Extra".into();
+        extra.max_degrees = Some(10.0);
+        profile.au_to_bones.get_mut("51").unwrap().push(extra);
+        let mut composite = profile.composite_rotations.iter().find(|row| row.node == "HEAD").unwrap().clone();
+        composite.node = "Extra".into();
+        // Round-trip the table to append without changing its explicit/missing
+        // representation. This is an extra mapped destination, not head range.
+        let mut value = serde_json::to_value(&profile).unwrap();
+        value["compositeRotations"].as_array_mut().unwrap().push(serde_json::to_value(composite).unwrap());
+        let mut profile: ProfileData = serde_json::from_value(value).unwrap();
+        let geometry = geometry_json(&profile, &[0.0, 0.0, 3.0], &[], &[0.0; 3], &[]);
+        assert_geometry_number(&geometry["limitsDegrees"]["headYaw"]["positive"], 60.0);
+
+        // Named compiler slots set composition order. They do not rename the
+        // ordinary AU51 response or remove its full authored magnitude.
+        let head = profile.composite_rotations.iter_mut().find(|row| row.node == "HEAD").unwrap();
+        std::mem::swap(&mut head.yaw, &mut head.roll);
+        assert_eq!(gaze_limits(&profile).head_yaw.positive, 60.0);
+        let mut runtime = canonical_runtime(&profile);
+        runtime.set_au(51, 1.0, 0.0);
+        let frame = runtime.evaluate_active_bone_frame();
+        let head_row = frame.chunks_exact(9).find(|row| row[0] == 1.0).unwrap();
+        assert!((head_row[5] - (30.0_f32).to_radians().sin()).abs() < 1e-6);
+
+        // A duplicate response cannot be advertised as one axis; a selector
+        // that includes the same AU on both sides also cancels canonically.
+        let head = profile.composite_rotations.iter_mut().find(|row| row.node == "HEAD").unwrap();
+        head.pitch = head.roll.clone();
+        assert_eq!(gaze_limits(&profile).head_yaw.positive, 0.0);
+        let head = profile.composite_rotations.iter_mut().find(|row| row.node == "HEAD").unwrap();
+        head.pitch = None;
+        head.roll.as_mut().unwrap().positive = Some(AuSelector::One(51));
+        head.roll.as_mut().unwrap().negative = Some(AuSelector::One(51));
         assert_eq!(gaze_limits(&profile).head_yaw.positive, 0.0);
     }
 

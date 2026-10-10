@@ -253,10 +253,12 @@ positive pitch toward +Y. FACS horizontal AU output uses the opposite sign:
 geometric positive head/eye yaw corresponds to AU 51/61; negative yaw to 52/62.
 Positive head/eye pitch corresponds to 53/63; negative pitch to 54/64. The signed
 range for each axis is `[-negative, positive]` degrees. Capacity comes from the
-existing profile solver's selected composite and first matching rotation
-binding, including `maxDegrees * scale` magnitude. Shared eye capacity uses the
-smaller mapped actuator. Absent, morph-only or undriven mappings supply zero
-angular capacity. This is profile metadata, not a live skeleton/reachability
+named head/eye actuator's selected composite and first matching rotation
+binding, including `maxDegrees * scale` magnitude. Secondary mapped outputs do
+not reduce that joint's range. Compiler slots determine composition order, so
+an AU remains observable when authored in a different slot. Shared eye capacity
+uses the smaller mapped actuator. Absent, ambiguous, morph-only or undriven
+mappings supply zero angular capacity. This is profile metadata, not a live skeleton/reachability
 inspection, and does not include evaluated head/eye poses or optical calibration.
 
 At camera distance <= 0.00001 scene units, `cameraBearingDegrees` and both
@@ -432,7 +434,9 @@ Negative/positive name FACS control coordinates: yaw 51/61 is negative, 52/62
 positive; pitch 54/64 is negative, 53/63 positive; roll 55 is negative, 56 positive.
 They do not name the sign of the physical rotation. The Rust
 `RuntimeCore.get_gaze_kinematics_json()` query derives these responses from the
-bound composite tables and resolves optical calibration. Missing bones produce
+bound composite tables and resolves optical calibration. Omitted/null optical
+axis components are zero; malformed component types reject with the profile.
+Zero-length calibration falls back to an inferable frame. Missing bones produce
 null joints; missing or multiple-axis responses produce null actuators; unknown
 optical frames remain null. A single response describes that joint, not every
 destination of its AU. Candidate evaluation remains authoritative for combined
@@ -445,8 +449,11 @@ translation is `evaluatedAU - reference`. `apply(samples)` restores its previous
 contribution, then composes `base * rotationDelta` and adds translation deltas.
 It adds each canonical morph `value` to the authored base, bounded to [0,1].
 Reference morph values are not subtracted. This preserves authored animation
-while retaining every mapped AU output; it does not clamp the combined authored
-bone pose against neutral joint limits. Manual-matrix bones cannot be written
+and matches ordinary AU bone/morph output from a neutral morph base. With a
+nonzero authored morph base, the documented additive composition intentionally
+differs from a direct absolute AU morph write. Every mapped AU output is retained;
+the contribution does not clamp the combined authored bone pose against neutral
+joint limits. Manual-matrix bones cannot be written
 by this TRS contribution adapter; application rejects them before scene writes.
 
 Samples replace the complete contribution and require unique unsigned numeric

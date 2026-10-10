@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { Bone, BufferGeometry, Group, Matrix4, Mesh, MeshBasicMaterial, Object3D, Quaternion, Vector3 } from 'three';
-import { captureModelReferencePose, ThreeAuContribution } from '@lovelace_lol/embody/three';
+import { bindModelReferencePose, captureModelReferencePose, ThreeAuContribution, ThreeModelInspector } from '@lovelace_lol/embody/three';
 import { initEmbodyCore } from '@lovelace_lol/embody/wasm';
 
 const core = await initEmbodyCore();
@@ -37,7 +37,12 @@ parent.rotation.z = 0.3; parent.scale.set(-1.3, 0.8, 1.1);
 extra.position.x = 0.4;
 const base = head.quaternion.clone();
 const eyeBase = left.quaternion.clone();
+const beforeObservation = [head.position.toArray(), head.quaternion.toArray(), left.quaternion.toArray(),
+  parent.position.toArray(), parent.quaternion.toArray(), parent.scale.toArray(), [...mesh.morphTargetInfluences]];
 const before = contribution.readPose();
+assert.deepEqual([head.position.toArray(), head.quaternion.toArray(), left.quaternion.toArray(),
+  parent.position.toArray(), parent.quaternion.toArray(), parent.scale.toArray(), [...mesh.morphTargetInfluences]],
+beforeObservation, 'observation preserves authored transform and morph values');
 assert.equal(before.joints.head.name, head.name);
 assert.equal(before.joints.head.axes.yaw.negative.auId, 51);
 near(before.joints.head.axes.yaw.negative.radians, Math.PI / 3, 'authored head response');
@@ -59,6 +64,8 @@ assert.deepEqual(headNode.worldMatrix, new Matrix4().multiplyMatrices(parent.mat
 // Every object, name and child count survives this swap; parent identity changes.
 otherParent.add(head); parent.add(placeholder);
 assert.throws(() => contribution.readPose(), /hierarchy changed/);
+assert.throws(() => contribution.apply([{ id: 51, intensity: 1 }]), /hierarchy changed/);
+near(head.quaternion.angleTo(base), 0, 'stale binding rejects application before pose writes');
 parent.add(head); otherParent.add(placeholder);
 
 // Separate eyes can use opposite AUs. The same unsigned AU also carries
@@ -89,6 +96,7 @@ near(mesh.morphTargetInfluences[0], 0.6, 'unsupported bone matrix preserves prio
 head.matrixAutoUpdate = true;
 for (const invalid of [
   [{ id: 51, intensity: 0.1 }, { id: 61, intensity: NaN }],
+  [{ id: 51, intensity: '0.5' }],
   [{ id: 51, intensity: -1 }], [{ id: 51, intensity: 0.3, balance: 2 }],
   [{ id: 51, intensity: 0.3 }, { id: 51, intensity: 0.4 }],
   new Array(1),
@@ -124,5 +132,76 @@ assert.equal(contribution.readPose().joints.head, null);
 contribution.dispose(); contribution.dispose();
 assert.throws(() => contribution.readPose(), /disposed/);
 assert.throws(() => contribution.apply(samples), /disposed/);
+
+// At a neutral morph base, sampled contributions must reproduce ordinary AU
+// output for every destination, including mix defaults and independent sides.
+for (const [object, node] of bindModelReferencePose(model, referencePose)) {
+  object.position.set(node.transform.position.x, node.transform.position.y, node.transform.position.z);
+  object.quaternion.set(node.transform.rotation.x, node.transform.rotation.y, node.transform.rotation.z, node.transform.rotation.w);
+  object.scale.set(node.transform.scale.x, node.transform.scale.y, node.transform.scale.z);
+  object.matrixAutoUpdate = true;
+}
+mesh.morphTargetInfluences.fill(0);
+const neutralReference = captureModelReferencePose(model);
+const parityProfile = structuredClone(profile);
+parityProfile.auMixDefaults['51'] = 0.4;
+parityProfile.auMixDefaults['61'] = 0.3;
+const parity = new ThreeAuContribution(model, parityProfile, { referencePose: neutralReference });
+const inspection = new ThreeModelInspector().inspectModel(model, { profile: parityProfile, referencePose: neutralReference });
+const direct = new core.RuntimeCore(0);
+direct.configure_with_profile(JSON.stringify(parityProfile), JSON.stringify(inspection.descriptor));
+for (const actions of [
+  [{ id: 51, intensity: 1 }],
+  [{ id: 52, intensity: 1 }],
+  [{ id: 61, intensity: 1, balance: -1 }, { id: 62, intensity: 1, balance: 1 }],
+]) {
+  for (const id of [51, 52, 61, 62]) direct.set_au(id, 0, 0);
+  for (const action of actions) direct.set_au(action.id, action.intensity, action.balance ?? 0);
+  parity.apply(actions);
+  const boneFrame = direct.evaluate_active_bone_frame();
+  for (let offset = 0; offset < boneFrame.length; offset += 9) {
+    const bone = inspection.boneBindings.get(boneFrame[offset]);
+    if (boneFrame[offset + 8] & 1) {
+      for (let component = 0; component < 3; component++) {
+        near(bone.position.toArray()[component], boneFrame[offset + 1 + component], 'ordinary AU translation parity');
+      }
+    }
+    if (boneFrame[offset + 8] & 2) {
+      const expected = new Quaternion(...boneFrame.slice(offset + 4, offset + 8)).normalize();
+      near(bone.quaternion.clone().normalize().angleTo(expected), 0, 'ordinary AU rotation parity');
+    }
+  }
+  const morphFrame = direct.evaluate_active_morph_frame();
+  for (let offset = 0; offset < morphFrame.length; offset += 4) {
+    const binding = inspection.morphBindings.get(morphFrame[offset + 1]);
+    near(binding.mesh.morphTargetInfluences[binding.index], morphFrame[offset + 2], 'ordinary AU morph/mix parity');
+  }
+  parity.apply([]);
+  assert.deepEqual(mesh.morphTargetInfluences, [0, 0, 0, 0, 0], 'release restores neutral morph base');
+}
+const clearedProfile = structuredClone(parityProfile);
+clearedProfile.auToBones['51'] = [];
+clearedProfile.auToMorphs['51'] = null;
+parity.apply([{ id: 51, intensity: 1 }]);
+head.rotation.set(0.12, -0.14, 0.07);
+const beforeRebind = head.quaternion.clone();
+extra.position.x = 0.23;
+mesh.morphTargetInfluences[0] = 0.7;
+parity.rebind(model, clearedProfile);
+near(head.quaternion.angleTo(beforeRebind), 0, 'rebind preserves newer external rotation');
+near(extra.position.x, 0.23, 'rebind preserves newer external translation');
+near(mesh.morphTargetInfluences[0], 0.7, 'rebind preserves newer external morph');
+assert.deepEqual(parity.apply([{ id: 51, intensity: 1 }]).bones, []);
+assert.deepEqual(parity.evaluate([{ id: 51, intensity: 1 }]).morphs, []);
+assert.equal(parity.readPose().joints.head.axes.yaw.negative, null);
+parity.rebind(model, parityProfile);
+parity.apply([{ id: 51, intensity: 1 }]);
+head.rotation.set(-0.2, 0.11, 0.03);
+const beforeDispose = head.quaternion.clone();
+mesh.morphTargetInfluences[0] = 0.9;
+parity.dispose();
+near(head.quaternion.angleTo(beforeDispose), 0, 'dispose preserves newer external rotation');
+near(mesh.morphTargetInfluences[0], 0.9, 'dispose preserves newer external morph');
+direct.free();
 mesh.geometry.dispose(); mesh.material.dispose();
 console.log('Semantic AU contribution contract passed');

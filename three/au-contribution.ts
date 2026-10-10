@@ -110,6 +110,20 @@ function bind(model: Object3D, profile: unknown, options: ThreeAuContributionOpt
   }
 }
 
+function assertHierarchy({ model, inspection, nodeIds, references }: Binding): void {
+  let count = 0;
+  model.traverse((object) => {
+    count += 1;
+    const reference = references.get(object);
+    if (!nodeIds.has(object) || !reference || object.name !== reference.name ||
+        object.children.length !== reference.childCount ||
+        (object !== model && references.get(object.parent!)?.path !== reference.parentPath)) {
+      throw new Error('AU contribution hierarchy changed; rebind with an explicit reference pose');
+    }
+  });
+  if (count !== inspection.objectBindings.size) throw new Error('AU contribution hierarchy changed; rebind');
+}
+
 /**
  * Generic sampled AU contribution, with no target, behavior settings or clock.
  * An isolated canonical RuntimeCore evaluates unsigned AU samples for all mapped
@@ -134,18 +148,14 @@ export class ThreeAuContribution {
 
   /** Current pose facts. Refreshes Three matrix caches; never changes TRS/morphs. */
   readPose(): AuPoseGeometry {
-    const { model, inspection, nodeIds, references, joints, revision } = this.requireBinding();
+    const binding = this.requireBinding();
+    assertHierarchy(binding);
+    const { model, nodeIds, references, joints, revision } = binding;
     model.updateWorldMatrix(true, true);
     const nodes: AuPoseNode[] = [];
-    let count = 0;
     model.traverse((object) => {
-      count += 1;
-      const id = nodeIds.get(object);
-      const reference = references.get(object);
-      if (id === undefined || !reference || object.name !== reference.name || object.children.length !== reference.childCount ||
-          (object !== model && references.get(object.parent!)?.path !== reference.parentPath)) {
-        throw new Error('AU contribution hierarchy changed; rebind with an explicit reference pose');
-      }
+      const id = nodeIds.get(object)!;
+      const reference = references.get(object)!;
       const row: AuPoseNode = {
         id, name: object.name, parentId: object === model ? null : nodeIds.get(object.parent!) ?? null,
         matrixAutoUpdate: object.matrixAutoUpdate,
@@ -159,7 +169,6 @@ export class ThreeAuContribution {
       finite([...row.position, ...row.quaternion, ...row.scale, ...row.localMatrix, ...row.worldMatrix, ...row.parentWorldMatrix], 'pose');
       nodes.push(row);
     });
-    if (count !== inspection.objectBindings.size) throw new Error('AU contribution hierarchy changed; rebind');
     // No renderer handles or shared mutable metadata cross the observation API.
     return { bindingRevision: revision, modelNodeId: nodeIds.get(model)!, nodes,
       joints: JSON.parse(JSON.stringify(joints)) as AuPoseGeometry['joints'] };
@@ -217,6 +226,9 @@ export class ThreeAuContribution {
 
   /** Replace the prior contribution while preserving authored/external writes. */
   apply(samples: readonly AuContributionSample[]): EvaluatedAuContribution {
+    // Application is a public boundary too: callers need not readPose first.
+    // Never write stale object bindings after a hierarchy edit.
+    assertHierarchy(this.requireBinding());
     const result = this.evaluate(samples);
     const { model, inspection } = this.requireBinding();
     // Preflight before restoring the previous contribution; unsupported manual
