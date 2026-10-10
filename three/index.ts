@@ -15,6 +15,9 @@ import {
   VectorKeyframeTrack,
 } from 'three';
 export * from './annotations/index';
+// Renderer-only helpers share the public Three entry point: the clip helper
+// replaces concrete compiled tracks and delegates playback to AnimationMixer.
+// It does not export a second AU evaluator or an agency-owned frame driver.
 export { ThreeClipSlots } from './clip-slots';
 export type { ThreeClipSlotEvent, ThreeClipSlotHandle } from './clip-slots';
 import { bindModelReferencePose } from './reference-pose';
@@ -30,6 +33,9 @@ import type {
 } from 'three';
 
 export { ThreeGazeFocus } from './gaze';
+// Keep the existing focus solver export for compatibility. New ordinary-clip
+// consumers can observe actual rays separately, without installing that solver
+// or granting the observer permission to write the character's pose.
 export { ThreeGazeObserver } from './gaze-observation';
 export type { ThreeGazeObservation, ThreeGazeObservedEye, ThreeGazeObservationReason, ThreeGazePoint } from './gaze-observation';
 export type { ThreeGazeFocusOptions, ThreeGazeFocusRequest, ThreeGazeFocusControls, ThreeGazeFocusDiagnostic } from './gaze';

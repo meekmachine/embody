@@ -82,6 +82,10 @@ struct RuntimeCurvePoint {
 struct ClipBuildOptions {
     /// Permit an intentionally unmapped semantic target to produce no outputs.
     /// Ordinary snippet compilation still rejects an empty result by default.
+    /// A target-slot caller can use that empty destination to release outputs
+    /// from its previous clip. This option does not invent fallback mappings,
+    /// change AU evaluation, or apply cancellation itself; playback stays with
+    /// the host animation library. Serde's camelCase name is `allowEmpty`.
     allow_empty: bool,
     intensity_scale: Option<f64>,
     mix_weights: HashMap<u32, f32>,
@@ -1698,6 +1702,10 @@ impl RuntimeCore {
             options: &compile_options,
         })
         .map_err(|error| JsError::new(&error))?;
+        // All mapping, mix weights, ordered rotations, translations, and morphs
+        // have already passed through the canonical snippet compiler. Only the
+        // final empty-output acceptance is optional; it must not select another
+        // preset or manufacture a concrete track for an unmapped semantic AU.
         clip_from_tracks(clip_name, tracks, options.allow_empty)
     }
 
@@ -2015,6 +2023,9 @@ impl RuntimeCore {
                 _ => {}
             }
         }
+        // Typed channels use the same explicit empty-result contract as curve
+        // snippets. Keep it at this final assembly boundary so both forms retain
+        // their normal semantic compilation and error handling above.
         clip_from_tracks(clip_name, tracks, options.allow_empty)
     }
 
@@ -2147,6 +2158,10 @@ fn vector_track(
 }
 
 fn clip_from_tracks(clip_name: &str, tracks: Vec<ClipTrackIR>, allow_empty: bool) -> Result<ClipIR, JsError> {
+    // Empty output normally indicates an unresolved caller/profile mapping and
+    // remains an error. Only explicit opt-in makes it a valid empty destination.
+    // With no tracks the IR duration is zero; a host slot supplies its requested
+    // transition duration when returning outgoing properties to additive neutral.
     if tracks.is_empty() && !allow_empty {
         return Err(JsError::new(&format!(
             "No runtime tracks could be resolved for clip \"{clip_name}\"."
@@ -2326,6 +2341,10 @@ mod tests {
 
     #[test]
     fn explicitly_unmapped_target_clips_opt_in_to_empty_output() {
+        // No configured bindings means neither API can produce physical output.
+        // Assert the default remains strict and both explicit input forms can
+        // represent the same intentional empty destination. The packaged Wasm
+        // smoke additionally checks the default rejection across the JS boundary.
         let core = RuntimeCore::new(0);
         let options: ClipBuildOptions = serde_json::from_str("{\"allowEmpty\":true}").unwrap();
         assert!(!ClipBuildOptions::default().allow_empty);
