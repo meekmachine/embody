@@ -80,6 +80,9 @@ struct RuntimeCurvePoint {
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 struct ClipBuildOptions {
+    /// Permit an intentionally unmapped semantic target to produce no outputs.
+    /// Ordinary snippet compilation still rejects an empty result by default.
+    allow_empty: bool,
     intensity_scale: Option<f64>,
     mix_weights: HashMap<u32, f32>,
     face_curves: BTreeMap<String, Vec<RuntimeCurvePoint>>,
@@ -1695,7 +1698,7 @@ impl RuntimeCore {
             options: &compile_options,
         })
         .map_err(|error| JsError::new(&error))?;
-        clip_from_tracks(clip_name, tracks)
+        clip_from_tracks(clip_name, tracks, options.allow_empty)
     }
 
     fn classify_baked_clip(&self, clip: &mut ClipIR) {
@@ -2012,7 +2015,7 @@ impl RuntimeCore {
                 _ => {}
             }
         }
-        clip_from_tracks(clip_name, tracks)
+        clip_from_tracks(clip_name, tracks, options.allow_empty)
     }
 
     fn resolve_bone_id(&self, node_key: &str) -> Option<u32> {
@@ -2143,8 +2146,8 @@ fn vector_track(
     }
 }
 
-fn clip_from_tracks(clip_name: &str, tracks: Vec<ClipTrackIR>) -> Result<ClipIR, JsError> {
-    if tracks.is_empty() {
+fn clip_from_tracks(clip_name: &str, tracks: Vec<ClipTrackIR>, allow_empty: bool) -> Result<ClipIR, JsError> {
+    if tracks.is_empty() && !allow_empty {
         return Err(JsError::new(&format!(
             "No runtime tracks could be resolved for clip \"{clip_name}\"."
         )));
@@ -2319,6 +2322,23 @@ mod tests {
         core.clear();
         assert_eq!(core.get_viseme(0), 0.0);
         assert_eq!(core.get_viseme_jaw_scale(0), 1.0);
+    }
+
+    #[test]
+    fn explicitly_unmapped_target_clips_opt_in_to_empty_output() {
+        let core = RuntimeCore::new(0);
+        let options: ClipBuildOptions = serde_json::from_str("{\"allowEmpty\":true}").unwrap();
+        assert!(!ClipBuildOptions::default().allow_empty);
+        let curves = serde_json::from_value(serde_json::json!({
+            "51": [{"time":0,"intensity":1},{"time":1,"intensity":1}]
+        })).unwrap();
+        let clip = core.compile_curves("unmapped", curves, &options).unwrap();
+        assert!(clip.tracks.is_empty());
+        let channels = serde_json::from_value(serde_json::json!([
+            {"target":{"type":"au","id":51},"keyframes":[{"time":0,"intensity":1}]}
+        ])).unwrap();
+        let typed = core.compile_typed_channels("unmapped-typed", channels, &options).unwrap();
+        assert!(typed.tracks.is_empty());
     }
 
     #[test]

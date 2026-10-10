@@ -15,6 +15,8 @@ import {
   VectorKeyframeTrack,
 } from 'three';
 export * from './annotations/index';
+export { ThreeClipSlots } from './clip-slots';
+export type { ThreeClipSlotEvent, ThreeClipSlotHandle } from './clip-slots';
 import { bindModelReferencePose } from './reference-pose';
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
 
@@ -28,6 +30,8 @@ import type {
 } from 'three';
 
 export { ThreeGazeFocus } from './gaze';
+export { ThreeGazeObserver } from './gaze-observation';
+export type { ThreeGazeObservation, ThreeGazeObservedEye, ThreeGazeObservationReason, ThreeGazePoint } from './gaze-observation';
 export type { ThreeGazeFocusOptions, ThreeGazeFocusRequest, ThreeGazeFocusControls, ThreeGazeFocusDiagnostic } from './gaze';
 
 export const THREE_BLENDING_MODES = {

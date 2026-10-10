@@ -39,6 +39,11 @@ const core = await wasm.initEmbodyCore();
 const distEntries = await readdir(new URL('../../dist/', import.meta.url));
 const wasmEntrySource = await readFile(new URL('../../dist/wasm.js', import.meta.url), 'utf8');
 const preset = JSON.parse(core.get_preset_json('cc4'));
+const gazeGeometry = JSON.parse(core.resolve_profile_gaze_geometry_json(JSON.stringify(preset),
+  new Float32Array([0, 1, 2]), new Float32Array([0, 0, 0, 1]), new Float32Array([0, 1, 0]), new Float32Array([0, 0, 0, 1])));
+let rejectsInvalidGazeProfile = false;
+try { core.resolve_profile_gaze_geometry_json('not JSON', new Float32Array(3), new Float32Array(4), new Float32Array(3), new Float32Array(4)); }
+catch { rejectsInvalidGazeProfile = true; }
 const hairPresets = JSON.parse(core.hair_color_presets_json());
 const templates = JSON.parse(core.list_humanoid_skeleton_templates_json());
 const model = {
@@ -89,6 +94,10 @@ new three.ThreeFrameApplier().addMorphTarget(morphRoot, {
 });
 
 const checks = [
+  ['Three native target slots', typeof three.ThreeClipSlots === 'function'],
+  ['Three rendered gaze observer', typeof three.ThreeGazeObserver === 'function'],
+  ['geometry-only gaze query', gazeGeometry && typeof gazeGeometry === 'object'],
+  ['gaze geometry rejects invalid JSON', rejectsInvalidGazeProfile],
   ['root ESM Three adapter', typeof root.ThreeModelInspector === 'function'],
   ...['DPthree', 'DPthreeCameraController', 'DPthree3DMarkers', 'DPthreeHTMLMarkers', 'DPthreeMarkers', 'CameraDOMControls', 'createMarkerVisibilityLifecycle', 'createRuntimeAnnotationPreviewLifecycle'].map(name => [`annotation runtime ${name}`, typeof three[name] === 'function']),
   ['annotation adapter shares initialized Wasm', markerAngleVisible],
