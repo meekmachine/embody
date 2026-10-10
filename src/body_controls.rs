@@ -450,17 +450,27 @@ mod tests {
     }
 
     #[test]
-    fn non_body_morph_only_actions_keep_legacy_full_strength() {
-        for meshes in [json!({}), json!({"face": []}), json!({"face": ["Missing"]})] {
+    fn non_body_morph_strength_respects_face_mesh_selection() {
+        // Facial-only actions keep full strength on selected meshes, or through
+        // legacy discovery when no selection was authored. Mix changes must
+        // never reactivate an empty or unresolved face selection.
+        for (meshes, expected) in [
+            (json!({}), vec![1.0, 2.0, 0.8, 0.0]),
+            (json!({"face": ["Face"]}), vec![1.0, 2.0, 0.8, 0.0]),
+            (json!({"face": []}), vec![]),
+            (json!({"face": ["Missing"]}), vec![]),
+        ] {
             let profile = json!({"auToMorphs":{"12":{"center":["Smile"]}},
                 "auMixDefaults":{"12":0.25}, "morphToMesh": meshes});
             let mut core = RuntimeCore::new(0);
             core.configure_with_profile(&profile.to_string(),
                 r#"{"meshes":[{"id":1,"name":"Face","morphTargetIds":[2]}],"morphTargets":[{"id":2,"meshId":1,"name":"Smile","hostIndex":0}]}"#).unwrap();
             core.set_au(12, 0.8, 0.0);
-            assert_eq!(core.evaluate_active_morph_frame()[2], 0.8);
+            assert_eq!(core.evaluate_active_morph_frame().as_ref(), expected.as_slice(),
+                "saved mix weight, mesh selection: {meshes}");
             core.set_au_mix_weight(12, 0.5);
-            assert_eq!(core.evaluate_active_morph_frame()[2], 0.8);
+            assert_eq!(core.evaluate_active_morph_frame().as_ref(), expected.as_slice(),
+                "changed mix weight, mesh selection: {meshes}");
         }
     }
 }
