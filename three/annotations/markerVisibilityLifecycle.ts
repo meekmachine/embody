@@ -15,5 +15,5 @@ export function createMarkerVisibilityLifecycle(getController: () => Controller 
     for (const effect of effects) { if (effect.kind === 'visibility') owner?.setMarkersVisible(effect.visible!); if (effect.kind === 'style') owner?.setMarkerStyle(effect.style!); }
   });
   const dispatch = (operation: string, options: unknown = {}) => { owner = getController(); bridge.dispatch(operation, options); };
-  return { ready: bridge.ready, setManualVisibility: (visible: boolean) => dispatch('manual', { visible }), prepareForCharacterLoad: () => dispatch('prepare'), showForCharacterLoad: (options: MarkerLifecycleRevealOptions = {}) => dispatch('reveal', options), dispose: () => bridge.dispatch('dispose') };
+  return { get ready() { return bridge.ready; }, setManualVisibility: (visible: boolean) => dispatch('manual', { visible }), prepareForCharacterLoad: () => dispatch('prepare'), showForCharacterLoad: (options: MarkerLifecycleRevealOptions = {}) => dispatch('reveal', options), dispose: () => bridge.dispatch('dispose') };
 }

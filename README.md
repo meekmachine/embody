@@ -115,6 +115,9 @@ character-asset metadata remain host concerns. `loadRegions` defaults to
 `resolveAnnotationCharacterConfig`, which resolves annotation and AU mapping
 fields from an Embody preset without serializing unrelated host metadata.
 An optional `resolveCharacterConfig` callback supports host profile intake.
+`prepareRegionsForReveal` defers native marker construction until the first
+`setMarkersVisible(true)` call. Later visibility changes reuse those resources;
+Rust's loaded state resets when the model or configuration is replaced.
 `prepareRegionsAndMarkersForReveal` accepts an already-resolved profile and
 prepares native surface queries while the model pose is still stable.
 Initial queries yield to a browser paint between meshes once a 4 ms slice is
@@ -145,9 +148,12 @@ not every future hidden material or animation state. See the
 
 `createMarkerVisibilityLifecycle` and `createRuntimeAnnotationPreviewLifecycle`
 transport host events to `AnnotationLifecycle`; browser timers only wake Rust at
-its next deadline. Factories can queue input while Wasm initializes and expose
-`ready`. Their `dispose()` cancels and frees the runtime; later calls create a
-fresh one, preserving host effect-replay cleanup.
+its next deadline. Factories can queue input while Wasm initializes; `ready`
+reports the current initialization attempt. After an initialization failure,
+the next command retries or adopts a core initialized by another scene. Failed
+attempts discard their queued input. `dispose()` also discards pending input,
+cancels timers and frees the runtime, so cleanup before readiness cannot replay
+callbacks. Later calls create a fresh runtime, preserving host effect-replay cleanup.
 React hosts forward user events and subscribe to controller state. They do not
 need local copies of the camera, marker, placement or timer algorithms.
 The convenience facade delegates to one controller-owned marker layer.

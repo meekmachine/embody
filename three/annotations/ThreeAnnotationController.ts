@@ -239,7 +239,15 @@ export class ThreeAnnotationController {
   getAnnotationRegion(name: string): AnnotationAnchoredRegion | undefined { return this.getAnnotationRegions().find(region => region.name === name); }
   setCurrentRegion(name: string | null): void { if (this.disposed) return; this.call('select', { name }); this.sync(); }
   getMarkersVisible(): boolean { return this.state.visible; }
-  setMarkersVisible(visible: boolean): void { if (this.disposed) return; this.call('visibility', { visible }); this.sync(); this.update(); this.requestFrame(); }
+  setMarkersVisible(visible: boolean): void {
+    if (this.disposed) return;
+    this.call('visibility', { visible });
+    this.sync();
+    // Region preparation defers native marker construction until the first
+    // reveal. Rust's loaded state prevents rebuilding on later visibility edits.
+    if (visible && !this.state.loaded && this.hostConfig) this.rebuild();
+    this.update(); this.requestFrame();
+  }
   getMarkerStyle(): MarkerStyle { return this.state.style; }
   setMarkerStyle(style: MarkerStyle): void { if (this.disposed) return; this.call('style', { style }); this.sync(); this.update(); }
   clearMarkers(): void { if (this.disposed) return; this.cancelModelPreparation(); this.call('clear'); this.hostConfig = null; this.configSnapshot = null; this.configSnapshotHost = null; this.settleFlights(); this.sync(); }
