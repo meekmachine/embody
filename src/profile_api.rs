@@ -428,20 +428,31 @@ fn fuzzy_name_match(object_name: &str, target_name: &str, pattern: Option<&str>)
 }
 
 fn matches_node(profile: &ProfileData, bone_name: &str, node_key: &str) -> bool {
+    if let Some(exact) = crate::body_controls::exact_bone_name(profile, node_key) {
+        return bone_name == exact;
+    }
+    let expected = crate::body_controls::configured_bone_name(profile, node_key);
     let node_key = crate::body_controls::node_key(profile, node_key);
-    let Some(base) = profile.bone_nodes.get(node_key) else {
-        return false;
-    };
-    let prefix = profile.bone_prefix.as_deref().unwrap_or("");
-    let suffix = profile.bone_suffix.as_deref().unwrap_or("");
-    let prefixed = if !prefix.is_empty() && !base.starts_with(prefix) {
-        format!("{prefix}{base}")
-    } else {
-        base.clone()
-    };
-    let expected = format!("{prefixed}{suffix}");
+    let base = profile.bone_nodes.get(node_key).map(String::as_str).unwrap_or(node_key);
     fuzzy_name_match(bone_name, &expected, profile.suffix_pattern.as_deref())
         || fuzzy_name_match(bone_name, base, profile.suffix_pattern.as_deref())
+}
+
+fn same_bone(profile: &ProfileData, left: &str, right: &str) -> bool {
+    if left == right {
+        return true;
+    }
+    let left_name = crate::body_controls::configured_bone_name(profile, left);
+    let right_name = crate::body_controls::configured_bone_name(profile, right);
+    // Profiles can mix role/key aliases and literal targets. A literal exact
+    // selection must also match without adding the profile's prefix/suffix.
+    let is_literal = |node: &str| {
+        crate::body_controls::node_key(profile, node) == node
+            && !profile.bone_nodes.contains_key(node)
+    };
+    left_name == right_name
+        || (is_literal(left) && left == right_name)
+        || (is_literal(right) && right == left_name)
 }
 
 fn find_node_key(profile: &ProfileData, bone_name: &str) -> Option<String> {
@@ -481,16 +492,8 @@ fn ensure_node(profile: &mut ProfileData, bone_name: &str) -> String {
 }
 
 fn resolve_bone_name(profile: &ProfileData, node: &str) -> Option<String> {
-    let node = crate::body_controls::node_key(profile, node);
-    let base = profile.bone_nodes.get(node)?;
-    let prefix = profile.bone_prefix.as_deref().unwrap_or("");
-    let suffix = profile.bone_suffix.as_deref().unwrap_or("");
-    let value = if !prefix.is_empty() && !base.starts_with(prefix) {
-        format!("{prefix}{base}")
-    } else {
-        base.clone()
-    };
-    Some(format!("{value}{suffix}"))
+    profile.bone_nodes.get(crate::body_controls::node_key(profile, node))?;
+    Some(crate::body_controls::configured_bone_name(profile, node))
 }
 
 fn axis_config<'a>(
@@ -543,7 +546,7 @@ fn semantic_axis_claims(profile: &ProfileData, node: &str) -> HashMap<u32, Axis>
         let (Ok(id), Some(pair)) = (key.parse(), pair) else {
             continue;
         };
-        if pair.node.as_deref() != Some(node) {
+        if !pair.node.as_deref().is_some_and(|target| same_bone(profile, target, node)) {
             continue;
         }
         if let Some(axis) = pair
@@ -557,7 +560,7 @@ fn semantic_axis_claims(profile: &ProfileData, node: &str) -> HashMap<u32, Axis>
     if let Some(composite) = profile
         .composite_rotations
         .iter()
-        .find(|entry| entry.node == node)
+        .find(|entry| same_bone(profile, &entry.node, node))
     {
         for axis in [Axis::Pitch, Axis::Yaw, Axis::Roll] {
             let Some(config) = axis_config(composite, axis).as_ref() else {
@@ -582,7 +585,7 @@ fn semantic_ids(profile: &ProfileData, node: &str, axis: Axis, direction: Direct
         .filter_map(|(key, pair)| {
             let id = key.parse::<u32>().ok()?;
             let pair = pair.as_ref()?;
-            (pair.node.as_deref() == Some(node)
+            (pair.node.as_deref().is_some_and(|target| same_bone(profile, target, node))
                 && pair.axis.as_deref() == Some(axis.key())
                 && pair.is_negative == (direction == Direction::Negative))
                 .then_some(id)
@@ -594,7 +597,7 @@ fn semantic_ids(profile: &ProfileData, node: &str, axis: Axis, direction: Direct
     if let Some(config) = profile
         .composite_rotations
         .iter()
-        .find(|entry| entry.node == node)
+        .find(|entry| same_bone(profile, &entry.node, node))
         .and_then(|entry| axis_config(entry, axis).as_ref())
     {
         let negative = selector_values(&config.negative);
@@ -645,7 +648,7 @@ fn semantic_ids(profile: &ProfileData, node: &str, axis: Axis, direction: Direct
             .get(&id.to_string())
             .is_some_and(|bindings| {
                 bindings.iter().any(|binding| {
-                    binding.node == node
+                    same_bone(profile, &binding.node, node)
                         && binding.channel == axis.channel()
                         && binding.scale.signum() == direction.scale()
                 })
@@ -668,7 +671,7 @@ fn find_binding<'a>(
         .get(&au_id.to_string())?
         .iter()
         .find(|binding| {
-            binding.node == node
+            same_bone(profile, &binding.node, node)
                 && matches!(binding.channel.as_str(), "rx" | "ry" | "rz")
                 && channel.is_none_or(|expected| expected == binding.channel)
         })
@@ -679,7 +682,7 @@ fn get_axis_state(profile: &ProfileData, bone_name: &str, axis: Axis) -> Option<
     let composite = profile
         .composite_rotations
         .iter()
-        .find(|entry| entry.node == node);
+        .find(|entry| same_bone(profile, &entry.node, &node));
     let configured = composite.and_then(|entry| axis_config(entry, axis).as_ref());
     let negative_ids = semantic_ids(profile, &node, axis, Direction::Negative);
     let positive_ids = semantic_ids(profile, &node, axis, Direction::Positive);
@@ -750,25 +753,21 @@ fn update_option_scale(update: &Map<String, Value>, key: &str, current: Option<i
 }
 
 fn remove_axis_metadata(profile: &mut ProfileData, node: &str, axis: Axis) {
-    let mut removed_labels = Vec::new();
-    profile.continuum_pairs.retain(|key, pair| {
-        let remove = pair.as_ref().is_some_and(|entry| {
-            entry.node.as_deref() == Some(node) && entry.axis.as_deref() == Some(axis.key())
-        });
-        if remove {
-            if let (Ok(id), Some(pair)) = (key.parse::<u32>(), pair.as_ref()) {
-                let label = if pair.is_negative {
-                    format!("{id}-{}", pair.pair_id)
-                } else {
-                    format!("{}-{id}", pair.pair_id)
-                };
-                removed_labels.push(label);
-            }
+    let keys = profile.continuum_pairs.iter().filter_map(|(key, pair)| {
+        pair.as_ref().filter(|entry| {
+            entry.node.as_deref().is_some_and(|target| same_bone(profile, target, node))
+                && entry.axis.as_deref() == Some(axis.key())
+        }).map(|_| key.clone())
+    }).collect::<Vec<_>>();
+    for key in keys {
+        if let (Ok(id), Some(Some(pair))) = (key.parse::<u32>(), profile.continuum_pairs.remove(&key)) {
+            let label = if pair.is_negative {
+                format!("{id}-{}", pair.pair_id)
+            } else {
+                format!("{}-{id}", pair.pair_id)
+            };
+            profile.continuum_labels.remove(&label);
         }
-        !remove
-    });
-    for label in removed_labels {
-        profile.continuum_labels.remove(&label);
     }
 }
 
@@ -788,7 +787,7 @@ fn upsert_composite(
     let index = profile
         .composite_rotations
         .iter()
-        .position(|entry| entry.node == node)
+        .position(|entry| same_bone(profile, &entry.node, node))
         .unwrap_or_else(|| {
             profile.composite_rotations.push(CompositeRotationData {
                 node: node.to_string(),
@@ -960,7 +959,7 @@ fn apply_axis_update(
                 .get(&id.to_string())
                 .and_then(|bindings| {
                     bindings.iter().find(|binding| {
-                        binding.node == node
+                        same_bone(&profile, &binding.node, &node)
                             && matches!(binding.channel.as_str(), "rx" | "ry" | "rz")
                             && relevant_channels.contains(&binding.channel.as_str())
                     })
@@ -979,12 +978,13 @@ fn apply_axis_update(
         .cloned();
     for id in &ids {
         let key = id.to_string();
-        if let Some(bindings) = profile.au_to_bones.get_mut(&key) {
+        if let Some(mut bindings) = profile.au_to_bones.remove(&key) {
             bindings.retain(|binding| {
-                !(binding.node == node && relevant_channels.contains(&binding.channel.as_str()))
+                !(same_bone(&profile, &binding.node, &node)
+                    && relevant_channels.contains(&binding.channel.as_str()))
             });
-            if bindings.is_empty() {
-                profile.au_to_bones.remove(&key);
+            if !bindings.is_empty() {
+                profile.au_to_bones.insert(key, bindings);
             }
         }
     }
@@ -1237,7 +1237,7 @@ fn rotation_binding<'a>(
         .au_to_bones
         .get(&au_id.to_string())?
         .iter()
-        .find(|binding| binding.node == node && binding.channel == channel)
+        .find(|binding| same_bone(profile, &binding.node, node) && binding.channel == channel)
 }
 
 fn bilateral_ids(
@@ -1445,13 +1445,14 @@ fn apply_bilateral_update(
         .collect::<HashSet<_>>();
     for id in &relevant {
         let key = id.to_string();
-        if let Some(bindings) = profile.au_to_bones.get_mut(&key) {
+        if let Some(mut bindings) = profile.au_to_bones.remove(&key) {
             bindings.retain(|binding| {
-                !((binding.node == context.left_node_key || binding.node == context.right_node_key)
+                !((same_bone(&profile, &binding.node, &context.left_node_key)
+                    || same_bone(&profile, &binding.node, &context.right_node_key))
                     && matches!(binding.channel.as_str(), "rx" | "ry" | "rz"))
             });
-            if bindings.is_empty() {
-                profile.au_to_bones.remove(&key);
+            if !bindings.is_empty() {
+                profile.au_to_bones.insert(key, bindings);
             }
         }
     }
@@ -2785,6 +2786,102 @@ mod tests {
             json!({"positiveMaxDegrees":90}).as_object().unwrap());
         assert_eq!(edited.composite_rotations.iter().filter(|entry| matches_node(&edited, "CC_Base_L_Forearm", &entry.node)).count(), 1);
         assert_eq!(get_axis_state(&edited, "CC_Base_L_Forearm", Axis::Pitch).unwrap().positive_max_degrees, Some(90.0));
+    }
+
+    #[test]
+    fn cc4_head_aliases_read_edit_and_clear_existing_rotations() {
+        let original = request("preset.get", json!({"id": "cc4"}));
+        for (axis, negative, positive, channel) in [
+            ("pitch", "54", "53", "rx"), ("yaw", "51", "52", "ry"), ("roll", "55", "56", "rz"),
+        ] {
+            let state = request("bone.getAxisState", json!({
+                "profile": original, "boneName": "CC_Base_Head", "axis": axis
+            }));
+            assert_eq!(state["negativeAuId"], negative.parse::<u32>().unwrap());
+            assert_eq!(state["positiveAuId"], positive.parse::<u32>().unwrap());
+            assert_eq!(state["channel"], channel);
+            let edited = request("bone.applyAxisUpdate", json!({
+                "profile": original, "boneName": "CC_Base_Head", "axis": axis,
+                "update": {"negativeMaxDegrees": 17}
+            }));
+            assert_eq!(edited["auToBones"][negative].as_array().unwrap().len(), 1);
+            assert_eq!(edited["auToBones"][negative][0]["maxDegrees"], 17.0);
+            assert_eq!(edited["auToBones"][positive].as_array().unwrap().len(), 1);
+            assert_eq!(edited["auToMorphs"], original["auToMorphs"]);
+            let cleared = request("bone.applyAxisUpdate", json!({
+                "profile": edited, "boneName": "CC_Base_Head", "axis": axis,
+                "update": {"negativeAuId": null, "positiveAuId": null}
+            }));
+            for id in [negative, positive] {
+                assert!(cleared["auToBones"].get(id).is_none());
+                assert!(cleared["continuumPairs"].get(id).is_none());
+            }
+            assert_eq!(cleared["auToBones"]["61"], original["auToBones"]["61"]);
+            assert_eq!(cleared["auToMorphs"], original["auToMorphs"]);
+        }
+    }
+
+    #[test]
+    fn eye_aliases_preserve_shared_and_independent_scope_edits() {
+        for custom in [false, true] {
+            let mut original = request("preset.get", json!({"id": "cc4"}));
+            let mut selected = "CC_Base_L_Eye";
+            if custom {
+                selected = "Studio_L_Eye.001";
+                for (role, key, before, exact) in [
+                    ("leftEye", "EYE_L", "CC_Base_L_Eye", "Studio_L_Eye.001"),
+                    ("rightEye", "EYE_R", "CC_Base_R_Eye", "Studio_R_Eye.001"),
+                ] {
+                    original["boneNodes"][key] = json!(exact);
+                    original["humanoidCharacterization"]["roles"][role]["exactBoneName"] = json!(exact);
+                    for composite in original["compositeRotations"].as_array_mut().unwrap() {
+                        if composite["node"] == key { composite["node"] = json!(role); }
+                    }
+                    for bindings in original["auToBones"].as_object_mut().unwrap().values_mut() {
+                        for binding in bindings.as_array_mut().unwrap() {
+                            if binding["node"] == before { binding["node"] = json!(exact); }
+                        }
+                    }
+                    for pair in original["continuumPairs"].as_object_mut().unwrap().values_mut() {
+                        if pair["node"] == before { pair["node"] = json!(key); }
+                    }
+                }
+            }
+            for (axis, negative, positive, left_negative, right_positive) in [
+                ("yaw", 61, 62, 65, 70), ("pitch", 64, 63, 68, 71),
+            ] {
+                let state = request("bone.getBilateralAxisState", json!({
+                    "profile": original, "boneName": selected, "axis": axis
+                }));
+                assert_eq!(state["shared"]["negativeAuId"], negative);
+                assert_eq!(state["shared"]["positiveAuId"], positive);
+                assert_eq!(state["left"]["negativeAuId"], left_negative);
+                assert_eq!(state["right"]["positiveAuId"], right_positive);
+                let edited = request("bone.applyBilateralAxisUpdate", json!({
+                    "profile": original, "boneName": selected, "axis": axis, "scope": "shared",
+                    "update": {"negativeMaxDegrees": 17}
+                }));
+                let bindings = edited["auToBones"][negative.to_string()].as_array().unwrap();
+                assert_eq!(bindings.len(), 2);
+                assert!(bindings.iter().all(|binding| binding["maxDegrees"] == 17.0));
+                let cleared = request("bone.applyBilateralAxisUpdate", json!({
+                    "profile": edited, "boneName": selected, "axis": axis, "scope": "shared",
+                    "update": {"negativeAuId": null, "positiveAuId": null}
+                }));
+                for id in [negative, positive] {
+                    assert!(cleared["auToBones"].get(id.to_string()).is_none());
+                    assert!(cleared["continuumPairs"].get(id.to_string()).is_none());
+                }
+                let state = request("bone.getBilateralAxisState", json!({
+                    "profile": cleared, "boneName": selected, "axis": axis
+                }));
+                assert!(state["shared"]["negativeAuId"].is_null());
+                assert_eq!(state["left"]["negativeAuId"], left_negative);
+                assert_eq!(state["right"]["positiveAuId"], right_positive);
+                assert_eq!(cleared["auToBones"]["51"], original["auToBones"]["51"]);
+                assert_eq!(cleared["auToMorphs"], original["auToMorphs"]);
+            }
+        }
     }
 
     #[test]
