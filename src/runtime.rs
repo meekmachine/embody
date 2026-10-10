@@ -3514,15 +3514,15 @@ mod tests {
     }
 
     #[test]
-    fn cc4_face_alias_edits_leave_eyelid_and_viseme_categories_independent() {
-        let names = ["CC_Base_Body_1", "CC_Base_Body_2", "CC_Base_EyeOcclusion", "Lashes"];
+    fn cc4_face_selection_controls_expression_blink_and_speech_in_live_and_compiled_animation() {
+        let names = ["CC_Base_Body_1", "CC_Base_Body_2", "CC_Base_EyeOcclusion", "Lashes", "Shirt"];
         let mut meshes = Vec::new();
         let mut morph_targets = Vec::new();
         for (index, name) in names.iter().enumerate() {
             let mesh_id = index + 1;
-            let ids = [mesh_id * 10 + 1, mesh_id * 10 + 2, mesh_id * 10 + 3];
+            let ids = [mesh_id * 10 + 1, mesh_id * 10 + 2, mesh_id * 10 + 3, mesh_id * 10 + 4];
             meshes.push(serde_json::json!({"id": mesh_id, "name": name, "morphTargetIds": ids}));
-            for (host_index, morph_name) in ["Mouth_Smile_L", "Eye_Blink_L", "AE"].iter().enumerate() {
+            for (host_index, morph_name) in ["Mouth_Smile_L", "Eye_Blink_L", "AE", "BodyFlex"].iter().enumerate() {
                 morph_targets.push(serde_json::json!({
                     "id": ids[host_index], "meshId": mesh_id, "name": morph_name, "hostIndex": host_index,
                 }));
@@ -3532,23 +3532,31 @@ mod tests {
         let channels = r#"[
             {"target":{"type":"au","id":12},"keyframes":[{"time":0,"intensity":0},{"time":1,"intensity":1}]},
             {"target":{"type":"au","id":45},"keyframes":[{"time":0,"intensity":0},{"time":1,"intensity":1}]},
-            {"target":{"type":"viseme","id":0},"keyframes":[{"time":0,"intensity":0},{"time":1,"intensity":1}]}
+            {"target":{"type":"viseme","id":0},"keyframes":[{"time":0,"intensity":0},{"time":1,"intensity":1}]},
+            {"target":{"type":"au","id":1001},"keyframes":[{"time":0,"intensity":0},{"time":1,"intensity":1}]}
         ]"#;
         let mut core = RuntimeCore::new(0);
-        // Start with the real preset's unsuffixed face alias, remove one loaded
-        // primitive, then clear face. Neither edit changes eye or viseme routing.
-        for (patch, smile_targets) in [
-            (serde_json::json!({}), vec![11, 21]),
-            (serde_json::json!({"morphToMesh": {"face": ["CC_Base_Body_2"]}}), vec![21]),
+        // All meshes deliberately share the same morph names. Only selected face
+        // meshes may receive facial output; the body's Shirt assignment stays active.
+        for (mut patch, selected_mesh_ids) in [
+            (serde_json::json!({"morphToMesh": {}}), vec![1, 2]),
+            (serde_json::json!({"morphToMesh": {"face": ["CC_Base_Body_2"]}}), vec![2]),
             (serde_json::json!({"morphToMesh": {"face": []}}), vec![]),
-            (serde_json::json!({"morphToMesh": {"face": ["Lashes"]}}), vec![41]),
+            (serde_json::json!({"morphToMesh": {"face": ["Lashes"]}}), vec![4]),
+            (serde_json::json!({"morphToMesh": {"face": ["CC_Base_EyeOcclusion", "Lashes"]}}), vec![3, 4]),
+            (serde_json::json!({"morphToMesh": {"face": ["CC_Base_Body"]}}), vec![1, 2]),
         ] {
+            patch["morphToMesh"]["body"] = serde_json::json!(["Shirt"]);
+            patch["auToMorphs"] = serde_json::json!({"1001": {"center": ["BodyFlex"]}});
             core.configure_with_preset("cc4", &patch.to_string(), &model).unwrap();
             core.set_au(12, 1.0, 0.0);
             core.set_au(45, 1.0, 0.0);
             core.set_viseme(0, 1.0);
-            let mut expected: Vec<u32> = smile_targets;
-            expected.extend([13, 23, 32]); // Two speech targets and the eye-category blink.
+            core.set_au(1001, 1.0, 0.0);
+            let mut expected: Vec<u32> = vec![54];
+            for mesh_id in selected_mesh_ids {
+                expected.extend([mesh_id * 10 + 1, mesh_id * 10 + 2, mesh_id * 10 + 3]);
+            }
             expected.sort_unstable();
             let mut live = unpack_rows(&core.evaluate_active_morph_frame()).iter()
                 .filter(|row| row.2 > 0.0).map(|row| row.1).collect::<Vec<_>>();

@@ -1420,8 +1420,19 @@ fn mesh_category_for_au(profile: &ProfileData, au_id: u32) -> &str {
         .au_info
         .get(&au_id.to_string())
         .and_then(|info| info.face_part.as_ref());
-    face_part.and_then(|part| profile.au_face_part_to_mesh_category.get(part))
-        .map(String::as_str).unwrap_or("face")
+    let category = face_part.and_then(|part| profile.au_face_part_to_mesh_category.get(part))
+        .map(String::as_str).unwrap_or("face");
+    effective_mesh_category(profile, category)
+}
+
+/// The face selection owns every facial morph, including eyes and tongue.
+/// Body and hair morph controls keep their separate mesh assignments.
+pub(crate) fn effective_mesh_category<'a>(profile: &ProfileData, category: &'a str) -> &'a str {
+    if profile.morph_to_mesh.contains_key("face") && !matches!(category, "body" | "hair") {
+        "face"
+    } else {
+        category
+    }
 }
 
 pub(crate) fn mesh_names_for_au(profile: &ProfileData, au_id: u32) -> Vec<String> {
@@ -1448,6 +1459,9 @@ fn mesh_names_for_visemes(profile: &ProfileData) -> Vec<String> {
 }
 
 fn viseme_mesh_category(profile: &ProfileData) -> String {
+    if profile.morph_to_mesh.contains_key("face") {
+        return "face".to_string();
+    }
     profile.viseme_mesh_category.clone().unwrap_or_else(|| {
         if profile.morph_to_mesh.contains_key("viseme") {
             "viseme".to_string()
@@ -1531,10 +1545,8 @@ impl NameResolver {
     }
 
     pub(crate) fn resolve_au_morph(&self, profile: &ProfileData, au_id: u32, morph: &MorphRef) -> Vec<(u32, u32)> {
-        // Every authored category is authoritative, including face: clearing it
-        // disables its morph outputs. Only omitted categories retain discovery
-        // for legacy profiles; a missing selected target must not escape to an
-        // unselected mesh with a matching morph name or index.
+        // The selected face meshes override separate facial routes. A missing
+        // selected morph never falls back to an unselected mesh.
         let strict_selection = profile.morph_to_mesh.contains_key(mesh_category_for_au(profile, au_id));
         self.resolve_morph_with_fallback(morph, &mesh_names_for_au(profile, au_id), !strict_selection)
     }
@@ -1721,7 +1733,7 @@ mod tests {
                 "26": [{ "node": "JAW", "channel": "rz", "scale": 1, "maxDegrees": 30 }]
             },
             "boneNodes": { "HEAD": "Head", "JAW": "Jaw" },
-            "morphToMesh": { "face": ["FaceMesh"], "viseme": ["VisemeMesh"] },
+            "morphToMesh": { "face": ["FaceMesh", "VisemeMesh"], "viseme": ["VisemeMesh"] },
             "auMixDefaults": { "12": 0.5 },
             "compositeRotations": [
                 { "node": "HEAD", "yaw": { "aus": [12], "axis": "ry" }, "pitch": null, "roll": null }
@@ -1867,9 +1879,9 @@ mod tests {
             view["visemeBindingTargets"][0],
             serde_json::json!([{ "morph": "Aah", "weight": 0.75 }])
         );
-        assert_eq!(view["visemeMeshCategory"], "viseme");
-        assert_eq!(view["visemeMeshNames"], serde_json::json!(["MouthMesh"]));
-        assert_eq!(view["auMeshNames"]["1"], serde_json::json!(["EyeMesh"]));
+        assert_eq!(view["visemeMeshCategory"], "face");
+        assert_eq!(view["visemeMeshNames"], serde_json::json!(["FaceMesh"]));
+        assert_eq!(view["auMeshNames"]["1"], serde_json::json!(["FaceMesh"]));
         assert_eq!(view["auMeshNames"]["12"], serde_json::json!(["FaceMesh"]));
         assert_eq!(view["meshes"]["EyeMesh"]["category"], "eye");
         assert_eq!(view["meshes"]["EyeMesh"]["material"]["renderOrder"], -10);
@@ -1954,7 +1966,7 @@ mod tests {
     }
 
     #[test]
-    fn facial_categories_and_visemes_respect_empty_missing_and_nonmatching_selections() {
+    fn legacy_categories_without_a_face_selection_keep_their_own_meshes() {
         let model: ModelData = serde_json::from_value(serde_json::json!({
             "meshes": [
                 {"id": 1, "name": "Skin", "morphTargetIds": [10]},
@@ -1973,7 +1985,7 @@ mod tests {
                 "auFacePartToMeshCategory": {"Eye": "eye"},
                 "visemeKeys": ["Shape"],
                 "visemeMeshCategory": "mouth",
-                "morphToMesh": {"face": ["Skin"], "eye": selection, "mouth": selection}
+                "morphToMesh": {"eye": selection, "mouth": selection}
             })).unwrap();
             let tables = compile_tables(&profile, &model);
             if selection == vec!["Eyes"] {
@@ -1986,11 +1998,11 @@ mod tests {
                 assert!(tables.viseme_morph_bindings.is_empty(), "{selection:?}");
             }
         }
-        // Visemes inherit face only when no separate category is authored.
+        // An empty face selection overrides even an existing speech assignment.
         for routing in [
             serde_json::json!({"morphToMesh": {"face": []}}),
-            serde_json::json!({"morphToMesh": {"face": ["Skin"], "viseme": []}}),
-            serde_json::json!({"morphToMesh": {"face": ["Skin"]}, "visemeMeshCategory": "missing"}),
+            serde_json::json!({"morphToMesh": {"face": [], "viseme": ["Skin"]}}),
+            serde_json::json!({"morphToMesh": {}, "visemeMeshCategory": "missing"}),
         ] {
             let mut profile: ProfileData = serde_json::from_value(routing).unwrap();
             profile.viseme_keys = vec![MorphRef::Name("Shape".into())];

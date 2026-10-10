@@ -2089,6 +2089,14 @@ fn extend_profile_config(config: Value) -> Result<Value, String> {
 
 fn profile_view(profile: &ProfileData, op: &str, payload: &Value) -> Result<Value, String> {
     match op {
+        "profile.getMeshCategory" => {
+            let category = string_field(payload, "category")?;
+            if payload.get("section").and_then(Value::as_str) == Some("Visemes") {
+                Ok(json!(crate::profile::resolve_profile_view(profile).viseme_mesh_category))
+            } else {
+                Ok(json!(crate::profile::effective_mesh_category(profile, &category)))
+            }
+        }
         "profile.getMeshNamesForAU" => {
             let id = value_field(payload, "auId")?.as_u64().unwrap_or(0) as u32;
             let view = crate::profile::resolve_profile_view(profile);
@@ -2561,6 +2569,24 @@ mod tests {
             payload,
         })
         .unwrap()
+    }
+
+    #[test]
+    fn editor_mesh_category_uses_the_same_face_selection_as_animation() {
+        let profile = json!({
+            "morphToMesh": {"face": [], "eye": ["Eyes"], "mouth": ["Mouth"], "body": ["Shirt"]},
+            "visemeMeshCategory": "mouth",
+        });
+        for (section, category, expected) in [
+            ("Eyelids", "eye", "face"), ("Tongue", "tongue", "face"),
+            ("Visemes", "mouth", "face"), ("Visemes", "body", "face"),
+            ("Body Morphs", "body", "body"), ("Hair", "hair", "hair"),
+        ] {
+            assert_eq!(request("profile.getMeshCategory", json!({
+                "profile": profile, "section": section, "category": category,
+            })), expected);
+        }
+        assert_eq!(request("profile.getMeshNamesForViseme", json!({"profile": profile})), json!([]));
     }
 
     #[test]
