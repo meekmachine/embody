@@ -564,6 +564,81 @@ impl RuntimeCore {
         self.profile.as_ref().map(|profile| crate::semantic_pose::catalog(profile,self.model.as_ref()).to_string()).unwrap_or_else(||"[]".into())
     }
 
+    /// Bound optical frames and signed AU responses, without a focus target or
+    /// movement decisions. Responses come from the same selected composite tables
+    /// as normal AU evaluation. Missing/ambiguous actuators are null. Radians
+    /// describe an AU at intensity one; negative/positive name FACS control
+    /// coordinates, not the sign of the physical bone rotation. `order` is the
+    /// compiled composite-axis index, not a semantic yaw/pitch/roll guess.
+    #[wasm_bindgen]
+    pub fn get_gaze_kinematics_json(&self) -> String {
+        use serde_json::json;
+        let (Some(profile), Some(model)) = (&self.profile, &self.model) else {
+            return json!({"head":null,"leftEye":null,"rightEye":null}).to_string();
+        };
+        let resolver = crate::profile::NameResolver::new(profile, model);
+        let normalize = |vector: [f32; 3]| -> Option<[f32; 3]> {
+            let length = vector.iter().map(|v| v * v).sum::<f32>().sqrt();
+            (length.is_finite() && length > 1e-8).then(|| vector.map(|v| v / length))
+        };
+        let joint = |node: &str, ids: [u32; 6], optical: Option<&crate::profile::GazeOpticalCalibrationData>| {
+            let Some(bone) = resolver.resolve_bone(model, profile, node) else { return serde_json::Value::Null; };
+            let response = |id: u32| -> Option<(usize, AxisBindingRow)> {
+                if id == 0 { return None; }
+                let rows: Vec<_> = self.composite_axes.iter().enumerate().filter(|(_, axis)| axis.bone_id == bone.id)
+                    .filter_map(|(order, axis)| {
+                        let effective = |candidate, _side| if candidate == id { 1.0 } else { 0.0 };
+                        let direction = composite_axis_value(axis, effective);
+                        if direction.abs() <= 1e-6 { return None; }
+                        select_axis_binding(axis, direction, effective).copied()
+                            .filter(|row| row.au_id == id && row.channel <= 2 && (row.max_degrees * row.scale).is_finite()
+                                && (row.max_degrees * row.scale).abs() > 1e-8)
+                            .map(|row| (order, row))
+                    }).collect();
+                // A single-axis observation cannot describe an AU that drives
+                // several composite rotations on this joint. Do not guess.
+                if rows.len() == 1 { Some(rows[0]) } else { None }
+            };
+            let responses = ids.map(response);
+            let vector = |(_, row): (usize, AxisBindingRow)| {
+                let mut axis = [0.0; 3];
+                axis[row.channel as usize] = (row.max_degrees * row.scale).signum();
+                axis
+            };
+            let positive_axis = |positive: usize, negative: usize| {
+                responses[positive].map(vector).or_else(|| responses[negative].map(|row| vector(row).map(|v| -v)))
+            };
+            let inferred = positive_axis(0, 1).zip(positive_axis(3, 2)).and_then(|(yaw, pitch)| {
+                normalize([yaw[1]*pitch[2]-yaw[2]*pitch[1], yaw[2]*pitch[0]-yaw[0]*pitch[2], yaw[0]*pitch[1]-yaw[1]*pitch[0]])
+            });
+            let optical = optical.and_then(|calibration| calibration.optical_axis.as_ref())
+                // Profile vectors permit omitted/null components. They are
+                // zero, as in the renderer adapter; malformed numeric types
+                // still reject during profile deserialization.
+                .and_then(|axis| normalize([
+                    axis.x.unwrap_or(0.0) as f32,
+                    axis.y.unwrap_or(0.0) as f32,
+                    axis.z.unwrap_or(0.0) as f32,
+                ])).or(inferred);
+            let binding = |index: usize| responses[index].map(|(order, row)| {
+                let mut axis = [0.0; 3];
+                axis[row.channel as usize] = 1.0;
+                json!({"auId":ids[index],"side":match row.side { 1=>"left",2=>"right",_=>"center" },
+                    "axis":axis,"radians":(row.max_degrees * row.scale).to_radians(),"order":order})
+            });
+            json!({"boneId":bone.id,"name":bone.name,"opticalAxis":optical,"axes":{
+                "yaw":{"negative":binding(0),"positive":binding(1)},
+                "pitch":{"negative":binding(2),"positive":binding(3)},
+                "roll":{"negative":binding(4),"positive":binding(5)}}})
+        };
+        let calibration = profile.gaze_calibration.as_ref();
+        json!({
+            "head":joint("HEAD",[51,52,54,53,55,56],calibration.and_then(|v|v.head.as_ref())),
+            "leftEye":joint("EYE_L",[61,62,64,63,0,0],calibration.and_then(|v|v.left_eye.as_ref())),
+            "rightEye":joint("EYE_R",[61,62,64,63,0,0],calibration.and_then(|v|v.right_eye.as_ref()))
+        }).to_string()
+    }
+
     /// Full Body property writes, including neutral reference values. Hosts use
     /// this once when an explicit pose replaces direct legacy bone edits.
     #[wasm_bindgen]
@@ -2216,6 +2291,67 @@ fn clamp_signed(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gaze_kinematics_observes_compiled_signed_responses_without_mutating_samples() {
+        let mut profile = serde_json::json!({
+            "boneNodes":{"HEAD":"CustomHead","EYE_L":"CustomEye"},
+            "auToBones":{
+                "51":[{"node":"HEAD","channel":"rx","scale":-0.5,"maxDegrees":20}],
+                "52":[{"node":"HEAD","channel":"ry","scale":2,"maxDegrees":30}],
+                "53":[{"node":"HEAD","channel":"rz","maxDegrees":35}],
+                "61":[{"node":"EYE_L","channel":"rz","side":"left","maxDegrees":25}]
+            },
+            "compositeRotations":[
+                {"node":"HEAD","yaw":{"aus":[53]},"pitch":{"negative":51,"positive":52}},
+                {"node":"EYE_L","yaw":{"aus":[61]}}
+            ],
+            "gazeCalibration":{"head":{"opticalAxis":{"x":0,"y":0,"z":2}}}
+        });
+        let model = r#"{"bones":[{"id":1,"name":"CustomHead"},{"id":2,"name":"CustomEye"}]}"#;
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(&profile.to_string(), model).unwrap();
+        core.set_au(51, 0.6, 0.0);
+        let before = core.evaluate_active_bone_frame();
+        let facts: serde_json::Value = serde_json::from_str(&core.get_gaze_kinematics_json()).unwrap();
+        assert_eq!(core.evaluate_active_bone_frame(), before);
+        assert_eq!(facts["head"]["name"], "CustomHead");
+        assert_eq!(facts["head"]["opticalAxis"], serde_json::json!([0.0,0.0,1.0]));
+        let negative = &facts["head"]["axes"]["yaw"]["negative"];
+        let positive = &facts["head"]["axes"]["yaw"]["positive"];
+        assert_eq!(negative["axis"], serde_json::json!([1.0,0.0,0.0]));
+        assert!((negative["radians"].as_f64().unwrap() - (-10.0_f64).to_radians()).abs() < 1e-6);
+        assert!((positive["radians"].as_f64().unwrap() - 60.0_f64.to_radians()).abs() < 1e-6);
+        assert_eq!(negative["order"], 1, "semantic yaw was authored in the second composite slot");
+        assert_eq!(facts["head"]["axes"]["pitch"]["positive"]["order"], 0);
+        assert_eq!(facts["leftEye"]["axes"]["yaw"]["negative"]["side"], "left");
+        assert!(facts["leftEye"]["opticalAxis"].is_null(), "one axis cannot infer an optical frame");
+        assert!(facts["rightEye"].is_null());
+        assert!(facts["head"]["axes"]["roll"]["negative"].is_null());
+
+        // Several responses cannot be represented by one physical axis. The
+        // canonical evaluator still owns their composition; observation refuses
+        // to invent a reduced actuator for the consumer's numerical solver.
+        profile["compositeRotations"].as_array_mut().unwrap().push(
+            serde_json::json!({"node":"HEAD","pitch":{"aus":[51]}}),
+        );
+        core.configure_with_profile(&profile.to_string(), model).unwrap();
+        let facts: serde_json::Value = serde_json::from_str(&core.get_gaze_kinematics_json()).unwrap();
+        assert!(facts["head"]["axes"]["yaw"]["negative"].is_null());
+        assert!(facts["head"]["axes"]["yaw"]["positive"].is_object());
+        assert_eq!(facts["head"]["opticalAxis"], serde_json::json!([0.0,0.0,1.0]));
+
+        // ProfileVec3Data components are optional, not bare f64 fields.
+        // Sparse/null coordinates follow the renderer's zero-component rule.
+        profile["gazeCalibration"]["head"]["opticalAxis"] = serde_json::json!({"x":null,"z":2});
+        profile["gazeCalibration"]["leftEye"] = serde_json::json!({"opticalAxis":{}});
+        core.configure_with_profile(&profile.to_string(), model).unwrap();
+        let facts: serde_json::Value = serde_json::from_str(&core.get_gaze_kinematics_json()).unwrap();
+        assert_eq!(facts["head"]["opticalAxis"], serde_json::json!([0.0,0.0,1.0]));
+        assert!(facts["leftEye"]["opticalAxis"].is_null());
+        profile["gazeCalibration"]["head"]["opticalAxis"]["z"] = serde_json::json!("not a number");
+        assert!(serde_json::from_value::<ProfileData>(profile).is_err());
+    }
 
     #[test]
     fn cc4_speech_au_103_uses_the_existing_jaw_opening_group() {

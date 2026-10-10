@@ -39,6 +39,18 @@ const core = await wasm.initEmbodyCore();
 const distEntries = await readdir(new URL('../../dist/', import.meta.url));
 const wasmEntrySource = await readFile(new URL('../../dist/wasm.js', import.meta.url), 'utf8');
 const preset = JSON.parse(core.get_preset_json('cc4'));
+const gazeGeometryFacts = [
+  new Float32Array([1, 0, -1]),
+  new Float32Array([0, 0, 0, 1]),
+  new Float32Array([0, 0, 0]),
+  new Float32Array([0, 0, 0, 1]),
+];
+const gazeGeometry = JSON.parse(core.resolve_profile_gaze_geometry_json(
+  JSON.stringify(preset), ...gazeGeometryFacts,
+));
+let rejectsInvalidGazeProfile = false;
+try { core.resolve_profile_gaze_geometry_json('not JSON', ...gazeGeometryFacts); }
+catch (error) { rejectsInvalidGazeProfile = /Invalid gaze profile JSON/.test(error.message); }
 const hairPresets = JSON.parse(core.hair_color_presets_json());
 const templates = JSON.parse(core.list_humanoid_skeleton_templates_json());
 const model = {
@@ -105,6 +117,16 @@ const checks = [
   ['Wasm loader avoids eval/new Function', !wasmEntrySource.includes('new Function')],
   ['Wasm loader uses native dynamic import', wasmEntrySource.includes('import(')],
   ['embedded profile data', preset.meshes.CC_Base_Eye.category === 'eye'],
+  ['public Wasm gaze geometry keeps bearing beyond AU limits',
+    Math.abs(gazeGeometry.cameraBearingDegrees?.yaw - 135) < 1e-4 &&
+    Math.abs(gazeGeometry.cameraBearingDegrees?.pitch) < 1e-4 &&
+    Math.abs(gazeGeometry.cameraDistanceSceneUnits - Math.SQRT2) < 1e-4],
+  ['public Wasm gaze geometry exposes named signed capacities',
+    [['headYaw', 60], ['headPitch', 30], ['eyeYaw', 25], ['eyePitch', 20]].every(
+      ([axis, degrees]) => gazeGeometry.limitsDegrees?.[axis]?.negative === degrees &&
+        gazeGeometry.limitsDegrees?.[axis]?.positive === degrees,
+    )],
+  ['public Wasm gaze geometry rejects malformed profile JSON', rejectsInvalidGazeProfile],
   ['Rust hair appearance data', hairPresets.natural_brown.baseColor === '#4a3728'],
   ['CC4 preset owns hair color swatches', preset.hairColorPresets?.natural_brown?.baseColor === '#4a3728'],
   ['Rust humanoid template data', templates[0].id === 'cc4-humanoid'],
