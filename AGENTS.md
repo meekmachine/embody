@@ -59,6 +59,17 @@ CI, the user, or explicitly requested validation. Report what was not run.
   reflect the final diff and explain why it addresses the linked issue, what
   changed for consumers, and actual verification with its limits. Identify any
   acceptance criteria left incomplete; planned checks are not completed checks.
+- Qualify a runtime claim where it appears: identify the category, profile mode,
+  input, and output it governs. Distinguish omitted routes, explicit empty lists,
+  exact names, and compatibility aliases when those cases change the result.
+  A restriction on one category is not a global switch for character animation.
+- Separate configured names, compiled targets, adapter application, and host UI
+  state. Describe a library correction at the boundary it changes and keep any
+  unresolved host mismatch visible; improving PR wording does not fix that code.
+- Describe test source and observed results separately. A synthetic AU fixture
+  does not establish real preset behavior or checklist/runtime agreement. Name
+  relevant coverage gaps and downstream package adoption without claiming tests
+  ran, integration succeeded, or the application was deployed.
 - Use precise, searchable titles naming the affected behavior or contract, and
   concise active prose proportional to the change. Define unfamiliar terms and
   replace claims such as "improve expressiveness" with a specific result. Keep
@@ -67,6 +78,10 @@ CI, the user, or explicitly requested validation. Report what was not run.
 - Review findings must explain the triggering condition, failure, consequence,
   and evidence. Name the concrete consumer or system impact of an architecture
   violation; a prose preference alone is not a correctness defect.
+- Use the [scope and evidence examples](docs/development-guidance.md#write-claims-at-the-boundary-the-change-controls)
+  to explain why a qualification matters. Lead with the consumer-visible result;
+  keep helper lists, commit history, and repeated assurances only when they help
+  assess a specific compatibility decision or tradeoff.
 
 ## Code clarity and contract documentation
 
