@@ -51,8 +51,9 @@ keeps automatic viseme jaw synthesis from replacing that curve; it does not
 disable the AU's mapped morphs or the viseme shapes.
 
 An explicit `morphToMesh` category limits AU morph output to the selected meshes.
-For a split face, select each skin, eyebrow and eyelash mesh that should receive
-the mapped morphs. An empty list disables that category's morph output; a missing
+Assign each participating mesh to the category used by its controls. CC4 eyelids
+use `eye`, while speech shapes use `viseme`; changing `face` alone does not change
+those assignments. An empty list disables that category's morph output; a missing
 mesh or a morph absent from the selected meshes does not search other meshes.
 Bone mappings remain independent. Visemes follow the same rule for their chosen
 category (or `face` when no separate viseme category is assigned). Legacy profiles
@@ -60,6 +61,20 @@ that omit mesh routing entirely retain discovery by morph content. Exact mesh
 names take precedence; older unsuffixed names can still resolve GLTF primitive
 names when the model contains no exact match. Live controls and newly compiled
 AU/viseme clips use these same compiled bindings.
+
+Host editors can call `embody_request` with operation `name.resolveMeshSelection`
+and payload `{ "configuredNames": ["Skin"], "availableNames": ["Skin_1", "Skin_2"] }`.
+It returns `{ "resolvedNames": ["Skin_1", "Skin_2"], "unresolvedNames": [] }` using
+the compiler's resolver. Both inputs must be arrays of strings; invalid input
+is rejected. Supply all loaded mesh names, including meshes without morphs:
+an exact `Skin` match prevents expansion to numbered siblings. Resolved names
+follow model order; unresolved names follow configuration order.
+
+Display the resolved names as selected and retain unresolved names as unavailable
+selections. Reading this view must not rewrite the profile. When a user edits it,
+save the remaining concrete names and unresolved selections; otherwise a retained
+alias could reselect a primitive the user just unchecked. An explicit empty
+selection stays empty. This query does not discover morphs for omitted routing.
 
 The TypeScript adapter is intentionally limited to operations that require
 Three.js objects: scene traversal, ClipIR ↔ `AnimationClip` conversion, frame

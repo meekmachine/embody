@@ -3514,6 +3514,59 @@ mod tests {
     }
 
     #[test]
+    fn cc4_face_alias_edits_leave_eyelid_and_viseme_categories_independent() {
+        let names = ["CC_Base_Body_1", "CC_Base_Body_2", "CC_Base_EyeOcclusion", "Lashes"];
+        let mut meshes = Vec::new();
+        let mut morph_targets = Vec::new();
+        for (index, name) in names.iter().enumerate() {
+            let mesh_id = index + 1;
+            let ids = [mesh_id * 10 + 1, mesh_id * 10 + 2, mesh_id * 10 + 3];
+            meshes.push(serde_json::json!({"id": mesh_id, "name": name, "morphTargetIds": ids}));
+            for (host_index, morph_name) in ["Mouth_Smile_L", "Eye_Blink_L", "AE"].iter().enumerate() {
+                morph_targets.push(serde_json::json!({
+                    "id": ids[host_index], "meshId": mesh_id, "name": morph_name, "hostIndex": host_index,
+                }));
+            }
+        }
+        let model = serde_json::json!({"meshes": meshes, "morphTargets": morph_targets}).to_string();
+        let channels = r#"[
+            {"target":{"type":"au","id":12},"keyframes":[{"time":0,"intensity":0},{"time":1,"intensity":1}]},
+            {"target":{"type":"au","id":45},"keyframes":[{"time":0,"intensity":0},{"time":1,"intensity":1}]},
+            {"target":{"type":"viseme","id":0},"keyframes":[{"time":0,"intensity":0},{"time":1,"intensity":1}]}
+        ]"#;
+        let mut core = RuntimeCore::new(0);
+        // Start with the real preset's unsuffixed face alias, remove one loaded
+        // primitive, then clear face. Neither edit changes eye or viseme routing.
+        for (patch, smile_targets) in [
+            (serde_json::json!({}), vec![11, 21]),
+            (serde_json::json!({"morphToMesh": {"face": ["CC_Base_Body_2"]}}), vec![21]),
+            (serde_json::json!({"morphToMesh": {"face": []}}), vec![]),
+            (serde_json::json!({"morphToMesh": {"face": ["Lashes"]}}), vec![41]),
+        ] {
+            core.configure_with_preset("cc4", &patch.to_string(), &model).unwrap();
+            core.set_au(12, 1.0, 0.0);
+            core.set_au(45, 1.0, 0.0);
+            core.set_viseme(0, 1.0);
+            let mut expected: Vec<u32> = smile_targets;
+            expected.extend([13, 23, 32]); // Two speech targets and the eye-category blink.
+            expected.sort_unstable();
+            let mut live = unpack_rows(&core.evaluate_active_morph_frame()).iter()
+                .filter(|row| row.2 > 0.0).map(|row| row.1).collect::<Vec<_>>();
+            live.sort_unstable();
+            assert_eq!(live, expected, "live CC4 routing for {patch}");
+
+            let clip: ClipIR = serde_json::from_str(&core.build_typed_clip(
+                "cc4-face-edit", channels, r#"{"autoVisemeJaw":false}"#,
+            ).unwrap()).unwrap();
+            let mut compiled = clip.tracks.iter()
+                .filter_map(|track| track.target["morphTargetId"].as_u64()).collect::<Vec<_>>();
+            compiled.sort_unstable();
+            assert_eq!(compiled, expected.iter().map(|id| u64::from(*id)).collect::<Vec<_>>(),
+                "compiled CC4 routing for {patch}");
+        }
+    }
+
+    #[test]
     fn resolved_profile_with_stale_bindings_does_not_block_character_loading() {
         let profile = r#"{
             "auToMorphs": {

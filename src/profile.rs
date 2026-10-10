@@ -5,7 +5,7 @@
 //! rotation axes, bone translations, jaw binding, and rest transforms. Hosts
 //! only pass data in; no mapping resolution happens in JavaScript.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use regex_lite::Regex;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -1585,20 +1585,7 @@ impl NameResolver {
     }
 
     fn resolve_mesh_names(&self, configured_names: &[String]) -> Vec<String> {
-        let mut resolved = Vec::new();
-        for actual_name in &self.mesh_names {
-            // A selected concrete name must not also select numbered siblings.
-            // Legacy names still resolve GLTF primitives when no exact mesh exists.
-            if configured_names
-                .iter()
-                .any(|configured| configured == actual_name
-                    || (!self.mesh_by_name.contains_key(configured)
-                        && mesh_names_are_variants(configured, actual_name)))
-            {
-                resolved.push(actual_name.clone());
-            }
-        }
-        resolved
+        resolve_mesh_selection(configured_names, &self.mesh_names).resolved_names
     }
 
     fn resolve_morph_by_name<'a>(
@@ -1658,6 +1645,34 @@ impl NameResolver {
             .find(|bone| bone.name == full)
             .or_else(|| model.bones.iter().find(|bone| bone.name == configured))
             .or_else(|| model.bones.iter().find(|bone| bone.name == node_key))
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeshSelection {
+    pub resolved_names: Vec<String>,
+    pub unresolved_names: Vec<String>,
+}
+
+/// Authoring controls and runtime compilation must agree about legacy aliases.
+/// Unresolved names remain available to an editor without becoming runtime targets.
+pub(crate) fn resolve_mesh_selection(
+    configured_names: &[String],
+    available_names: &[String],
+) -> MeshSelection {
+    let exact_names: HashSet<&str> = available_names.iter().map(String::as_str).collect();
+    let matches = |configured: &String, actual: &String| {
+        configured == actual
+            || (!exact_names.contains(configured.as_str()) && mesh_names_are_variants(configured, actual))
+    };
+    MeshSelection {
+        resolved_names: available_names.iter()
+            .filter(|actual| configured_names.iter().any(|configured| matches(configured, actual)))
+            .cloned().collect(),
+        unresolved_names: configured_names.iter()
+            .filter(|configured| !available_names.iter().any(|actual| matches(configured, actual)))
+            .cloned().collect(),
     }
 }
 
