@@ -50,6 +50,42 @@ already supplies a jaw AU curve, its existing `autoVisemeJaw: false` option
 keeps automatic viseme jaw synthesis from replacing that curve; it does not
 disable the AU's mapped morphs or the viseme shapes.
 
+`morphToMesh.face` selects the meshes that make up the face. When present, it
+controls all facial AU and speech-shape morph output, including blinking, eye
+movement and tongue shapes. Older `eye`, `tongue`, or `viseme` mesh assignments
+cannot animate meshes outside that selection. A selected lash mesh can receive
+its mapped blink morph without a second mesh assignment. An empty face list
+disables all facial morph output. Missing meshes and missing morphs never cause
+the compiler to search unselected meshes. Body and hair morph assignments and
+bone animation remain independent.
+
+Profiles without a `face` selection retain their separate category assignments;
+only omitted routes retain legacy discovery by morph content. Exact mesh
+names take precedence; older unsuffixed names can still resolve GLTF primitive
+names when the model contains no exact match. Live controls and newly compiled
+AU/viseme clips use these same compiled bindings.
+
+Host editors can call `embody_request` with operation `name.resolveMeshSelection`
+and payload `{ "configuredNames": ["Skin"], "availableNames": ["Skin_1", "Skin_2"] }`.
+It returns `{ "resolvedNames": ["Skin_1", "Skin_2"], "unresolvedNames": [] }` using
+the compiler's resolver. Both inputs must be arrays of strings; invalid input
+is rejected. Supply all loaded mesh names, including meshes without morphs:
+an exact `Skin` match prevents expansion to numbered siblings. Resolved names
+follow model order; unresolved names follow configuration order.
+
+Display the resolved names as selected and retain unresolved names as unavailable
+selections. Reading this view must not rewrite the profile. When a user edits it,
+save the remaining concrete names and unresolved selections; otherwise a retained
+alias could reselect a primitive the user just unchecked. An explicit empty
+selection stays empty. This query does not discover morphs for omitted routing.
+
+Mapping editors use `profile.getMeshCategory` with `{ "profile": profile,
+"section": "Eyelids", "category": "eye" }` to find which saved list a control
+edits. It returns `face` when a face selection exists, including an empty list.
+The `Visemes` section also follows face selection, regardless of its older speech
+mesh category. Body and hair controls retain their own lists. This keeps editor
+previews and writes on the same mesh selection as animation.
+
 The TypeScript adapter is intentionally limited to operations that require
 Three.js objects: scene traversal, ClipIR ↔ `AnimationClip` conversion, frame
 application, material writes, model loading/disposal, and default scene

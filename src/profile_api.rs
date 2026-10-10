@@ -2089,6 +2089,14 @@ fn extend_profile_config(config: Value) -> Result<Value, String> {
 
 fn profile_view(profile: &ProfileData, op: &str, payload: &Value) -> Result<Value, String> {
     match op {
+        "profile.getMeshCategory" => {
+            let category = string_field(payload, "category")?;
+            if payload.get("section").and_then(Value::as_str) == Some("Visemes") {
+                Ok(json!(crate::profile::resolve_profile_view(profile).viseme_mesh_category))
+            } else {
+                Ok(json!(crate::profile::effective_mesh_category(profile, &category)))
+            }
+        }
         "profile.getMeshNamesForAU" => {
             let id = value_field(payload, "auId")?.as_u64().unwrap_or(0) as u32;
             let view = crate::profile::resolve_profile_view(profile);
@@ -2220,6 +2228,19 @@ fn execute(request: Request) -> Result<Value, String> {
             &string_field(&payload, "targetName")?,
             payload.get("suffixPattern").and_then(Value::as_str),
         ))),
+        "name.resolveMeshSelection" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Payload {
+                configured_names: Vec<String>,
+                available_names: Vec<String>,
+            }
+            let selection: Payload = serde_json::from_value(payload)
+                .map_err(|error| format!("Invalid mesh selection: {error}"))?;
+            serde_json::to_value(crate::profile::resolve_mesh_selection(
+                &selection.configured_names, &selection.available_names,
+            )).map_err(|error| error.to_string())
+        }
         "profile.setAUMorphTargets" => set_au_morph_targets(&payload),
         "profile.setHumanoidRoleBinding" => {
             let mut profile = profile_field(&payload)?;
@@ -2548,6 +2569,52 @@ mod tests {
             payload,
         })
         .unwrap()
+    }
+
+    #[test]
+    fn editor_mesh_category_uses_the_same_face_selection_as_animation() {
+        let profile = json!({
+            "morphToMesh": {"face": [], "eye": ["Eyes"], "mouth": ["Mouth"], "body": ["Shirt"]},
+            "visemeMeshCategory": "mouth",
+        });
+        for (section, category, expected) in [
+            ("Eyelids", "eye", "face"), ("Tongue", "tongue", "face"),
+            ("Visemes", "mouth", "face"), ("Visemes", "body", "face"),
+            ("Body Morphs", "body", "body"), ("Hair", "hair", "hair"),
+        ] {
+            assert_eq!(request("profile.getMeshCategory", json!({
+                "profile": profile, "section": section, "category": category,
+            })), expected);
+        }
+        assert_eq!(request("profile.getMeshNamesForViseme", json!({"profile": profile})), json!([]));
+    }
+
+    #[test]
+    fn mesh_selection_query_resolves_aliases_and_retains_only_unmatched_names() {
+        for (configured, available, resolved, unresolved) in [
+            (json!(["Skin", "Missing"]), json!(["Skin_1", "Skin_2", "Hat"]), json!(["Skin_1", "Skin_2"]), json!(["Missing"])),
+            (json!(["Skin"]), json!(["Skin", "Skin_1"]), json!(["Skin"]), json!([])),
+            (json!(["Skin_1"]), json!(["Skin.1", "Skin_2"]), json!(["Skin.1"]), json!([])),
+            (json!(["Skin"]), json!([]), json!([]), json!(["Skin"])),
+            (json!([]), json!(["Skin_1", "Skin_2"]), json!([]), json!([])),
+        ] {
+            let result = request("name.resolveMeshSelection", json!({
+                "configuredNames": configured, "availableNames": available,
+            }));
+            assert_eq!(result, json!({"resolvedNames": resolved, "unresolvedNames": unresolved}));
+        }
+    }
+
+    #[test]
+    fn mesh_selection_query_rejects_invalid_name_lists() {
+        for payload in [
+            json!({}),
+            json!({"configuredNames": null, "availableNames": []}),
+            json!({"configuredNames": [1], "availableNames": []}),
+            json!({"configuredNames": [], "availableNames": "Skin"}),
+        ] {
+            assert!(execute(Request { op: "name.resolveMeshSelection".into(), payload }).is_err());
+        }
     }
 
     fn profile() -> Value {

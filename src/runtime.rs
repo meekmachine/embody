@@ -3442,6 +3442,139 @@ mod tests {
     }
 
     #[test]
+    fn facial_mesh_selection_limits_live_and_compiled_au_morphs_without_clearing_bones() {
+        let model = serde_json::json!({
+            "bones": [{"id": 1, "name": "CustomJaw"}],
+            "meshes": [
+                {"id": 1, "name": "Skin", "morphTargetIds": [11]},
+                {"id": 2, "name": "Brows", "morphTargetIds": [21]},
+                {"id": 3, "name": "Lashes", "morphTargetIds": [31]},
+                {"id": 4, "name": "Accessory", "morphTargetIds": [41, 42, 43]}
+            ],
+            "morphTargets": [
+                {"id": 11, "meshId": 1, "name": "Smile", "hostIndex": 0},
+                {"id": 21, "meshId": 2, "name": "BrowLift", "hostIndex": 1},
+                {"id": 31, "meshId": 3, "name": "Blink", "hostIndex": 2},
+                {"id": 41, "meshId": 4, "name": "Smile", "hostIndex": 0},
+                {"id": 42, "meshId": 4, "name": "BrowLift", "hostIndex": 1},
+                {"id": 43, "meshId": 4, "name": "Blink", "hostIndex": 2}
+            ]
+        }).to_string();
+        let channels = r#"[{"target":{"type":"au","id":900},"keyframes":[
+            {"time":0,"intensity":0},{"time":1,"intensity":0.5}
+        ]}]"#;
+        // Named and numeric mappings must both stay inside the selected meshes.
+        for targets in [serde_json::json!(["Smile", "BrowLift", "Blink"]), serde_json::json!([0, 1, 2])] {
+            let mut core = RuntimeCore::new(0);
+            let mut expected_bones = None;
+            for (selection, expected_targets) in [
+                (vec!["Skin", "Brows", "Lashes"], vec![11, 21, 31]),
+                (vec!["Skin", "Brows"], vec![11, 21]),
+                (vec!["Lashes"], vec![31]),
+                (vec!["Skin"], vec![11]),
+                (vec![], vec![]),
+                (vec!["MissingMesh"], vec![]),
+                (vec!["Skin", "Brows", "Lashes"], vec![11, 21, 31]),
+            ] {
+                let profile = serde_json::json!({
+                    "auToMorphs": {"900": {"center": targets}},
+                    "morphToMesh": {"face": selection},
+                    "auToBones": {"900": [{"node":"JAW", "channel":"rx", "scale":1, "maxDegrees":40}]},
+                    "boneNodes": {"JAW": "CustomJaw"},
+                    "compositeRotations": [{"node":"JAW", "pitch":{"aus":[900], "axis":"rx"}}],
+                    "auMixDefaults": {"900": 1}
+                }).to_string();
+                // Reconfigure the same runtime to exercise removing old bindings.
+                core.configure_with_profile(&profile, &model).unwrap();
+                core.set_au(900, 0.5, 0.0);
+                let rows = unpack_rows(&core.evaluate_active_morph_frame());
+                assert_eq!(rows.iter().map(|row| row.1).collect::<Vec<_>>(), expected_targets,
+                    "live selection: {selection:?}, targets: {targets}");
+                assert!(rows.iter().all(|row| (row.2 - 0.5).abs() < 1e-6));
+                let bones = core.evaluate_active_bone_frame();
+                assert!(!bones.is_empty(), "mesh selection does not clear a mapped bone");
+                if let Some(expected) = &expected_bones {
+                    assert_eq!(&bones, expected);
+                } else {
+                    expected_bones = Some(bones);
+                }
+
+                let clip: ClipIR = serde_json::from_str(&core.build_typed_clip(
+                    "selected-face", channels, r#"{"autoVisemeJaw":false}"#,
+                ).unwrap()).unwrap();
+                let mut morph_ids = clip.tracks.iter()
+                    .filter_map(|track| track.target["morphTargetId"].as_u64())
+                    .collect::<Vec<_>>();
+                morph_ids.sort_unstable();
+                assert_eq!(morph_ids, expected_targets.iter().map(|id| u64::from(*id)).collect::<Vec<_>>(),
+                    "compiled selection: {selection:?}, targets: {targets}");
+                assert_eq!(clip.tracks.iter().filter(|track| track.target["boneId"] == 1).count(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn cc4_face_selection_controls_expression_blink_and_speech_in_live_and_compiled_animation() {
+        let names = ["CC_Base_Body_1", "CC_Base_Body_2", "CC_Base_EyeOcclusion", "Lashes", "Shirt"];
+        let mut meshes = Vec::new();
+        let mut morph_targets = Vec::new();
+        for (index, name) in names.iter().enumerate() {
+            let mesh_id = index + 1;
+            let ids = [mesh_id * 10 + 1, mesh_id * 10 + 2, mesh_id * 10 + 3, mesh_id * 10 + 4];
+            meshes.push(serde_json::json!({"id": mesh_id, "name": name, "morphTargetIds": ids}));
+            for (host_index, morph_name) in ["Mouth_Smile_L", "Eye_Blink_L", "AE", "BodyFlex"].iter().enumerate() {
+                morph_targets.push(serde_json::json!({
+                    "id": ids[host_index], "meshId": mesh_id, "name": morph_name, "hostIndex": host_index,
+                }));
+            }
+        }
+        let model = serde_json::json!({"meshes": meshes, "morphTargets": morph_targets}).to_string();
+        let channels = r#"[
+            {"target":{"type":"au","id":12},"keyframes":[{"time":0,"intensity":0},{"time":1,"intensity":1}]},
+            {"target":{"type":"au","id":45},"keyframes":[{"time":0,"intensity":0},{"time":1,"intensity":1}]},
+            {"target":{"type":"viseme","id":0},"keyframes":[{"time":0,"intensity":0},{"time":1,"intensity":1}]},
+            {"target":{"type":"au","id":1001},"keyframes":[{"time":0,"intensity":0},{"time":1,"intensity":1}]}
+        ]"#;
+        let mut core = RuntimeCore::new(0);
+        // All meshes deliberately share the same morph names. Only selected face
+        // meshes may receive facial output; the body's Shirt assignment stays active.
+        for (mut patch, selected_mesh_ids) in [
+            (serde_json::json!({"morphToMesh": {}}), vec![1, 2]),
+            (serde_json::json!({"morphToMesh": {"face": ["CC_Base_Body_2"]}}), vec![2]),
+            (serde_json::json!({"morphToMesh": {"face": []}}), vec![]),
+            (serde_json::json!({"morphToMesh": {"face": ["Lashes"]}}), vec![4]),
+            (serde_json::json!({"morphToMesh": {"face": ["CC_Base_EyeOcclusion", "Lashes"]}}), vec![3, 4]),
+            (serde_json::json!({"morphToMesh": {"face": ["CC_Base_Body"]}}), vec![1, 2]),
+        ] {
+            patch["morphToMesh"]["body"] = serde_json::json!(["Shirt"]);
+            patch["auToMorphs"] = serde_json::json!({"1001": {"center": ["BodyFlex"]}});
+            core.configure_with_preset("cc4", &patch.to_string(), &model).unwrap();
+            core.set_au(12, 1.0, 0.0);
+            core.set_au(45, 1.0, 0.0);
+            core.set_viseme(0, 1.0);
+            core.set_au(1001, 1.0, 0.0);
+            let mut expected: Vec<u32> = vec![54];
+            for mesh_id in selected_mesh_ids {
+                expected.extend([mesh_id * 10 + 1, mesh_id * 10 + 2, mesh_id * 10 + 3]);
+            }
+            expected.sort_unstable();
+            let mut live = unpack_rows(&core.evaluate_active_morph_frame()).iter()
+                .filter(|row| row.2 > 0.0).map(|row| row.1).collect::<Vec<_>>();
+            live.sort_unstable();
+            assert_eq!(live, expected, "live CC4 routing for {patch}");
+
+            let clip: ClipIR = serde_json::from_str(&core.build_typed_clip(
+                "cc4-face-edit", channels, r#"{"autoVisemeJaw":false}"#,
+            ).unwrap()).unwrap();
+            let mut compiled = clip.tracks.iter()
+                .filter_map(|track| track.target["morphTargetId"].as_u64()).collect::<Vec<_>>();
+            compiled.sort_unstable();
+            assert_eq!(compiled, expected.iter().map(|id| u64::from(*id)).collect::<Vec<_>>(),
+                "compiled CC4 routing for {patch}");
+        }
+    }
+
+    #[test]
     fn resolved_profile_with_stale_bindings_does_not_block_character_loading() {
         let profile = r#"{
             "auToMorphs": {
