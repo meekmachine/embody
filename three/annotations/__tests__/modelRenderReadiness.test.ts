@@ -1,23 +1,19 @@
 import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DPthreeCameraController } from '../DPthreeCameraController';
+import { ThreeAnnotationController } from '../ThreeAnnotationController';
 
-vi.mock('three/examples/jsm/controls/OrbitControls.js', () => ({
-  OrbitControls: class {
-    target = new THREE.Vector3();
-    update() {} dispose() {}
-  },
-}));
+import { installAnnotationDom } from './annotationDom';
 
 function deferred() {
   let resolve!: () => void; let reject!: (reason: unknown) => void;
   const promise = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-const controllers: DPthreeCameraController[] = [];
+const controllers: ThreeAnnotationController[] = [];
 afterEach(() => { controllers.splice(0).forEach((controller) => controller.dispose()); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 function fixture(native = true) {
+  const { domElement } = installAnnotationDom();
   vi.stubGlobal('window', { innerWidth: 640, innerHeight: 480, addEventListener: vi.fn(), removeEventListener: vi.fn() });
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   const scene = new THREE.Scene(); const camera = new THREE.PerspectiveCamera();
@@ -54,8 +50,8 @@ function fixture(native = true) {
     getMRT: () => mrt, setMRT: (value: object) => { mrt = value; },
   };
   const renderFrame = vi.fn<() => void | Promise<void>>(); const onRenderError = vi.fn();
-  const controller = new DPthreeCameraController({
-    scene, camera, domElement: { clientWidth: 640, clientHeight: 480 } as HTMLElement,
+  const controller = new ThreeAnnotationController({
+    scene, camera, domElement,
     renderer: renderer as unknown as THREE.WebGLRenderer, renderFrame, onRenderError, showDOMControls: false,
   });
   controllers.push(controller); controller.setModel(model);

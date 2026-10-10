@@ -7,7 +7,7 @@ import type { InitInput } from './embody_wasm.js';
 // wasm-bindgen generates this module during the package build. TypeScript's
 // rootDirs resolves it from dist/ in source and as a sibling in the package.
 export type EmbodyCore = typeof import('./embody_wasm.js');
-export type { RuntimeCore, HairPhysicsSolver, CameraFlight, CameraOrbit } from './embody_wasm.js';
+export type { RuntimeCore, HairPhysicsSolver, CameraFlight, CameraOrbit, AnnotationRuntime, AnnotationLifecycle } from './embody_wasm.js';
 
 export const EMBODY_CORE_ABI_VERSION = 1;
 export const PACKED_MORPH_FRAME_DELTA_STRIDE = 4;

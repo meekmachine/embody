@@ -2167,6 +2167,10 @@ fn profile_view(profile: &ProfileData, op: &str, payload: &Value) -> Result<Valu
     }
 }
 
+pub(crate) fn dispatch(op: &str, payload: &Value) -> Result<Value, String> {
+    execute(Request { op: op.to_owned(), payload: payload.clone() })
+}
+
 fn execute(request: Request) -> Result<Value, String> {
     let payload = request.payload;
     match request.op.as_str() {

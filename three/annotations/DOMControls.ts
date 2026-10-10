@@ -1,5 +1,6 @@
+import { annotationQuery } from './runtime';
 /**
- * Self-contained DOM controls for DPthreeCameraController
+ * Self-contained DOM controls for ThreeAnnotationController
  * No React dependencies - vanilla DOM manipulation
  */
 export interface DOMControlRegion {
@@ -26,13 +27,8 @@ export interface DOMControlsConfig {
 /** Temporary AU preview regions must never appear in the View dropdown. */
 export const RUNTIME_ANNOTATION_REGION_PREFIX = 'runtime:annotation:';
 
-export function isRuntimeAnnotationRegionName(name: string): boolean {
-  return name.startsWith(RUNTIME_ANNOTATION_REGION_PREFIX);
-}
-
-export function filterCameraViewRegions<T extends { name: string }>(regions: T[]): T[] {
-  return regions.filter((region) => !isRuntimeAnnotationRegionName(region.name));
-}
+export function isRuntimeAnnotationRegionName(name: string): boolean { return annotationQuery('isRuntimeName', { name }); }
+export function filterCameraViewRegions<T extends { name: string }>(regions: T[]): T[] { return annotationQuery<number[]>('viewRegionIndices', { regions: regions.map(({ name }) => ({ name })) }).map(index => regions[index]); }
 
 /**
  * CSS styles for the DOM controls
@@ -136,46 +132,7 @@ function injectStyles(): void {
  * Format region name for display
  * Converts snake_case to Title Case
  */
-function formatName(name: string): string {
-  return name
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-function getRegionDepth(
-  region: DOMControlRegion,
-  regionByName: Map<string, DOMControlRegion>,
-  seen: Set<string> = new Set()
-): number {
-  if (!region.parent || seen.has(region.name)) {
-    return 0;
-  }
-
-  const parent = regionByName.get(region.parent);
-  if (!parent) {
-    return 0;
-  }
-
-  seen.add(region.name);
-  return getRegionDepth(parent, regionByName, seen) + 1;
-}
-
-export function buildRegionDisplayOptions(
-  regions: DOMControlRegion[]
-): Array<{ name: string; label: string }> {
-  const viewRegions = filterCameraViewRegions(regions);
-  const regionByName = new Map(viewRegions.map((region) => [region.name, region]));
-
-  return viewRegions.map((region) => {
-    const depth = getRegionDepth(region, regionByName);
-    const prefix = depth > 0 ? `${'-- '.repeat(depth)}` : '';
-    return {
-      name: region.name,
-      label: `${prefix}${formatName(region.name)}`,
-    };
-  });
-}
+export function buildRegionDisplayOptions(regions: DOMControlRegion[]): Array<{ name: string; label: string }> { return annotationQuery('displayOptions', { regions }); }
 
 /**
  * CameraDOMControls - Self-contained DOM UI for region selection

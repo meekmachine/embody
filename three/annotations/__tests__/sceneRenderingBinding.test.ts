@@ -2,28 +2,23 @@ import * as THREE from 'three';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { CharacterSceneRenderingController, CharacterSceneRenderingSnapshot } from '../../scene';
 import { registerSceneRendering } from '../../sceneRenderingBinding';
-import { DPthreeCameraController } from '../DPthreeCameraController';
+import { ThreeAnnotationController } from '../ThreeAnnotationController';
 import { getAnnotationCameraCore } from '../annotationCameraCore';
+import { installAnnotationDom, AnnotationElement, deferred } from './annotationDom';
 beforeAll(async () => { await getAnnotationCameraCore(); });
-
-vi.mock('three/examples/jsm/controls/OrbitControls.js', () => ({
-  OrbitControls: class {
-    target = new THREE.Vector3();
-    connect = vi.fn(); disconnect = vi.fn(); update() {} dispose() {}
-  },
-}));
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-function fixture() {
+function fixture(settled: () => Promise<unknown> | null = () => null) {
+  const { host, domElement: container } = installAnnotationDom();
   vi.stubGlobal('window', { devicePixelRatio: 1, addEventListener: vi.fn(), removeEventListener: vi.fn() });
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
-  const container = { clientWidth: 640, clientHeight: 480, addEventListener: vi.fn(), removeEventListener: vi.fn() } as unknown as HTMLElement;
   const makeRenderer = () => {
     let callback: (() => void) | null = null;
+    const canvas = new AnnotationElement(); host.appendChild(canvas);
     const renderer = {
-      domElement: { parentElement: container, addEventListener: vi.fn(), removeEventListener: vi.fn() },
+      domElement: canvas,
       setAnimationLoop: vi.fn((frame: (() => void) | null) => { callback = frame; return Promise.resolve(); }),
       render: vi.fn(), setPixelRatio: vi.fn(), setSize: vi.fn(),
     };
@@ -38,14 +33,14 @@ function fixture() {
     acquireRenderer: () => ({ renderer: first.renderer, release() {} }),
     releaseSceneResources: async release => { release(); },
   };
-  const owner = registerSceneRendering(rendering, scene, camera, () => null, reportFailure);
+  const owner = registerSceneRendering(rendering, scene, camera, settled, reportFailure);
   return { scene, camera, container, makeRenderer, first, owner, rendering, reportFailure };
 }
 
 describe('camera binding to scene-owned renderer settings', () => {
-  it('retargets the one loop and OrbitControls without replacing the camera, model or control state', async () => {
+  it('retargets the one loop and native input controls without replacing the camera, model or control state', async () => {
     const f = fixture(), rendered: THREE.WebGLRenderer[] = [];
-    const controller = new DPthreeCameraController({ scene: f.scene, camera: f.camera, domElement: f.container,
+    const controller = new ThreeAnnotationController({ scene: f.scene, camera: f.camera, domElement: f.container,
       rendering: f.rendering, showDOMControls: false, renderFrame: (renderer) => { rendered.push(renderer as THREE.WebGLRenderer); } });
     const controls = controller.controls;
     const model = new THREE.Group(); controller.setModel(model);
@@ -56,15 +51,22 @@ describe('camera binding to scene-owned renderer settings', () => {
     await f.owner.binding!.commit(second.renderer);
     f.first.tick(); second.tick();
     expect(rendered).toEqual([second.renderer]); expect(controller.controls).toBe(controls);
-    expect(f.camera.position.toArray()).toEqual([2, 3, 4]); expect(controls.target.toArray()).toEqual([.1, .2, .3]);
-    expect(controls.connect).toHaveBeenLastCalledWith(second.renderer.domElement);
+    expect(f.camera.position.toArray()).toEqual([2, 3, 4]);
+    controls.target.toArray().forEach((value, index) => expect(value).toBeCloseTo([.1, .2, .3][index]));
+    expect(controls.domElement).toBe(second.renderer.domElement);
+    const pose = controller.getCameraState();
+    const wheel = () => Object.assign(new Event('wheel'), { deltaY: 100, deltaMode: 0 });
+    f.first.renderer.domElement.dispatchEvent(wheel());
+    expect(controller.getCameraState()).toEqual(pose);
+    second.renderer.domElement.dispatchEvent(wheel());
+    expect(controller.getCameraState()).not.toEqual(pose);
     controller.dispose();
   });
 
   it('suspension waits for a borrowed asynchronous frame and rejects queued model preparation', async () => {
     const f = fixture(); let finish!: () => void;
     const frame = new Promise<void>((resolve) => { finish = resolve; });
-    const controller = new DPthreeCameraController({ scene: f.scene, camera: f.camera, domElement: f.container,
+    const controller = new ThreeAnnotationController({ scene: f.scene, camera: f.camera, domElement: f.container,
       rendering: f.rendering, showDOMControls: false, renderFrame: () => frame });
     f.first.tick();
     let settled = false;
@@ -76,7 +78,7 @@ describe('camera binding to scene-owned renderer settings', () => {
 
   it('clearing the model prevents the next backend preparation from touching removed resources', async () => {
     const f = fixture();
-    const controller = new DPthreeCameraController({ scene: f.scene, camera: f.camera, domElement: f.container,
+    const controller = new ThreeAnnotationController({ scene: f.scene, camera: f.camera, domElement: f.container,
       rendering: f.rendering, showDOMControls: false });
     controller.setModel(new THREE.Group()); controller.clearModel();
     const second = f.makeRenderer();
@@ -87,7 +89,7 @@ describe('camera binding to scene-owned renderer settings', () => {
 
   it('bound render failures enter scene recovery instead of the legacy fatal host callback', async () => {
     const f = fixture(), failure = new Error('device stopped rendering'), fatal = vi.fn();
-    const controller = new DPthreeCameraController({ scene: f.scene, camera: f.camera, domElement: f.container,
+    const controller = new ThreeAnnotationController({ scene: f.scene, camera: f.camera, domElement: f.container,
       rendering: f.rendering, showDOMControls: false, onRenderError: fatal, renderFrame: () => { throw failure; } });
     f.first.tick();
     expect(f.reportFailure).toHaveBeenCalledWith(failure, f.first.renderer); expect(fatal).not.toHaveBeenCalled();
@@ -98,7 +100,7 @@ describe('camera binding to scene-owned renderer settings', () => {
   it('drains an asynchronous frame before rejecting a failed loop shutdown', async () => {
     const f = fixture(); let finish!: () => void;
     const frame = new Promise<void>(resolve => { finish = resolve; });
-    const controller = new DPthreeCameraController({ scene: f.scene, camera: f.camera, domElement: f.container,
+    const controller = new ThreeAnnotationController({ scene: f.scene, camera: f.camera, domElement: f.container,
       rendering: f.rendering, showDOMControls: false, renderFrame: () => frame });
     f.first.tick();
     vi.mocked(f.first.renderer.setAnimationLoop).mockImplementationOnce(() => Promise.reject(new Error('device lost')));
@@ -109,4 +111,27 @@ describe('camera binding to scene-owned renderer settings', () => {
     finish(); await stopped; expect(settled).toBe(true);
     controller.dispose();
   });
+  it('retains native marker resources until the scene owner drains renderer work', async () => {
+    const compiling = deferred(); const f = fixture(() => compiling.promise);
+    const controller = new ThreeAnnotationController({ scene: f.scene, camera: f.camera, domElement: f.container,
+      rendering: f.rendering, showDOMControls: false });
+    controller.setModel(new THREE.Group());
+    controller.prepareRegionsForReveal({ characterId: 'borrowed', regions: [{ name: 'point',
+      markerAnchor: { type: 'point', position: { x: 0, y: 1, z: 0 } } }] });
+    await controller.loadMarkersForCurrentRegions();
+    const materials: THREE.Material[] = [];
+    f.scene.traverse(object => {
+      const material = (object as THREE.Mesh).material;
+      if (material) materials.push(...(Array.isArray(material) ? material : [material]));
+    });
+    expect(materials.length).toBeGreaterThan(0);
+    const released = deferred();
+    const releases = materials.map(material => vi.spyOn(material, 'dispose'));
+    releases[releases.length - 1].mockImplementation(() => { released.resolve(); });
+    controller.dispose();
+    for (const release of releases) expect(release).not.toHaveBeenCalled();
+    compiling.resolve(); await released.promise;
+    for (const release of releases) expect(release).toHaveBeenCalledOnce();
+  });
+
 });

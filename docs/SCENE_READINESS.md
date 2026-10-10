@@ -7,12 +7,12 @@ existing owners. The default preference is `auto`; the synchronous legacy
 factory remains WebGL-only.
 
 ```ts
-import { createDefaultCharacterSceneRuntime, DPthreeCameraController } from '@lovelace_lol/embody/three';
+import { createDefaultCharacterSceneRuntime, ThreeAnnotationController } from '@lovelace_lol/embody/three';
 
 const runtime = createDefaultCharacterSceneRuntime(container, {
   rendering: { preference: 'auto' },
 });
-const cameraControls = new DPthreeCameraController({
+const cameraControls = await ThreeAnnotationController.create({
   scene: runtime.scene, camera: runtime.camera, domElement: container,
   rendering: runtime.rendering,
 });
@@ -168,8 +168,8 @@ do not notify the compatibility `onDeviceLost` callback. Loss after readiness
 publishes `lost` with the error; `setSettings` can acquire a healthy renderer
 without recreating the scene. Recovery is explicit, never a hidden backend swap.
 
-Pass `rendering` to `DPthreeCameraController` to bind it to the runtime. Its one
-loop is suspended/drained, then retargeted along with OrbitControls and annotation
+Pass `rendering` to `ThreeAnnotationController` to bind it to the runtime. Its one
+loop is suspended/drained, then retargeted along with native input controls and annotation
 canvas listeners by Embody. Pending model readiness is canceled before switching.
 Bound render/loop failures update the rendering snapshot rather than invoking a
 fatal host `onRenderError` recovery path. The legacy fixed-renderer configuration
@@ -179,7 +179,7 @@ owns or disposes caller-added character resources.
 
 ## Model readiness
 
-`DPthreeCameraController.prepareModelForRender(model, { signal? }): Promise<void>`
+`ThreeAnnotationController.prepareModelForRender(model, { signal? }): Promise<void>`
 prepares a loaded model before its first reveal. The controller must own an
 active renderer loop, and a WebGPU renderer must already be initialized (as it
 is after `createDefaultCharacterSceneAsync`). The model must be detached or part

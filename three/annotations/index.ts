@@ -1,10 +1,11 @@
-export { DPthree, CameraController, Markers3D, MarkersHTML, Controls } from './DPthree';
-export type { DPthreeConfig, CharacterValidationResult, ValidationCategory, ValidationItem } from './DPthree';
-export { DPthreeCameraController } from './DPthreeCameraController';
-export type { MarkerStateSnapshot } from './DPthreeCameraController';
-export { DPthree3DMarkers } from './DPthree3DMarkers';
-export { DPthreeHTMLMarkers } from './DPthreeHTMLMarkers';
-export { DPthreeMarkers } from './DPthreeMarkers';
+export { ThreeAnnotations, CameraController, Markers3D, MarkersHTML, Controls } from './ThreeAnnotations';
+export type { ThreeAnnotationsConfig, CharacterValidationResult, ValidationCategory, ValidationItem } from './ThreeAnnotations';
+export { ThreeAnnotationController } from './ThreeAnnotationController';
+export type { ThreeAnnotationControls } from './ThreeAnnotationControls';
+export type { MarkerStateSnapshot } from './ThreeAnnotationController';
+export { ThreeAnnotationMarkers } from './ThreeAnnotationMarkers';
+export { HtmlAnnotationMarkers } from './HtmlAnnotationMarkers';
+export { OverlayAnnotationMarkers } from './OverlayAnnotationMarkers';
 export { CameraDOMControls, RUNTIME_ANNOTATION_REGION_PREFIX, filterCameraViewRegions, isRuntimeAnnotationRegionName, buildRegionDisplayOptions } from './DOMControls';
 export type { DOMControlRegion, DOMControlsConfig } from './DOMControls';
 export { resolveMarkerAnchorRegion, shouldProjectMarkerAnchorToSurface, shouldUseFaceCenterForMarkerAnchor } from './annotationAnchorModel';
@@ -28,9 +29,9 @@ export type {
   AnnotationMarkerAnchorType, AnnotationFocusTarget, AnnotationAnchoredRegion,
   RuntimeAnnotationMetadata, RuntimeAnnotationOptions, RuntimeAnnotationRegionSummary,
   RuntimeAnnotationSide, RuntimeAnnotationTargetType, CameraState, FocusPosition,
-  DPthreeCameraControllerConfig, RegionChangeCallback, CharacterChangeCallback,
-  DPthreeRegion, DPthreeCharacterConfig, DPthreeRegistry, DPthreeRegionChangeCallback,
-  DPthreeCharacterChangeCallback, LineStyle, LineCurve, NamedDirection, LineConfig,
+  ThreeAnnotationControllerConfig, RegionChangeCallback, CharacterChangeCallback,
+  AnnotationRegion, AnnotationRegistry, AnnotationRegionChangeCallback,
+  AnnotationCharacterChangeCallback, LineStyle, LineCurve, NamedDirection, LineConfig,
   MarkerStyleOverrides, ExpandAnimation, ExpandedRegionState, FallbackConfig,
   MarkerGroup, Region, MarkerStyle, BoneResolutionProfile, AnnotationLaterality,
 } from './types';
