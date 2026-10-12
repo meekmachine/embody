@@ -1289,7 +1289,6 @@ impl RuntimeCore {
             }
         }
 
-        let mut viseme_writes: HashMap<(u32, u32), f32> = HashMap::new();
         for binding in &self.viseme_bindings {
             let index = binding.viseme_index as usize;
             let value = if index < self.viseme_values.len() {
@@ -1298,18 +1297,13 @@ impl RuntimeCore {
                 0.0
             };
             let weighted = clamp01(clamp01(value) * binding.weight);
-            let key = (binding.mesh_id, binding.morph_target_id);
-            match viseme_writes.get(&key) {
-                Some(existing) if weighted <= *existing => {}
-                _ => {
-                    viseme_writes.insert(key, weighted);
-                }
-            }
-        }
-        for (key, value) in viseme_writes {
-            let entry = writes.entry(key).or_insert(0.0);
-            if value > *entry {
-                *entry = value;
+            // Visemes share the AU max-combine destination, including neutral
+            // targets needed by full frames. No separate aggregation is needed.
+            let entry = writes
+                .entry((binding.mesh_id, binding.morph_target_id))
+                .or_insert(0.0);
+            if weighted > *entry {
+                *entry = weighted;
             }
         }
 
@@ -2748,6 +2742,55 @@ mod tests {
         let rows = unpack_rows(&packed);
         assert!(rows.contains(&(20, 200, 0.75))); // max(0.75, 0.25)
         assert!(rows.contains(&(20, 201, 0.375)));
+    }
+
+    #[test]
+    fn shared_au_viseme_morphs_preserve_max_zero_overrides_and_release() {
+        let mut core = RuntimeCore::new(2);
+        core.configure_with_profile(
+            r#"{"morphToMesh":{"face":["Face"]}}"#,
+            r#"{
+                "meshes":[{"id":20,"name":"Face","morphTargetIds":[200,201,202]}],
+                "morphTargets":[
+                    {"id":200,"meshId":20,"name":"Shared","hostIndex":0},
+                    {"id":201,"meshId":20,"name":"VisemeOnly","hostIndex":1},
+                    {"id":202,"meshId":20,"name":"Neutral","hostIndex":2}
+                ]
+            }"#,
+        ).unwrap();
+        core.set_viseme_slot_count(2);
+        core.load_au_morph_bindings(&[12.0, 2.0, 20.0, 200.0, 1.0]);
+        core.load_viseme_morph_bindings(&[
+            0.0, 20.0, 200.0, 1.0,
+            1.0, 20.0, 200.0, 0.25,
+            0.0, 20.0, 201.0, 0.5,
+            0.0, 20.0, 202.0, 0.0,
+        ]);
+        core.set_au(12, 0.5, 0.0);
+        core.set_viseme(0, 0.75);
+        core.set_viseme(1, 1.0);
+        assert_eq!(unpack_rows(&core.evaluate_morph_frame_delta()),
+            vec![(20, 200, 0.75), (20, 201, 0.375), (20, 202, 0.0)]);
+        assert_eq!(unpack_rows(&core.evaluate_active_morph_frame()),
+            vec![(20, 200, 0.75), (20, 201, 0.375)]);
+
+        // An AU can win the same destination without summing the visemes.
+        core.set_au(12, 1.0, 0.0);
+        assert_eq!(unpack_rows(&core.evaluate_active_morph_frame()),
+            vec![(20, 200, 1.0), (20, 201, 0.375)]);
+        assert_eq!(core.set_morph("Shared", 0.0, "[]"), 1);
+        assert_eq!(unpack_rows(&core.evaluate_active_morph_frame()),
+            vec![(20, 200, 0.0), (20, 201, 0.375)]);
+        assert_eq!(core.release_morph("Shared", "[]"), 1);
+        assert_eq!(unpack_rows(&core.evaluate_active_morph_frame()),
+            vec![(20, 200, 1.0), (20, 201, 0.375)]);
+
+        core.set_au(12, 0.0, 0.0);
+        core.set_viseme(0, 0.0);
+        core.set_viseme(1, 0.0);
+        assert_eq!(unpack_rows(&core.evaluate_morph_frame_delta()),
+            vec![(20, 200, 0.0), (20, 201, 0.0), (20, 202, 0.0)]);
+        assert!(core.evaluate_active_morph_frame().is_empty());
     }
 
     #[test]
