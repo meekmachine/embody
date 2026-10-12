@@ -432,6 +432,49 @@ use it; adding the export alone does not change LoomLarge tracking. Eye focus
 still uses the resulting finite target and reports residual error when reduced
 strength, authored motion, or rig limits make that target unreachable.
 
+## npm releases and PR previews
+
+Production consumers install an exact published `@lovelace_lol/embody` version
+from npm with authorized read credentials and commit their lockfile. Stable
+packages use restricted npm access under the existing package name; publishing
+never falls back to public access. A stable release contains the compiled JS,
+TypeScript declarations, and Wasm; consumers do not build Embody from Git.
+
+The `Verify and publish package` workflow publishes a stable npm release after
+a push to `main`, or a manual run on `main` with the `ref` input left empty.
+It chooses the next patch version, records the source commit in `gitHead`, and
+builds and validates once. Stable version selection uses the repository's
+read-only `NPM_READ_TOKEN` only for authenticated metadata requests to
+`registry.npmjs.org`; redirects and failed lookups stop the release. The separate
+publish job uses the `npm` environment's `NPM_KEY` to publish the packed output
+with restricted access and provenance disabled, then creates its Git tag
+and GitHub release. Stable releases are serialized through version selection and
+publication; failed registry lookups stop the release. Retrying a published
+commit reuses its existing version, and an older unpublished commit cannot
+replace a newer source release.
+
+Non-draft PRs, manual runs with an explicit `ref`, and `publish-pkg-pr-new`
+repository dispatches publish immutable `pkg.pr.new` previews for testing linked
+upstream changes. An explicit ref remains a preview request even when it names
+`main`; it does not publish to npm. Manual and repository dispatch requests may
+include `upstream_pr` to identify their linked PR.
+
+After publication, the workflow sends `upstream-package-published` to
+`meekmachine/LoomLarge` using the repository's `CROSS_REPO_CI_TOKEN`. Stable
+notifications contain the exact source SHA and npm version. Preview notifications
+contain the immutable URL and upstream PR number, or `null` for an unlinked
+manual preview. LoomLarge owns downstream dependency updates; Embody does not
+edit Polymer or application branches. Missing dispatch credentials and failed
+notifications fail the workflow visibly, so publication cannot silently leave
+downstream consumers unaware. Fork PR jobs receive no npm or dispatch secrets
+and do not send notifications.
+
+Before enabling stable releases, the existing npm package must have restricted
+visibility, `NPM_KEY` must permit publishing it, and `NPM_READ_TOKEN` must permit
+reading it. The notification token must permit repository dispatches to
+LoomLarge. These account and secret settings are prerequisites; source changes
+do not configure them. Existing versions are never republished or overwritten.
+
 ## Development
 
 ```bash
