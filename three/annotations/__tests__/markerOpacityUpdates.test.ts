@@ -18,25 +18,44 @@ async function fadeFixture() {
     markerAnchor: { type: 'point', position: { x: 0, y: 1, z: 0 } }, style: { line: { arrowHead: true } } }] });
   await controller.loadMarkersForCurrentRegions();
   const materials: THREE.Material[] = [];
+  const markers: THREE.Object3D[] = [];
   scene.traverse(object => {
     const material = (object as THREE.Mesh).material;
-    if (material) materials.push(...(Array.isArray(material) ? material : [material]));
+    if (material) {
+      markers.push(object);
+      materials.push(...(Array.isArray(material) ? material : [material]));
+    }
   });
-  return { controller, materials, tick(time: number) { now = time; controller!.update(); } };
+  return { controller, materials, markers, advance(milliseconds: number) { now += milliseconds; controller!.update(); } };
 }
 
 describe('Rust marker fade material updates', () => {
   it.each([false, true])('preserves native programs when fading or interrupting a hide (interrupt=%s)', async interrupted => {
-    const { controller, materials, tick } = await fadeFixture();
+    const { controller, materials, markers, advance } = await fadeFixture();
     expect(materials).toHaveLength(4);
     const versions = materials.map(material => material.version);
+    // Marker creation starts a fade-in at time zero. Measure the fully shown
+    // state before testing a hide, and keep the clock monotonic for both paths.
+    advance(300);
     const opacity = materials.map(material => material.opacity);
+    expect(opacity.every(value => value > 0)).toBe(true);
+    expect(markers.every(marker => marker.visible)).toBe(true);
     controller.setMarkersVisible(false);
-    tick(80);
-    expect(materials.some((material, index) => material.opacity < opacity[index])).toBe(true);
-    if (!interrupted) tick(300);
+    advance(80);
+    materials.forEach((material, index) => {
+      expect(material.opacity).toBeGreaterThan(0);
+      expect(material.opacity).toBeLessThan(opacity[index]);
+    });
+    expect(markers.every(marker => marker.visible)).toBe(true);
+    expect(materials.map(material => material.version)).toEqual(versions);
+    if (!interrupted) {
+      advance(220);
+      expect(materials.every(material => material.opacity === 0)).toBe(true);
+      expect(markers.every(marker => !marker.visible)).toBe(true);
+    }
     controller.setMarkersVisible(true);
-    tick(600);
+    advance(300);
+    expect(markers.every(marker => marker.visible)).toBe(true);
     expect(materials.map(material => material.opacity)).toEqual(opacity);
     expect(materials.map(material => material.version)).toEqual(versions);
     expect(materials.every(material => material.transparent)).toBe(true);
