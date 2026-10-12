@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 const SOURCE_SHA = /^[0-9a-f]{40}$/;
 const STABLE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
@@ -25,6 +27,55 @@ export function packagePublication({ channel, sourceSha, packageVersion, upstrea
     throw new Error('Publication channel must be stable or preview.');
   }
   return { event_type: 'upstream-package-published', client_payload: payload };
+}
+
+// Artifact contents are data from a potentially PR-controlled producer. They
+// cannot select a repository, endpoint, workflow, credential or executable.
+export function validatePublicationRecord(record, run, pullRequest) {
+  if (run?.repository?.full_name !== 'meekmachine/embody'
+      || run?.head_repository?.full_name !== 'meekmachine/embody'
+      || run.path !== '.github/workflows/pr-checks.yml'
+      || run.status !== 'completed' || run.conclusion !== 'success') {
+    throw new Error('Publication must come from a successful same-repository package workflow.');
+  }
+  if (!Number.isSafeInteger(record?.run_id) || !Number.isSafeInteger(record?.run_attempt)
+      || record.run_id !== run.id || record.run_attempt !== run.run_attempt) {
+    throw new Error('Publication artifact does not identify the completed run attempt.');
+  }
+  const payload = record?.publication?.client_payload;
+  if (!payload) throw new Error('Publication artifact is missing its package payload.');
+  const input = {
+    channel: payload.channel, sourceSha: payload.source_sha,
+    packageVersion: payload.package_version, upstreamPr: payload.upstream_pr,
+  };
+  const publication = packagePublication(input);
+  if (!isDeepStrictEqual(record, { run_id: run.id, run_attempt: run.run_attempt, publication })) {
+    throw new Error('Publication artifact differs from the fixed package notification contract.');
+  }
+  if (input.channel === 'stable') {
+    if (!['push', 'workflow_dispatch'].includes(run.event) || run.head_branch !== 'main'
+        || input.sourceSha !== run.head_sha) {
+      throw new Error('Stable publication must identify the completed main source commit.');
+    }
+  } else {
+    if (!['pull_request', 'workflow_dispatch', 'repository_dispatch'].includes(run.event)) {
+      throw new Error('Preview publication has an unsupported workflow event.');
+    }
+    if (run.event === 'pull_request'
+        && (input.sourceSha !== run.head_sha || !input.upstreamPr
+          || !run.pull_requests?.some((pr) => pr.number === input.upstreamPr))) {
+      throw new Error('Preview publication does not identify the workflow run PR and head.');
+    }
+    if (input.upstreamPr !== null) {
+      if (pullRequest?.number !== input.upstreamPr || pullRequest.state !== 'open'
+          || pullRequest.head?.repo?.full_name !== 'meekmachine/embody'
+          || pullRequest.base?.repo?.full_name !== 'meekmachine/embody'
+          || pullRequest.base?.ref !== 'main' || pullRequest.head?.sha !== input.sourceSha) {
+        throw new Error('Preview publication must match the current open same-repository PR head targeting main.');
+      }
+    }
+  }
+  return input;
 }
 
 export async function notifyPackagePublication(input, token = process.env.CROSS_REPO_CI_TOKEN, send = fetch) {

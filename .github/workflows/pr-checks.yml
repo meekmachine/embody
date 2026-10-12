@@ -223,36 +223,40 @@ jobs:
           bash scripts/ci/create-release-tag.sh --tag "${RELEASE_TAG}" --commit "${RELEASE_COMMIT}" --push
           bash scripts/ci/upsert-github-release.sh --tag "${RELEASE_TAG}" --commit "${RELEASE_COMMIT}" --package-name @lovelace_lol/embody --package-version "${RELEASE_VERSION}"
 
-      - name: Notify LoomLarge of the stable package
-        env:
-          CROSS_REPO_CI_TOKEN: ${{ secrets.CROSS_REPO_CI_TOKEN }}
-          PUBLICATION_CHANNEL: stable
-          SOURCE_SHA: ${{ needs.verify.outputs.release_commit }}
-          PACKAGE_VERSION: ${{ needs.verify.outputs.version }}
-        run: node scripts/ci/notify-package-published.mjs
-
-  notify-preview:
-    name: Notify LoomLarge of the preview package
-    needs: verify
-    # No dispatch credential or notification code is available to fork jobs.
-    if: needs.verify.outputs.stable_release == 'false' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+  record-publication:
+    name: Record the published package
+    needs: [verify, publish-npm]
+    # This job only writes data. The main-only workflow_run receiver owns the
+    # dispatch credential, including for same-repository PRs.
+    if: always() && needs.verify.result == 'success' && (needs.verify.outputs.stable_release == 'false' || needs.publish-npm.result == 'success') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v5
         with:
-          # Use the workflow's helper, even when publishing an older source ref.
+          # This helper only writes data and receives no npm/dispatch secrets.
+          # Use its current contract even when an older preview ref is built.
           ref: ${{ github.workflow_sha }}
+          persist-credentials: false
 
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
 
-      - name: Dispatch the successful preview publication
+      - name: Write publication data
         env:
-          CROSS_REPO_CI_TOKEN: ${{ secrets.CROSS_REPO_CI_TOKEN }}
-          PUBLICATION_CHANNEL: preview
+          PUBLICATION_CHANNEL: ${{ needs.verify.outputs.stable_release == 'true' && 'stable' || 'preview' }}
           SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+          PACKAGE_VERSION: ${{ needs.verify.outputs.version }}
           UPSTREAM_PR: ${{ github.event.pull_request.number || inputs.upstream_pr || github.event.client_payload.upstream_pr || '' }}
-        run: node scripts/ci/notify-package-published.mjs
+          PUBLICATION_FILE: ${{ runner.temp }}/package-publication.json
+        run: node scripts/ci/write-package-publication.mjs
+
+      - name: Upload publication data for the trusted receiver
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-publication-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/package-publication.json
+          if-no-files-found: error
+          retention-days: 7

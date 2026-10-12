@@ -50,6 +50,13 @@ export async function readNpmMetadata(packageName, fetchMetadata = fetch, token 
   return metadata;
 }
 
+export function assertPrivatePackageStatus(status, packageName) {
+  if (!status || typeof status !== 'object' || Array.isArray(status)
+      || Object.keys(status).length !== 1 || status[packageName] !== 'private') {
+    throw new Error(`npm must report ${packageName} as private before publication; change package visibility explicitly before retrying.`);
+  }
+}
+
 export function selectRelease(metadata, manifestVersion, sourceSha, headTags = []) {
   if (!SOURCE_SHA.test(sourceSha)) throw new Error('A full source commit SHA is required.');
   const versions = stableVersions(metadata);

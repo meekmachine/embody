@@ -446,8 +446,9 @@ It chooses the next patch version, records the source commit in `gitHead`, and
 builds and validates once. Stable version selection uses the repository's
 read-only `NPM_READ_TOKEN` only for authenticated metadata requests to
 `registry.npmjs.org`; redirects and failed lookups stop the release. The separate
-publish job uses the `npm` environment's `NPM_KEY` to publish the packed output
-with restricted access and provenance disabled, then creates its Git tag
+publish job first requires `npm access get status` to report the existing package
+as private, then uses the `npm` environment's `NPM_KEY` to publish the packed
+output with restricted access and provenance disabled and creates its Git tag
 and GitHub release. Stable releases are serialized through version selection and
 publication; failed registry lookups stop the release. Retrying a published
 commit reuses its existing version, and an older unpublished commit cannot
@@ -459,21 +460,36 @@ upstream changes. An explicit ref remains a preview request even when it names
 `main`; it does not publish to npm. Manual and repository dispatch requests may
 include `upstream_pr` to identify their linked PR.
 
-After publication, the workflow sends `upstream-package-published` to
-`meekmachine/LoomLarge` using the repository's `CROSS_REPO_CI_TOKEN`. Stable
-notifications contain the exact source SHA and npm version. Preview notifications
-contain the immutable URL and upstream PR number, or `null` for an unlinked
-manual preview. LoomLarge owns downstream dependency updates; Embody does not
-edit Polymer or application branches. Missing dispatch credentials and failed
-notifications fail the workflow visibly, so publication cannot silently leave
-downstream consumers unaware. Fork PR jobs receive no npm or dispatch secrets
-and do not send notifications.
+After publication, the producing workflow uploads a JSON notification record
+without a dispatch credential. The separate `Notify package publication`
+`workflow_run` receiver checks out `main`, treats the artifact only as data, and
+validates the successful run attempt, repository, workflow, and source commit.
+Stable records must identify that run's main commit; linked previews must match
+the current open PR head targeting main. The receiver then sends
+`upstream-package-published` to `meekmachine/LoomLarge` using
+`CROSS_REPO_CI_TOKEN` from the `release-coordination` environment. That token must
+not be stored as a repository secret or exposed to a PR build/helper.
+
+Stable notifications contain the exact source SHA and npm version. Preview
+notifications contain the full-SHA URL and upstream PR number, or `null` for an
+unlinked manual preview. The receiver checks the canonical preview URL once and
+fails visibly if it is unavailable. LoomLarge owns downstream dependency updates;
+Embody does not edit Polymer or application branches. Missing credentials and
+failed notifications fail the receiver visibly. Fork PRs do not send
+notifications or receive npm/dispatch secrets.
+
+GitHub activates the receiver after its workflow is present on `main`. The
+release-stack PR's first preview remains usable by its immutable URL before
+that bootstrap merge; subsequent successful publications notify automatically.
 
 Before enabling stable releases, the existing npm package must have restricted
 visibility, `NPM_KEY` must permit publishing it, and `NPM_READ_TOKEN` must permit
-reading it. The notification token must permit repository dispatches to
-LoomLarge. These account and secret settings are prerequisites; source changes
-do not configure them. Existing versions are never republished or overwritten.
+reading it. Configure both the `npm` and `release-coordination` GitHub
+environments to allow deployments from `main` only. Store `CROSS_REPO_CI_TOKEN`
+only in `release-coordination`, with permission to dispatch to LoomLarge. These
+account, environment protection, and secret settings are prerequisites; source
+changes do not configure them. Existing versions are never republished or
+overwritten.
 
 ## Development
 

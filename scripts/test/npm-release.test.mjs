@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertNewReleaseDescendsFromPublished, readNpmMetadata, selectRelease, shouldPublishRelease } from '../ci/npm-release.mjs';
+import { assertNewReleaseDescendsFromPublished, assertPrivatePackageStatus, readNpmMetadata, selectRelease, shouldPublishRelease } from '../ci/npm-release.mjs';
 
 const name = '@lovelace_lol/embody';
 const oldSha = 'a'.repeat(40);
@@ -91,6 +91,14 @@ test('publishing never accepts a public package or public provenance configurati
   for (const publishConfig of [undefined, {}, { access: 'public', provenance: false },
     { access: 'restricted' }, { access: 'restricted', provenance: true }]) {
     assert.throws(() => shouldPublishRelease(old(), { ...packed(), publishConfig }, name, newSha), /restricted access/);
+  }
+});
+
+test('publication requires npm to confirm private visibility for the exact package', () => {
+  assertPrivatePackageStatus({ [name]: 'private' }, name);
+  for (const status of [null, 'private', {}, [], { [name]: 'public' },
+    { [name]: 'restricted' }, { another: 'private' }, { [name]: 'private', another: 'private' }]) {
+    assert.throws(() => assertPrivatePackageStatus(status, name), /must report.*private/);
   }
 });
 
