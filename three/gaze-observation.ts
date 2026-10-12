@@ -1,5 +1,53 @@
-import { Vector3 } from 'three';
+import { Matrix4, Quaternion, Vector3 } from 'three';
 import type { Object3D } from 'three';
+import { requireInitializedEmbodyCore } from '../wasm/index';
+import { bindModelReferencePose } from './reference-pose';
+import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
+
+type GazeVector = [number, number, number];
+type GazeQuaternion = [number, number, number, number];
+export type ThreeGazeRotationResponse = {
+  auId: number;
+  side: 'left' | 'right' | 'center';
+  axis: GazeVector;
+  radians: number;
+  order: number;
+};
+export type ThreeGazeAxes = Record<'yaw' | 'pitch' | 'roll', {
+  negative: ThreeGazeRotationResponse | null;
+  positive: ThreeGazeRotationResponse | null;
+}>;
+type GazeReferenceJoint = {
+  name: string;
+  referencePosition: GazeVector;
+  referenceQuaternion: GazeQuaternion;
+  referenceScale: GazeVector;
+  axes: ThreeGazeAxes;
+};
+export type ThreeGazeRigHead = GazeReferenceJoint & { parentInModelMatrix: number[] };
+export type ThreeGazeRigEye = GazeReferenceJoint & {
+  side: 'left' | 'right';
+  parentInHeadMatrix: number[];
+  originInModel: GazeVector;
+  opticalAxis: GazeVector;
+};
+export type ThreeGazeRigReason = 'missing-reference-pose' | 'invalid-reference-pose'
+  | 'invalid-profile' | 'missing-head-bone' | 'missing-eye-bone' | 'missing-eye-mapping'
+  | 'unknown-optical-axis' | 'duplicate-eye-bone' | 'eye-outside-head-hierarchy'
+  | 'unsupported-joint-transform' | 'unsupported-chain-mapping' | 'invalid-model-transform';
+export type ThreeGazeRigGeometry = {
+  version: 1;
+  status: 'available' | 'unavailable';
+  reason: ThreeGazeRigReason | null;
+  modelWorldMatrix: number[] | null;
+  head: ThreeGazeRigHead | null;
+  eyes: ThreeGazeRigEye[];
+};
+export type ThreeGazeObserverOptions = { referencePose?: ThreeModelReferencePose };
+type ResolvedJoint = { boneId: number; name: string; opticalAxis: GazeVector | null;
+  unsupportedAuIds: number[]; axes: ThreeGazeAxes };
+type ResolvedRig = { head: ResolvedJoint | null; leftEye: ResolvedJoint | null; rightEye: ResolvedJoint | null;
+  drivenBones: Array<{ boneId: number; auId: number; kind: 'rotation' | 'translation' }> };
 
 // Positions use the caller's world-space scene units; directions are normalized
 // world vectors. Angles are degrees, never normalized AU intensities. Keeping
@@ -57,9 +105,14 @@ const selector = (value: unknown): unknown[] => Array.isArray(value) ? value : t
  * finite-distance target honestly, rather than equating playback with focus.
  */
 export class ThreeGazeObserver {
-  private readonly eyes: Eye[];
+  private eyes: Eye[];
+  private readonly profileJson: string;
+  private readonly referencePose?: ThreeModelReferencePose;
+  private rigGeometry?: ThreeGazeRigGeometry;
 
-  constructor(private readonly model: Object3D, profile: unknown) {
+  constructor(private readonly model: Object3D, profile: unknown, options: ThreeGazeObserverOptions = {}) {
+    this.profileJson = JSON.stringify(profile ?? {});
+    this.referencePose = options.referencePose;
     const source = data(profile);
     const names = data(source.boneNodes);
     const characterization = data(source.humanoidCharacterization);
@@ -165,7 +218,125 @@ export class ThreeGazeObserver {
     });
   }
 
+  private referenceGeometry(): ThreeGazeRigGeometry {
+    const unavailable = (reason: ThreeGazeRigReason): ThreeGazeRigGeometry =>
+      ({ version: 1, status: 'unavailable', reason, modelWorldMatrix: null, head: null, eyes: [] });
+    if (!this.referencePose) return unavailable('missing-reference-pose');
+    let references: ReadonlyMap<Object3D, ThreeReferencePoseNode>;
+    try { references = bindModelReferencePose(this.model, this.referencePose); }
+    catch { return unavailable('invalid-reference-pose'); }
+    const bones = [...references].filter(([, reference]) => reference.isBone);
+    let resolved: ResolvedRig;
+    try {
+      const descriptor = { bones: bones.map(([object, reference], index) => ({
+        id: index + 1, name: reference.name,
+        parentName: references.get(object.parent!)?.name ?? null,
+        restTransform: reference.transform,
+      })) };
+      resolved = JSON.parse(requireInitializedEmbodyCore().resolve_profile_gaze_rig_json(
+        this.profileJson, JSON.stringify(descriptor))) as ResolvedRig;
+    } catch { return unavailable('invalid-profile'); }
+    this.eyes = this.eyes.map((eye): Eye => {
+      const joint = eye.side === 'left' ? resolved.leftEye : resolved.rightEye;
+      if (!joint) return { ...eye, reason: 'missing-eye-bone' };
+      if (!Object.values(joint.axes).some(axis => axis.negative || axis.positive)) {
+        return { side: eye.side, name: joint.name, reason: 'missing-eye-mapping' };
+      }
+      return joint.opticalAxis
+        ? { side: eye.side, name: joint.name, optical: new Vector3(...joint.opticalAxis) }
+        : { side: eye.side, name: joint.name, reason: 'unknown-optical-axis' };
+    });
+    if (!resolved.head) return unavailable('missing-head-bone');
+    const headObject = bones[resolved.head.boneId - 1]?.[0];
+    if (!headObject || headObject === this.model) return unavailable('missing-head-bone');
+    const matrixBetween = (ancestor: Object3D, descendant: Object3D | null): Matrix4 | undefined => {
+      const chain: Object3D[] = [];
+      let current = descendant;
+      for (; current && current !== ancestor; current = current.parent) chain.push(current);
+      if (current !== ancestor) return undefined;
+      const result = new Matrix4();
+      for (const object of chain.reverse()) {
+        const reference = references.get(object);
+        if (!reference || reference.localMatrix.length !== 16 || !reference.localMatrix.every(Number.isFinite)) return undefined;
+        result.multiply(new Matrix4().fromArray(reference.localMatrix));
+      }
+      const determinant = result.determinant();
+      return result.elements.every(Number.isFinite) && Number.isFinite(determinant) && determinant !== 0 ? result : undefined;
+    };
+    const referenceJoint = (joint: ResolvedJoint, object: Object3D): GazeReferenceJoint | undefined => {
+      if (!object.matrixAutoUpdate) return undefined;
+      const reference = references.get(object)!;
+      const { position, rotation, scale } = reference.transform;
+      const composed = new Matrix4().compose(new Vector3(position.x, position.y, position.z),
+        new Quaternion(rotation.x, rotation.y, rotation.z, rotation.w), new Vector3(scale.x, scale.y, scale.z));
+      // Native quaternion clips cannot reconstruct shear in a driven joint's local matrix.
+      if (!composed.elements.every((value, index) => Number.isFinite(value)
+        && Math.abs(value - reference.localMatrix[index]) < 1e-6)
+        || !Number.isFinite(composed.determinant()) || composed.determinant() === 0) return undefined;
+      return { name: joint.name, referencePosition: [position.x, position.y, position.z],
+        referenceQuaternion: [rotation.x, rotation.y, rotation.z, rotation.w],
+        referenceScale: [scale.x, scale.y, scale.z], axes: joint.axes };
+    };
+    const head = referenceJoint(resolved.head, headObject);
+    const headParent = matrixBetween(this.model, headObject.parent);
+    if (!head || !headParent) return unavailable('unsupported-joint-transform');
+    const result: ThreeGazeRigGeometry = { version: 1, status: 'available', reason: null, modelWorldMatrix: null,
+      head: { ...head, parentInModelMatrix: headParent.toArray() }, eyes: [] };
+    const fail = (reason: ThreeGazeRigReason) => { result.status = 'unavailable'; result.reason ??= reason; };
+    if (resolved.head.unsupportedAuIds.length) fail('unsupported-chain-mapping');
+    const seen = new Set<Object3D>();
+    for (const side of ['left', 'right'] as const) {
+      const joint = side === 'left' ? resolved.leftEye : resolved.rightEye;
+      const object = joint && bones[joint.boneId - 1]?.[0];
+      if (!joint || !object) { fail('missing-eye-bone'); continue; }
+      if (seen.has(object)) { fail('duplicate-eye-bone'); continue; }
+      seen.add(object);
+      if (!Object.values(joint.axes).some(axis => axis.negative || axis.positive)) {
+        fail('missing-eye-mapping'); continue;
+      }
+      if (!joint.opticalAxis) { fail('unknown-optical-axis'); continue; }
+      if (joint.unsupportedAuIds.length) fail('unsupported-chain-mapping');
+      if (Object.values(joint.axes).some(axis => [axis.negative, axis.positive]
+        .some(response => response && response.side !== side))) fail('unsupported-chain-mapping');
+      const eye = referenceJoint(joint, object);
+      const parent = matrixBetween(headObject, object.parent);
+      const modelMatrix = matrixBetween(this.model, object);
+      if (!parent) { fail('eye-outside-head-hierarchy'); continue; }
+      if (!eye || !modelMatrix) { fail('unsupported-joint-transform'); continue; }
+      result.eyes.push({ ...eye, side, parentInHeadMatrix: parent.toArray(),
+        originInModel: new Vector3().setFromMatrixPosition(modelMatrix).toArray(), opticalAxis: joint.opticalAxis });
+    }
+    for (const driven of resolved.drivenBones) {
+      const object = bones[driven.boneId - 1]?.[0];
+      if (!object) continue;
+      const affectsEye = [...seen].some(eye => {
+        for (let ancestor: Object3D | null = eye; ancestor && ancestor !== this.model; ancestor = ancestor.parent) {
+          if (ancestor === object) return true;
+        }
+        return false;
+      });
+      if (affectsEye && (driven.kind === 'translation'
+        || (object === headObject ? driven.auId >= 60 : !seen.has(object) || driven.auId < 60))) {
+        fail('unsupported-chain-mapping');
+      }
+    }
+    return result;
+  }
+
+  /** Static reference geometry plus current model placement; no animated joint reads. */
+  getRigGeometry(): ThreeGazeRigGeometry {
+    this.rigGeometry ??= this.referenceGeometry();
+    const result = JSON.parse(JSON.stringify(this.rigGeometry)) as ThreeGazeRigGeometry;
+    this.model.updateWorldMatrix(true, false);
+    const matrix = this.model.matrixWorld;
+    if (!matrix.elements.every(Number.isFinite) || !Number.isFinite(matrix.determinant()) || matrix.determinant() === 0) {
+      result.status = 'unavailable'; result.reason = 'invalid-model-transform';
+    } else result.modelWorldMatrix = matrix.toArray();
+    return result;
+  }
+
   observe(worldTarget: ThreeGazePoint): ThreeGazeObservation {
+    if (this.referencePose) this.rigGeometry ??= this.referenceGeometry();
     // This target is supplied by the caller solely for error measurement. The
     // observer never chooses it, clamps it to AU reach, or changes it to make
     // the measured result appear successful.

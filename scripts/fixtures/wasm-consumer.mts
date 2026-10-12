@@ -23,6 +23,8 @@ import {
   type CharacterSceneRenderer,
   type CharacterSceneRendererPreference,
   type ThreeModelReferencePose,
+  ThreeGazeObserver,
+  type ThreeGazeRigGeometry,
   DPthree,
   DPthreeCameraController,
   resolveAnnotationCharacterConfig,
@@ -70,6 +72,13 @@ const clip: string = runtime.build_clip('smile', '{}', '{}');
 // and XYZW quaternions; callers do not pass renderer objects or movement state.
 const noOutputClip: string = runtime.build_clip('unmapped', '{}', JSON.stringify({ allowEmpty: true }));
 const gazeGeometry: string = core.resolve_profile_gaze_geometry_json('{}', new Float32Array(3), new Float32Array([0, 0, 0, 1]), new Float32Array(3), new Float32Array([0, 0, 0, 1]));
+const gazeRig: string = core.resolve_profile_gaze_rig_json('{}', '{}');
+const gazeObserver = new ThreeGazeObserver(renderModel, {}, { referencePose: captureModelReferencePose(renderModel) });
+const rigGeometry: ThreeGazeRigGeometry = gazeObserver.getRigGeometry();
+// @ts-expect-error Reference geometry is a snapshot, not an animation handle.
+new ThreeGazeObserver(renderModel, {}, { referencePose: runtime });
+// @ts-expect-error The rig query consumes serialized model data.
+core.resolve_profile_gaze_rig_json('{}', renderModel);
 const removed: boolean = runtime.remove_animation_clip('smile');
 runtime.free();
 

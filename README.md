@@ -241,6 +241,20 @@ clip completion alone is not evidence of optical convergence. Recreate the
 observer and release old slots after model/profile rebinding, and invalidate
 previous observations when pose-changing work begins.
 
+Pass `{ referencePose }` as the observer's third constructor argument to use
+`getRigGeometry()`. It caches authored head/eye transforms and canonical signed
+AU responses from `resolve_profile_gaze_rig_json(profileJson, modelJson)`;
+subsequent reads refresh only the model's world placement. Matrices are
+column-major, quaternions XYZW, positions scene units, and response angles signed
+radians at unit AU intensity. Response negative/positive keys use FACS control
+signs; `order` preserves compiled composition order. Polymer can plan each eye
+against a finite world target from these facts without sampling animated joints.
+Reuse the compiler's immutable reference captured before playback; this API never
+captures the current pose as a replacement. Missing references/eyes, ambiguous
+axes, unsided eye controls, animated auxiliary ancestors, gaze translations, or
+manual/sheared driven joints report unavailable. Static parent matrices and nonuniform
+scales remain intact. Reconstruct the observer after profile or hierarchy changes.
+
 ### Direct viseme snapshots
 
 `RuntimeCore.get_viseme(index)` and `get_viseme_jaw_scale(index)` read the

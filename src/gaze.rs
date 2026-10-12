@@ -82,6 +82,7 @@ impl AxisLimits {
 struct GazeLimits {
     head_yaw: AxisLimits,
     head_pitch: AxisLimits,
+    head_roll: AxisLimits,
     eye_yaw: AxisLimits,
     eye_pitch: AxisLimits,
 }
@@ -234,6 +235,10 @@ fn gaze_limits(profile: &ProfileData) -> GazeLimits {
         head_pitch: AxisLimits {
             negative: au_capacity(profile, 54),
             positive: au_capacity(profile, 53),
+        },
+        head_roll: AxisLimits {
+            negative: au_capacity(profile, 55),
+            positive: au_capacity(profile, 56),
         },
         eye_yaw: AxisLimits {
             negative: au_capacity(profile, 62),
@@ -388,6 +393,132 @@ pub fn resolve_profile_gaze_geometry_json(
         .map_err(|error| JsError::new(&format!("Failed to serialize gaze geometry: {error}")))
 }
 
+fn profile_gaze_rig(profile: &ProfileData, model: &crate::profile::ModelData) -> serde_json::Value {
+    use crate::bones::{AxisBindingRow, AxisValueRow, CompositeAxis, composite_axis_value, select_axis_binding};
+    use serde_json::json;
+    let mut profile = profile.clone();
+    if profile.composite_rotations.is_unspecified() {
+        profile.composite_rotations = crate::presets::load_profile("cc4")
+            .expect("embedded CC4 profile").composite_rotations.clone();
+    }
+    let tables = crate::profile::compile_tables(&profile, model);
+    let packed = &tables.composite_axes;
+    let mut axes = Vec::new();
+    let mut cursor = 0;
+    while cursor < packed.len() {
+        let header = &packed[cursor..cursor + 8];
+        let mut axis = CompositeAxis { bone_id: header[0] as u32,
+            has_directional_groups: header[2] == 1.0, value_rows: Vec::new(), binding_rows: Vec::new() };
+        cursor += 8;
+        for _ in 0..header[3] as usize {
+            axis.value_rows.push(AxisValueRow { au_id: packed[cursor] as u32,
+                group: packed[cursor + 1] as u8, side: packed[cursor + 2] as u8 });
+            cursor += 3;
+        }
+        for _ in 0..header[4] as usize {
+            axis.binding_rows.push(AxisBindingRow { au_id: packed[cursor] as u32,
+                group: packed[cursor + 1] as u8, side: packed[cursor + 2] as u8,
+                channel: packed[cursor + 3] as u8, scale: finite_or(packed[cursor + 4], 1.0),
+                max_degrees: finite_or(packed[cursor + 5], 0.0) });
+            cursor += 6;
+        }
+        axes.push(axis);
+    }
+    let resolver = crate::profile::NameResolver::new(&profile, model);
+    let normalize = |vector: [f32; 3]| {
+        let length = vector.iter().map(|value| value * value).sum::<f32>().sqrt();
+        (length.is_finite() && length > 1e-8).then(|| vector.map(|value| value / length))
+    };
+    let joint = |node: &str, ids: [u32; 6], calibration: Option<&crate::profile::GazeOpticalCalibrationData>| {
+        let Some(bone) = resolver.resolve_bone(model, &profile, node) else { return serde_json::Value::Null; };
+        let mut unsupported_au_ids = Vec::new();
+        let responses = ids.map(|id| {
+            if id == 0 { return None; }
+            let mut indirect_binding = false;
+            let rows: Vec<_> = axes.iter().enumerate().filter(|(_, axis)| axis.bone_id == bone.id)
+                .filter_map(|(order, axis)| {
+                    let value = |candidate, _side| if candidate == id { 1.0 } else { 0.0 };
+                    let direction = composite_axis_value(axis, value);
+                    if direction.abs() <= 1e-6 { return None; }
+                    select_axis_binding(axis, direction, value).copied()
+                        .filter(|row| row.channel <= 2
+                            && (row.max_degrees * row.scale).is_finite()
+                            && (row.max_degrees * row.scale).abs() > 1e-8)
+                        .and_then(|row| {
+                            if row.au_id != id { indirect_binding = true; None }
+                            else { Some((order, row)) }
+                        })
+                }).collect();
+            if indirect_binding || rows.len() > 1 { unsupported_au_ids.push(id); }
+            (rows.len() == 1).then(|| rows[0])
+        });
+        for (index, response) in responses.iter().enumerate() {
+            if response.is_some_and(|(order, _)| responses.iter().enumerate().any(|(other, row)|
+                index / 2 != other / 2 && row.is_some_and(|(other_order, _)| order == other_order))) {
+                unsupported_au_ids.push(ids[index]);
+            }
+        }
+        unsupported_au_ids.sort_unstable();
+        unsupported_au_ids.dedup();
+        let signed_axis = |(_, row): (usize, AxisBindingRow)| {
+            let mut result = [0.0; 3];
+            result[row.channel as usize] = (row.max_degrees * row.scale).signum();
+            result
+        };
+        let positive_axis = |positive: usize, negative: usize| responses[positive].map(signed_axis)
+            .or_else(|| responses[negative].map(|row| signed_axis(row).map(|value| -value)));
+        let inferred = positive_axis(0, 1).zip(positive_axis(3, 2)).and_then(|(yaw, pitch)| normalize([
+            yaw[1] * pitch[2] - yaw[2] * pitch[1], yaw[2] * pitch[0] - yaw[0] * pitch[2],
+            yaw[0] * pitch[1] - yaw[1] * pitch[0],
+        ]));
+        let optical = calibration.and_then(|value| value.optical_axis.as_ref()).and_then(|axis| normalize([
+            axis.x.unwrap_or(0.0) as f32, axis.y.unwrap_or(0.0) as f32, axis.z.unwrap_or(0.0) as f32,
+        ])).or(inferred);
+        let binding = |index: usize| responses[index].map(|(order, row)| {
+            let mut axis = [0.0; 3];
+            axis[row.channel as usize] = 1.0;
+            json!({"auId": ids[index], "side": match row.side { 1 => "left", 2 => "right", _ => "center" },
+                "axis": axis, "radians": (row.max_degrees * row.scale).to_radians(), "order": order})
+        });
+        json!({"boneId": bone.id, "name": bone.name, "opticalAxis": optical,
+            "unsupportedAuIds": unsupported_au_ids, "axes": {
+            "yaw": {"negative": binding(0), "positive": binding(1)},
+            "pitch": {"negative": binding(2), "positive": binding(3)},
+            "roll": {"negative": binding(4), "positive": binding(5)},
+        }})
+    };
+    let calibration = profile.gaze_calibration.as_ref();
+    let gaze_ids = [51, 52, 53, 54, 55, 56, 61, 62, 63, 64];
+    let driven_bones: Vec<_> = axes.iter().flat_map(|axis| gaze_ids.iter().filter_map(move |id| {
+        let value = |candidate, _side| if candidate == *id { 1.0 } else { 0.0 };
+        let direction = composite_axis_value(axis, value);
+        (direction.abs() > 1e-6).then(|| select_axis_binding(axis, direction, value)).flatten()
+            .filter(|row| (row.max_degrees * row.scale).abs() > 1e-8)
+            .map(|_| json!({"boneId": axis.bone_id, "auId": id, "kind": "rotation"}))
+    })).chain(tables.translations.chunks_exact(5)
+        .filter(|row| gaze_ids.contains(&(row[0] as u32)) && (row[3] * row[4]).abs() > 1e-8)
+        .map(|row| json!({"boneId": row[1] as u32, "auId": row[0] as u32, "kind": "translation"}))).collect();
+    json!({
+        "drivenBones": driven_bones,
+        "head": joint("HEAD", [51, 52, 54, 53, 55, 56], calibration.and_then(|value| value.head.as_ref())),
+        "leftEye": joint("EYE_L", [61, 62, 64, 63, 0, 0], calibration.and_then(|value| value.left_eye.as_ref())),
+        "rightEye": joint("EYE_R", [61, 62, 64, 63, 0, 0], calibration.and_then(|value| value.right_eye.as_ref())),
+    })
+}
+
+/// Resolved calibration and unit-AU responses from canonical compiled tables.
+/// Axis vectors are bone-local; radians are signed physical rotations. The
+/// negative/positive keys name FACS controls, and order is the compiled axis
+/// index. Missing or ambiguous responses are null; no target or pose is solved.
+#[wasm_bindgen]
+pub fn resolve_profile_gaze_rig_json(profile_json: &str, model_json: &str) -> Result<String, JsError> {
+    let profile = deserialize_json(profile_json, "Invalid gaze profile JSON")
+        .map_err(|error| JsError::new(&error))?;
+    let model = deserialize_json(model_json, "Invalid gaze model JSON")
+        .map_err(|error| JsError::new(&error))?;
+    Ok(profile_gaze_rig(&profile, &model).to_string())
+}
+
 fn eye_angles(direction: [f32; 3], head: [f32; 2]) -> [f32; 2] {
     direction_angles_degrees([0.0; 3], direction, inverse_unit_quat(&gaze_rotation(head)))
 }
@@ -496,6 +627,7 @@ fn solution_from_world_target(
     let [total_yaw, total_pitch] = direction_angles_degrees(origin, viewer_target, inverse_model);
     let [camera_yaw, camera_pitch] = direction_angles_degrees(origin, camera, inverse_model);
     let active = GazeLimits {
+        head_roll: limits.head_roll,
         head_yaw: if head_enabled {
             limits.head_yaw
         } else {
@@ -1187,6 +1319,87 @@ mod tests {
         )
         .unwrap();
         core
+    }
+
+    #[test]
+    fn rig_responses_match_canonical_compound_rotation_and_custom_order() {
+        let mut profile = canonical_profile();
+        let head = profile.composite_rotations.iter_mut().find(|row| row.node == "HEAD").unwrap();
+        std::mem::swap(&mut head.yaw, &mut head.roll);
+        let binding = &mut profile.au_to_bones.get_mut("51").unwrap()[0];
+        binding.channel = "rz".into();
+        binding.scale = -0.5;
+        let model: crate::profile::ModelData = serde_json::from_str(r#"{"bones":[
+            {"id":1,"name":"CC_Base_Head"},{"id":2,"name":"CC_Base_L_Eye"},
+            {"id":3,"name":"CC_Base_R_Eye"}]}"#).unwrap();
+        let result = profile_gaze_rig(&profile, &model);
+        let axes = &result["head"]["axes"];
+        assert!(axes["roll"]["positive"]["order"].as_u64() < axes["yaw"]["negative"]["order"].as_u64());
+        assert_eq!(axes["yaw"]["negative"]["axis"], serde_json::json!([0.0, 0.0, 1.0]));
+        assert_geometry_number(&axes["yaw"]["negative"]["radians"], -30.0_f64.to_radians());
+        assert_eq!(result["leftEye"]["axes"]["yaw"]["negative"]["side"], "left");
+        assert_eq!(result["rightEye"]["axes"]["yaw"]["negative"]["side"], "right");
+        let mut rows = vec![(&axes["yaw"]["negative"], 0.4), (&axes["pitch"]["positive"], 0.3),
+            (&axes["roll"]["positive"], 0.2)];
+        rows.sort_by_key(|(row, _)| row["order"].as_u64().unwrap());
+        let mut expected = [0.0, 0.0, 0.0, 1.0];
+        let mut core = canonical_runtime(&profile);
+        for (row, intensity) in rows {
+            let channel = row["axis"].as_array().unwrap().iter().position(|v| v.as_f64() == Some(1.0)).unwrap();
+            expected = multiply_quat(expected, quat_from_channel(channel as u8,
+                row["radians"].as_f64().unwrap() as f32 * intensity));
+            core.set_au(row["auId"].as_u64().unwrap() as u32, intensity, 0.0);
+        }
+        let frame = core.evaluate_active_bone_frame();
+        let head = frame.chunks_exact(9).find(|row| row[0] == 1.0).unwrap();
+        for index in 0..4 { assert!((head[index + 4] - expected[index]).abs() < 1e-6); }
+        let geometry = geometry_json(&profile, &[0.0, 0.0, 3.0], &[], &[0.0; 3], &[]);
+        assert_geometry_number(&geometry["limitsDegrees"]["headRoll"]["positive"], au_capacity(&profile, 56) as f64);
+    }
+
+    #[test]
+    fn rig_responses_keep_missing_cleared_and_ambiguous_mappings_distinct() {
+        let model: crate::profile::ModelData = serde_json::from_str(r#"{"bones":[
+            {"id":1,"name":"CC_Base_Head"},{"id":2,"name":"CC_Base_L_Eye"}]}"#).unwrap();
+        let mut profile = canonical_profile();
+        assert!(profile_gaze_rig(&profile, &model)["rightEye"].is_null());
+        let eye = profile.composite_rotations.iter_mut().find(|row| row.node == "EYE_L").unwrap();
+        eye.roll = eye.yaw.clone();
+        let result = profile_gaze_rig(&profile, &model);
+        assert!(result["leftEye"]["axes"]["yaw"]["negative"].is_null());
+        assert!(result["leftEye"]["unsupportedAuIds"].as_array().unwrap().contains(&serde_json::json!(61)));
+        let mut value = serde_json::to_value(profile).unwrap();
+        value["compositeRotations"] = serde_json::json!([]);
+        let cleared = profile_gaze_rig(&serde_json::from_value(value).unwrap(), &model);
+        assert!(cleared["leftEye"]["axes"]["yaw"]["negative"].is_null());
+        assert_eq!(cleared["leftEye"]["unsupportedAuIds"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn rig_rejects_cross_semantic_max_groups_and_indirect_selected_bindings() {
+        let model = serde_json::from_str(r#"{"bones":[{"id":1,"name":"Eye"}]}"#).unwrap();
+        let mut value = serde_json::json!({
+            "boneNodes":{"EYE_L":"Eye"},
+            "auToBones":{
+                "61":[{"node":"EYE_L","channel":"ry","maxDegrees":30,"side":"left"}],
+                "63":[{"node":"EYE_L","channel":"rx","maxDegrees":-20,"side":"left"}]
+            },
+            "compositeRotations":[{"node":"EYE_L","yaw":{"aus":[61,63]}}]
+        });
+        let result = profile_gaze_rig(&serde_json::from_value(value.clone()).unwrap(), &model);
+        assert_eq!(result["leftEye"]["unsupportedAuIds"], serde_json::json!([61,63]));
+        value["compositeRotations"][0]["yaw"] = serde_json::json!({"negative":62,"positive":61,"aus":[63]});
+        value["auToBones"]["61"] = serde_json::json!([]);
+        let profile = serde_json::from_value(value.clone()).unwrap();
+        let result = profile_gaze_rig(&profile, &model);
+        assert!(result["leftEye"]["axes"]["yaw"]["negative"].is_null());
+        assert_eq!(result["leftEye"]["unsupportedAuIds"], serde_json::json!([61,62]));
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(&value.to_string(), &serde_json::to_string(&model).unwrap()).unwrap();
+        core.set_au(61, 1.0, 0.0);
+        let frame = core.evaluate_active_bone_frame();
+        let eye = frame.chunks_exact(9).find(|row| row[0] == 1.0).unwrap();
+        assert!((eye[4] - (-10.0_f32).to_radians().sin()).abs() < 1e-6);
     }
 
     fn runtime_viewing_direction(core: &mut RuntimeCore, solution: &[f32]) -> [f32; 3] {
