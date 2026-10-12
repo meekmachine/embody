@@ -454,8 +454,8 @@ publication; failed registry lookups stop the release. Retrying a published
 commit reuses its existing version, and an older unpublished commit cannot
 replace a newer source release.
 
-Non-draft PRs, manual runs with an explicit `ref`, and `publish-pkg-pr-new`
-repository dispatches publish immutable `pkg.pr.new` previews for testing linked
+PRs, including drafts, manual runs with an explicit `ref`, and `publish-pkg-pr-new`
+repository dispatches run full verification and publish immutable `pkg.pr.new` previews for testing linked
 upstream changes. An explicit ref remains a preview request even when it names
 `main`; it does not publish to npm. Manual and repository dispatch requests may
 include `upstream_pr` to identify their linked PR.
