@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import { assertPublicPackageStatus, readNpmMetadata, shouldPublishRelease } from './npm-release.mjs';
 
-const archive = process.argv[2];
-if (!archive || process.argv.length !== 3) throw new Error('Pass exactly one verified npm package tarball.');
+if (!process.argv[2] || process.argv.length !== 3) throw new Error('Pass exactly one verified npm package tarball.');
+// npm treats a bare directory/file argument as GitHub shorthand unless it is an explicit local path.
+const archive = resolve(process.argv[2]);
 const pkg = JSON.parse(execFileSync('tar', ['-xOf', archive, 'package/package.json'], { encoding: 'utf8' }));
 if (pkg.version !== process.env.RELEASE_VERSION) throw new Error('Packed npm version differs from the verified release version.');
 // Keep the existing public package available without download credentials.
