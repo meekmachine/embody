@@ -122,8 +122,6 @@ jobs:
       - name: Prepare stable npm version and source commit
         if: steps.source.outputs.stable_release == 'true'
         id: release
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
         run: node scripts/ci/determine-release-version.mjs
 
       - name: Test Rust

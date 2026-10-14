@@ -29,14 +29,11 @@ function stableVersions(metadata) {
   return versions.sort(compareVersions);
 }
 
-export async function readNpmMetadata(packageName, fetchMetadata = fetch, token = process.env.NODE_AUTH_TOKEN) {
-  if (typeof token !== 'string' || !token || /\s/.test(token)) {
-    throw new Error('NODE_AUTH_TOKEN is required to read restricted npm package metadata.');
-  }
-  // Keep credentials on the fixed registry origin, including when the server
-  // responds with a redirect. Never fall back to an anonymous/public lookup.
+export async function readNpmMetadata(packageName, fetchMetadata = fetch) {
+  // npm packages are public even though the source repository is private.
+  // Metadata reads never consume or transmit publishing credentials.
   const response = await fetchMetadata(`https://registry.npmjs.org/${encodeURIComponent(packageName)}`, {
-    headers: { accept: 'application/json', authorization: `Bearer ${token}` },
+    headers: { accept: 'application/json' },
     redirect: 'error',
     signal: AbortSignal.timeout(30_000),
   });
@@ -50,10 +47,10 @@ export async function readNpmMetadata(packageName, fetchMetadata = fetch, token 
   return metadata;
 }
 
-export function assertPrivatePackageStatus(status, packageName) {
+export function assertPublicPackageStatus(status, packageName) {
   if (!status || typeof status !== 'object' || Array.isArray(status)
-      || Object.keys(status).length !== 1 || status[packageName] !== 'private') {
-    throw new Error(`npm must report ${packageName} as private before publication; change package visibility explicitly before retrying.`);
+      || Object.keys(status).length !== 1 || status[packageName] !== 'public') {
+    throw new Error(`npm must report ${packageName} as public before publication; change package visibility explicitly before retrying.`);
   }
 }
 
@@ -102,8 +99,8 @@ export function shouldPublishRelease(metadata, pkg, expectedName, sourceSha) {
   if (!SOURCE_SHA.test(sourceSha) || pkg.gitHead !== sourceSha || pkg.name !== expectedName) {
     throw new Error('Packed npm package does not match the verified package name and source commit.');
   }
-  if (pkg.publishConfig?.access !== 'restricted' || pkg.publishConfig?.provenance !== false) {
-    throw new Error('Packed npm package must explicitly use restricted access and disable public provenance.');
+  if (pkg.publishConfig?.access !== 'public' || pkg.publishConfig?.provenance !== false) {
+    throw new Error('Packed npm package must explicitly use public access and disable provenance for its private source repository.');
   }
   parseVersion(pkg.version);
   const versions = stableVersions(metadata);

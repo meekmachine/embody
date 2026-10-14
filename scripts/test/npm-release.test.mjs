@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertNewReleaseDescendsFromPublished, assertPrivatePackageStatus, readNpmMetadata, selectRelease, shouldPublishRelease } from '../ci/npm-release.mjs';
+import { assertNewReleaseDescendsFromPublished, assertPublicPackageStatus, readNpmMetadata, selectRelease, shouldPublishRelease } from '../ci/npm-release.mjs';
 
 const name = '@lovelace_lol/embody';
 const oldSha = 'a'.repeat(40);
@@ -11,9 +11,9 @@ const metadata = (...entries) => ({
 });
 const old = () => metadata(['0.0.6', oldSha]);
 const packed = (version = '0.0.7', gitHead = newSha) => ({
-  name, version, gitHead, publishConfig: { access: 'restricted', provenance: false },
+  name, version, gitHead, publishConfig: { access: 'public', provenance: false },
 });
-const readMetadata = (send) => readNpmMetadata(name, send, 'read-token');
+const readMetadata = (send) => readNpmMetadata(name, send);
 
 test('new main commit advances the highest stable version, independent of latest tag', () => {
   const published = metadata(['0.0.6', oldSha], ['0.0.8', 'c'.repeat(40)], ['1.0.0-beta.1', oldSha]);
@@ -54,11 +54,10 @@ test('registry errors never become a new package or a reset version', async () =
   await assert.rejects(readMetadata(async () => ({ ok: true, redirected: true, json: async () => old() })), /redirects/);
 });
 
-test('restricted registry lookup authenticates only to the fixed npm origin and refuses redirects', async () => {
+test('public registry metadata uses the fixed npm origin without credentials and refuses redirects', async () => {
   const result = await readMetadata(async (url, options) => {
     assert.equal(url, 'https://registry.npmjs.org/%40lovelace_lol%2Fembody');
-    assert.equal(options.headers.accept, 'application/json');
-    assert.equal(options.headers.authorization, 'Bearer read-token');
+    assert.deepEqual(options.headers, { accept: 'application/json' });
     assert.equal(options.redirect, 'error');
     return { ok: true, json: async () => old() };
   });
@@ -66,15 +65,27 @@ test('restricted registry lookup authenticates only to the fixed npm origin and 
   await assert.rejects(readNpmMetadata('https://another.example/path', async (url) => {
     assert.equal(new URL(url).origin, 'https://registry.npmjs.org');
     return { ok: false, status: 404 };
-  }, 'read-token'), /HTTP 404/);
+  }), /HTTP 404/);
 });
 
-test('restricted metadata cannot fall back to anonymous access when a token is missing', async () => {
+test('metadata reads work without a token and never transmit an ambient publishing token', async () => {
+  const originalToken = process.env.NODE_AUTH_TOKEN;
   let calls = 0;
-  for (const token of ['', ' ', 'bad\ntoken']) {
-    await assert.rejects(readNpmMetadata(name, async () => { calls += 1; }, token), /NODE_AUTH_TOKEN/);
+  try {
+    for (const token of [undefined, 'publisher-token']) {
+      if (token === undefined) delete process.env.NODE_AUTH_TOKEN;
+      else process.env.NODE_AUTH_TOKEN = token;
+      await readMetadata(async (_url, options) => {
+        calls += 1;
+        assert.deepEqual(options.headers, { accept: 'application/json' });
+        return { ok: true, json: async () => old() };
+      });
+    }
+  } finally {
+    if (originalToken === undefined) delete process.env.NODE_AUTH_TOKEN;
+    else process.env.NODE_AUTH_TOKEN = originalToken;
   }
-  assert.equal(calls, 0);
+  assert.equal(calls, 2);
 });
 
 test('publish consumes the expected source and skips only an identical published source', () => {
@@ -87,18 +98,18 @@ test('publish consumes the expected source and skips only an identical published
   assert.throws(() => shouldPublishRelease(old(), packed('0.0.7-beta.1'), name, newSha), /exact stable/);
 });
 
-test('publishing never accepts a public package or public provenance configuration', () => {
-  for (const publishConfig of [undefined, {}, { access: 'public', provenance: false },
-    { access: 'restricted' }, { access: 'restricted', provenance: true }]) {
-    assert.throws(() => shouldPublishRelease(old(), { ...packed(), publishConfig }, name, newSha), /restricted access/);
+test('publishing requires public access without private-repository provenance', () => {
+  for (const publishConfig of [undefined, {}, { access: 'restricted', provenance: false },
+    { access: 'public' }, { access: 'public', provenance: true }]) {
+    assert.throws(() => shouldPublishRelease(old(), { ...packed(), publishConfig }, name, newSha), /public access/);
   }
 });
 
-test('publication requires npm to confirm private visibility for the exact package', () => {
-  assertPrivatePackageStatus({ [name]: 'private' }, name);
-  for (const status of [null, 'private', {}, [], { [name]: 'public' },
-    { [name]: 'restricted' }, { another: 'private' }, { [name]: 'private', another: 'private' }]) {
-    assert.throws(() => assertPrivatePackageStatus(status, name), /must report.*private/);
+test('publication requires npm to confirm public visibility for the exact package', () => {
+  assertPublicPackageStatus({ [name]: 'public' }, name);
+  for (const status of [null, 'public', {}, [], { [name]: 'private' },
+    { [name]: 'restricted' }, { another: 'public' }, { [name]: 'public', another: 'public' }]) {
+    assert.throws(() => assertPublicPackageStatus(status, name), /must report.*public/);
   }
 });
 

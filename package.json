@@ -30,7 +30,7 @@
     "LICENSE"
   ],
   "publishConfig": {
-    "access": "restricted",
+    "access": "public",
     "provenance": false
   },
   "scripts": {
