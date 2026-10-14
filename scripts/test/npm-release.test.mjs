@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+import { isAbsolute, relative } from 'node:path';
 import { assertNewReleaseDescendsFromPublished, assertPublicPackageStatus, readNpmMetadata, selectRelease, shouldPublishRelease } from '../ci/npm-release.mjs';
 
 const name = '@lovelace_lol/embody';
@@ -14,6 +17,44 @@ const packed = (version = '0.0.7', gitHead = newSha) => ({
   name, version, gitHead, publishConfig: { access: 'public', provenance: false },
 });
 const readMetadata = (send) => readNpmMetadata(name, send);
+
+test('the publishing entry point passes the verified tarball to npm as a local file', async (t) => {
+  const previousArgv = process.argv;
+  const previousEnvironment = { RELEASE_VERSION: process.env.RELEASE_VERSION, RELEASE_COMMIT: process.env.RELEASE_COMMIT };
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    process.argv = previousArgv;
+    for (const [key, value] of Object.entries(previousEnvironment)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  const archive = 'release-package/lovelace_lol-embody-0.0.7.tgz';
+  process.argv = [process.execPath, 'publish-npm-release.mjs', archive];
+  process.env.RELEASE_VERSION = '0.0.7';
+  process.env.RELEASE_COMMIT = newSha;
+  let verifiedArchive;
+  let publications = 0;
+  t.mock.method(childProcess, 'execFileSync', (command, args) => {
+    if (command === 'tar') {
+      verifiedArchive = args[1];
+      return JSON.stringify(packed());
+    }
+    if (command === 'npm' && args[0] === 'access') return JSON.stringify({ [name]: 'public' });
+    assert.equal(command, 'npm');
+    assert.equal(args[0], 'publish');
+    assert.ok(isAbsolute(args[1]), 'npm must receive an explicit local file, not owner/repo shorthand');
+    assert.equal(relative(process.cwd(), args[1]), archive);
+    assert.equal(args[1], verifiedArchive);
+    assert.ok(args.includes('--ignore-scripts'));
+    publications += 1;
+  });
+  syncBuiltinESMExports();
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, json: async () => old() }));
+  await import('../ci/publish-npm-release.mjs');
+  assert.equal(publications, 1);
+});
 
 test('new main commit advances the highest stable version, independent of latest tag', () => {
   const published = metadata(['0.0.6', oldSha], ['0.0.8', 'c'.repeat(40)], ['1.0.0-beta.1', oldSha]);
