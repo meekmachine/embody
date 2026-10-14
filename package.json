@@ -30,7 +30,8 @@
     "LICENSE"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": false
   },
   "scripts": {
     "build": "tsup --config tsup.config.mjs && npm run wasm:build && tsc -p tsconfig.declarations.json",
