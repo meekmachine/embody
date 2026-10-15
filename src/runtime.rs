@@ -1808,7 +1808,22 @@ impl RuntimeCore {
         // targets are resolved. Numeric id alone is not a channel identity.
         let mut semantic_curves = Vec::new();
         let mut remaining = Vec::new();
+        let mut local_rotations: BTreeMap<u32, Vec<(TypedChannel, f64)>> = BTreeMap::new();
         for channel in channels {
+            if let Some(space) = channel.target.get("rotationSpace") {
+                let target_type = channel.target.get("type").or_else(|| channel.target.get("kind"))
+                    .and_then(serde_json::Value::as_str);
+                if space.as_str() != Some("local") || target_type != Some("bone") {
+                    return Err(JsError::new("rotationSpace must be 'local' on a bone rotation target."));
+                }
+                let node = channel.target.get("id").and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| JsError::new("Local rotation target requires a bone id."))?;
+                let bone_id = self.resolve_bone_id(node)
+                    .ok_or_else(|| JsError::new(&format!("Local rotation bone '{node}' could not be resolved.")))?;
+                let scale = global_scale * channel.intensity_scale.unwrap_or(1.0);
+                local_rotations.entry(bone_id).or_default().push((channel, scale));
+                continue;
+            }
             if channel.keyframes.is_empty() {
                 continue;
             }
@@ -2012,6 +2027,15 @@ impl RuntimeCore {
                 _ => {}
             }
         }
+        for (bone_id, channels) in local_rotations {
+            if tracks.iter().any(|track| track.target["kind"] == "boneTransform"
+                && track.target["boneId"] == bone_id && track.target["property"] == "rotation") {
+                return Err(JsError::new(&format!("Local rotation for bone {bone_id} overlaps another rotation track.")));
+            }
+            tracks.push(compile_local_rotation(next_track_id, bone_id, &channels)
+                .map_err(|error| JsError::new(&format!("Local rotation for bone {bone_id}: {error}")))?);
+            next_track_id += 1;
+        }
         clip_from_tracks(clip_name, tracks)
     }
 
@@ -2121,6 +2145,69 @@ fn scalar_track(
         inherit_start: points.first().is_some_and(|point| point.inherit),
         source_name: None,
     }
+}
+
+/// Absolute local Euler samples are a single orientation, not independently
+/// blended axis tracks. Require complete synchronized XYZ curves so missing
+/// axes cannot silently become identity or a sampled reference pose.
+fn compile_local_rotation(
+    id: u32,
+    bone_id: u32,
+    channels: &[(TypedChannel, f64)],
+) -> Result<ClipTrackIR, String> {
+    let mut axes: [Option<(&TypedChannel, f64)>; 3] = [None, None, None];
+    for (channel, scale) in channels {
+        let axis = match channel.target.get("channel").and_then(serde_json::Value::as_str) {
+            Some("rx") => 0,
+            Some("ry") => 1,
+            Some("rz") => 2,
+            _ => return Err("requires rx, ry and rz channels only".into()),
+        };
+        if axes[axis].replace((channel, *scale)).is_some() {
+            return Err("duplicate axis (including aliases of the same bone)".into());
+        }
+    }
+    let [Some(x), Some(y), Some(z)] = axes else {
+        return Err("requires all three rx, ry and rz axes".into());
+    };
+    let points = &x.0.keyframes;
+    if points.is_empty() || points.iter().any(|point| !point.time.is_finite() || point.time < 0.0)
+        || points.windows(2).any(|pair| pair[0].time >= pair[1].time) {
+        return Err("key times must be nonnegative, finite and strictly increasing".into());
+    }
+    let mut angles: [Vec<f32>; 3] = std::array::from_fn(|_| Vec::with_capacity(points.len()));
+    for (axis, (channel, scale)) in [x, y, z].into_iter().enumerate() {
+        if channel.keyframes.len() != points.len() || channel.keyframes.iter().zip(points)
+            .any(|(point, anchor)| point.time != anchor.time || point.inherit != anchor.inherit) {
+            return Err("axes must share key times and inheritance flags".into());
+        }
+        let number = |name, default| -> Result<f64, String> {
+            match channel.target.get(name) {
+                None => Ok(default),
+                Some(value) => value.as_f64().filter(|value| value.is_finite())
+                    .ok_or_else(|| format!("{name} must be finite")),
+            }
+        };
+        let multiplier = scale * number("scale", 1.0)? * number("maxDegrees", 60.0)?;
+        for (index, point) in channel.keyframes.iter().enumerate() {
+            let angle = (point.intensity * multiplier).to_radians() as f32;
+            if !angle.is_finite() || (point.inherit && index != 0) {
+                return Err("angles must be finite; only the first sample can inherit".into());
+            }
+            angles[axis].push(angle);
+        }
+    }
+    let values = (0..points.len()).flat_map(|index| {
+        // Intrinsic XYZ order, matching Three.Euler(..., 'XYZ'). Do not
+        // multiply by the reference quaternion: these are local orientations.
+        multiply_quat(
+            multiply_quat(quat_from_channel(0, angles[0][index]), quat_from_channel(1, angles[1][index])),
+            quat_from_channel(2, angles[2][index]),
+        )
+    }).map(f64::from).collect();
+    Ok(vector_track(id, serde_json::json!({
+        "kind": "boneTransform", "boneId": bone_id, "property": "rotation",
+    }), "quat", points, values))
 }
 
 fn vector_track(
