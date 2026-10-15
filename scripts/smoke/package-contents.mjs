@@ -26,6 +26,9 @@ const requiredFiles = [
   'dist/wasm/embody_wasm_bg.wasm',
   'dist/wasm/index.d.ts',
   'service-worker/character-asset-service-worker.js',
+  'model-tools/index.mjs',
+  'model-tools/index.d.ts',
+  'model-tools/prepare-actor.mjs',
 ];
 const missingFiles = requiredFiles.filter((path) => !files.has(path));
 const forbiddenPrefixes = ['assets/', 'node_modules/', 'scripts/', 'src/', 'target/'];

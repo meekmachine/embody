@@ -14,6 +14,7 @@ const requiredPaths = [...new Set([
   packageJson.main,
   packageJson.module,
   packageJson.types,
+  ...Object.values(packageJson.bin ?? {}),
   ...exportPaths,
   './dist/wasm/embody_wasm.js',
   './dist/wasm/embody_wasm.d.ts',
