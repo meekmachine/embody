@@ -29,6 +29,11 @@ import type {
 
 export { ThreeGazeFocus } from './gaze';
 export type { ThreeGazeFocusOptions, ThreeGazeFocusRequest, ThreeGazeFocusControls, ThreeGazeFocusDiagnostic } from './gaze';
+export { ThreeAuContribution } from './au-contribution';
+export type {
+  AuContributionSample, AuRotationResponse, GazeJointGeometry, AuPoseNode,
+  AuPoseGeometry, EvaluatedAuContribution, ThreeAuContributionOptions,
+} from './au-contribution';
 
 export const THREE_BLENDING_MODES = {
   Normal: NormalBlending,

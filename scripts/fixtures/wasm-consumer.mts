@@ -23,6 +23,9 @@ import {
   type CharacterSceneRenderer,
   type CharacterSceneRendererPreference,
   type ThreeModelReferencePose,
+  ThreeAuContribution,
+  type AuPoseGeometry,
+  type EvaluatedAuContribution,
   DPthree,
   DPthreeCameraController,
   resolveAnnotationCharacterConfig,
@@ -63,9 +66,20 @@ const balance: number = runtime.get_au_balance(12);
 const viseme: number = runtime.get_viseme(0);
 const jawScale: number = runtime.get_viseme_jaw_scale(0);
 const frame: Float32Array = runtime.evaluate_active_morph_frame();
+const kinematics: string = runtime.get_gaze_kinematics_json();
 const clip: string = runtime.build_clip('smile', '{}', '{}');
 const removed: boolean = runtime.remove_animation_clip('smile');
 runtime.free();
+
+const contribution = new ThreeAuContribution(renderModel, {}, { referencePose: captureModelReferencePose(renderModel) });
+const pose: AuPoseGeometry = contribution.readPose();
+const effects: EvaluatedAuContribution = contribution.evaluate([{ id: 51, intensity: 0.5, balance: 0 }]);
+contribution.apply([{ id: 61, intensity: 1, balance: -1 }, { id: 62, intensity: 1, balance: 1 }]);
+contribution.restore(); contribution.dispose();
+// @ts-expect-error Semantic samples require unsigned numeric AU identifiers.
+contribution.evaluate([{ id: '51', intensity: 1 }]);
+// @ts-expect-error The observer accepts no tracking policy or target.
+contribution.readPose({ target: [0, 0, 1], strength: 0.5 });
 
 const result: Float32Array = core.solve_bilateral_values(1, 0);
 const presets: string[] = core.list_presets();
