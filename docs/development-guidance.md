@@ -36,10 +36,12 @@ rotation, or drop mapped morphs to make speech appear to work. Preserve the
 existing LipSync timing and Animation scheduling flow; its AU/viseme curves are
 the inputs to Embody, not a reason to duplicate Embody's mapping logic.
 
-The boundary has real feature-specific responsibilities: annotation camera and
-marker math live in Rust, while Three owns native inspection, labels, DOM controls,
-marker state and disposal. Follow the README's annotation contract rather than
-interpreting “thin adapter” as a prohibition on necessary browser lifecycle code.
+Annotation behavior and state live in `src/annotation_runtime/`: camera gestures,
+framing, region/target selection, placement, expansion, solo, style, visibility and
+lifecycle deadlines. Three owns native inspection, raycasts, skinned-vertex
+queries, DOM input/labels, renderer preparation and disposal. Adapters transport
+observations and apply Rust effects; snapshots must not become a second mutable
+runtime. Follow the [annotation contract](../README.md#annotation-runtime).
 
 - Distinguish semantic control IDs, AU IDs, viseme slots, bone names, mesh/target
   IDs and renderer handles. An identical integer or name does not make two
