@@ -109,16 +109,65 @@ test('low-resolution makes a smaller grid and remaps skin and morph streams toge
   const document = await io.readBinary(result.bytes);
   const mesh = document.getRoot().listMeshes()[0];
   const primitive = mesh.listPrimitives()[0];
+  const sourcePrimitive = sourceDocument.getRoot().listMeshes()[0].listPrimitives()[0];
   const count = primitive.getAttribute('POSITION').getCount();
   assert.equal(primitive.getAttribute('JOINTS_0').getCount(), count);
   assert.equal(primitive.getAttribute('WEIGHTS_0').getCount(), count);
   assert.equal(primitive.listTargets()[0].getAttribute('POSITION').getCount(), count);
-  assert.ok([...primitive.listTargets()[0].getAttribute('POSITION').getArray()].includes(0.25));
+  const sourcePositions = sourcePrimitive.getAttribute('POSITION').getArray();
+  const positions = primitive.getAttribute('POSITION').getArray();
+  const sourceVertices = new Map();
+  for (let vertex = 0; vertex < sourcePositions.length / 3; vertex++) {
+    sourceVertices.set(sourcePositions.subarray(vertex * 3, vertex * 3 + 3).join(','), vertex);
+  }
+  const retainedPositions = new Set();
+  const streams = [
+    [sourcePrimitive.getAttribute('JOINTS_0'), primitive.getAttribute('JOINTS_0')],
+    [sourcePrimitive.getAttribute('WEIGHTS_0'), primitive.getAttribute('WEIGHTS_0')],
+    [sourcePrimitive.listTargets()[0].getAttribute('POSITION'), primitive.listTargets()[0].getAttribute('POSITION')],
+  ];
+  for (let vertex = 0; vertex < count; vertex++) {
+    const key = positions.subarray(vertex * 3, vertex * 3 + 3).join(',');
+    const sourceVertex = sourceVertices.get(key);
+    assert.notEqual(sourceVertex, undefined, 'simplification retains original vertex positions');
+    retainedPositions.add(key);
+    for (const [before, after] of streams) {
+      const size = before.getElementSize();
+      assert.deepEqual(after.getArray().subarray(vertex * size, (vertex + 1) * size),
+        before.getArray().subarray(sourceVertex * size, (sourceVertex + 1) * size));
+    }
+  }
+  for (let vertex = 0; vertex < sourcePositions.length / 3; vertex++) {
+    const point = sourcePositions.subarray(vertex * 3, vertex * 3 + 3);
+    if (point[0] === 0 || point[0] === 1 || point[1] === 0 || point[1] === 1 || (point[0] === 0.5 && point[1] === 0.5)) {
+      assert.ok(retainedPositions.has(point.join(',')), 'border and morph-active vertices remain present');
+    }
+  }
   assert.deepEqual(mesh.getExtras(), sourceDocument.getRoot().listMeshes()[0].getExtras());
   assert.deepEqual(mesh.getWeights(), [0]);
+  assert.deepEqual(document.getRoot().listSkins()[0].listJoints().map((node) => node.getName()), ['Head']);
   assert.deepEqual([...document.getRoot().listSkins()[0].getInverseBindMatrices().getArray()],
     [...sourceDocument.getRoot().listSkins()[0].getInverseBindMatrices().getArray()]);
+  assert.equal(document.getRoot().listAnimations()[0].listChannels()[0].getTargetNode().getName(), 'BodyNode');
+  assert.deepEqual([...document.getRoot().listAnimations()[0].listSamplers()[0].getOutput().getArray()], [0, 1]);
   assert.deepEqual(source, original);
+});
+
+test('low-resolution reports a limit instead of discarding fully morph-active geometry', async () => {
+  const document = await io.readBinary(await fixture({ rigged: true }));
+  const primitive = document.getRoot().listMeshes()[0].listPrimitives()[0];
+  const morph = primitive.listTargets()[0].getAttribute('POSITION');
+  const deltas = new Float32Array(morph.getArray().length);
+  for (let vertex = 0; vertex < morph.getCount(); vertex++) deltas[vertex * 3 + 2] = 0.25;
+  morph.setArray(deltas);
+  const source = await io.writeBinary(document);
+  const result = await prepareActorModel(source, { kind: 'low-resolution', targetRatio: 0.5, maxError: 0.001 });
+  assert.equal(result.after.triangleCount, result.before.triangleCount);
+  assert.equal(result.after.vertexCount, result.before.vertexCount);
+  assert.ok(result.warnings.some((warning) => warning.includes('retained more triangles')));
+  const output = await io.readBinary(result.bytes);
+  const target = output.getRoot().listMeshes()[0].listPrimitives()[0].listTargets()[0];
+  assert.deepEqual(target.getAttribute('POSITION').getArray(), deltas);
 });
 
 test('bust uses explicit mesh inclusion and never infers body parts from names', async () => {

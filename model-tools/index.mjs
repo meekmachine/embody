@@ -288,8 +288,11 @@ async function processPrimitives(document, ratio, error, warnings, signal) {
           offset += size;
         }
         const target = Math.max(3, Math.floor(indices.length * ratio / 3) * 3);
+        // Regularize adds a point-distance penalty even for coplanar vertices. At the
+        // default error limit it can forbid every collapse on otherwise reducible surfaces.
+        // Keep the surface/attribute error limit and explicit morph, skin, and border locks.
         [result] = MeshoptSimplifier.simplifyWithAttributes(indices, positions, 3, packed, stride,
-          new Array(stride).fill(1), locks, target, error, ['LockBorder', 'Regularize']);
+          new Array(stride).fill(1), locks, target, error, ['LockBorder']);
         if (result.length > target) warnings.push(`${mesh.getName() || 'Unnamed mesh'} retained more triangles to preserve morphs, skinning, seams, and the error limit.`);
       }
       compactPrimitive(document, primitive, result);
