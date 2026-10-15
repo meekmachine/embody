@@ -10,6 +10,15 @@ import {
 } from '@lovelace_lol/embody/wasm';
 import { Object3D, type WebGLRenderer } from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
+import { inspectActorModel, prepareActorModel, type PreparedActorModel } from '@lovelace_lol/embody/model-tools';
+declare const actorSource: Uint8Array;
+const actorInspection = await inspectActorModel(actorSource);
+const actorBytes: number = actorInspection.byteLength;
+const actorPreparation: PreparedActorModel = await prepareActorModel(actorSource, { kind: 'low-resolution', targetRatio: 0.5 });
+// @ts-expect-error Model preparation uses byte buffers, not network URLs.
+inspectActorModel('https://example.com/model.glb');
+// @ts-expect-error Actor preparation kinds are an explicit public union.
+prepareActorModel(actorSource, { kind: 'guess-clothes' });
 import {
   bindModelReferencePose,
   captureModelReferencePose,
