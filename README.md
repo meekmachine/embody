@@ -47,9 +47,9 @@ only. It has no action state, playheads, fades, sampling or blending engine.
 markers; they do not start playback. The compatibility update/control methods
 remain inert, and playback-state queries return `null` or empty arrays. Consumers
 must use their host's actions and events for playback, completion and cancellation.
-This removes the unused Rust clip engine; the separate
-[annotation runtime PR](https://github.com/meekmachine/embody/pull/137) owns the
-camera and marker migration to host playback.
+This removes the unused Rust clip engine. Camera and marker playback remain
+separate work in the deferred
+[annotation runtime PR](https://github.com/meekmachine/embody/pull/137).
 
 An AU animation drives its profile's mapped bones and morphs through the same
 Rust evaluation used by live AU controls. For example, speech can send an AU
