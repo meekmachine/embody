@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import { copyFile, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -7,6 +9,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 // Keep the temporary consumer beneath the repository so TypeScript resolves
 // the package's peer dependency from this checkout's node_modules.
 const workspace = await mkdtemp(join(root, '.package-declarations-'));
+let neutralWorkspace;
 
 try {
   const packOutput = execFileSync(
@@ -34,6 +37,8 @@ try {
   const packageJson = JSON.parse(
     await readFile(join(packageRoot, 'package.json'), 'utf8'),
   );
+  assert.equal(packageJson.peerDependenciesMeta?.three?.optional, true,
+    'Wasm-only consumers must not be required to install Three.');
   const declarationEntries = [...new Set([
     ...Object.values(packageJson.exports)
       .filter((entry) => entry && typeof entry === 'object' && entry.types)
@@ -70,9 +75,33 @@ try {
     { cwd: root, stdio: 'inherit' },
   );
 
+  // Separate from the checkout's node_modules: the neutral declaration graph
+  // and runtime import must work without inheriting Three from this repository.
+  neutralWorkspace = await mkdtemp(join(tmpdir(), 'embody-wasm-consumer-'));
+  const neutralPackageRoot = join(neutralWorkspace, 'node_modules', '@lovelace_lol', 'embody');
+  await mkdir(dirname(neutralPackageRoot), { recursive: true });
+  await cp(packageRoot, neutralPackageRoot, { recursive: true });
+  for (const extension of ['mts', 'mjs']) {
+    await copyFile(join(root, 'scripts', 'fixtures', `wasm-only-consumer.${extension}`),
+      join(neutralWorkspace, `wasm-only-consumer.${extension}`));
+  }
+  const neutralConfig = join(neutralWorkspace, 'tsconfig.json');
+  await writeFile(neutralConfig, JSON.stringify({
+    compilerOptions: {
+      noEmit: true, strict: true, skipLibCheck: false, moduleResolution: 'bundler',
+      module: 'esnext', target: 'es2022', types: [],
+    },
+    files: [join(neutralWorkspace, 'wasm-only-consumer.mts')],
+  }, null, 2));
+  execFileSync(process.execPath, [tsc, '--project', neutralConfig],
+    { cwd: neutralWorkspace, stdio: 'inherit' });
+  execFileSync(process.execPath, [join(neutralWorkspace, 'wasm-only-consumer.mjs')],
+    { cwd: neutralWorkspace, stdio: 'inherit' });
+
   console.log(
-    `Packed declaration contract passed (${declarationEntries.length} entrypoints and typed Wasm consumer).`,
+    `Packed declaration contract passed (${declarationEntries.length} entrypoints, compatible Three types, and a Wasm-only consumer).`,
   );
 } finally {
+  if (neutralWorkspace) await rm(neutralWorkspace, { recursive: true, force: true });
   await rm(workspace, { recursive: true, force: true });
 }

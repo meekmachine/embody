@@ -1,12 +1,13 @@
 // This fixture is copied into an isolated consumer of the packed package.
 // The error assertions below fail if the public loader regresses to `any`.
-import { initEmbodyCore as initFromRoot } from '@lovelace_lol/embody';
+import { initEmbodyCore as initFromRoot, type ClipIR as RootClipIR } from '@lovelace_lol/embody';
 import {
   getEmbodyCore,
   initEmbodyCore,
   requireInitializedEmbodyCore,
   type EmbodyCore,
   type RuntimeCore,
+  type ClipIR as NeutralClipIR,
 } from '@lovelace_lol/embody/wasm';
 import { Object3D, type WebGLRenderer } from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
@@ -30,7 +31,20 @@ import {
   type AnnotationCharacterConfig,
   type MarkerStateSnapshot,
   type DPthreeCameraControllerConfig,
+  type ClipIR as ThreeClipIR,
+  type ClipIRTrack as ThreeClipIRTrack,
 } from '@lovelace_lol/embody/three';
+
+// Existing Three/root type imports and minimal adapter inputs stay compatible.
+const legacyTrack: ThreeClipIRTrack = {
+  target: { kind: 'morphTarget', meshId: 1, morphTargetId: 2 },
+  valueType: 'scalar', times: [0, 1], values: [0, 1],
+};
+const legacyClip: ThreeClipIR = { name: 'legacy', tracks: [legacyTrack] };
+const neutralClip: NeutralClipIR = legacyClip;
+const rootClip: RootClipIR = neutralClip;
+const threeClip: ThreeClipIR = rootClip;
+void threeClip;
 
 const annotationProfile: AnnotationCharacterConfig = { characterId: 'consumer', auPresetType: 'cc4' };
 const resolvedAnnotationProfile = await resolveAnnotationCharacterConfig(annotationProfile);

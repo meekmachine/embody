@@ -166,6 +166,26 @@ function update(dtSeconds: number) {
 Application-facing JavaScript APIs belong in the host package. Polymer owns
 the CLJS character host used by LoomLarge and calls the Wasm exports directly.
 
+### Connectors for other animation hosts
+
+Import `@lovelace_lol/embody/wasm` to use the Rust compiler and neutral
+`ClipIR`, `ClipIRTrack`, `ClipIRTarget` and `ClipIRChannel` types without Three.
+The `/wasm` entry has no runtime or declaration dependency on Three; Three is
+an optional package peer. The existing root and `/three` entry points still
+require Three and retain their exports, including the ClipIR type aliases.
+
+A connector supplies a renderer-neutral model descriptor, passes semantic
+curves through Rust, and converts the resulting concrete tracks into its
+host's native clips. That host owns playback, interpolation and completion,
+advanced by the application's existing frame driver. The connector must not
+add a separate animation clock, lerp loop or completion timer. No second renderer
+connector is implemented by this change; see the
+[connector data and lifecycle contract](docs/ADAPTER_TARGETS.md).
+
+This boundary applies to the clip path described here. The legacy
+`ThreeGazeFocus` pose constraint and camera/marker animation still require their
+separately scoped migrations; exporting neutral types does not remove them.
+
 ### Interruptible additive target clips
 
 `ThreeClipSlots`, exported from `@lovelace_lol/embody/three`, lets a host replace
