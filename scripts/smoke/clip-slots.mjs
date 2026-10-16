@@ -43,7 +43,12 @@ const mixer = new AnimationMixer(model);
 const events = [];
 const slots = new ThreeClipSlots(mixer, event => events.push(event));
 const near = (actual, expected, label) => assert(Math.abs(actual - expected) < 2e-6, `${label}: ${actual} != ${expected}`);
-const poseNear = (actual, expected, label) => assert(actual.angleTo(expected) < 0.0001, label);
+const poseNear = (actual, expected, label) => {
+  near(actual.length(), 1, `${label}: actual quaternion length`);
+  near(expected.length(), 1, `${label}: expected quaternion length`);
+  const angularError = actual.clone().normalize().angleTo(expected.clone().normalize());
+  assert(angularError < 0.0001, `${label}: angular error ${angularError} radians`);
+};
 // Three's finished event precedes binding application. Draining microtasks
 // models the helper's post-update lifecycle delivery without a second clock;
 // tick advances the sole native mixer by an explicit duration in seconds.
@@ -168,8 +173,11 @@ try {
   await tick(0.1);
   const targetQuaternion = new Quaternion().fromArray(target.ir.tracks.find(track => track.target.kind === 'boneTransform').values.slice(-4));
   poseNear(head.quaternion, nodRotation.clone().multiply(rest.clone().invert().multiply(targetQuaternion)), 'nod and three-axis head target compose');
+  const nodTime = nodAction.time;
   slots.remove('tracking/head');
   poseNear(head.quaternion, nodRotation, 'removing tracking preserves the authored nod');
+  near(nodAction.time, nodTime, 'removing tracking preserves native nod time');
+  assert.equal(mixer.stats.actions.inUse, 1, 'removing tracking leaves exactly the authored nod');
   // Disposal must also reveal a surviving same-property action immediately.
   // Without the helper's zero-delta mixer application, stop() leaves the prior
   // combined pose visible while the nod still owns the property binding.
@@ -177,6 +185,8 @@ try {
   temporary.replace('tracking/head', target.clip, { durationSec: 0, referenceClip: target.referenceClip });
   temporary.dispose();
   poseNear(head.quaternion, nodRotation, 'dispose restores surviving nod without another frame');
+  near(nodAction.time, nodTime, 'disposing tracking preserves native nod time');
+  assert.equal(mixer.stats.actions.inUse, 1, 'disposing tracking leaves exactly the authored nod');
   nodAction.stop(); mixer.uncacheClip(nod);
 
   // Bilateral eye mappings and both rotation axes go through one ordinary clip,
