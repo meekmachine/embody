@@ -4,7 +4,7 @@ use serde::Deserialize;
 use wasm_bindgen::prelude::*;
 
 use crate::abi::{PACKED_BONE_FRAME_DELTA_STRIDE, PACKED_MORPH_FRAME_DELTA_STRIDE};
-use crate::animation::{AnimationCore, BlendMode, LoopMode};
+use crate::animation::ClipRegistry;
 use crate::bones::{
     composite_axis_value, multiply_quat, quat_from_channel, select_axis_binding, side_scale,
     AxisBindingRow, AxisValueRow, CompositeAxis, JawBinding, RestTransform, TranslationRow,
@@ -150,7 +150,7 @@ pub struct RuntimeCore {
     object_rest_rotations: HashMap<u32, [f32; 4]>,
     object_rest_scales: HashMap<u32, [f32; 3]>,
     mesh_visibility: HashMap<u32, bool>,
-    animation: AnimationCore,
+    clip_registry: ClipRegistry,
     procedural_bone_flags: HashMap<u32, u32>,
     procedural_morph_targets: BTreeSet<(u32, u32)>,
     body_controls_json: String,
@@ -187,7 +187,7 @@ impl RuntimeCore {
             object_rest_rotations: HashMap::new(),
             object_rest_scales: HashMap::new(),
             mesh_visibility: HashMap::new(),
-            animation: AnimationCore::new(),
+            clip_registry: ClipRegistry::new(),
             procedural_bone_flags: HashMap::new(),
             procedural_morph_targets: BTreeSet::new(),
             body_controls_json: "[]".into(),
@@ -640,7 +640,7 @@ impl RuntimeCore {
     pub fn build_semantic_clip(&mut self,name:&str,json:&str,options_json:&str)->Result<String,JsError>{
         let clip=self.compile_semantic_animation(name,json,options_json)?;
         let result=serialize_runtime_json(&clip,"semantic clip")?;
-        self.animation.insert_clip(clip,"snippet").map_err(|error|JsError::new(&error))?;
+        self.clip_registry.insert_clip(clip,"snippet").map_err(|error|JsError::new(&error))?;
         Ok(result)
     }
 
@@ -726,7 +726,6 @@ impl RuntimeCore {
             *scale = 1.0;
         }
         self.direct_morph_values.clear();
-        self.animation.stop_all();
     }
 
     #[wasm_bindgen]
@@ -795,7 +794,7 @@ impl RuntimeCore {
         for clip in &mut clips {
             self.classify_baked_clip(clip);
         }
-        self.animation
+        self.clip_registry
             .replace_clips(clips, "baked")
             .map_err(|error| JsError::new(&error))
     }
@@ -811,7 +810,7 @@ impl RuntimeCore {
         if source == "baked" {
             self.classify_baked_clip(&mut clip);
         }
-        self.animation
+        self.clip_registry
             .insert_clip(clip, if source.is_empty() { "clip" } else { source })
             .map_err(|error| JsError::new(&error))
     }
@@ -829,7 +828,7 @@ impl RuntimeCore {
         let options: ClipBuildOptions = parse_runtime_json(options_json, "clip options")?;
         let clip = self.compile_curves(clip_name, curves, &options)?;
         let serialized = serialize_runtime_json(&clip, "compiled clip")?;
-        self.animation
+        self.clip_registry
             .insert_clip(clip, options.source.as_deref().unwrap_or("snippet"))
             .map_err(|error| JsError::new(&error))?;
         Ok(serialized)
@@ -848,7 +847,7 @@ impl RuntimeCore {
         let options: ClipBuildOptions = parse_runtime_json(options_json, "clip options")?;
         let clip = self.compile_typed_channels(clip_name, channels, &options)?;
         let serialized = serialize_runtime_json(&clip, "compiled typed clip")?;
-        self.animation
+        self.clip_registry
             .insert_clip(clip, options.source.as_deref().unwrap_or("snippet"))
             .map_err(|error| JsError::new(&error))?;
         Ok(serialized)
@@ -876,67 +875,30 @@ impl RuntimeCore {
         self.play_animation(clip_name, options_json)
     }
 
+    /// Compatibility query: Rust has no active actions to reconfigure. Hosts
+    /// update their AnimationAction directly and own the resulting playback state.
     #[wasm_bindgen]
     pub fn update_clip_params(
         &mut self,
-        clip_name: &str,
-        params_json: &str,
+        _clip_name: &str,
+        _params_json: &str,
     ) -> Result<bool, JsError> {
-        if self.animation.state(clip_name).is_none() {
-            return Ok(false);
-        }
-        let params: serde_json::Value = parse_runtime_json(params_json, "clip parameters")?;
-        if let Some(weight) = params
-            .get("weight")
-            .or_else(|| params.get("intensity"))
-            .or_else(|| params.get("mixerWeight"))
-            .and_then(serde_json::Value::as_f64)
-        {
-            self.animation.set_weight(clip_name, weight as f32);
-        }
-        if let Some(speed) = params
-            .get("speed")
-            .or_else(|| params.get("playbackRate"))
-            .and_then(serde_json::Value::as_f64)
-        {
-            self.animation.set_speed(clip_name, speed as f32);
-        }
-        if let Some(reverse) = params.get("reverse").and_then(serde_json::Value::as_bool) {
-            self.animation.set_reverse(clip_name, reverse);
-        }
-        if let Some(mode) = params.get("blendMode").and_then(serde_json::Value::as_str) {
-            self.set_animation_blend_mode(clip_name, mode)?;
-        }
-        if let Some(easing) = params.get("easing").and_then(serde_json::Value::as_str) {
-            self.set_animation_easing(clip_name, easing)?;
-        }
-        if let Some(mode) = params.get("loopMode").and_then(serde_json::Value::as_str) {
-            let repeat_count = params
-                .get("repeatCount")
-                .and_then(serde_json::Value::as_u64)
-                .map(|value| value as u32);
-            self.animation
-                .set_loop(clip_name, parse_loop_mode(mode)?, repeat_count);
-        }
-        if let Some(time) = params.get("time").and_then(serde_json::Value::as_f64) {
-            self.animation.seek(clip_name, time as f32);
-        }
-        Ok(true)
+        Ok(false)
     }
 
     #[wasm_bindgen]
     pub fn cleanup_snippet(&mut self, clip_name: &str) -> bool {
-        self.animation.remove_clip(clip_name)
+        self.clip_registry.remove_clip(clip_name)
     }
 
     #[wasm_bindgen]
     pub fn get_animation_clips(&self) -> Result<String, JsError> {
-        serialize_runtime_json(&self.animation.list(), "animation clip list")
+        serialize_runtime_json(&self.clip_registry.list(), "animation clip list")
     }
 
     #[wasm_bindgen]
     pub fn remove_animation_clip(&mut self, clip_name: &str) -> bool {
-        self.animation.remove_clip(clip_name)
+        self.clip_registry.remove_clip(clip_name)
     }
 
     /// Registry lookup only. Host animation libraries own play/lerp; this returns
@@ -947,7 +909,7 @@ impl RuntimeCore {
         clip_name: &str,
         _options_json: &str,
     ) -> Result<String, JsError> {
-        if self.animation.clip(clip_name).is_none() {
+        if self.clip_registry.clip(clip_name).is_none() {
             return Err(JsError::new(&format!(
                 "Unknown animation clip \"{clip_name}\"."
             )));
@@ -966,110 +928,73 @@ impl RuntimeCore {
         self.play_animation(clip_name, options_json)
     }
 
+    /// Compatibility no-op. Stop the host AnimationAction to stop playback.
     #[wasm_bindgen]
-    pub fn stop_animation(&mut self, clip_name: &str) {
-        self.animation.stop(clip_name);
-    }
+    pub fn stop_animation(&mut self, _clip_name: &str) {}
+
+    /// Compatibility no-op. Rust does not own any playing actions.
+    #[wasm_bindgen]
+    pub fn stop_all_animations(&mut self) {}
+
+    /// Compatibility no-op. Pause the host AnimationAction instead.
+    #[wasm_bindgen]
+    pub fn pause_animation(&mut self, _clip_name: &str) {}
+
+    /// Compatibility no-op. Resume the host AnimationAction instead.
+    #[wasm_bindgen]
+    pub fn resume_animation(&mut self, _clip_name: &str) {}
 
     #[wasm_bindgen]
-    pub fn stop_all_animations(&mut self) {
-        self.animation.stop_all();
-    }
+    pub fn pause_all_animations(&mut self) {}
 
     #[wasm_bindgen]
-    pub fn pause_animation(&mut self, clip_name: &str) {
-        self.animation.pause(clip_name, true);
-    }
+    pub fn resume_all_animations(&mut self) {}
 
     #[wasm_bindgen]
-    pub fn resume_animation(&mut self, clip_name: &str) {
-        self.animation.pause(clip_name, false);
-    }
+    pub fn set_animation_speed(&mut self, _clip_name: &str, _speed: f32) {}
 
     #[wasm_bindgen]
-    pub fn pause_all_animations(&mut self) {
-        self.animation.pause_all(true);
-    }
+    pub fn set_animation_intensity(&mut self, _clip_name: &str, _intensity: f32) {}
 
-    #[wasm_bindgen]
-    pub fn resume_all_animations(&mut self) {
-        self.animation.pause_all(false);
-    }
-
-    #[wasm_bindgen]
-    pub fn set_animation_speed(&mut self, clip_name: &str, speed: f32) {
-        self.animation.set_speed(clip_name, speed);
-    }
-
-    #[wasm_bindgen]
-    pub fn set_animation_intensity(&mut self, clip_name: &str, intensity: f32) {
-        self.animation.set_weight(clip_name, intensity);
-    }
-
+    /// Preserve argument validation for existing callers without storing a
+    /// second loop state beside the host AnimationAction.
     #[wasm_bindgen]
     pub fn set_animation_loop_mode(
         &mut self,
-        clip_name: &str,
+        _clip_name: &str,
         loop_mode: &str,
     ) -> Result<(), JsError> {
-        let mode = parse_loop_mode(loop_mode)?;
-        let repeat_count = self
-            .animation
-            .state(clip_name)
-            .and_then(|state| state.repeat_count);
-        self.animation.set_loop(clip_name, mode, repeat_count);
-        Ok(())
+        validate_loop_mode(loop_mode)
     }
 
     #[wasm_bindgen]
-    pub fn set_animation_repeat_count(&mut self, clip_name: &str, repeat_count: i32) {
-        let mode = self
-            .animation
-            .state(clip_name)
-            .map(|state| state.loop_mode)
-            .unwrap_or(LoopMode::Repeat);
-        self.animation.set_loop(
-            clip_name,
-            mode,
-            (repeat_count >= 0).then_some(repeat_count as u32),
-        );
-    }
+    pub fn set_animation_repeat_count(&mut self, _clip_name: &str, _repeat_count: i32) {}
 
     #[wasm_bindgen]
-    pub fn set_animation_reverse(&mut self, clip_name: &str, reverse: bool) {
-        self.animation.set_reverse(clip_name, reverse);
-    }
+    pub fn set_animation_reverse(&mut self, _clip_name: &str, _reverse: bool) {}
 
     #[wasm_bindgen]
     pub fn set_animation_blend_mode(
         &mut self,
-        clip_name: &str,
+        _clip_name: &str,
         blend_mode: &str,
     ) -> Result<(), JsError> {
-        let mode = match blend_mode {
-            "replace" => BlendMode::Replace,
-            "additive" => BlendMode::Additive,
-            _ => {
-                return Err(JsError::new(
-                    "Animation blend mode must be replace or additive.",
-                ))
-            }
-        };
-        self.animation.set_blend_mode(clip_name, mode);
-        Ok(())
+        match blend_mode {
+            "replace" | "additive" => Ok(()),
+            _ => Err(JsError::new(
+                "Animation blend mode must be replace or additive.",
+            )),
+        }
     }
 
     #[wasm_bindgen]
     pub fn set_animation_easing(
         &mut self,
-        clip_name: &str,
+        _clip_name: &str,
         easing: &str,
     ) -> Result<(), JsError> {
         match easing {
-            "linear" | "easeIn" | "easeOut" | "easeInOut" | "easeInOutCubic" => {
-                self.animation.set_easing(clip_name, easing);
-                Ok(())
-            }
+            "linear" | "easeIn" | "easeOut" | "easeInOut" | "easeInOutCubic" => Ok(()),
             _ => Err(JsError::new(
                 "Animation easing must be linear, easeIn, easeOut, easeInOut, or easeInOutCubic.",
             )),
@@ -1077,28 +1002,25 @@ impl RuntimeCore {
     }
 
     #[wasm_bindgen]
-    pub fn seek_animation(&mut self, clip_name: &str, time: f32) {
-        self.animation.seek(clip_name, time);
-    }
+    pub fn seek_animation(&mut self, _clip_name: &str, _time: f32) {}
 
     #[wasm_bindgen]
-    pub fn set_animation_time_scale(&mut self, time_scale: f32) {
-        self.animation.set_time_scale(time_scale);
-    }
+    pub fn set_animation_time_scale(&mut self, _time_scale: f32) {}
 
+    /// Query the host for actual action state; Rust owns only the clip inventory.
     #[wasm_bindgen]
-    pub fn get_animation_state(&self, clip_name: &str) -> Result<String, JsError> {
-        serialize_runtime_json(&self.animation.state(clip_name), "animation state")
+    pub fn get_animation_state(&self, _clip_name: &str) -> Result<String, JsError> {
+        Ok("null".to_string())
     }
 
     #[wasm_bindgen]
     pub fn get_playing_animations(&self) -> Result<String, JsError> {
-        serialize_runtime_json(&self.animation.playing(), "playing animations")
+        Ok("[]".to_string())
     }
 
     #[wasm_bindgen]
     pub fn drain_animation_events(&mut self) -> Result<String, JsError> {
-        serialize_runtime_json(&self.animation.drain_events(), "animation events")
+        Ok("[]".to_string())
     }
 
     /// Packed rows: `[bone_id, px, py, pz, qx, qy, qz, qw] * N`
@@ -2090,11 +2012,9 @@ where
         .map_err(|error| JsError::new(&format!("Failed to serialize {label}: {error}")))
 }
 
-fn parse_loop_mode(value: &str) -> Result<LoopMode, JsError> {
+fn validate_loop_mode(value: &str) -> Result<(), JsError> {
     match value {
-        "once" => Ok(LoopMode::Once),
-        "repeat" => Ok(LoopMode::Repeat),
-        "pingpong" => Ok(LoopMode::Pingpong),
+        "once" | "repeat" | "pingpong" => Ok(()),
         _ => Err(JsError::new(
             "Animation loop mode must be once, repeat, or pingpong.",
         )),
@@ -2617,7 +2537,7 @@ mod tests {
             .register_animation_clip(&clip.to_string(), "baked")
             .unwrap();
 
-        let registered = additive.animation.clip("optional").unwrap();
+        let registered = additive.clip_registry.clip("optional").unwrap();
         assert_eq!(
             registered
                 .tracks
@@ -2628,7 +2548,7 @@ mod tests {
         );
         assert_eq!(
             serde_json::to_value(registered).unwrap(),
-            serde_json::to_value(bulk.animation.clip("optional").unwrap()).unwrap()
+            serde_json::to_value(bulk.clip_registry.clip("optional").unwrap()).unwrap()
         );
         assert_eq!(
             additive.get_animation_clips().unwrap(),
@@ -2641,27 +2561,20 @@ mod tests {
     }
 
     #[test]
-    fn additive_baked_registration_preserves_existing_clips_and_playback() {
+    fn additive_baked_registration_preserves_inventory_and_host_playback_markers() {
         let mut core = animation_test_runtime();
         core.load_animation_clips(&serde_json::json!([mixed_animation_clip("idle")]).to_string())
             .unwrap();
         core.register_animation_clip(&mixed_animation_clip("gesture").to_string(), "snippet")
             .unwrap();
-        core.animation
-            .play("idle", Default::default(), |_| vec![])
-            .unwrap();
-        core.animation
-            .play("gesture", Default::default(), |_| vec![])
-            .unwrap();
-        core.animation.update(0.25);
-        let catalog_before = core.animation.list();
-        let playing_before = serde_json::to_value(core.animation.playing()).unwrap();
-        core.animation.drain_events();
+        assert_eq!(core.play_animation("idle", "{}").unwrap(), "host:idle");
+        assert_eq!(core.play_animation("gesture", "{}").unwrap(), "host:gesture");
+        let catalog_before = core.clip_registry.list();
 
         core.register_animation_clip(&mixed_animation_clip("optional").to_string(), "baked")
             .unwrap();
 
-        let catalog_after = core.animation.list();
+        let catalog_after = core.clip_registry.list();
         assert_eq!(catalog_after.len(), 3);
         for previous in catalog_before {
             let current = catalog_after
@@ -2673,14 +2586,54 @@ mod tests {
                 serde_json::to_value(previous).unwrap()
             );
         }
+        assert_eq!(core.play_animation("idle", "{}").unwrap(), "host:idle");
+        assert_eq!(core.play_animation("gesture", "{}").unwrap(), "host:gesture");
+        assert_eq!(core.get_animation_state("idle").unwrap(), "null");
+        assert_eq!(core.get_playing_animations().unwrap(), "[]");
+        assert_eq!(core.drain_animation_events().unwrap(), "[]");
+    }
+
+    #[test]
+    fn compatibility_playback_controls_never_advance_or_mutate_live_state() {
+        let mut core = animation_test_runtime();
+        core.register_animation_clip(&mixed_animation_clip("gesture").to_string(), "snippet")
+            .unwrap();
+        core.set_au(51, 0.6, -0.25);
+        let catalog_before = core.get_animation_clips().unwrap();
+        let clip_before = serde_json::to_value(core.clip_registry.clip("gesture").unwrap()).unwrap();
+
+        assert_eq!(core.play_animation("gesture", "{}").unwrap(), "host:gesture");
+        assert_eq!(core.crossfade_to("gesture", 0.3, "{}").unwrap(), "host:gesture");
+        assert!(!core.update_clip_params("gesture", r#"{"weight":0.2,"time":0.7}"#).unwrap());
+        core.set_animation_speed("gesture", 2.0);
+        core.set_animation_intensity("gesture", 0.25);
+        core.set_animation_loop_mode("gesture", "pingpong").unwrap();
+        core.set_animation_repeat_count("gesture", 3);
+        core.set_animation_reverse("gesture", true);
+        core.set_animation_blend_mode("gesture", "additive").unwrap();
+        core.set_animation_easing("gesture", "easeInOut").unwrap();
+        core.seek_animation("gesture", 0.75);
+        core.set_animation_time_scale(3.0);
+        core.pause_animation("gesture");
+        core.resume_animation("gesture");
+        core.pause_all_animations();
+        core.resume_all_animations();
+        assert_eq!(core.update(10.0), 0);
+        core.stop_animation("gesture");
+        core.stop_all_animations();
+
+        assert_eq!(core.get_au(51), 0.6);
+        assert_eq!(core.get_au_balance(51), -0.25);
+        assert_eq!(core.get_animation_clips().unwrap(), catalog_before);
         assert_eq!(
-            serde_json::to_value(core.animation.playing()).unwrap(),
-            playing_before
+            serde_json::to_value(core.clip_registry.clip("gesture").unwrap()).unwrap(),
+            clip_before
         );
-        assert!(core.animation.drain_events().is_empty());
-        core.animation.update(0.25);
-        assert_eq!(core.animation.state("idle").unwrap().time, 0.5);
-        assert_eq!(core.animation.state("gesture").unwrap().time, 0.5);
+        assert_eq!(core.get_animation_state("gesture").unwrap(), "null");
+        assert_eq!(core.get_playing_animations().unwrap(), "[]");
+        assert_eq!(core.drain_animation_events().unwrap(), "[]");
+        assert!(core.cleanup_snippet("gesture"));
+        assert!(!core.remove_animation_clip("gesture"));
     }
 
     #[test]
@@ -2690,14 +2643,14 @@ mod tests {
             let clip = mixed_animation_clip("authored");
             core.register_animation_clip(&clip.to_string(), source)
                 .unwrap();
-            let stored = core.animation.clip("authored").unwrap();
+            let stored = core.clip_registry.clip("authored").unwrap();
             assert_eq!(
                 serde_json::to_value(&stored.channels).unwrap(),
                 clip["channels"]
             );
             assert!(stored.tracks.iter().all(|track| track.channel_id == 42));
             assert_eq!(
-                core.animation.list()[0].source,
+                core.clip_registry.list()[0].source,
                 if source.is_empty() { "clip" } else { source }
             );
         }
