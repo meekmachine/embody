@@ -1,6 +1,12 @@
 // This fixture is copied into an isolated consumer of the packed package.
 // The error assertions below fail if the public loader regresses to `any`.
-import { initEmbodyCore as initFromRoot, type ClipIR as RootClipIR } from '@lovelace_lol/embody';
+import {
+  initEmbodyCore as initFromRoot,
+  type ClipIR as RootClipIR,
+  type ClipIRChannel as RootClipIRChannel,
+  type ClipIRTarget as RootClipIRTarget,
+  type ClipIRTrack as RootClipIRTrack,
+} from '@lovelace_lol/embody';
 import {
   getEmbodyCore,
   initEmbodyCore,
@@ -45,6 +51,16 @@ const neutralClip: NeutralClipIR = legacyClip;
 const rootClip: RootClipIR = neutralClip;
 const threeClip: ThreeClipIR = rootClip;
 void threeClip;
+
+// Consumers of the root barrel can use every neutral type while keeping the
+// older Three adapter imports. CI checks the packed declarations, not aliases
+// resolved against this repository's source or build directories.
+const rootChannel: RootClipIRChannel = { id: 1, kind: 'face' };
+const rootTarget: RootClipIRTarget = legacyTrack.target;
+const rootTrack: RootClipIRTrack = { ...legacyTrack, channelId: rootChannel.id, target: rootTarget };
+const rootCompiledClip: RootClipIR = { name: 'root', channels: [rootChannel], tracks: [rootTrack] };
+const neutralCompiledClip: NeutralClipIR = rootCompiledClip;
+void neutralCompiledClip;
 
 const annotationProfile: AnnotationCharacterConfig = { characterId: 'consumer', auPresetType: 'cc4' };
 const resolvedAnnotationProfile = await resolveAnnotationCharacterConfig(annotationProfile);
