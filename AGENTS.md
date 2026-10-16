@@ -90,6 +90,20 @@ CI, the user, or explicitly requested validation. Report what was not run.
   for CI to execute. In review, identify the ambiguity and its concrete failure
   risk rather than imposing subjective style preferences or size limits.
 
+## Host animation playback
+
+- Rust prepares finite animation/keyframe data from semantic inputs. The host
+  animation library owns interpolation, mixing, playheads, fading and completion.
+- Do not add Rust elapsed-time samplers, custom lerp/slerp playback, frame-based
+  easing or a parallel animation engine. Three adapters bind native tracks and
+  actions; they do not implement interpolation callbacks or animation RAF loops.
+- Keep UI deadlines, input/geometry observations and physics calculations
+  explicit and separate from clip playback. A timer may schedule a request; it
+  must not simulate playback progress or decide that a clip has finished.
+- Preserve lifecycle semantics when replacing timed behavior: the native action's
+  completion/cancellation must settle the correct request, and stale callbacks
+  must not alter a newer animation or a disposed model.
+
 ## Source-only repository
 
 - Commit Rust, TypeScript, configuration, tests, and documentation. Do not commit `dist/`, `target/`, `node_modules/`, npm tarballs, `.wasm` binaries, or other generated output.

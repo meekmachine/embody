@@ -41,6 +41,16 @@ The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
 not sample or lerp clips on the hot path.
 
+The character clip inventory stores validated `ClipIR` and channel/source metadata
+only. It has no action state, playheads, fades, sampling or blending engine.
+`RuntimeCore.play_animation` and `crossfade_to` retain their existing `host:<name>`
+markers; they do not start playback. The compatibility update/control methods
+remain inert, and playback-state queries return `null` or empty arrays. Consumers
+must use their host's actions and events for playback, completion and cancellation.
+This removes the unused Rust clip engine; the separate
+[annotation runtime PR](https://github.com/meekmachine/embody/pull/137) owns the
+camera and marker migration to host playback.
+
 An AU animation drives its profile's mapped bones and morphs through the same
 Rust evaluation used by live AU controls. For example, speech can send an AU
 103 curve and separate viseme shape curves; the profile decides which bones
