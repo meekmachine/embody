@@ -65,12 +65,6 @@ const jawScale: number = runtime.get_viseme_jaw_scale(0);
 const frame: Float32Array = runtime.evaluate_active_morph_frame();
 const clip: string = runtime.build_clip('smile', '{}', '{}');
 const noOutputClip: string = runtime.build_clip('unmapped', '{}', JSON.stringify({ allowEmpty: true }));
-const cameraAngles: string = core.measure_camera_relative_angles_json(
-  new Float32Array(3), new Float32Array([0, 0, 0, 1]), new Float32Array([0, 0, 1]));
-// @ts-expect-error Position inputs use packed Float32Array values.
-core.measure_camera_relative_angles_json(renderModel, new Float32Array(4), new Float32Array(3));
-// @ts-expect-error All three geometric inputs are required.
-core.measure_camera_relative_angles_json(new Float32Array(3), new Float32Array(3));
 const removed: boolean = runtime.remove_animation_clip('smile');
 runtime.free();
 

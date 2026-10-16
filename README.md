@@ -156,27 +156,19 @@ function update(dtSeconds: number) {
 Application-facing JavaScript APIs belong in the host package. Polymer owns
 the CLJS character host used by LoomLarge and calls the Wasm exports directly.
 
-`measure_camera_relative_angles_json(character_position, character_quaternion,
-camera_position)` reports only `{ yawDegrees, pitchDegrees }`. Positions are
-three-component world coordinates; the character orientation is an XYZW
-quaternion with local +Z front and +Y up. After rotating the camera offset into
-that local frame, yaw is `atan2(x, z)` and pitch is `atan2(y, hypot(x, z))`, in
-degrees. Positive yaw points toward local +X and positive pitch toward +Y.
-Finite nonzero quaternions are normalized. Wrong array lengths, nonfinite
-components, zero quaternions, and coincident positions reject with an error.
-
 ### Interruptible additive target clips
 
 `ThreeClipSlots`, exported from `@lovelace_lol/embody/three`, lets a host replace
 an ordinary constant AU target without dropping its outgoing contribution.
 Polymer selects the AU targets and duration; Rust `build_clip` or
-`build_typed_clip` compiles every mapped bone and morph output. Supply all
-simultaneous head axes in one head clip, and the eye axes together in an eye
-clip, so the profile compiler retains its authored rotation order.
+`build_typed_clip` compiles every mapped bone and morph output. Compile
+simultaneous AU channels together so the profile compiler retains its authored
+rotation order. The helper accepts concrete clips and has no camera input or
+tracking decisions.
 
 ```ts
 const slots = new ThreeClipSlots(mixer);
-const handle = slots.replace('tracking/head', targetClip, {
+const handle = slots.replace('expression', targetClip, {
   durationSec: 0.2,
   referenceClip: neutralClip,
   order: 10,
@@ -209,8 +201,8 @@ Call `slots.reorder()` after an unrelated authored action starts or stops;
 native completion also restores stable composition order. This uses public
 Three action methods at discrete commands and preserves each action's local time.
 It does not install custom interpolants, run a pose solver, or advance time.
-An additive Prosodic nod retains its own contribution beneath tracking; combined
-authored and tracking rotations are not subject to a new aggregate joint clamp.
+Independent authored actions retain their own contributions; combined rotations
+are not subject to a new aggregate joint clamp.
 
 ### Direct viseme snapshots
 
@@ -575,9 +567,8 @@ the package; CI checks and publishes that same build.
 The `test:exports` script includes `scripts/smoke/clip-slots.mjs`, which checks
 compiled bone/morph endpoints, interrupted movement, property release, action
 count, and composition with an independently authored nod. `package-exports.mjs`
-checks the camera angle API and invalid-input rejection through the public Wasm
-loader; `wasm-consumer.mts` covers its generated declarations. CI runs these
-sources against its existing build.
+checks the public Three adapter export; `wasm-consumer.mts` covers the compiler's
+empty-output option. CI runs these sources against its existing build.
 
 ## License
 

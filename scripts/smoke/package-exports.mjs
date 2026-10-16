@@ -39,23 +39,6 @@ const core = await wasm.initEmbodyCore();
 const distEntries = await readdir(new URL('../../dist/', import.meta.url));
 const wasmEntrySource = await readFile(new URL('../../dist/wasm.js', import.meta.url), 'utf8');
 const preset = JSON.parse(core.get_preset_json('cc4'));
-const cameraAngles = JSON.parse(core.measure_camera_relative_angles_json(
-  new Float32Array([2, 3, 4]), new Float32Array([0, 0, 0, 1]), new Float32Array([3, 4, 5])));
-const rotatedCameraAngles = JSON.parse(core.measure_camera_relative_angles_json(
-  new Float32Array(3), new Float32Array([0, 1, 0, 1]), new Float32Array([2, 0, 0])));
-const invalidCameraInputs = [
-  [[0, 0, 0], [0, 0, 0, 1], [0, 0, 0]],
-  [[0, 0, 0], [0, 0, 0, 0], [0, 0, 1]],
-  [[NaN, 0, 0], [0, 0, 0, 1], [0, 0, 1]],
-  [[0, 0, 0], [0, Infinity, 0, 1], [0, 0, 1]],
-  [[0, 0, 0], [0, 0, 0, 1], [0, 0, -Infinity]],
-  [[0, 0], [0, 0, 0, 1], [0, 0, 1]],
-];
-const rejectsInvalidCameraInputs = invalidCameraInputs.every(values => {
-  try { core.measure_camera_relative_angles_json(...values.map(value => new Float32Array(value))); }
-  catch { return true; }
-  return false;
-});
 const hairPresets = JSON.parse(core.hair_color_presets_json());
 const templates = JSON.parse(core.list_humanoid_skeleton_templates_json());
 const model = {
@@ -107,11 +90,6 @@ new three.ThreeFrameApplier().addMorphTarget(morphRoot, {
 
 const checks = [
   ['Three native target slots', typeof three.ThreeClipSlots === 'function'],
-  ['camera angle output fields', Object.keys(cameraAngles).sort().join(',') === 'pitchDegrees,yawDegrees'],
-  ['camera relative yaw degrees', Math.abs(cameraAngles.yawDegrees - 45) < 1e-5],
-  ['camera relative pitch degrees', Math.abs(cameraAngles.pitchDegrees - Math.atan(1 / Math.sqrt(2)) * 180 / Math.PI) < 1e-5],
-  ['camera bearing respects character front', Math.abs(rotatedCameraAngles.yawDegrees) < 1e-5 && Math.abs(rotatedCameraAngles.pitchDegrees) < 1e-5],
-  ['camera angles reject undefined geometry', rejectsInvalidCameraInputs],
   ['root ESM Three adapter', typeof root.ThreeModelInspector === 'function'],
   ...['DPthree', 'DPthreeCameraController', 'DPthree3DMarkers', 'DPthreeHTMLMarkers', 'DPthreeMarkers', 'CameraDOMControls', 'createMarkerVisibilityLifecycle', 'createRuntimeAnnotationPreviewLifecycle'].map(name => [`annotation runtime ${name}`, typeof three[name] === 'function']),
   ['annotation adapter shares initialized Wasm', markerAngleVisible],
