@@ -156,33 +156,14 @@ function update(dtSeconds: number) {
 Application-facing JavaScript APIs belong in the host package. Polymer owns
 the CLJS character host used by LoomLarge and calls the Wasm exports directly.
 
-`resolve_profile_gaze_geometry_json` returns camera bearings, camera distance,
-display basis vectors and signed head/eye AU capacities from the saved profile
-and supplied camera/model geometry. It receives no animation engine or live pose
-and selects no tracking target. Polymer uses these facts to plan bounded AU
-destinations. Secondary mapped bones remain clip outputs without shrinking the
-designated head or eye role's capacity; empty mappings contribute no capacity.
-
-Positions passed to this query share one world frame and the application's
-scene units. Quaternions use XYZW order; model-neutral +Z is forward and +Y is
-up. `cameraBearingDegrees` uses geometric yaw toward model +X and pitch toward
-+Y, while horizontal FACS controls have the opposite sign. The `negative` and
-`positive` limit fields are nonnegative magnitudes for the two named AU
-directions. They preserve `abs(maxDegrees * scale)` and asymmetric authored
-limits; they do not change a custom binding's signed physical rotation axis.
-Display-axis projections are dimensionless dot products, not angular requests
-or percentages of available travel. Polymer decides how to turn these facts
-into normalized input range, head participation, strength, and timing.
-
-Camera bearing is reported even beyond AU reach so that clamping remains an
-explicit consumer decision. A coincident camera/origin reports a null bearing
-and null bearing projections. This orientation-only query cannot represent
-negative-scale reflection or infer posed head/eye compensation from a live
-skeleton. Shared eye capacity uses the smaller mapped eye response; it does not
-prove that both configured eye objects are bound. The renderer observer below
-reports actual binding/calibration availability and optical error separately.
-The existing gaze solver exports remain available for compatibility; this fact
-query does not call them or install `ThreeGazeFocus`.
+`measure_camera_relative_angles_json(character_position, character_quaternion,
+camera_position)` reports only `{ yawDegrees, pitchDegrees }`. Positions are
+three-component world coordinates; the character orientation is an XYZW
+quaternion with local +Z front and +Y up. After rotating the camera offset into
+that local frame, yaw is `atan2(x, z)` and pitch is `atan2(y, hypot(x, z))`, in
+degrees. Positive yaw points toward local +X and positive pitch toward +Y.
+Finite nonzero quaternions are normalized. Wrong array lengths, nonfinite
+components, zero quaternions, and coincident positions reject with an error.
 
 ### Interruptible additive target clips
 
@@ -230,30 +211,6 @@ Three action methods at discrete commands and preserves each action's local time
 It does not install custom interpolants, run a pose solver, or advance time.
 An additive Prosodic nod retains its own contribution beneath tracking; combined
 authored and tracking rotations are not subject to a new aggregate joint clamp.
-
-`ThreeGazeObserver(model, profile).observe(worldTarget)` reads the actual rendered
-eye rays and returns detached optical facts. It owns no target selection or
-playback. A host can observe once after native completion, outside the mixer's
-`finished` callback stack, when property bindings have been applied. Both eyes
-must be available for an aggregate angular error; missing calibration or mapping
-returns `unavailable`. Watching a goal, reading a cached result, or receiving a
-clip completion alone is not evidence of optical convergence. Recreate the
-observer and release old slots after model/profile rebinding, and invalidate
-previous observations when pose-changing work begins.
-
-Pass `{ referencePose }` as the observer's third constructor argument to use
-`getRigGeometry()`. It caches authored head/eye transforms and canonical signed
-AU responses from `resolve_profile_gaze_rig_json(profileJson, modelJson)`;
-subsequent reads refresh only the model's world placement. Matrices are
-column-major, quaternions XYZW, positions scene units, and response angles signed
-radians at unit AU intensity. Response negative/positive keys use FACS control
-signs; `order` preserves compiled composition order. Polymer can plan each eye
-against a finite world target from these facts without sampling animated joints.
-Reuse the compiler's immutable reference captured before playback; this API never
-captures the current pose as a replacement. Missing references/eyes, ambiguous
-axes, unsided eye controls, animated auxiliary ancestors, gaze translations, or
-manual/sheared driven joints report unavailable. Static parent matrices and nonuniform
-scales remain intact. Reconstruct the observer after profile or hierarchy changes.
 
 ### Direct viseme snapshots
 
@@ -615,16 +572,12 @@ rebuild after changing Rust exports. The build generates the Wasm bindings befor
 TypeScript declarations. Neither typechecking nor package verification rebuilds
 the package; CI checks and publishes that same build.
 
-The `test:exports` script also includes `scripts/smoke/clip-slots.mjs` and
-`scripts/smoke/gaze-observation.mjs`. The first sends semantic AUs through the
-packaged Rust compiler and a real Three mixer, then checks complete bone/morph
-endpoints, interrupted movement, property release, stable action count, and
-composition with an independently authored nod. The second measures calibrated
-eye rays without applying a pose, including missing mappings, one-eye results,
-and transformed parents. `package-exports.mjs` covers public export/loading and
-invalid-profile rejection; the isolated `wasm-consumer.mts` fixture covers the
-generated declaration boundary. These sources are checks for CI's existing
-build, not evidence that a LoomLarge browser or a physical webcam was tested.
+The `test:exports` script includes `scripts/smoke/clip-slots.mjs`, which checks
+compiled bone/morph endpoints, interrupted movement, property release, action
+count, and composition with an independently authored nod. `package-exports.mjs`
+checks the camera angle API and invalid-input rejection through the public Wasm
+loader; `wasm-consumer.mts` covers its generated declarations. CI runs these
+sources against its existing build.
 
 ## License
 

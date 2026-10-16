@@ -33,13 +33,6 @@ import type {
 } from 'three';
 
 export { ThreeGazeFocus } from './gaze';
-// Keep the existing focus solver export for compatibility. New ordinary-clip
-// consumers can observe actual rays separately, without installing that solver
-// or granting the observer permission to write the character's pose.
-export { ThreeGazeObserver } from './gaze-observation';
-export type { ThreeGazeObservation, ThreeGazeObservedEye, ThreeGazeObservationReason, ThreeGazePoint,
-  ThreeGazeObserverOptions, ThreeGazeRigGeometry, ThreeGazeRigReason, ThreeGazeRigHead,
-  ThreeGazeRigEye, ThreeGazeAxes, ThreeGazeRotationResponse } from './gaze-observation';
 export type { ThreeGazeFocusOptions, ThreeGazeFocusRequest, ThreeGazeFocusControls, ThreeGazeFocusDiagnostic } from './gaze';
 
 export const THREE_BLENDING_MODES = {

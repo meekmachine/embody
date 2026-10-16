@@ -1,24 +1,14 @@
-//! Profile-aware gaze geometry and compatibility gaze solvers.
+//! Profile-aware screen-space gaze geometry.
 //!
 //! Hosts own scene objects and reduce them to packed camera/model facts. This
-//! module exposes camera bearings and authored angular capacities independently
-//! of tracking decisions. The existing solvers also reconstruct viewer targets and
-//! distribute their angles across head and eye AUs for compatibility.
-//!
-//! The geometry-only entry point is `resolve_profile_gaze_geometry_json`.
-//! It deliberately receives no tracking input, strength, follow fraction,
-//! enablement, or time. Polymer owns those movement decisions and schedules
-//! ordinary AU clips; RuntimeCore still compiles their saved bone/morph outputs.
-//! Sharing the capacity reader below with compatibility solvers keeps an edited
-//! profile's range consistent without making the new query invoke a solver.
+//! module reconstructs a viewer target on the rendered-camera plane, measures
+//! the trajectory from the character's eye origin, converts it to model-local
+//! angles, and distributes those angles across the rig's head and eye AUs.
 
-use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
-use crate::annotation_camera::{distance3, dot3, quat_or_identity, read_vec3, rotate_by_quat, sub3};
+use crate::annotation_camera::{distance3, quat_or_identity, read_vec3, rotate_by_quat, sub3};
 use crate::bones::{multiply_quat, quat_from_channel};
-use crate::body_controls::configured_bone_name;
-use crate::math::finite_or;
 use crate::profile::{deserialize_json, AuSelector, ProfileData};
 
 pub const SCREEN_SPACE_GAZE_SOLUTION_STRIDE: u32 = 14;
@@ -35,11 +25,7 @@ pub fn screen_space_gaze_solution_stride() -> u32 {
     SCREEN_SPACE_GAZE_SOLUTION_STRIDE
 }
 
-// These are two nonnegative magnitudes in degrees, not signed output values.
-// Keeping the directions independent preserves asymmetric authored limits and
-// one-sided mappings. Converting a requested angle to a normalized AU value is
-// a consumer decision that divides by the corresponding directional capacity.
-#[derive(Clone, Copy, Debug, Default, Serialize)]
+#[derive(Clone, Copy, Debug, Default)]
 struct AxisLimits {
     negative: f32,
     positive: f32,
@@ -75,40 +61,12 @@ impl AxisLimits {
     }
 }
 
-// The field names are semantic gaze controls. They do not require a profile to
-// store its physical rotation in a correspondingly named composite slot.
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug)]
 struct GazeLimits {
     head_yaw: AxisLimits,
     head_pitch: AxisLimits,
-    head_roll: AxisLimits,
     eye_yaw: AxisLimits,
     eye_pitch: AxisLimits,
-}
-
-// This pair is used both for degree-valued bearings and dimensionless tangent
-// projections. The enclosing JSON field name/doc contract distinguishes them;
-// a projection must not be mistaken for a requested angular displacement.
-#[derive(Clone, Copy, Debug, Serialize)]
-struct Bearing {
-    yaw: f32,
-    pitch: f32,
-}
-
-// Named JSON avoids adding another positional packed-array ABI for facts with
-// different units. Optional bearings become JSON null when no camera ray exists;
-// capacities remain useful even in that case because they depend only on profile.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GazeGeometry {
-    camera_bearing_degrees: Option<Bearing>,
-    camera_distance_scene_units: f32,
-    display_right_in_model: [f32; 3],
-    display_up_in_model: [f32; 3],
-    display_right_in_bearing: Option<Bearing>,
-    display_up_in_bearing: Option<Bearing>,
-    limits_degrees: GazeLimits,
 }
 
 fn finite_positive(value: f32, fallback: f32) -> f32 {
@@ -135,18 +93,29 @@ fn normalized_coordinate(values: &[f32], index: usize) -> f32 {
     finite_coordinate(values.get(index).copied().unwrap_or(0.0)).clamp(-1.0, 1.0)
 }
 
+fn configured_bone_name(profile: &ProfileData, node: &str) -> String {
+    let base = profile
+        .bone_nodes
+        .get(node)
+        .map(String::as_str)
+        .unwrap_or(node);
+    let prefix = profile.bone_prefix.as_deref().unwrap_or("");
+    let suffix = profile.bone_suffix.as_deref().unwrap_or("");
+    format!(
+        "{}{}{}",
+        if base.starts_with(prefix) { "" } else { prefix },
+        base,
+        if base.ends_with(suffix) { "" } else { suffix }
+    )
+}
+
 fn au_capacity(profile: &ProfileData, id: u32) -> f32 {
-    // Capacity describes the unit AU's authored rotational response. This is a
-    // profile query, not a live skeleton query: it cannot tell whether a named
-    // bone is currently bound, measure its optical accuracy, or alter its pose.
     let Some(bindings) = profile.au_to_bones.get(&id.to_string()) else {
         return 0.0;
     };
     // Use the same CC4 composite fallback as RuntimeCore when saved profiles
     // omit their table. A bone rotation mapping without a matching composite
     // cannot be driven by the runtime and therefore supplies no capacity.
-    // `unspecified` differs from explicit []: the latter is an author's clear
-    // operation and must never be replaced by an embedded preset here.
     let composites = if profile.composite_rotations.is_unspecified() {
         &crate::presets::load_profile("cc4")
             .expect("embedded CC4 profile")
@@ -154,80 +123,64 @@ fn au_capacity(profile: &ProfileData, id: u32) -> f32 {
     } else {
         &profile.composite_rotations
     };
-    // A secondary output of a head/eye AU must not shrink the optical joint's
-    // range. Runtime still applies all those outputs when the AU is sampled.
-    // For example, AU51 may rotate HEAD by 60 degrees and an auxiliary bone by
-    // 7 degrees. Both outputs belong in the clip, but its head travel is 60,
-    // not the minimum of every downstream bone affected by that AU.
-    let roles: &[&str] = if id < 60 { &["HEAD"] } else { &["EYE_L", "EYE_R"] };
-    let nodes: Vec<_> = roles.iter().map(|node| configured_bone_name(profile, node)).collect();
-    let mut responses: std::collections::HashMap<String, (usize, f32)> = std::collections::HashMap::new();
+    // Runtime selects the first binding for an AU on each bone. Repeated
+    // bindings must not inflate its capacity. A shared binocular command is
+    // limited by its smaller actuator; unequal eyes need per-eye calibration.
+    let mut seen = std::collections::HashSet::new();
+    let mut capacity = f32::INFINITY;
     for composite in composites.iter() {
+        let axis = if [51, 52, 61, 62].contains(&id) {
+            &composite.yaw
+        } else {
+            &composite.pitch
+        };
+        let Some(axis) = axis else {
+            continue;
+        };
+        fn ids(selector: &Option<AuSelector>) -> &[u32] {
+            match selector {
+                Some(AuSelector::One(id)) => std::slice::from_ref(id),
+                Some(AuSelector::Many(ids)) => ids,
+                None => &[],
+            }
+        }
+        let negative = ids(&axis.negative);
+        let positive = ids(&axis.positive);
+        let active = if !negative.is_empty() && !positive.is_empty() {
+            negative.contains(&id) || positive.contains(&id)
+        } else {
+            axis.aus.contains(&id)
+        };
+        if !active {
+            continue;
+        }
         let node = configured_bone_name(profile, &composite.node);
-        if !nodes.contains(&node) { continue; }
-        // The compiler selects the FIRST binding on this bone, independent of
-        // which composite slot was authored. Do not search past a cleared or
-        // non-rotation first binding, and do not assume semantic yaw is stored
-        // in the compiler's yaw slot.
         let Some(binding) = bindings
             .iter()
             .find(|binding| configured_bone_name(profile, &binding.node) == node)
         else {
             continue;
         };
+        if !seen.insert(node) {
+            continue;
+        }
         if !matches!(binding.channel.as_str(), "rx" | "ry" | "rz") {
             continue;
         }
-        // Use the evaluator's scalar defaults and preserve authored scaling.
-        // A negative physical axis/scale changes actual rotation direction;
-        // the capacity exposes only its nonnegative magnitude. The saved
-        // binding, not this query's yaw label, controls the resulting quaternion.
-        let angle = (finite_or(binding.max_degrees.unwrap_or(0.0) as f32, 0.0)
-            * finite_or(binding.scale as f32, 1.0)).abs();
-        for axis in [&composite.yaw, &composite.pitch, &composite.roll].into_iter().flatten() {
-            fn ids(selector: &Option<AuSelector>) -> &[u32] {
-                match selector {
-                    Some(AuSelector::One(id)) => std::slice::from_ref(id),
-                    Some(AuSelector::Many(ids)) => ids,
-                    None => &[],
-                }
-            }
-            let negative = ids(&axis.negative);
-            let positive = ids(&axis.positive);
-            // Directional selectors are active as a pair, matching the core
-            // compiler. With only one selector side present, its plain AU list
-            // remains authoritative. Inspect all composition slots because an
-            // authored head-yaw AU can legitimately live in pitch or roll order.
-            let active = if !negative.is_empty() && !positive.is_empty() {
-                // A unit probe present on both directional sides cancels in
-                // composite_axis_value and supplies no rotation.
-                negative.contains(&id) != positive.contains(&id)
-            } else {
-                axis.aus.contains(&id)
-            };
-            if active {
-                let angle = if angle.is_finite() && angle > 1e-8 { angle } else { 0.0 };
-                let response = responses.entry(node.clone()).or_insert((0, angle));
-                response.0 += 1;
-            }
-        }
+        let angle = (binding.max_degrees.unwrap_or(0.0) * binding.scale).abs() as f32;
+        capacity = capacity.min(if angle.is_finite() { angle } else { 0.0 });
     }
-    // Multiple responses on one joint cannot be advertised as one axis's range.
-    // Shared eye commands use the smaller response among mapped eye actuators;
-    // an absent eye is not inserted as a synthetic zero response. With no mapped
-    // response at all, the result is zero. Live binding availability and actual
-    // binocular measurements belong to the renderer observation boundary.
-    responses.values().map(|(count, angle)| if *count == 1 { *angle } else { 0.0 })
-        .reduce(f32::min).unwrap_or(0.0)
+    if capacity.is_finite() {
+        capacity
+    } else {
+        0.0
+    }
 }
 
 fn gaze_limits(profile: &ProfileData) -> GazeLimits {
     GazeLimits {
         // Limits are in geometric (+X yaw / +Y pitch) coordinates. FACS
-        // horizontal output is inverted only by compatibility solver results
-        // (or by Polymer when it emits AU controls). The geometry query itself
-        // leaves these signs untouched: negative yaw selects AU52/AU62 and
-        // positive yaw selects AU51/AU61, regardless of a custom physical axis.
+        // horizontal output is inverted only at the public result boundary.
         head_yaw: AxisLimits {
             negative: au_capacity(profile, 52),
             positive: au_capacity(profile, 51),
@@ -235,10 +188,6 @@ fn gaze_limits(profile: &ProfileData) -> GazeLimits {
         head_pitch: AxisLimits {
             negative: au_capacity(profile, 54),
             positive: au_capacity(profile, 53),
-        },
-        head_roll: AxisLimits {
-            negative: au_capacity(profile, 55),
-            positive: au_capacity(profile, 56),
         },
         eye_yaw: AxisLimits {
             negative: au_capacity(profile, 62),
@@ -282,241 +231,6 @@ fn gaze_rotation([yaw, pitch]: [f32; 2]) -> [f32; 4] {
         quat_from_channel(1, yaw.to_radians()),
         quat_from_channel(0, -pitch.to_radians()),
     )
-}
-
-fn profile_gaze_geometry(
-    profile: &ProfileData,
-    camera_position: &[f32],
-    camera_quaternion: &[f32],
-    gaze_origin: &[f32],
-    model_quaternion: &[f32],
-) -> GazeGeometry {
-    // Normalize the supplied facts once. Position differences are taken in a
-    // common world frame, then orientation-only inverse model rotation makes
-    // the result relative to the character's neutral front (+Z). No current
-    // head/eye pose is subtracted, and no scene node is read or changed.
-    let camera = finite_vec3(camera_position);
-    let origin = finite_vec3(gaze_origin);
-    let inverse_model = inverse_unit_quat(model_quaternion);
-    let camera_rotation = quat_or_identity(camera_quaternion);
-    // Screen right/up first travel from camera-local to world, then to model
-    // coordinates. Camera position determines bearing; camera orientation
-    // determines these display axes. Keeping those inputs separate matters for
-    // oblique framing and camera roll, even when the camera faces elsewhere.
-    let display_axis = |axis| rotate_by_quat(inverse_model, rotate_by_quat(camera_rotation, axis));
-    let right = display_axis([1.0, 0.0, 0.0]);
-    let up = display_axis([0.0, 1.0, 0.0]);
-    let distance = distance3(origin, camera);
-    // A coincident origin/camera has distance zero but no meaningful direction.
-    // Returning null here prevents a consumer from confusing missing geometry
-    // with a measured neutral-facing camera. Reach limits do not clamp a ray.
-    let bearing = (distance > EPSILON).then(|| {
-        let [yaw, pitch] = direction_angles_degrees(origin, camera, inverse_model);
-        Bearing { yaw, pitch }
-    });
-    let project = |axis| {
-        bearing.map(|bearing| {
-            let rotation = gaze_rotation([bearing.yaw, bearing.pitch]);
-            // These are raw geometric projections. Whether to normalize them
-            // when mapping a display control into travel is a consumer decision.
-            // Rotate +X/+Y tangents into the bearing frame and take dot products
-            // with each display axis. These are dimensionless components, not
-            // degrees, head participation, or a percentage of the AU range.
-            Bearing {
-                yaw: dot3(axis, rotate_by_quat(rotation, [1.0, 0.0, 0.0])),
-                pitch: dot3(axis, rotate_by_quat(rotation, [0.0, 1.0, 0.0])),
-            }
-        })
-    };
-    GazeGeometry {
-        camera_bearing_degrees: bearing,
-        camera_distance_scene_units: distance,
-        display_right_in_model: right,
-        display_up_in_model: up,
-        display_right_in_bearing: project(right),
-        display_up_in_bearing: project(up),
-        limits_degrees: gaze_limits(profile),
-    }
-}
-
-/// Read camera geometry and authored angular capacities without selecting a
-/// target or allocating motion. Returns named JSON fields with camelCase keys.
-/// Positions use a common world frame and scene units; quaternions are XYZW.
-/// Model-neutral +Z is forward and +Y is up. Bearings use geometric degrees:
-/// positive yaw points toward model +X, positive pitch toward +Y. This yaw sign
-/// is opposite the existing solvers' subject-relative FACS output sign.
-/// The quaternion input represents orientation, not negative-scale reflection.
-///
-/// `cameraBearingDegrees` is {yaw, pitch}, without clamping to AU limits;
-/// `cameraDistanceSceneUnits` is the distance from gaze origin to camera.
-/// `displayRightInModel` and
-/// `displayUpInModel` are unit XYZ vectors. `displayRightInBearing` and
-/// `displayUpInBearing` are dimensionless {yaw, pitch} dot products against the
-/// camera bearing's unit tangents, without renormalizing their projection.
-/// At distance <= 1e-5 scene units, bearing and its projections are null.
-///
-/// `limitsDegrees` contains headYaw/headPitch/eyeYaw/eyePitch, each with
-/// nonnegative `negative` and `positive` capacities in geometric coordinates.
-/// Head yaw negative/positive select AU52/AU51, pitch selects AU54/AU53;
-/// eye yaw selects AU62/AU61 and pitch AU64/AU63. These labels do not override
-/// the signed physical channel in the saved AU binding. Capacities describe
-/// the named HEAD or EYE_L/EYE_R actuators, ignoring auxiliary mapped bones.
-/// Shared eye capacity is the smaller mapped eye response, excluding unmapped
-/// eyes. An AU with no usable mapped response supplies zero range; a mapped
-/// zero/ambiguous response also bounds the shared capacity to zero. The
-/// query does not inspect a live skeleton or pose or modify any AU binding.
-/// Missing/nonfinite position components become zero, finite components clamp
-/// to +/-1e12; invalid quaternions use identity and valid ones are normalized.
-/// Invalid profile JSON returns an error. No runtime state is read or mutated.
-#[wasm_bindgen]
-pub fn resolve_profile_gaze_geometry_json(
-    profile_json: &str,
-    camera_position: &[f32],
-    camera_quaternion: &[f32],
-    gaze_origin: &[f32],
-    model_quaternion: &[f32],
-) -> Result<String, JsError> {
-    // Deserialize through the same typed profile boundary used by the core.
-    // Malformed JSON is an error, while an explicitly empty profile is valid
-    // and reports geometry with no invented AU capacity. Serialization names
-    // and units above are the public contract; no RuntimeCore is constructed.
-    let profile: ProfileData = deserialize_json(profile_json, "Invalid gaze profile JSON")
-        .map_err(|error| JsError::new(&error))?;
-    let geometry = profile_gaze_geometry(
-        &profile,
-        camera_position,
-        camera_quaternion,
-        gaze_origin,
-        model_quaternion,
-    );
-    serde_json::to_string(&geometry)
-        .map_err(|error| JsError::new(&format!("Failed to serialize gaze geometry: {error}")))
-}
-
-fn profile_gaze_rig(profile: &ProfileData, model: &crate::profile::ModelData) -> serde_json::Value {
-    use crate::bones::{AxisBindingRow, AxisValueRow, CompositeAxis, composite_axis_value, select_axis_binding};
-    use serde_json::json;
-    let mut profile = profile.clone();
-    if profile.composite_rotations.is_unspecified() {
-        profile.composite_rotations = crate::presets::load_profile("cc4")
-            .expect("embedded CC4 profile").composite_rotations.clone();
-    }
-    let tables = crate::profile::compile_tables(&profile, model);
-    let packed = &tables.composite_axes;
-    let mut axes = Vec::new();
-    let mut cursor = 0;
-    while cursor < packed.len() {
-        let header = &packed[cursor..cursor + 8];
-        let mut axis = CompositeAxis { bone_id: header[0] as u32,
-            has_directional_groups: header[2] == 1.0, value_rows: Vec::new(), binding_rows: Vec::new() };
-        cursor += 8;
-        for _ in 0..header[3] as usize {
-            axis.value_rows.push(AxisValueRow { au_id: packed[cursor] as u32,
-                group: packed[cursor + 1] as u8, side: packed[cursor + 2] as u8 });
-            cursor += 3;
-        }
-        for _ in 0..header[4] as usize {
-            axis.binding_rows.push(AxisBindingRow { au_id: packed[cursor] as u32,
-                group: packed[cursor + 1] as u8, side: packed[cursor + 2] as u8,
-                channel: packed[cursor + 3] as u8, scale: finite_or(packed[cursor + 4], 1.0),
-                max_degrees: finite_or(packed[cursor + 5], 0.0) });
-            cursor += 6;
-        }
-        axes.push(axis);
-    }
-    let resolver = crate::profile::NameResolver::new(&profile, model);
-    let normalize = |vector: [f32; 3]| {
-        let length = vector.iter().map(|value| value * value).sum::<f32>().sqrt();
-        (length.is_finite() && length > 1e-8).then(|| vector.map(|value| value / length))
-    };
-    let joint = |node: &str, ids: [u32; 6], calibration: Option<&crate::profile::GazeOpticalCalibrationData>| {
-        let Some(bone) = resolver.resolve_bone(model, &profile, node) else { return serde_json::Value::Null; };
-        let mut unsupported_au_ids = Vec::new();
-        let responses = ids.map(|id| {
-            if id == 0 { return None; }
-            let mut indirect_binding = false;
-            let rows: Vec<_> = axes.iter().enumerate().filter(|(_, axis)| axis.bone_id == bone.id)
-                .filter_map(|(order, axis)| {
-                    let value = |candidate, _side| if candidate == id { 1.0 } else { 0.0 };
-                    let direction = composite_axis_value(axis, value);
-                    if direction.abs() <= 1e-6 { return None; }
-                    select_axis_binding(axis, direction, value).copied()
-                        .filter(|row| row.channel <= 2
-                            && (row.max_degrees * row.scale).is_finite()
-                            && (row.max_degrees * row.scale).abs() > 1e-8)
-                        .and_then(|row| {
-                            if row.au_id != id { indirect_binding = true; None }
-                            else { Some((order, row)) }
-                        })
-                }).collect();
-            if indirect_binding || rows.len() > 1 { unsupported_au_ids.push(id); }
-            (rows.len() == 1).then(|| rows[0])
-        });
-        for (index, response) in responses.iter().enumerate() {
-            if response.is_some_and(|(order, _)| responses.iter().enumerate().any(|(other, row)|
-                index / 2 != other / 2 && row.is_some_and(|(other_order, _)| order == other_order))) {
-                unsupported_au_ids.push(ids[index]);
-            }
-        }
-        unsupported_au_ids.sort_unstable();
-        unsupported_au_ids.dedup();
-        let signed_axis = |(_, row): (usize, AxisBindingRow)| {
-            let mut result = [0.0; 3];
-            result[row.channel as usize] = (row.max_degrees * row.scale).signum();
-            result
-        };
-        let positive_axis = |positive: usize, negative: usize| responses[positive].map(signed_axis)
-            .or_else(|| responses[negative].map(|row| signed_axis(row).map(|value| -value)));
-        let inferred = positive_axis(0, 1).zip(positive_axis(3, 2)).and_then(|(yaw, pitch)| normalize([
-            yaw[1] * pitch[2] - yaw[2] * pitch[1], yaw[2] * pitch[0] - yaw[0] * pitch[2],
-            yaw[0] * pitch[1] - yaw[1] * pitch[0],
-        ]));
-        let optical = calibration.and_then(|value| value.optical_axis.as_ref()).and_then(|axis| normalize([
-            axis.x.unwrap_or(0.0) as f32, axis.y.unwrap_or(0.0) as f32, axis.z.unwrap_or(0.0) as f32,
-        ])).or(inferred);
-        let binding = |index: usize| responses[index].map(|(order, row)| {
-            let mut axis = [0.0; 3];
-            axis[row.channel as usize] = 1.0;
-            json!({"auId": ids[index], "side": match row.side { 1 => "left", 2 => "right", _ => "center" },
-                "axis": axis, "radians": (row.max_degrees * row.scale).to_radians(), "order": order})
-        });
-        json!({"boneId": bone.id, "name": bone.name, "opticalAxis": optical,
-            "unsupportedAuIds": unsupported_au_ids, "axes": {
-            "yaw": {"negative": binding(0), "positive": binding(1)},
-            "pitch": {"negative": binding(2), "positive": binding(3)},
-            "roll": {"negative": binding(4), "positive": binding(5)},
-        }})
-    };
-    let calibration = profile.gaze_calibration.as_ref();
-    let gaze_ids = [51, 52, 53, 54, 55, 56, 61, 62, 63, 64];
-    let driven_bones: Vec<_> = axes.iter().flat_map(|axis| gaze_ids.iter().filter_map(move |id| {
-        let value = |candidate, _side| if candidate == *id { 1.0 } else { 0.0 };
-        let direction = composite_axis_value(axis, value);
-        (direction.abs() > 1e-6).then(|| select_axis_binding(axis, direction, value)).flatten()
-            .filter(|row| (row.max_degrees * row.scale).abs() > 1e-8)
-            .map(|_| json!({"boneId": axis.bone_id, "auId": id, "kind": "rotation"}))
-    })).chain(tables.translations.chunks_exact(5)
-        .filter(|row| gaze_ids.contains(&(row[0] as u32)) && (row[3] * row[4]).abs() > 1e-8)
-        .map(|row| json!({"boneId": row[1] as u32, "auId": row[0] as u32, "kind": "translation"}))).collect();
-    json!({
-        "drivenBones": driven_bones,
-        "head": joint("HEAD", [51, 52, 54, 53, 55, 56], calibration.and_then(|value| value.head.as_ref())),
-        "leftEye": joint("EYE_L", [61, 62, 64, 63, 0, 0], calibration.and_then(|value| value.left_eye.as_ref())),
-        "rightEye": joint("EYE_R", [61, 62, 64, 63, 0, 0], calibration.and_then(|value| value.right_eye.as_ref())),
-    })
-}
-
-/// Resolved calibration and unit-AU responses from canonical compiled tables.
-/// Axis vectors are bone-local; radians are signed physical rotations. The
-/// negative/positive keys name FACS controls, and order is the compiled axis
-/// index. Missing or ambiguous responses are null; no target or pose is solved.
-#[wasm_bindgen]
-pub fn resolve_profile_gaze_rig_json(profile_json: &str, model_json: &str) -> Result<String, JsError> {
-    let profile = deserialize_json(profile_json, "Invalid gaze profile JSON")
-        .map_err(|error| JsError::new(&error))?;
-    let model = deserialize_json(model_json, "Invalid gaze model JSON")
-        .map_err(|error| JsError::new(&error))?;
-    Ok(profile_gaze_rig(&profile, &model).to_string())
 }
 
 fn eye_angles(direction: [f32; 3], head: [f32; 2]) -> [f32; 2] {
@@ -627,7 +341,6 @@ fn solution_from_world_target(
     let [total_yaw, total_pitch] = direction_angles_degrees(origin, viewer_target, inverse_model);
     let [camera_yaw, camera_pitch] = direction_angles_degrees(origin, camera, inverse_model);
     let active = GazeLimits {
-        head_roll: limits.head_roll,
         head_yaw: if head_enabled {
             limits.head_yaw
         } else {
@@ -1105,196 +818,6 @@ mod tests {
         crate::presets::load_profile("cc4").expect("cc4 preset")
     }
 
-    // Exercise the public JSON boundary instead of asserting only private
-    // structs. This catches field naming/nullability drift for Wasm consumers;
-    // package smoke separately covers the generated JavaScript export.
-    fn geometry_json(
-        profile: &ProfileData,
-        camera: &[f32],
-        camera_quaternion: &[f32],
-        origin: &[f32],
-        model_quaternion: &[f32],
-    ) -> serde_json::Value {
-        let result = resolve_profile_gaze_geometry_json(
-            &serde_json::to_string(profile).unwrap(),
-            camera,
-            camera_quaternion,
-            origin,
-            model_quaternion,
-        )
-        .unwrap();
-        serde_json::from_str(&result).unwrap()
-    }
-
-    fn assert_geometry_number(value: &serde_json::Value, expected: f64) {
-        let actual = value.as_f64().expect("finite geometry number");
-        assert!((actual - expected).abs() < 1.0e-4, "{actual} != {expected}");
-    }
-
-    #[test]
-    fn geometry_reports_unbounded_camera_bearing_and_raw_display_projections() {
-        // A 2/1/2 world offset gives independently calculable bearing, distance,
-        // and non-unit projection magnitudes. Normalizing the projections here
-        // would silently introduce an input-range decision into the fact API.
-        let result = geometry_json(cc4_profile(), &[2.0, 1.0, 2.0], &[], &[0.0; 3], &[]);
-        assert_geometry_number(&result["cameraBearingDegrees"]["yaw"], 45.0);
-        assert_geometry_number(
-            &result["cameraBearingDegrees"]["pitch"],
-            (1.0_f64 / 8.0_f64.sqrt()).atan().to_degrees(),
-        );
-        assert_geometry_number(&result["cameraDistanceSceneUnits"], 3.0);
-        assert_geometry_number(&result["displayRightInBearing"]["yaw"], 0.5_f64.sqrt());
-        assert_geometry_number(
-            &result["displayRightInBearing"]["pitch"],
-            -1.0 / (3.0 * 2.0_f64.sqrt()),
-        );
-        assert_geometry_number(&result["displayUpInBearing"]["yaw"], 0.0);
-        assert_geometry_number(
-            &result["displayUpInBearing"]["pitch"],
-            8.0_f64.sqrt() / 3.0,
-        );
-        // The query reports geometry even when no head AU can reach it. Both
-        // choosing a target and clamping it belong to the consumer's policy.
-        for (x, expected) in [(2.0, 135.0), (-2.0, -135.0)] {
-            let behind = geometry_json(cc4_profile(), &[x, 0.0, -2.0], &[], &[0.0; 3], &[]);
-            assert_geometry_number(&behind["cameraBearingDegrees"]["yaw"], expected);
-            assert!(
-                expected.abs()
-                    > behind["limitsDegrees"]["headYaw"]["positive"]
-                        .as_f64()
-                        .unwrap()
-            );
-        }
-    }
-
-    #[test]
-    fn geometry_resolves_model_orientation_and_camera_roll_in_separate_frames() {
-        // Translation, a nonidentity model orientation, and camera roll vary
-        // independently. A world-axis-only implementation can pass frontal
-        // examples but fails this separation of model front and display right.
-        let model = quat_from_channel(1, std::f32::consts::FRAC_PI_2);
-        let rolled_camera = multiply_quat(model, quat_from_channel(2, std::f32::consts::FRAC_PI_2));
-        let result = geometry_json(
-            cc4_profile(),
-            &[7.0, 7.0, -3.0],
-            &rolled_camera,
-            &[5.0, 7.0, -3.0],
-            &model,
-        );
-        // The camera lies on world +X, which is this model's neutral +Z.
-        assert_geometry_number(&result["cameraBearingDegrees"]["yaw"], 0.0);
-        assert_geometry_number(&result["cameraBearingDegrees"]["pitch"], 0.0);
-        assert_geometry_number(&result["cameraDistanceSceneUnits"], 2.0);
-        for (axis, expected) in [
-            ("displayRightInModel", [0.0, 1.0, 0.0]),
-            ("displayUpInModel", [-1.0, 0.0, 0.0]),
-        ] {
-            for (index, component) in expected.iter().enumerate() {
-                assert_geometry_number(&result[axis][index], *component);
-            }
-        }
-        assert_geometry_number(&result["displayRightInBearing"]["yaw"], 0.0);
-        assert_geometry_number(&result["displayRightInBearing"]["pitch"], 1.0);
-        assert_geometry_number(&result["displayUpInBearing"]["yaw"], -1.0);
-        assert_geometry_number(&result["displayUpInBearing"]["pitch"], 0.0);
-
-        // Removing only model orientation changes bearing but not camera world
-        // position, proving that character-front orientation is an input.
-        let unrotated = geometry_json(
-            cc4_profile(),
-            &[7.0, 7.0, -3.0],
-            &rolled_camera,
-            &[5.0, 7.0, -3.0],
-            &[],
-        );
-        assert_geometry_number(&unrotated["cameraBearingDegrees"]["yaw"], 90.0);
-    }
-
-    #[test]
-    fn geometry_reports_asymmetric_scaled_and_missing_au_capacities() {
-        // Deliberately asymmetric maxDegrees and signed scales distinguish
-        // authored unit-AU capacity from a hardcoded angle or a fixed fraction.
-        // The eyes differ so the shared result must honor the smaller mapped
-        // actuator; a missing opposite AU and a translation-only AU yield zero.
-        let mut profile = cc4_profile().clone();
-        for (id, degrees, scale) in [
-            (51, 80.0, 0.25),
-            (52, 30.0, -1.5),
-            (53, 50.0, -0.6),
-            (54, 90.0, 0.2),
-            (61, 28.0, 0.5),
-            (64, 20.0, 0.8),
-        ] {
-            for binding in profile.au_to_bones.get_mut(&id.to_string()).unwrap() {
-                binding.max_degrees = Some(degrees);
-                binding.scale = scale;
-            }
-        }
-        profile.au_to_bones.get_mut("61").unwrap()[0].max_degrees = Some(35.0);
-        profile.au_to_bones.remove("62");
-        for binding in profile.au_to_bones.get_mut("63").unwrap() {
-            binding.channel = "tx".into();
-        }
-        // Duplicate and unrelated mappings cannot inflate the selected head
-        // composite's capacity; both must retain existing runtime semantics.
-        let mut duplicate = profile.au_to_bones["51"][0].clone();
-        duplicate.max_degrees = Some(180.0);
-        profile
-            .au_to_bones
-            .get_mut("51")
-            .unwrap()
-            .push(duplicate.clone());
-        duplicate.node = "NotTheHead".into();
-        profile.au_to_bones.get_mut("51").unwrap().insert(0, duplicate);
-        let result = geometry_json(&profile, &[0.0, 0.0, 2.0], &[], &[0.0; 3], &[]);
-        for (axis, negative, positive) in [
-            ("headYaw", 45.0, 20.0),
-            ("headPitch", 18.0, 30.0),
-            ("eyeYaw", 0.0, 14.0),
-            ("eyePitch", 16.0, 0.0),
-        ] {
-            assert_geometry_number(&result["limitsDegrees"][axis]["negative"], negative);
-            assert_geometry_number(&result["limitsDegrees"][axis]["positive"], positive);
-        }
-
-        // Explicitly clearing composites must remain a clear operation, even
-        // though the same profile still contains otherwise valid AU bindings.
-        let mut value = serde_json::to_value(&profile).unwrap();
-        value["compositeRotations"] = serde_json::json!([]);
-        let cleared: ProfileData = serde_json::from_value(value).unwrap();
-        let result = geometry_json(&cleared, &[0.0, 0.0, 2.0], &[], &[0.0; 3], &[]);
-        for axis in ["headYaw", "headPitch", "eyeYaw", "eyePitch"] {
-            assert_geometry_number(&result["limitsDegrees"][axis]["negative"], 0.0);
-            assert_geometry_number(&result["limitsDegrees"][axis]["positive"], 0.0);
-        }
-    }
-
-    #[test]
-    fn geometry_marks_coincident_bearing_absent_and_normalizes_invalid_facts() {
-        // Packed callers can supply short slices, NaN, and degenerate quats.
-        // Safe coordinate/quaternion fallbacks must still mark the resulting
-        // coincident bearing as absent rather than claiming a zero-degree ray.
-        let result = geometry_json(
-            cc4_profile(),
-            &[f32::NAN, f32::INFINITY],
-            &[0.0; 4],
-            &[],
-            &[f32::NAN; 4],
-        );
-        assert!(result["cameraBearingDegrees"].is_null());
-        assert!(result["displayRightInBearing"].is_null());
-        assert!(result["displayUpInBearing"].is_null());
-        assert_geometry_number(&result["cameraDistanceSceneUnits"], 0.0);
-        assert_eq!(
-            result["displayRightInModel"],
-            serde_json::json!([1.0, 0.0, 0.0])
-        );
-        assert_eq!(
-            result["displayUpInModel"],
-            serde_json::json!([0.0, 1.0, 0.0])
-        );
-    }
-
     fn canonical_profile() -> ProfileData {
         let mut profile = cc4_profile().clone();
         // This fixture has identity eye rests and +Z optical axes. CC4's rz
@@ -1319,87 +842,6 @@ mod tests {
         )
         .unwrap();
         core
-    }
-
-    #[test]
-    fn rig_responses_match_canonical_compound_rotation_and_custom_order() {
-        let mut profile = canonical_profile();
-        let head = profile.composite_rotations.iter_mut().find(|row| row.node == "HEAD").unwrap();
-        std::mem::swap(&mut head.yaw, &mut head.roll);
-        let binding = &mut profile.au_to_bones.get_mut("51").unwrap()[0];
-        binding.channel = "rz".into();
-        binding.scale = -0.5;
-        let model: crate::profile::ModelData = serde_json::from_str(r#"{"bones":[
-            {"id":1,"name":"CC_Base_Head"},{"id":2,"name":"CC_Base_L_Eye"},
-            {"id":3,"name":"CC_Base_R_Eye"}]}"#).unwrap();
-        let result = profile_gaze_rig(&profile, &model);
-        let axes = &result["head"]["axes"];
-        assert!(axes["roll"]["positive"]["order"].as_u64() < axes["yaw"]["negative"]["order"].as_u64());
-        assert_eq!(axes["yaw"]["negative"]["axis"], serde_json::json!([0.0, 0.0, 1.0]));
-        assert_geometry_number(&axes["yaw"]["negative"]["radians"], -30.0_f64.to_radians());
-        assert_eq!(result["leftEye"]["axes"]["yaw"]["negative"]["side"], "left");
-        assert_eq!(result["rightEye"]["axes"]["yaw"]["negative"]["side"], "right");
-        let mut rows = vec![(&axes["yaw"]["negative"], 0.4), (&axes["pitch"]["positive"], 0.3),
-            (&axes["roll"]["positive"], 0.2)];
-        rows.sort_by_key(|(row, _)| row["order"].as_u64().unwrap());
-        let mut expected = [0.0, 0.0, 0.0, 1.0];
-        let mut core = canonical_runtime(&profile);
-        for (row, intensity) in rows {
-            let channel = row["axis"].as_array().unwrap().iter().position(|v| v.as_f64() == Some(1.0)).unwrap();
-            expected = multiply_quat(expected, quat_from_channel(channel as u8,
-                row["radians"].as_f64().unwrap() as f32 * intensity));
-            core.set_au(row["auId"].as_u64().unwrap() as u32, intensity, 0.0);
-        }
-        let frame = core.evaluate_active_bone_frame();
-        let head = frame.chunks_exact(9).find(|row| row[0] == 1.0).unwrap();
-        for index in 0..4 { assert!((head[index + 4] - expected[index]).abs() < 1e-6); }
-        let geometry = geometry_json(&profile, &[0.0, 0.0, 3.0], &[], &[0.0; 3], &[]);
-        assert_geometry_number(&geometry["limitsDegrees"]["headRoll"]["positive"], au_capacity(&profile, 56) as f64);
-    }
-
-    #[test]
-    fn rig_responses_keep_missing_cleared_and_ambiguous_mappings_distinct() {
-        let model: crate::profile::ModelData = serde_json::from_str(r#"{"bones":[
-            {"id":1,"name":"CC_Base_Head"},{"id":2,"name":"CC_Base_L_Eye"}]}"#).unwrap();
-        let mut profile = canonical_profile();
-        assert!(profile_gaze_rig(&profile, &model)["rightEye"].is_null());
-        let eye = profile.composite_rotations.iter_mut().find(|row| row.node == "EYE_L").unwrap();
-        eye.roll = eye.yaw.clone();
-        let result = profile_gaze_rig(&profile, &model);
-        assert!(result["leftEye"]["axes"]["yaw"]["negative"].is_null());
-        assert!(result["leftEye"]["unsupportedAuIds"].as_array().unwrap().contains(&serde_json::json!(61)));
-        let mut value = serde_json::to_value(profile).unwrap();
-        value["compositeRotations"] = serde_json::json!([]);
-        let cleared = profile_gaze_rig(&serde_json::from_value(value).unwrap(), &model);
-        assert!(cleared["leftEye"]["axes"]["yaw"]["negative"].is_null());
-        assert_eq!(cleared["leftEye"]["unsupportedAuIds"], serde_json::json!([]));
-    }
-
-    #[test]
-    fn rig_rejects_cross_semantic_max_groups_and_indirect_selected_bindings() {
-        let model = serde_json::from_str(r#"{"bones":[{"id":1,"name":"Eye"}]}"#).unwrap();
-        let mut value = serde_json::json!({
-            "boneNodes":{"EYE_L":"Eye"},
-            "auToBones":{
-                "61":[{"node":"EYE_L","channel":"ry","maxDegrees":30,"side":"left"}],
-                "63":[{"node":"EYE_L","channel":"rx","maxDegrees":-20,"side":"left"}]
-            },
-            "compositeRotations":[{"node":"EYE_L","yaw":{"aus":[61,63]}}]
-        });
-        let result = profile_gaze_rig(&serde_json::from_value(value.clone()).unwrap(), &model);
-        assert_eq!(result["leftEye"]["unsupportedAuIds"], serde_json::json!([61,63]));
-        value["compositeRotations"][0]["yaw"] = serde_json::json!({"negative":62,"positive":61,"aus":[63]});
-        value["auToBones"]["61"] = serde_json::json!([]);
-        let profile = serde_json::from_value(value.clone()).unwrap();
-        let result = profile_gaze_rig(&profile, &model);
-        assert!(result["leftEye"]["axes"]["yaw"]["negative"].is_null());
-        assert_eq!(result["leftEye"]["unsupportedAuIds"], serde_json::json!([61,62]));
-        let mut core = RuntimeCore::new(0);
-        core.configure_with_profile(&value.to_string(), &serde_json::to_string(&model).unwrap()).unwrap();
-        core.set_au(61, 1.0, 0.0);
-        let frame = core.evaluate_active_bone_frame();
-        let eye = frame.chunks_exact(9).find(|row| row[0] == 1.0).unwrap();
-        assert!((eye[4] - (-10.0_f32).to_radians().sin()).abs() < 1e-6);
     }
 
     fn runtime_viewing_direction(core: &mut RuntimeCore, solution: &[f32]) -> [f32; 3] {
@@ -1625,61 +1067,6 @@ mod tests {
                 composite.yaw = None;
             }
         }
-        assert_eq!(gaze_limits(&profile).head_yaw.positive, 0.0);
-    }
-
-    #[test]
-    fn geometry_capacities_ignore_secondary_outputs_and_follow_compiled_actuators() {
-        // Compare reported capacity to the core's actual unit-AU bone frame,
-        // not to a second hand-written mapping evaluator. This keeps custom
-        // physical channels and composition slots tied to runtime semantics.
-        let mut profile = canonical_profile();
-        let mut extra = profile.au_to_bones["51"][0].clone();
-        extra.node = "Extra".into();
-        extra.max_degrees = Some(10.0);
-        profile.au_to_bones.get_mut("51").unwrap().push(extra);
-        let mut composite = profile.composite_rotations.iter().find(|row| row.node == "HEAD").unwrap().clone();
-        composite.node = "Extra".into();
-        // Round-trip the table to append without changing its explicit/missing
-        // representation. This is an extra mapped destination, not head range.
-        let mut value = serde_json::to_value(&profile).unwrap();
-        value["compositeRotations"].as_array_mut().unwrap().push(serde_json::to_value(composite).unwrap());
-        let mut profile: ProfileData = serde_json::from_value(value).unwrap();
-        let geometry = geometry_json(&profile, &[0.0, 0.0, 3.0], &[], &[0.0; 3], &[]);
-        assert_geometry_number(&geometry["limitsDegrees"]["headYaw"]["positive"], 60.0);
-
-        // Named compiler slots set composition order. They do not rename the
-        // ordinary AU51 response or remove its full authored magnitude.
-        let head = profile.composite_rotations.iter_mut().find(|row| row.node == "HEAD").unwrap();
-        std::mem::swap(&mut head.yaw, &mut head.roll);
-        assert_eq!(gaze_limits(&profile).head_yaw.positive, 60.0);
-        let mut runtime = canonical_runtime(&profile);
-        runtime.set_au(51, 1.0, 0.0);
-        let frame = runtime.evaluate_active_bone_frame();
-        let head_row = frame.chunks_exact(9).find(|row| row[0] == 1.0).unwrap();
-        assert!((head_row[5] - (30.0_f32).to_radians().sin()).abs() < 1e-6);
-
-        // A custom physical channel and signed scale keep their authored
-        // magnitude even though the semantic control is still named head yaw.
-        let binding = &mut profile.au_to_bones.get_mut("51").unwrap()[0];
-        binding.channel = "rx".into();
-        binding.scale = -0.5;
-        assert_eq!(gaze_limits(&profile).head_yaw.positive, 30.0);
-        let mut runtime = canonical_runtime(&profile);
-        runtime.set_au(51, 1.0, 0.0);
-        let frame = runtime.evaluate_active_bone_frame();
-        let head_row = frame.chunks_exact(9).find(|row| row[0] == 1.0).unwrap();
-        assert!((head_row[4] + (15.0_f32).to_radians().sin()).abs() < 1e-6);
-
-        // A duplicate response cannot be advertised as one axis; a selector
-        // that includes the same AU on both sides also cancels canonically.
-        let head = profile.composite_rotations.iter_mut().find(|row| row.node == "HEAD").unwrap();
-        head.pitch = head.roll.clone();
-        assert_eq!(gaze_limits(&profile).head_yaw.positive, 0.0);
-        let head = profile.composite_rotations.iter_mut().find(|row| row.node == "HEAD").unwrap();
-        head.pitch = None;
-        head.roll.as_mut().unwrap().positive = Some(AuSelector::One(51));
-        head.roll.as_mut().unwrap().negative = Some(AuSelector::One(51));
         assert_eq!(gaze_limits(&profile).head_yaw.positive, 0.0);
     }
 
