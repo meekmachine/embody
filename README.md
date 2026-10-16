@@ -41,6 +41,16 @@ The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
 not sample or lerp clips on the hot path.
 
+The character clip inventory stores validated `ClipIR` and channel/source metadata
+only. It has no action state, playheads, fades, sampling or blending engine.
+`RuntimeCore.play_animation` and `crossfade_to` retain their existing `host:<name>`
+markers; they do not start playback. The compatibility update/control methods
+remain inert, and playback-state queries return `null` or empty arrays. Consumers
+must use their host's actions and events for playback, completion and cancellation.
+This removes the unused Rust clip engine. Camera and marker playback remain
+separate work in the deferred
+[annotation runtime PR](https://github.com/meekmachine/embody/pull/137).
+
 An AU animation drives its profile's mapped bones and morphs through the same
 Rust evaluation used by live AU controls. For example, speech can send an AU
 103 curve and separate viseme shape curves; the profile decides which bones
@@ -155,6 +165,74 @@ function update(dtSeconds: number) {
 
 Application-facing JavaScript APIs belong in the host package. Polymer owns
 the CLJS character host used by LoomLarge and calls the Wasm exports directly.
+
+### Connectors for other animation hosts
+
+Import `@lovelace_lol/embody/wasm` to use the Rust compiler and neutral
+`ClipIR`, `ClipIRTrack`, `ClipIRTarget` and `ClipIRChannel` types without Three.
+The `/wasm` entry has no runtime or declaration dependency on Three; Three is
+an optional package peer. The existing root and `/three` entry points still
+require Three and retain their exports, including the ClipIR type aliases.
+
+A connector supplies a renderer-neutral model descriptor, passes semantic
+curves through Rust, and converts the resulting concrete tracks into its
+host's native clips. That host owns playback, interpolation and completion,
+advanced by the application's existing frame driver. The connector must not
+add a separate animation clock, lerp loop or completion timer. No second renderer
+connector is implemented by this change; see the
+[connector data and lifecycle contract](docs/ADAPTER_TARGETS.md).
+
+This boundary applies to the clip path described here. The legacy
+`ThreeGazeFocus` pose constraint and camera/marker animation still require their
+separately scoped migrations; exporting neutral types does not remove them.
+
+### Interruptible additive target clips
+
+`ThreeClipSlots`, exported from `@lovelace_lol/embody/three`, lets a host replace
+an ordinary constant AU target without dropping its outgoing contribution.
+Polymer selects the AU targets and duration; Rust `build_clip` or
+`build_typed_clip` compiles every mapped bone and morph output. Compile
+simultaneous AU channels together so the profile compiler retains its authored
+rotation order. The helper accepts concrete clips and has no camera input or
+tracking decisions.
+
+```ts
+const slots = new ThreeClipSlots(mixer);
+const handle = slots.replace('expression', targetClip, {
+  durationSec: 0.2,
+  referenceClip: neutralClip,
+  order: 10,
+});
+await handle.finished; // Native completion, replacement, removal or disposal.
+// Keep advancing the application's existing mixer; slots adds no frame loop.
+```
+
+The target clip has constant values. Compile its neutral reference separately
+from the same semantic channels with every intensity set to zero, using the
+same immutable authored reference pose and profile. An arbitrary first frame
+or the current rendered pose is not that reference. The helper uses Three's
+additive conversion, reaches the complete mapped target, and holds it until
+replacement or removal. At replacement it samples
+only the outgoing slot's concrete tracks with native Three interpolants at
+that action's actual local time. It creates ordinary numeric/vector/quaternion
+tracks from those samples to the new target, with outgoing-only properties
+returning to additive neutral. One action remains per slot regardless of input
+frequency; all subsequent interpolation belongs to the existing Three mixer.
+It never captures an unrelated nod or estimates a playhead in an agency.
+
+The compiler's opt-in `{ allowEmpty: true }` option
+allows intentionally unmapped targets to emit an empty clip, releasing the
+slot's previous outputs without inventing mappings. Ordinary compilation still
+rejects empty output by default.
+
+`pause`, `resume`, `pauseAll`, `resumeAll`, `remove`, `clear`, and `dispose` own
+the slot lifecycle. Generation-specific handles cannot remove newer targets.
+Call `slots.reorder()` after an unrelated authored action starts or stops;
+native completion also restores stable composition order. This uses public
+Three action methods at discrete commands and preserves each action's local time.
+It does not install custom interpolants, run a pose solver, or advance time.
+Independent authored actions retain their own contributions; combined rotations
+are not subject to a new aggregate joint clamp.
 
 ### Direct viseme snapshots
 
@@ -515,6 +593,12 @@ Run the build before `npm test` or `npm run typecheck` in a clean checkout, and
 rebuild after changing Rust exports. The build generates the Wasm bindings before
 TypeScript declarations. Neither typechecking nor package verification rebuilds
 the package; CI checks and publishes that same build.
+
+The `test:exports` script includes `scripts/smoke/clip-slots.mjs`, which checks
+compiled bone/morph endpoints, interrupted movement, property release, action
+count, and composition with an independently authored nod. `package-exports.mjs`
+checks the public Three adapter export; `wasm-consumer.mts` covers the compiler's
+empty-output option. CI runs these sources against its existing build.
 
 ## License
 

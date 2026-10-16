@@ -1,12 +1,19 @@
 // This fixture is copied into an isolated consumer of the packed package.
 // The error assertions below fail if the public loader regresses to `any`.
-import { initEmbodyCore as initFromRoot } from '@lovelace_lol/embody';
+import {
+  initEmbodyCore as initFromRoot,
+  type ClipIR as RootClipIR,
+  type ClipIRChannel as RootClipIRChannel,
+  type ClipIRTarget as RootClipIRTarget,
+  type ClipIRTrack as RootClipIRTrack,
+} from '@lovelace_lol/embody';
 import {
   getEmbodyCore,
   initEmbodyCore,
   requireInitializedEmbodyCore,
   type EmbodyCore,
   type RuntimeCore,
+  type ClipIR as NeutralClipIR,
 } from '@lovelace_lol/embody/wasm';
 import { Object3D, type WebGLRenderer } from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
@@ -30,7 +37,30 @@ import {
   type AnnotationCharacterConfig,
   type MarkerStateSnapshot,
   type DPthreeCameraControllerConfig,
+  type ClipIR as ThreeClipIR,
+  type ClipIRTrack as ThreeClipIRTrack,
 } from '@lovelace_lol/embody/three';
+
+// Existing Three/root type imports and minimal adapter inputs stay compatible.
+const legacyTrack: ThreeClipIRTrack = {
+  target: { kind: 'morphTarget', meshId: 1, morphTargetId: 2 },
+  valueType: 'scalar', times: [0, 1], values: [0, 1],
+};
+const legacyClip: ThreeClipIR = { name: 'legacy', tracks: [legacyTrack] };
+const neutralClip: NeutralClipIR = legacyClip;
+const rootClip: RootClipIR = neutralClip;
+const threeClip: ThreeClipIR = rootClip;
+void threeClip;
+
+// Consumers of the root barrel can use every neutral type while keeping the
+// older Three adapter imports. CI checks the packed declarations, not aliases
+// resolved against this repository's source or build directories.
+const rootChannel: RootClipIRChannel = { id: 1, kind: 'face' };
+const rootTarget: RootClipIRTarget = legacyTrack.target;
+const rootTrack: RootClipIRTrack = { ...legacyTrack, channelId: rootChannel.id, target: rootTarget };
+const rootCompiledClip: RootClipIR = { name: 'root', channels: [rootChannel], tracks: [rootTrack] };
+const neutralCompiledClip: NeutralClipIR = rootCompiledClip;
+void neutralCompiledClip;
 
 const annotationProfile: AnnotationCharacterConfig = { characterId: 'consumer', auPresetType: 'cc4' };
 const resolvedAnnotationProfile = await resolveAnnotationCharacterConfig(annotationProfile);
@@ -64,6 +94,7 @@ const viseme: number = runtime.get_viseme(0);
 const jawScale: number = runtime.get_viseme_jaw_scale(0);
 const frame: Float32Array = runtime.evaluate_active_morph_frame();
 const clip: string = runtime.build_clip('smile', '{}', '{}');
+const noOutputClip: string = runtime.build_clip('unmapped', '{}', JSON.stringify({ allowEmpty: true }));
 const removed: boolean = runtime.remove_animation_clip('smile');
 runtime.free();
 

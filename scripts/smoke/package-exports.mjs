@@ -89,6 +89,7 @@ new three.ThreeFrameApplier().addMorphTarget(morphRoot, {
 });
 
 const checks = [
+  ['Three native target slots', typeof three.ThreeClipSlots === 'function'],
   ['root ESM Three adapter', typeof root.ThreeModelInspector === 'function'],
   ...['DPthree', 'DPthreeCameraController', 'DPthree3DMarkers', 'DPthreeHTMLMarkers', 'DPthreeMarkers', 'CameraDOMControls', 'createMarkerVisibilityLifecycle', 'createRuntimeAnnotationPreviewLifecycle'].map(name => [`annotation runtime ${name}`, typeof three[name] === 'function']),
   ['annotation adapter shares initialized Wasm', markerAngleVisible],

@@ -4,6 +4,8 @@ import cc4Preset from '../assets/presets/cc4.json';
 import cc4HumanoidSkeletonTemplate from '../assets/templates/cc4-humanoid.json';
 import type { InitInput } from './embody_wasm.js';
 
+export type { ClipIR, ClipIRChannel, ClipIRTarget, ClipIRTrack } from './clip-ir';
+
 // wasm-bindgen generates this module during the package build. TypeScript's
 // rootDirs resolves it from dist/ in source and as a sibling in the package.
 export type EmbodyCore = typeof import('./embody_wasm.js');

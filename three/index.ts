@@ -15,6 +15,11 @@ import {
   VectorKeyframeTrack,
 } from 'three';
 export * from './annotations/index';
+// Renderer-only helpers share the public Three entry point: the clip helper
+// replaces concrete compiled tracks and delegates playback to AnimationMixer.
+// It does not export a second AU evaluator or an agency-owned frame driver.
+export { ThreeClipSlots } from './clip-slots';
+export type { ThreeClipSlotEvent, ThreeClipSlotHandle } from './clip-slots';
 import { bindModelReferencePose } from './reference-pose';
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
 
@@ -26,6 +31,8 @@ import type {
   Mesh,
   Object3D,
 } from 'three';
+import type { ClipIR } from '../wasm/clip-ir';
+export type { ClipIR, ClipIRChannel, ClipIRTarget, ClipIRTrack } from '../wasm/clip-ir';
 
 export { ThreeGazeFocus } from './gaze';
 export type { ThreeGazeFocusOptions, ThreeGazeFocusRequest, ThreeGazeFocusControls, ThreeGazeFocusDiagnostic } from './gaze';
@@ -309,32 +316,6 @@ const findTrackTarget = (model: Object3D, track: KeyframeTrack) => {
   } catch {
     return null;
   }
-};
-
-export type ClipIRTrack = {
-  id?: number;
-  channelId?: number;
-  target: {
-    kind?: string;
-    meshId?: number;
-    morphTargetId?: number;
-    boneId?: number;
-    objectId?: number;
-    property?: string;
-  };
-  valueType: string;
-  times: number[];
-  values: number[];
-  interpolation?: string;
-  /** Replace the first sample with the bound property's current value. */
-  inheritStart?: boolean;
-  sourceName?: string;
-};
-
-export type ClipIR = {
-  name: string;
-  durationSeconds?: number;
-  tracks: ClipIRTrack[];
 };
 
 /**

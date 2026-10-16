@@ -25,6 +25,7 @@ const requiredFiles = [
   'dist/wasm/embody_wasm.js',
   'dist/wasm/embody_wasm_bg.wasm',
   'dist/wasm/index.d.ts',
+  'dist/wasm/clip-ir.d.ts',
   'service-worker/character-asset-service-worker.js',
 ];
 const missingFiles = requiredFiles.filter((path) => !files.has(path));
