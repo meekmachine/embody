@@ -202,7 +202,8 @@ test('viseme release fades native weight while the underlying clip keeps advanci
   } finally { rig.dispose(); }
 });
 
-test('visemes sharing a jaw keep independent morph timing and grouped completion', async () => {
+// Legacy behavior pending the separate morph-only viseme / bone-only jaw AU change.
+test('legacy viseme jaw coupling keeps independent morph timing and grouped completion', async () => {
   const model = new Group();
   const jaw = new Bone(); jaw.name = 'Jaw';
   const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
