@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { AnimationClip, AnimationMixer, Bone, BufferGeometry, Group, Mesh, MeshBasicMaterial, NumberKeyframeTrack, Object3D, QuaternionKeyframeTrack, Timer, VectorKeyframeTrack } from 'three';
+import { AnimationClip, AnimationMixer, Bone, BufferGeometry, Group, Mesh, MeshBasicMaterial, NumberKeyframeTrack, Object3D, QuaternionKeyframeTrack, VectorKeyframeTrack } from 'three';
 import { initEmbodyCore } from '../../dist/wasm.js';
 import { renderScenePlayback, ThreeModelInspector, ThreeNativePlaybackConnector } from '../../dist/three.js';
+import { createPlaybackTimer } from '../test/helpers/render-playback.mjs';
 
 const wasm = await initEmbodyCore();
 const model = new Group();
@@ -19,8 +20,7 @@ const inspection = new ThreeModelInspector().inspectModel(model);
 const releases = [];
 const connector = new ThreeNativePlaybackConnector(new wasm.NativePlaybackSession(), { model, inspection, mixer, onRelease: (handle) => releases.push(handle) });
 connector.rebind(model.uuid, 'profile');
-const timer = new Timer();
-timer.update(0);
+const timer = createPlaybackTimer();
 let timestamp = 0;
 const step = (seconds) => { timestamp += seconds * 1000; timer.update(timestamp); renderScenePlayback(model, timer); };
 const close = (a, b) => assert(Math.abs(a - b) < 1e-5, `${a} != ${b}`);

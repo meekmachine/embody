@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { AdditiveAnimationBlendMode, AnimationClip, BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial, NumberKeyframeTrack, Timer } from 'three';
+import { AdditiveAnimationBlendMode, AnimationClip, BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial, NumberKeyframeTrack } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createRustEmbodyHost, renderScenePlayback } from '../../dist/three.js';
+import { createPlaybackTimer } from '../test/helpers/render-playback.mjs';
 
 const model = new Group();
 // Load an actual single-key glTF cubic track, including its tangent storage.
@@ -32,8 +33,7 @@ face.morphTargetInfluences = [0];
 model.add(face);
 const profile = { auToMorphs: { 200: { center: ['Smile'], left: [], right: [] } }, morphToMesh: { face: ['Face'] } };
 const character = await createRustEmbodyHost(model, { profileMode: 'profile', profile });
-const timer = new Timer();
-timer.update(0);
+const timer = createPlaybackTimer();
 let timestamp = 0;
 const step = (seconds) => { timestamp += seconds * 1000; timer.update(timestamp); renderScenePlayback(model, timer); };
 const near = (actual, expected) => assert(Math.abs(actual - expected) < 1e-5, `${actual} != ${expected}`);
@@ -101,10 +101,10 @@ try {
 
   character.setAU(200, 0.8);
   step(0.001); near(value(), 0.8);
-  const release = character.transitionAU(200, 0, 1000);
+  // Promise completion is covered by test:controls; this smoke checks rendered output.
+  character.transitionAU(200, 0, 1000);
   step(0.5); near(value(), 0.4);
   step(0.5); near(value(), 0);
-  await release.promise;
 
   face.morphTargetInfluences[0] = 0.2;
   const inherited = character.playSnippet(snippet('inherited', 0.8), { loopMode: 'once' });
@@ -128,17 +128,15 @@ try {
 
   character.playAnimation('base', { loopMode: 'repeat' });
   character.setAU(200, 0.8); step(0.001); near(value(), 0.5);
-  const mixedTransition = character.transitionAU(200, 0.4, 1000);
+  character.transitionAU(200, 0.4, 1000);
   step(0); near(value(), 0.5);
   step(0.5); near(value(), 0.4);
   step(0.5); near(value(), 0.3);
-  await mixedTransition.promise;
   const mixedRelease = character.transitionAU(200, 0, 1000);
   step(0); near(value(), 0.3);
   step(0.5); near(value(), (0.2 + 0.4 * 0.5) / 1.5);
   mixedRelease.pause(); step(1); near(value(), (0.2 + 0.4 * 0.5) / 1.5);
   mixedRelease.resume(); step(0.5); near(value(), 0.2);
-  await mixedRelease.promise;
   character.stopAllAnimations();
 
   character.playAnimation('move', { loopMode: 'repeat' });
@@ -152,18 +150,19 @@ try {
   character.setProfile(profile);
   character.setAU(200, 0.8); step(0.001); near(value(), 0.8);
   // Rebinding while posed must not replace the captured release baseline.
-  const reboundRelease = character.transitionAU(200, 0, 1000);
+  character.transitionAU(200, 0, 1000);
   step(0.5); near(value(), 0.4);
   step(0.5); near(value(), 0);
-  await reboundRelease.promise;
 
   character.setAU(200, 0.8); step(0.001); near(value(), 0.8);
   character.setProfile({ ...profile, morphToMesh: { face: [] } });
   step(0); near(value(), 0);
   character.setAU(200, 1); step(0.001); near(value(), 0);
   const empty = character.playSnippet(snippet('unmapped', 1), { loopMode: 'once', finalPose: 'release' });
+  const emptyEvents = [];
+  empty.subscribe(event => emptyEvents.push(event));
   step(1);
-  assert.equal((await empty.promise).type, 'completed', 'unmapped authored clips retain native lifecycle');
+  assert.deepEqual(emptyEvents.map(event => event.type), ['completed'], 'unmapped authored clips retain native lifecycle');
   empty.stop();
 } finally {
   character.dispose();
