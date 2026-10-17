@@ -48,29 +48,7 @@ export function isMixedAU(profile: Types.Profile | number, auId?: number): boole
   return request('profile.isMixedAU', typeof profile === 'number' ? { profile: getPreset('cc4'), auId: profile } : { profile, auId });
 }
 
-// Preserve the published stock-routing compatibility rule. Rust resolves slot
-// order and bindings; this identifies which provider routing catalog applies.
-function routingSignature(slots: Types.ResolvedVisemeSlot[]) {
-  return slots.map(({ id, providerIds, phonemes }) => ({ id, providerIds, phonemes }));
-}
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value && typeof value === 'object') return `{${Object.entries(value).filter(([, v]) => v !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`;
-  return JSON.stringify(value) ?? 'null';
-}
-export function resolveVisemeProfile(profile: Partial<Types.Profile>): Types.ResolvedVisemeProfile {
-  const resolved = request<Types.ResolvedVisemeProfile>('profile.resolve', { profile });
-  const stock = routingSignature(getPreset('cc4').visemeSlots ?? []);
-  const slots = routingSignature(resolved.visemeSlots);
-  const sortById = <T extends { id: string }>(values: T[]) => [...values].sort((a, b) => a.id.localeCompare(b.id));
-  const stockRouting = canonicalJson(sortById(slots)) === canonicalJson(sortById(stock));
-  const { visemeSlots, visemeBindingTargets, visemeJawAmounts, visemeTongueTargets, visemeMeshNames, visemeMeshCategory } = resolved;
-  return {
-    visemeSlots, visemeBindingTargets, visemeJawAmounts, visemeTongueTargets, visemeMeshNames, visemeMeshCategory,
-    routingMode: !stockRouting && profile.visemeSlots?.length ? 'explicit' : 'legacy',
-    ...(stockRouting ? { canonicalSlotIndices: stock.map(slot => slots.findIndex(candidate => candidate.id === slot.id)) } : {}),
-  };
-}
+export const resolveVisemeProfile = (profile: Partial<Types.Profile>): Types.ResolvedVisemeProfile => request('profile.resolveVisemes', { profile });
 
 export const isMaxDegreesOnlyAxisBindingUpdate = (update: Types.BoneAxisBindingUpdate): boolean => request('bone.isMaxDegreesOnlyUpdate', { update });
 export const findNodeKeyForBone = (boneName: string, profile: Types.Profile | null): string | null => profile ? request('bone.findNodeKey', { profile, boneName }) : null;

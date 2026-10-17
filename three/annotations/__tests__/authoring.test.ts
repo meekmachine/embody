@@ -18,9 +18,9 @@ describe('Embody authoring API', () => {
   it('preserves canonical routing indices when the stock viseme slots are reordered', () => {
     const profile = getPreset('cc4');
     const original = resolveVisemeProfile(profile);
-    const reversed = resolveVisemeProfile({ ...profile, visemeSlots: [...profile.visemeSlots!].reverse() });
+    const reversed = resolveVisemeProfile({ ...profile, visemeSlots: [...profile.visemeSlots!].reverse().map((slot, order) => ({ ...slot, order })) });
     expect(reversed.routingMode).toBe('legacy');
-    expect(reversed.canonicalSlotIndices).toHaveLength(original.visemeSlots.length);
+    expect(reversed.canonicalSlotIndices).toEqual(original.visemeSlots.map((_, index) => original.visemeSlots.length - 1 - index));
     expect(reversed.canonicalSlotIndices!.map(index => reversed.visemeSlots[index].id)).toEqual(original.visemeSlots.map(slot => slot.id));
   });
 

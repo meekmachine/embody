@@ -2088,6 +2088,32 @@ fn extend_profile_config(config: Value) -> Result<Value, String> {
     Ok(expanded)
 }
 
+fn resolve_viseme_profile(profile: &ProfileData) -> Result<Value, String> {
+    let view = crate::profile::resolve_profile_view(profile);
+    let stock = presets::load_profile("cc4")?;
+    // Routing depends on sound identifiers, not display labels or slot order.
+    // Retain canonical speech routing when the authored stock slots are reordered.
+    let canonical_indices: Option<Vec<usize>> = stock.viseme_slots.iter().map(|canonical| {
+        view.viseme_slots.iter().position(|slot| slot.id == canonical.id
+            && slot.phonemes == canonical.phonemes
+            && json!(slot.provider_ids) == json!(canonical.provider_ids))
+    }).collect();
+    let canonical_indices = canonical_indices.filter(|_| view.viseme_slots.len() == stock.viseme_slots.len());
+    let mut resolved = json!({
+        "routingMode": if canonical_indices.is_none() && !profile.viseme_slots.is_empty() { "explicit" } else { "legacy" },
+        "visemeSlots": view.viseme_slots,
+        "visemeBindingTargets": view.viseme_binding_targets,
+        "visemeJawAmounts": view.viseme_jaw_amounts,
+        "visemeTongueTargets": view.viseme_tongue_targets,
+        "visemeMeshNames": view.viseme_mesh_names,
+        "visemeMeshCategory": view.viseme_mesh_category,
+    });
+    if let Some(indices) = canonical_indices {
+        resolved["canonicalSlotIndices"] = json!(indices);
+    }
+    Ok(resolved)
+}
+
 fn profile_view(profile: &ProfileData, op: &str, payload: &Value) -> Result<Value, String> {
     match op {
         "profile.getMeshNamesForAU" => {
@@ -2187,6 +2213,7 @@ fn execute(request: Request) -> Result<Value, String> {
             serde_json::to_value(crate::profile::resolve_profile_view(&profile))
                 .map_err(|error| error.to_string())
         }
+        "profile.resolveVisemes" => resolve_viseme_profile(&profile_field(&payload)?),
         "profile.getPresetId" => Ok(json!(preset_id(value_field(&payload, "config")?))),
         "profile.extractOverrides" => {
             Ok(extract_profile_overrides(value_field(&payload, "config")?))
@@ -2560,6 +2587,56 @@ mod tests {
             "morphToMesh": {},
             "visemeKeys": []
         })
+    }
+
+    #[test]
+    fn viseme_profile_resolution_preserves_stock_routing_after_reordering() {
+        let mut stock = request("preset.get", json!({"id":"cc4"}));
+        let original = request("profile.resolveVisemes", json!({"profile":stock}));
+        let count = original["visemeSlots"].as_array().unwrap().len();
+        assert_eq!(original["routingMode"], "legacy");
+        assert_eq!(original["canonicalSlotIndices"], json!((0..count).collect::<Vec<_>>()));
+        for (index, slot) in stock["visemeSlots"].as_array_mut().unwrap().iter_mut().enumerate() {
+            slot["order"] = json!(count - 1 - index);
+            slot["label"] = json!(format!("Edited label {index}"));
+        }
+        let reordered = request("profile.resolveVisemes", json!({"profile":stock}));
+        assert_eq!(reordered["routingMode"], "legacy");
+        assert_eq!(reordered["canonicalSlotIndices"], json!((0..count).rev().collect::<Vec<_>>()));
+        for index in 0..count {
+            assert_eq!(reordered["visemeSlots"][count - 1 - index]["id"], original["visemeSlots"][index]["id"]);
+        }
+    }
+
+    #[test]
+    fn viseme_profile_resolution_uses_explicit_routing_for_authored_sounds() {
+        for patch in [json!({"providerIds":{"azure":[999]}}), json!({"phonemes":["CUSTOM"]})] {
+            let mut stock = request("preset.get", json!({"id":"cc4"}));
+            for (key, value) in patch.as_object().unwrap() {
+                stock["visemeSlots"][0][key] = value.clone();
+            }
+            let resolved = request("profile.resolveVisemes", json!({"profile":stock}));
+            assert_eq!(resolved["routingMode"], "explicit");
+            assert!(resolved.get("canonicalSlotIndices").is_none());
+            for (key, value) in patch.as_object().unwrap() {
+                assert_eq!(&resolved["visemeSlots"][0][key], value);
+            }
+        }
+    }
+
+    #[test]
+    fn viseme_profile_resolution_keeps_legacy_keys_and_empty_profiles() {
+        let legacy = request("profile.resolveVisemes", json!({"profile":{"visemeKeys":["Mouth Open",1,""]}}));
+        assert_eq!(legacy["routingMode"], "legacy");
+        assert!(legacy.get("canonicalSlotIndices").is_none());
+        assert_eq!(legacy["visemeSlots"].as_array().unwrap().iter().map(|slot| slot["id"].clone()).collect::<Vec<_>>(),
+            vec![json!("mouth-open"), json!("viseme-1"), json!("viseme-2")]);
+        assert_eq!(legacy["visemeBindingTargets"], json!([[{"morph":"Mouth Open","weight":1.0}],[{"morph":1,"weight":1.0}],[]]));
+        let empty = request("profile.resolveVisemes", json!({"profile":{}}));
+        assert_eq!(empty["routingMode"], "legacy");
+        assert_eq!(empty["visemeSlots"], json!([]));
+        assert_eq!(empty["visemeBindingTargets"], json!([]));
+        assert!(empty.get("canonicalSlotIndices").is_none());
     }
 
     #[test]
