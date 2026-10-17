@@ -57,7 +57,6 @@ export function createCharacter(wasm) {
       model.updateMatrixWorld(true);
     },
     tick() {
-      core.update(DT_SECONDS);
       mixer.update(DT_SECONDS);
       applier.applyPackedMorphFrameDelta(core.evaluate_active_morph_frame());
       applier.applyPackedBoneFrameDelta(core.evaluate_active_bone_frame());

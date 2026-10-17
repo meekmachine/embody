@@ -1,2 +1,2 @@
 export * from './three/index';
-export * from './wasm/index';
+export * from '@lovelace_lol/embody/wasm';
