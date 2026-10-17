@@ -688,7 +688,8 @@ export class DPthreeCameraController {
     if (!this.renderer) return;
     const renderer = this.renderer;
     this.playbackTimer.disconnect();
-    if (renderer.domElement.ownerDocument) this.playbackTimer.connect(renderer.domElement.ownerDocument);
+    const ownerDocument = renderer.domElement?.ownerDocument;
+    if (ownerDocument) this.playbackTimer.connect(ownerDocument);
     this.playbackTimer.reset();
     let playbackStarted = false;
     try {

@@ -1,7 +1,6 @@
 import { BoxGeometry, Float32BufferAttribute, Group, Mesh } from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { initEmbodyCore } from '../../../wasm/index';
-import { extractModelData, getPreset, resolveVisemeProfile, setAUMorphTargets, validateMappings } from '../../authoring';
+import { initEmbodyCore, extractModelData, getPreset, resolveVisemeProfile, setAUMorphTargets, validateMappings } from '@lovelace_lol/embody';
 
 beforeAll(async () => { await initEmbodyCore(); });
 
@@ -40,4 +39,3 @@ describe('Embody authoring API', () => {
     geometry.dispose();
   });
 });
-
