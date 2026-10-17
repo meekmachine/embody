@@ -231,7 +231,7 @@ impl NativePlaybackSession {
 
 impl NativePlaybackSession {
     fn create() -> Result<Self, String> {
-        let session = NEXT_SESSION.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+        let session = NEXT_SESSION.try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| "Playback session identity exhausted.".to_string())?;
         Ok(Self {
             session, generation: 0, next_handle: 0, binding: None,

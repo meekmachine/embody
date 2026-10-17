@@ -19,6 +19,7 @@ use crate::math::clamp01;
 /// Morph AU binding sides used by RuntimeCore packed tables.
 pub const AU_SIDE_LEFT: u8 = 0;
 pub const AU_SIDE_RIGHT: u8 = 1;
+#[cfg(test)]
 pub const AU_SIDE_CENTER: u8 = 2;
 
 #[derive(Clone, Copy, Debug)]

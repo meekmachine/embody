@@ -760,17 +760,6 @@ pub struct CompiledTables {
     pub viseme_slot_ids: Vec<String>,
 }
 
-impl CompiledTables {
-    #[cfg(test)]
-    pub fn has_runtime_bindings(&self) -> bool {
-        !self.au_morph_bindings.is_empty()
-            || !self.viseme_morph_bindings.is_empty()
-            || !self.composite_axes.is_empty()
-            || !self.translations.is_empty()
-            || !self.jaw_binding.is_empty()
-    }
-}
-
 struct VisemeSlot {
     id: String,
     default_jaw_amount: Option<f64>,

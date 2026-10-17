@@ -57,6 +57,7 @@ impl ClipRegistry {
         Ok(())
     }
     pub fn remove_clip(&mut self, name: &str) -> bool { self.clips.remove(name).is_some() }
+    #[cfg(test)]
     pub fn clip(&self, name: &str) -> Option<&ClipIR> { self.clips.get(name).map(|entry| &entry.clip) }
     pub fn list(&self) -> Vec<ClipInfo> { self.clips.values().map(clip_info).collect() }
 }
