@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 use crate::profile::{
     deserialize_json, AnnotationRegionData, AuInfoData, AuMorphEntry, BoneBindingData, BodyControlData,
-    CompositeRotationData, ContinuumPairData, GazeCalibrationData, HairDirectionData,
+    CompositeRotationData, ContinuumPairData, HairDirectionData,
     HumanoidCharacterizationData,
     HairMorphTargetsData, HairPhysicsData, LineConfigData, MappingSectionData, MarkerStyleData, MeshInfoData,
     MeshMaterialData, MorphRef, ProfileData, ProfileVec3Data, VisemeBindingData, VisemeSlotData,
@@ -53,7 +53,6 @@ pub(crate) struct ProfilePatch {
     annotation_regions: Option<Vec<AnnotationRegionPatch>>,
     disabled_regions: Option<Vec<String>>,
     hair_physics: Option<HairPhysicsData>,
-    gaze_calibration: Option<GazeCalibrationData>,
     humanoid_characterization: Option<HumanoidCharacterizationData>,
     body_controls: Option<BTreeMap<String, Option<BodyControlPatch>>>,
 }
@@ -260,18 +259,6 @@ pub(crate) fn extend_preset_with_profile(
     merge_annotation_regions(&mut merged.annotation_regions, extension.annotation_regions);
     replace_vec(&mut merged.disabled_regions, extension.disabled_regions);
     merge_hair_physics(&mut merged.hair_physics, extension.hair_physics);
-    if let Some(calibration) = extension.gaze_calibration {
-        let current = merged
-            .gaze_calibration
-            .get_or_insert_with(GazeCalibrationData::default);
-        replace_option(
-            &mut current.model_units_per_meter,
-            calibration.model_units_per_meter,
-        );
-        replace_option(&mut current.head, calibration.head);
-        replace_option(&mut current.left_eye, calibration.left_eye);
-        replace_option(&mut current.right_eye, calibration.right_eye);
-    }
     merged
 }
 
@@ -692,23 +679,6 @@ mod tests {
             json!({ "boneNodes": { "HEAD": null } }),
         );
         assert_eq!(merged["boneNodes"]["HEAD"], "Head");
-    }
-
-    #[test]
-    fn gaze_calibration_survives_preset_composition_and_partial_updates() {
-        let merged = merge(
-            json!({"gazeCalibration": {
-                "modelUnitsPerMeter": 100,
-                "leftEye": {"opticalAxis": {"x": 0, "y": -1, "z": 0}}
-            }}),
-            json!({"gazeCalibration": {
-                "modelUnitsPerMeter": 1,
-                "rightEye": {"opticalAxis": {"x": 0, "y": -1, "z": 0}}
-            }}),
-        );
-        assert_eq!(merged["gazeCalibration"]["modelUnitsPerMeter"], 1.0);
-        assert_eq!(merged["gazeCalibration"]["leftEye"]["opticalAxis"]["y"], -1.0);
-        assert_eq!(merged["gazeCalibration"]["rightEye"]["opticalAxis"]["y"], -1.0);
     }
 
     #[test]

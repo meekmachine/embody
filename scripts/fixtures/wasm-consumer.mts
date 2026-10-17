@@ -26,6 +26,8 @@ import {
   type ThreeModelReferencePose,
   DPthree,
   DPthreeCameraController,
+  Embody,
+  ThreeNativePlaybackConnector,
   resolveAnnotationCharacterConfig,
   createRuntimeAnnotationPreviewLifecycle,
   type AnnotationCharacterConfig,
@@ -54,6 +56,17 @@ new DPthree({});
 controller.focusRegion(123);
 
 const core: EmbodyCore = await initEmbodyCore();
+const character = new Embody({ profileMode: 'profile', profile: {} });
+character.onReady({ model: new Object3D() });
+character.start();
+character.stop();
+// @ts-expect-error Public character controls cannot drive an animation clock.
+character.update(0.016);
+character.dispose();
+declare const connector: ThreeNativePlaybackConnector;
+connector.control('opaque', { type: 'setWeight', weight: 0.5 });
+// @ts-expect-error Native weight is a number, not semantic intensity metadata.
+connector.control('opaque', { type: 'setWeight', weight: 'strong' });
 const runtime: RuntimeCore = new core.RuntimeCore(15);
 runtime.configure_with_preset('cc4', '{}', '{}');
 runtime.set_au(12, 0.5, 0);
@@ -65,6 +78,8 @@ const viseme: number = runtime.get_viseme(0);
 const jawScale: number = runtime.get_viseme_jaw_scale(0);
 const frame: Float32Array = runtime.evaluate_active_morph_frame();
 const clip: string = runtime.build_clip('smile', '{}', '{}');
+const live: string = runtime.build_live_clip('live', 0.2);
+const release: string = runtime.build_live_release_clip('release', live, 0.2);
 const removed: boolean = runtime.remove_animation_clip('smile');
 runtime.free();
 
@@ -73,6 +88,7 @@ const playback: NativePlaybackSession = new core.NativePlaybackSession();
 const bindingBatch: string = playback.rebind('model', 'profile');
 const playBatch: string = playback.play(clip, '{}');
 const controlBatch: string = playback.control('opaque-handle', '{"type":"pause"}');
+const editBatch: string = playback.replace_clip('opaque-handle', clip);
 const eventBatch: string = playback.notify('{"type":"completed","handle":"opaque-handle"}');
 const disposalBatch: string = playback.dispose();
 playback.free();
@@ -86,6 +102,8 @@ playback.control(1, '{"type":"stop"}');
 playback.notify(0.016);
 // @ts-expect-error This protocol has no frame update or elapsed-time API.
 playback.update(0.016);
+// @ts-expect-error The semantic compiler no longer has a compatibility clock.
+runtime.update(0.016);
 // @ts-expect-error Returned command batches retain their generated string type.
 const wrongPlaybackBatch: number = playback.dispose();
 

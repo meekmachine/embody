@@ -15,20 +15,29 @@ import {
   VectorKeyframeTrack,
 } from 'three';
 export * from './annotations/index';
+export * from './authoring';
+export * from './character';
+export * from './characterHost';
+export { renderScenePlayback, createScenePlaybackFrame } from './playbackRendering';
 import { bindModelReferencePose } from './reference-pose';
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
 
 export { captureModelReferencePose, bindModelReferencePose, extendModelReferencePose } from './reference-pose';
 export type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
+export { ThreeNativePlaybackConnector } from './nativePlayback';
+export type {
+  ThreeNativeLoop,
+  ThreeNativePlaybackOptions,
+  ThreeNativePlaybackControl,
+  ThreeNativePlaybackEvent,
+  ThreeNativePlaybackBinding,
+} from './nativePlayback';
 import type {
   KeyframeTrack,
   Material,
   Mesh,
   Object3D,
 } from 'three';
-
-export { ThreeGazeFocus } from './gaze';
-export type { ThreeGazeFocusOptions, ThreeGazeFocusRequest, ThreeGazeFocusControls, ThreeGazeFocusDiagnostic } from './gaze';
 
 export const THREE_BLENDING_MODES = {
   Normal: NormalBlending,
@@ -37,6 +46,7 @@ export const THREE_BLENDING_MODES = {
   Multiply: MultiplyBlending,
   None: NoBlending,
 } as const;
+export const BLENDING_MODES = THREE_BLENDING_MODES;
 
 type BoneEntry = {
   obj: Object3D;
@@ -231,7 +241,7 @@ export class ThreeModelInspector {
           meshId: meshIds.get(mesh),
           name: entry.name,
           hostIndex: entry.index,
-          initialValue: mesh.morphTargetInfluences?.[entry.index] ?? 0,
+          initialValue: references?.get(mesh)?.morphInfluences?.[entry.index] ?? mesh.morphTargetInfluences?.[entry.index] ?? 0,
         });
         morphId += 1;
       }
@@ -334,6 +344,7 @@ export type ClipIRTrack = {
 export type ClipIR = {
   name: string;
   durationSeconds?: number;
+  channels?: Array<{ id: number; kind: string; name?: string }>;
   tracks: ClipIRTrack[];
 };
 
@@ -462,14 +473,26 @@ export function serializeAnimationClips(
         : target.kind === 'boneTransform'
           ? 'body'
           : 'scene';
-      const size = track.getValueSize();
+      // glTF cubic tracks store in-tangent/value/out-tangent per key. The
+      // registry/validation view describes values; native playback retains
+      // the original track and its Three interpolant, including its tangents.
+      const cubic = !!(track as KeyframeTrack & {
+        createInterpolant: { isInterpolantFactoryMethodGLTFCubicSpline?: boolean };
+      }).createInterpolant.isInterpolantFactoryMethodGLTFCubicSpline;
+      const size = track.getValueSize() / (cubic ? 3 : 1);
+      if (!Array.from(track.values).every(Number.isFinite)) {
+        throw new Error(`Animation track ${JSON.stringify(track.name)} contains non-finite samples.`);
+      }
+      const values = cubic
+        ? Array.from(track.times).flatMap((_, key) => Array.from(track.values.slice((key * 3 + 1) * size, (key * 3 + 2) * size)))
+        : Array.from(track.values);
       tracks.push({
         id: index + 1,
         channelId: channelId(kind),
         target,
         valueType: size === 4 ? 'quat' : size === 3 ? 'vec3' : 'scalar',
         times: Array.from(track.times),
-        values: Array.from(track.values),
+        values,
         interpolation: track.getInterpolation() === InterpolateDiscrete ? 'step' : 'linear',
         sourceName: track.name,
       });

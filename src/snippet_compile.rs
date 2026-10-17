@@ -121,10 +121,9 @@ fn clamp_intensity(value: f64) -> f64 {
     value.clamp(0.0, 2.0)
 }
 
-fn keyframe_times(curves: &[SnippetCurve]) -> Vec<f64> {
+fn keyframe_times<'a>(curves: impl Iterator<Item = &'a [CurvePoint]>) -> Vec<f64> {
     let mut times = curves
-        .iter()
-        .flat_map(|curve| curve.points.iter().map(|point| point.time))
+        .flat_map(|points| points.iter().map(|point| point.time))
         .collect::<Vec<_>>();
     times.sort_by(f64::total_cmp);
     times.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
@@ -240,13 +239,11 @@ fn push_scaled_curve_track(
     side_enabled: bool,
     source: MorphSource,
     channel_index: usize,
-    retain_zero_owner: bool,
+    _retain_zero_owner: bool,
 ) {
     let inherit_start = points.first().is_some_and(|point| point.inherit);
-    // Even a zero-scaled curve can release a nonzero inherited live pose.
-    if effective_scale.abs() <= 1e-9 && !inherit_start && !(retain_zero_owner && side_enabled) {
-        return;
-    }
+    // Authored zero strength is still a concrete mapped target. Keep its native
+    // binding so live intensity/balance edits can retain the same mixer action.
     let times = points.iter().map(|point| point.time).collect::<Vec<_>>();
     let values = points
         .iter()
@@ -388,7 +385,6 @@ fn merge_morph_tracks(tracks: Vec<MorphTrackContribution>) -> Result<Vec<ClipTra
 pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Result<Vec<ClipTrackIR>, String> {
     let options = input.options;
     let scale = options.intensity_scale;
-    let times = keyframe_times(input.curves);
     let mut tracks = Vec::new();
     let mut next_id = 1u32;
     // Keep every typed channel: an AU can have independent left/right curves,
@@ -497,12 +493,12 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Result<Vec<Clip
     let auto_viseme_jaw = options.auto_viseme_jaw
         && options.jaw_scale > 0.0
         && !viseme_curves.is_empty()
-        && !times.is_empty()
         && input.jaw_binding.is_some()
         && !input.viseme_jaw_amounts.is_empty();
 
     if auto_viseme_jaw {
         if let Some(jaw) = input.jaw_binding {
+            let times = keyframe_times(viseme_curves.values().flatten().copied());
             let rest = input
                 .bone_rest_transforms
                 .get(&jaw.bone_id)
@@ -537,12 +533,14 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Result<Vec<Clip
                 };
                 values.extend(rotation.map(f64::from));
             }
-            tracks.push(quat_track(next_id, jaw.bone_id, times.clone(), values));
+            let mut track = quat_track(next_id, jaw.bone_id, times.clone(), values);
+            track.inherit_start = viseme_curves.values().flatten().any(|points| points.first().is_some_and(|point| point.inherit));
+            tracks.push(track);
             next_id += 1;
         }
     }
 
-    if times.is_empty() {
+    if au_curves.is_empty() {
         return Ok(tracks);
     }
 
@@ -552,7 +550,7 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Result<Vec<Clip
             .into_iter()
             .flatten()
             .map(|(points, balance)| {
-                let raw = clamp01(clamp_intensity(sample_at(points, t) * scale) as f32);
+                let raw = clamp_intensity(sample_at(points, t) * scale) as f32;
                 let side_factor = match side {
                     BONE_SIDE_LEFT | BONE_SIDE_RIGHT => side_scale(*balance, side),
                     _ => 1.0,
@@ -586,6 +584,9 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Result<Vec<Clip
         if !has_relevant {
             continue;
         }
+        let times = keyframe_times(axes.iter().flat_map(|axis| &axis.value_rows).flat_map(|row| {
+            au_curves.get(&row.au_id).into_iter().flatten().map(|(points, _)| *points)
+        }));
 
         let rest = input
             .bone_rest_transforms
@@ -618,7 +619,11 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Result<Vec<Clip
             values.extend(rotation.map(f64::from));
         }
 
-        tracks.push(quat_track(next_id, bone_id, times.clone(), values));
+        let mut track = quat_track(next_id, bone_id, times.clone(), values);
+        track.inherit_start = axes.iter().flat_map(|axis| &axis.value_rows).any(|row| {
+            au_curves.get(&row.au_id).into_iter().flatten().any(|(points, _)| points.first().is_some_and(|point| point.inherit))
+        });
+        tracks.push(track);
         next_id += 1;
     }
 
@@ -628,6 +633,8 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Result<Vec<Clip
             translation_bones.insert(row.bone_id);
         }
     }
+    let mut translation_bones = translation_bones.into_iter().collect::<Vec<_>>();
+    translation_bones.sort_unstable();
     for bone_id in translation_bones {
         let rest = input
             .bone_rest_transforms
@@ -642,6 +649,9 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Result<Vec<Clip
         if rows.is_empty() {
             continue;
         }
+        let times = keyframe_times(rows.iter().flat_map(|row| {
+            au_curves.get(&row.au_id).into_iter().flatten().map(|(points, _)| *points)
+        }));
         let mut values = Vec::with_capacity(times.len() * 3);
         for &t in &times {
             let mut position = rest;
@@ -651,11 +661,15 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Result<Vec<Clip
                     continue;
                 }
                 let axis = row.axis.min(2) as usize;
-                position[axis] += clamp01(v) * row.scale.clamp(-1.0, 1.0) * row.max_units;
+                position[axis] += v * row.scale.clamp(-1.0, 1.0) * row.max_units;
             }
             values.extend(position.map(f64::from));
         }
-        tracks.push(position_track(next_id, bone_id, times.clone(), values));
+        let mut track = position_track(next_id, bone_id, times.clone(), values);
+        track.inherit_start = rows.iter().any(|row| {
+            au_curves.get(&row.au_id).into_iter().flatten().any(|(points, _)| points.first().is_some_and(|point| point.inherit))
+        });
+        tracks.push(track);
         next_id += 1;
     }
 

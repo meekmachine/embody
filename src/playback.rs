@@ -114,6 +114,8 @@ enum Control {
     SetBlendMode { #[serde(rename = "blendMode")] blend_mode: BlendMode },
     SetLoop { #[serde(rename = "loop")] looping: LoopSettings },
     SetFinalPose { #[serde(rename = "finalPose")] final_pose: FinalPose },
+    FadeIn { seconds: f64 },
+    FadeOut { seconds: f64 },
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,6 +138,7 @@ impl NativeEvent {
 #[serde(tag = "type", rename_all = "camelCase")]
 enum NativeCommand {
     Play { handle: String, binding: Binding, clip: ClipIR, settings: NativeSettings },
+    ReplaceClip { handle: String, clip: ClipIR },
     Control { handle: String, control: Control },
     // Release includes stopping the action, detaching callbacks, and freeing
     // action/clip resources. It must also cancel pending native materialization.
@@ -206,6 +209,12 @@ impl NativePlaybackSession {
 
     pub fn control(&mut self, handle: &str, control_json: &str) -> Result<String, JsError> {
         self.control_inner(handle, control_json).map_err(|error| JsError::new(&error))?.json()
+    }
+
+    /// Replace authored samples without resetting native time, loop progress or
+    /// the request identity. A held request remains terminal after a pose edit.
+    pub fn replace_clip(&mut self, handle: &str, clip_json: &str) -> Result<String, JsError> {
+        self.replace_clip_inner(handle, clip_json).map_err(|error| JsError::new(&error))?.json()
     }
 
     /// Late/duplicate/foreign well-formed notifications return an empty batch.
@@ -313,11 +322,16 @@ impl NativePlaybackSession {
             Control::SetSpeed { speed } => validate_speed(*speed)?,
             Control::SetWeight { weight } => validate_weight(*weight)?,
             Control::SetLoop { looping } => *looping = looping.clone().validated(resource.duration_seconds)?,
+            Control::FadeIn { seconds } | Control::FadeOut { seconds } => {
+                if !seconds.is_finite() || *seconds < 0.0 {
+                    return Err("Native fade duration must be finite and nonnegative seconds.".into());
+                }
+            },
             _ => {},
         }
         let release_held = resource.completed && matches!(control, Control::SetFinalPose { final_pose: FinalPose::Release });
-        if resource.completed && !release_held && !matches!(control, Control::Stop { .. }) {
-            return Err("Completed held playback supports only stop or finalPose release.".into());
+        if resource.completed && !release_held && matches!(control, Control::Resume { .. } | Control::SetLoop { .. }) {
+            return Err("Completed held playback cannot restart; play a new request.".into());
         }
         let mut batch = Batch::default();
         if matches!(control, Control::Stop { .. }) || release_held {
@@ -329,6 +343,19 @@ impl NativePlaybackSession {
             batch.commands.push(NativeCommand::Control { handle: handle.into(), control });
         }
         Ok(batch)
+    }
+
+    fn replace_clip_inner(&mut self, handle: &str, clip_json: &str) -> Result<Batch, String> {
+        let resource = self.resource(handle)?;
+        let clip: ClipIR = parse(clip_json, "ClipIR")?;
+        validate_clip(&clip)?;
+        if clip.duration_seconds != resource.duration_seconds {
+            return Err("Editing a playing clip must preserve its duration; play a new request to change timing.".into());
+        }
+        Ok(Batch {
+            commands: vec![NativeCommand::ReplaceClip { handle: handle.into(), clip }],
+            ..Batch::default()
+        })
     }
 
     fn notify_inner(&mut self, event_json: &str) -> Result<Batch, String> {
@@ -413,7 +440,8 @@ fn validate_clip(clip: &ClipIR) -> Result<(), String> {
     if clip.name.trim().is_empty() || !clip.duration_seconds.is_finite() || clip.duration_seconds < 0.0 {
         return Err("ClipIR requires a nonempty name and finite nonnegative durationSeconds.".into());
     }
-    if clip.tracks.is_empty() { return Err("ClipIR requires at least one concrete track.".into()); }
+    // An explicitly unmapped profile may produce no tracks. Native Three
+    // actions still own the requested duration and completion for these clips.
     let mut channels = HashSet::new();
     for channel in &clip.channels {
         if channel.kind.trim().is_empty() || !channels.insert(channel.id) {
@@ -603,6 +631,28 @@ mod tests {
         assert!(session.control_inner(&current, r#"{"type":"pause"}"#).is_err());
         assert!(session.rebind_inner("model", "profile").is_err());
         assert!(session.play_inner(&clip().to_string(), "{}").is_err());
+    }
+
+    #[test]
+    fn sample_edits_and_native_fades_keep_request_identity() {
+        let mut session = session();
+        let handle = play(&mut session, json!({"finalPose":"hold"})).handle.unwrap();
+        let mut edited = clip();
+        edited["tracks"][0]["values"] = json!([0.0, 0.5]);
+        let batch = value(session.replace_clip_inner(&handle, &edited.to_string()).unwrap());
+        assert_eq!(batch["commands"][0]["type"], "replaceClip");
+        assert_eq!(batch["commands"][0]["handle"], handle);
+        assert!(batch["events"].as_array().unwrap().is_empty());
+        edited["durationSeconds"] = json!(2.0);
+        assert!(session.replace_clip_inner(&handle, &edited.to_string()).is_err());
+        assert!(session.resource(&handle).is_ok());
+        let fade = value(session.control_inner(&handle, r#"{"type":"fadeOut","seconds":0.2}"#).unwrap());
+        assert_eq!(fade["commands"][0]["control"]["type"], "fadeOut");
+        assert!(fade["events"].as_array().unwrap().is_empty());
+        assert!(session.control_inner(&handle, r#"{"type":"fadeOut","seconds":-1}"#).is_err());
+        notify(&mut session, &handle, "completed");
+        assert!(session.control_inner(&handle, r#"{"type":"seek","seconds":0.5}"#).unwrap().events.is_empty());
+        assert!(notify(&mut session, &handle, "completed").events.is_empty());
     }
 
     #[test]

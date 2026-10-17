@@ -15,7 +15,7 @@ host adapter, not the runtime implementation.
 src/                 Rust source (the Wasm crate) — hair, clips, profiles, runtime
 assets/presets/      Embedded typed character profiles
 assets/templates/    Embedded humanoid skeleton templates
-three/               Three.js inspection, resource and native host adapter
+three/               Thin Three.js inspection/application adapter only
 wasm/                Generated-Wasm JS loader + ABI constants
 index.ts             Package re-exports only
 ```
@@ -40,12 +40,6 @@ The Rust core owns:
 The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
 not sample or lerp clips on the hot path.
-
-`NativePlaybackSession` adds the renderer-neutral Rust command and handle
-lifecycle contract for this boundary. It emits commands for a connector; it does
-not execute clips. The Three connector and consumer migration are still pending.
-See [native playback commands](#native-playback-commands) and the
-[staged repair plan](docs/native-playback-migration.md).
 
 An AU animation drives its profile's mapped bones and morphs through the same
 Rust evaluation used by live AU controls. For example, speech can send an AU
@@ -116,78 +110,51 @@ Embody is an ES module package. Use `import` / dynamic `import()`; CommonJS
 `require()` is not a supported runtime API. Package subpaths remain resolvable
 through Node for tooling that only needs to locate an exported file.
 
-Initialize the Wasm module before constructing the compiler or command session.
-This example produces a command batch for the forthcoming native connector;
-it does not execute Three playback:
+Initialize the Wasm module before constructing a runtime:
 
 ```ts
 import { initEmbodyCore } from '@lovelace_lol/embody/wasm';
+import {
+  AnimationMixer,
+} from 'three';
+import {
+  ThreeFrameApplier,
+  ThreeModelInspector,
+  createAnimationClipFromClipIR,
+} from '@lovelace_lol/embody/three';
+
 const wasm = await initEmbodyCore();
+const inspector = new ThreeModelInspector();
+const applier = new ThreeFrameApplier();
+const inspection = inspector.inspectModel(model, { profile });
 const runtime = new wasm.RuntimeCore(0);
+const mixer = new AnimationMixer(model);
+
+applier.setBindings(inspection);
 runtime.configure_with_preset(
   'cc4',
   JSON.stringify(profileOverrides ?? {}),
-  JSON.stringify(modelDescriptor),
+  JSON.stringify(inspection.descriptor),
 );
 
-const clipJson = runtime.build_clip(
+const clipIR = JSON.parse(runtime.build_clip(
   'smile',
   JSON.stringify(curves),
   JSON.stringify({ intensityScale: 1 }),
-);
-const playback = new wasm.NativePlaybackSession();
-const bindingBatch = JSON.parse(playback.rebind('character-1', 'profile-v1'));
-const playBatch = JSON.parse(playback.play(clipJson, '{"weight":1}'));
-// The native connector consumes these ordered batches and reports native events.
+));
+const clip = createAnimationClipFromClipIR(clipIR, inspection);
+mixer.clipAction(clip).play();
+
+function update(dtSeconds: number) {
+  // Live AU/viseme packed frames, then host mixer owns clip lerp.
+  applier.applyPackedMorphFrameDelta(runtime.evaluate_morph_frame_delta());
+  applier.applyPackedBoneFrameDelta(runtime.evaluate_bone_frame_delta());
+  mixer.update(dtSeconds);
+}
 ```
 
-Three.js owns playback timing. Embody's connector connects native actions to the
-existing Three rendering integration; Polymer and LoomLarge issue commands and
-observe results. Do not expose `engine.update(dt)` or require application code to
-advance an Embody engine. The previous mixer/update example described ownership
-that this migration removes.
-
-The existing CLJS character host used by LoomLarge still lives in Polymer.
-Polymer #299 moves its necessary binding/public API responsibilities into Embody
-and leaves minimal public forwarding in Polymer. That integration is not yet
-provided by the command contract below.
-
-### Native playback commands
-
-After `initEmbodyCore()`, construct `new wasm.NativePlaybackSession()` and call
-`rebind(modelKey, profileKey)` before playing. The keys are nonempty consumer
-identities, not native objects. Every rebind invalidates old handles, even when
-the keys are unchanged. The connector must call it when the model or profile
-bindings change; the session cannot discover external changes itself.
-
-`play(clipJson, optionsJson)` accepts concrete ClipIR from the existing Rust
-`RuntimeCore.build_clip`, `build_typed_clip`, `build_semantic_clip`, or from an
-imported-clip adapter. Semantic compilation remains separate from playback:
-compile target strength into the clip, then apply native blend `weight` once.
-There is no playback `intensity` alias that scales the semantic output again.
-
-Operations return JSON batches containing `commands` and terminal `events`;
-successful `play` also returns an opaque `handle`. A connector executes the
-commands in order and sends native completion/cancellation/failure back through
-`notify(eventJson)`. There is no animation update or elapsed-time API on this
-session. Discarding its command batch does not perform a native effect.
-
-| Wasm method | Contract |
-| --- | --- |
-| `rebind(modelKey, profileKey)` | Release previous resources and invalidate their generation before admitting new playback. |
-| `play(clipJson, optionsJson)` | Validate all inputs before admitting a clip or replacing a handle. Default is independent overlapping playback. |
-| `control(handle, controlJson)` | Pause, resume, stop, seek, or change native speed, weight, blend mode, loop or final-pose policy. Reject foreign/stale handles. |
-| `notify(eventJson)` | Accept native terminal facts. Ignore obsolete/duplicate facts so they cannot settle or mutate newer playback. |
-| `dispose()` | Idempotently cancel unsettled work and release native resources through commands. Dispose the connector resources before calling generated `free()`. |
-
-Each handle settles once as completed, cancelled or error. A completed held
-pose still owns native resources until explicitly stopped, replaced, rebound or
-disposed; releasing it emits no second terminal event. The
-[adapter contract](docs/ADAPTER_TARGETS.md) defines JSON fields, units, ordering
-and connector failure responsibilities. Rust tests and the built-package fake
-connector exercise this protocol; they do not prove native playback or UI
-integration. The old Rust animation module and Polymer host remain pending
-removal in the [migration plan](docs/native-playback-migration.md).
+Application-facing JavaScript APIs belong in the host package. Polymer owns
+the CLJS character host used by LoomLarge and calls the Wasm exports directly.
 
 ### Direct viseme snapshots
 

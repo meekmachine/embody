@@ -23,7 +23,6 @@ export const ANNOTATION_CAMERA_FRAMING_STRIDE = 7;
 export const CAMERA_FLIGHT_SAMPLE_STRIDE = 7;
 export const MARKER_VISIBILITY_FACTORS_STRIDE = 3;
 export const MARKER_ENDPOINT_STRIDE = 3;
-export const SCREEN_SPACE_GAZE_SOLUTION_STRIDE = 14;
 
 // Synchronous compatibility data is bundled from the same JSON assets embedded
 // by Rust. Hair color swatches and the CC4 humanoid skeleton live with the
@@ -48,6 +47,7 @@ export async function initEmbodyCore(): Promise<EmbodyCore> {
 }
 
 export const getEmbodyCore = initEmbodyCore;
+export * from './compatibility';
 
 export function requireInitializedEmbodyCore(): EmbodyCore {
   if (!loaded) throw new Error('Embody Wasm core is not initialized. Await initEmbodyCore() first.');

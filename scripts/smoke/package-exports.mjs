@@ -109,7 +109,7 @@ const checks = [
   ['CC4 preset owns hair color swatches', preset.hairColorPresets?.natural_brown?.baseColor === '#4a3728'],
   ['Rust humanoid template data', templates[0].id === 'cc4-humanoid'],
   ['Rust model extraction', extracted.morphs[0].meshName === 'Face'],
-  ['Rust runtime constructor', runtime.active_transition_count() === 0],
+  ['Rust runtime constructor', runtime.get_au(12) === 0],
   ['empty exact profile stays unmapped', staticBoneWrites.length === 0],
   ['exact profile still rejects malformed JSON', rejectsInvalidProfile],
   ['baked clip channel classification', serialized.channels.map(({ kind }) => kind).join(',') === 'body,scene'],

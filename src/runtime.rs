@@ -4,7 +4,7 @@ use serde::Deserialize;
 use wasm_bindgen::prelude::*;
 
 use crate::abi::{PACKED_BONE_FRAME_DELTA_STRIDE, PACKED_MORPH_FRAME_DELTA_STRIDE};
-use crate::animation::{AnimationCore, BlendMode, LoopMode};
+use crate::animation::ClipRegistry;
 use crate::bones::{
     composite_axis_value, multiply_quat, quat_from_channel, select_axis_binding, side_scale,
     AxisBindingRow, AxisValueRow, CompositeAxis, JawBinding, RestTransform, TranslationRow,
@@ -150,7 +150,7 @@ pub struct RuntimeCore {
     object_rest_rotations: HashMap<u32, [f32; 4]>,
     object_rest_scales: HashMap<u32, [f32; 3]>,
     mesh_visibility: HashMap<u32, bool>,
-    animation: AnimationCore,
+    animation: ClipRegistry,
     procedural_bone_flags: HashMap<u32, u32>,
     procedural_morph_targets: BTreeSet<(u32, u32)>,
     body_controls_json: String,
@@ -187,7 +187,7 @@ impl RuntimeCore {
             object_rest_rotations: HashMap::new(),
             object_rest_scales: HashMap::new(),
             mesh_visibility: HashMap::new(),
-            animation: AnimationCore::new(),
+            animation: ClipRegistry::new(),
             procedural_bone_flags: HashMap::new(),
             procedural_morph_targets: BTreeSet::new(),
             body_controls_json: "[]".into(),
@@ -455,39 +455,6 @@ impl RuntimeCore {
         }
     }
 
-    /// Set an AU immediately. Duration is ignored — host mixers own timed fades.
-    #[wasm_bindgen]
-    pub fn transition_au(&mut self, id: u32, to: f32, _duration_ms: f32, balance: f32) {
-        let resolved_balance = if balance.is_finite() {
-            balance
-        } else {
-            *self.au_balances.get(&id).unwrap_or(&0.0)
-        };
-        self.set_au_signed(id, to, resolved_balance);
-    }
-
-    /// Set a viseme immediately. Duration is ignored — host mixers own timed fades.
-    #[wasm_bindgen]
-    pub fn transition_viseme(&mut self, index: u32, to: f32, _duration_ms: f32, jaw_scale: f32) {
-        self.set_viseme(index, to);
-        self.set_viseme_jaw_scale(index, finite_or(jaw_scale, 1.0));
-    }
-
-    /// Tick hook for hosts. Clip playback/lerp lives in the host animation
-    /// library; Rust only exposes live AU/viseme state for packed frames.
-    #[wasm_bindgen]
-    pub fn update(&mut self, _dt_seconds: f32) -> u32 {
-        0
-    }
-
-    #[wasm_bindgen]
-    pub fn active_transition_count(&self) -> u32 {
-        0
-    }
-
-    #[wasm_bindgen]
-    pub fn clear_transitions(&mut self) {}
-
     #[wasm_bindgen]
     pub fn get_au(&self, id: u32) -> f32 {
         *self.au_values.get(&id).unwrap_or(&0.0)
@@ -726,7 +693,6 @@ impl RuntimeCore {
             *scale = 1.0;
         }
         self.direct_morph_values.clear();
-        self.animation.stop_all();
     }
 
     #[wasm_bindgen]
@@ -762,30 +728,6 @@ impl RuntimeCore {
     pub fn release_morph_index(&mut self, morph_index: i32, mesh_names_json: &str) -> u32 {
         let targets = self.resolve_morph_targets("", Some(morph_index), mesh_names_json);
         targets.iter().filter(|target| self.direct_morph_values.remove(target).is_some()).count() as u32
-    }
-
-    /// Set morph(s) immediately. Duration is ignored — host mixers own timed fades.
-    #[wasm_bindgen]
-    pub fn transition_morph(
-        &mut self,
-        morph_name: &str,
-        to: f32,
-        _duration_ms: f32,
-        mesh_names_json: &str,
-    ) -> u32 {
-        self.set_morph(morph_name, to, mesh_names_json)
-    }
-
-    /// Set morph index target(s) immediately. Duration is ignored.
-    #[wasm_bindgen]
-    pub fn transition_morph_index(
-        &mut self,
-        morph_index: i32,
-        to: f32,
-        _duration_ms: f32,
-        mesh_names_json: &str,
-    ) -> u32 {
-        self.set_morph_index(morph_index, to, mesh_names_json)
     }
 
     #[wasm_bindgen]
@@ -855,76 +797,6 @@ impl RuntimeCore {
     }
 
     #[wasm_bindgen]
-    pub fn play_snippet(
-        &mut self,
-        clip_name: &str,
-        curves_json: &str,
-        options_json: &str,
-    ) -> Result<String, JsError> {
-        self.build_clip(clip_name, curves_json, options_json)?;
-        self.play_animation(clip_name, options_json)
-    }
-
-    #[wasm_bindgen]
-    pub fn play_typed_snippet(
-        &mut self,
-        clip_name: &str,
-        channels_json: &str,
-        options_json: &str,
-    ) -> Result<String, JsError> {
-        self.build_typed_clip(clip_name, channels_json, options_json)?;
-        self.play_animation(clip_name, options_json)
-    }
-
-    #[wasm_bindgen]
-    pub fn update_clip_params(
-        &mut self,
-        clip_name: &str,
-        params_json: &str,
-    ) -> Result<bool, JsError> {
-        if self.animation.state(clip_name).is_none() {
-            return Ok(false);
-        }
-        let params: serde_json::Value = parse_runtime_json(params_json, "clip parameters")?;
-        if let Some(weight) = params
-            .get("weight")
-            .or_else(|| params.get("intensity"))
-            .or_else(|| params.get("mixerWeight"))
-            .and_then(serde_json::Value::as_f64)
-        {
-            self.animation.set_weight(clip_name, weight as f32);
-        }
-        if let Some(speed) = params
-            .get("speed")
-            .or_else(|| params.get("playbackRate"))
-            .and_then(serde_json::Value::as_f64)
-        {
-            self.animation.set_speed(clip_name, speed as f32);
-        }
-        if let Some(reverse) = params.get("reverse").and_then(serde_json::Value::as_bool) {
-            self.animation.set_reverse(clip_name, reverse);
-        }
-        if let Some(mode) = params.get("blendMode").and_then(serde_json::Value::as_str) {
-            self.set_animation_blend_mode(clip_name, mode)?;
-        }
-        if let Some(easing) = params.get("easing").and_then(serde_json::Value::as_str) {
-            self.set_animation_easing(clip_name, easing)?;
-        }
-        if let Some(mode) = params.get("loopMode").and_then(serde_json::Value::as_str) {
-            let repeat_count = params
-                .get("repeatCount")
-                .and_then(serde_json::Value::as_u64)
-                .map(|value| value as u32);
-            self.animation
-                .set_loop(clip_name, parse_loop_mode(mode)?, repeat_count);
-        }
-        if let Some(time) = params.get("time").and_then(serde_json::Value::as_f64) {
-            self.animation.seek(clip_name, time as f32);
-        }
-        Ok(true)
-    }
-
-    #[wasm_bindgen]
     pub fn cleanup_snippet(&mut self, clip_name: &str) -> bool {
         self.animation.remove_clip(clip_name)
     }
@@ -939,169 +811,6 @@ impl RuntimeCore {
         self.animation.remove_clip(clip_name)
     }
 
-    /// Registry lookup only. Host animation libraries own play/lerp; this returns
-    /// a host-owned action id marker when the clip exists in the registry.
-    #[wasm_bindgen]
-    pub fn play_animation(
-        &mut self,
-        clip_name: &str,
-        _options_json: &str,
-    ) -> Result<String, JsError> {
-        if self.animation.clip(clip_name).is_none() {
-            return Err(JsError::new(&format!(
-                "Unknown animation clip \"{clip_name}\"."
-            )));
-        }
-        Ok(format!("host:{clip_name}"))
-    }
-
-    /// Host-owned crossfade marker. Rust does not lerp; the host mixer should fade.
-    #[wasm_bindgen]
-    pub fn crossfade_to(
-        &mut self,
-        clip_name: &str,
-        _duration: f32,
-        options_json: &str,
-    ) -> Result<String, JsError> {
-        self.play_animation(clip_name, options_json)
-    }
-
-    #[wasm_bindgen]
-    pub fn stop_animation(&mut self, clip_name: &str) {
-        self.animation.stop(clip_name);
-    }
-
-    #[wasm_bindgen]
-    pub fn stop_all_animations(&mut self) {
-        self.animation.stop_all();
-    }
-
-    #[wasm_bindgen]
-    pub fn pause_animation(&mut self, clip_name: &str) {
-        self.animation.pause(clip_name, true);
-    }
-
-    #[wasm_bindgen]
-    pub fn resume_animation(&mut self, clip_name: &str) {
-        self.animation.pause(clip_name, false);
-    }
-
-    #[wasm_bindgen]
-    pub fn pause_all_animations(&mut self) {
-        self.animation.pause_all(true);
-    }
-
-    #[wasm_bindgen]
-    pub fn resume_all_animations(&mut self) {
-        self.animation.pause_all(false);
-    }
-
-    #[wasm_bindgen]
-    pub fn set_animation_speed(&mut self, clip_name: &str, speed: f32) {
-        self.animation.set_speed(clip_name, speed);
-    }
-
-    #[wasm_bindgen]
-    pub fn set_animation_intensity(&mut self, clip_name: &str, intensity: f32) {
-        self.animation.set_weight(clip_name, intensity);
-    }
-
-    #[wasm_bindgen]
-    pub fn set_animation_loop_mode(
-        &mut self,
-        clip_name: &str,
-        loop_mode: &str,
-    ) -> Result<(), JsError> {
-        let mode = parse_loop_mode(loop_mode)?;
-        let repeat_count = self
-            .animation
-            .state(clip_name)
-            .and_then(|state| state.repeat_count);
-        self.animation.set_loop(clip_name, mode, repeat_count);
-        Ok(())
-    }
-
-    #[wasm_bindgen]
-    pub fn set_animation_repeat_count(&mut self, clip_name: &str, repeat_count: i32) {
-        let mode = self
-            .animation
-            .state(clip_name)
-            .map(|state| state.loop_mode)
-            .unwrap_or(LoopMode::Repeat);
-        self.animation.set_loop(
-            clip_name,
-            mode,
-            (repeat_count >= 0).then_some(repeat_count as u32),
-        );
-    }
-
-    #[wasm_bindgen]
-    pub fn set_animation_reverse(&mut self, clip_name: &str, reverse: bool) {
-        self.animation.set_reverse(clip_name, reverse);
-    }
-
-    #[wasm_bindgen]
-    pub fn set_animation_blend_mode(
-        &mut self,
-        clip_name: &str,
-        blend_mode: &str,
-    ) -> Result<(), JsError> {
-        let mode = match blend_mode {
-            "replace" => BlendMode::Replace,
-            "additive" => BlendMode::Additive,
-            _ => {
-                return Err(JsError::new(
-                    "Animation blend mode must be replace or additive.",
-                ))
-            }
-        };
-        self.animation.set_blend_mode(clip_name, mode);
-        Ok(())
-    }
-
-    #[wasm_bindgen]
-    pub fn set_animation_easing(
-        &mut self,
-        clip_name: &str,
-        easing: &str,
-    ) -> Result<(), JsError> {
-        match easing {
-            "linear" | "easeIn" | "easeOut" | "easeInOut" | "easeInOutCubic" => {
-                self.animation.set_easing(clip_name, easing);
-                Ok(())
-            }
-            _ => Err(JsError::new(
-                "Animation easing must be linear, easeIn, easeOut, easeInOut, or easeInOutCubic.",
-            )),
-        }
-    }
-
-    #[wasm_bindgen]
-    pub fn seek_animation(&mut self, clip_name: &str, time: f32) {
-        self.animation.seek(clip_name, time);
-    }
-
-    #[wasm_bindgen]
-    pub fn set_animation_time_scale(&mut self, time_scale: f32) {
-        self.animation.set_time_scale(time_scale);
-    }
-
-    #[wasm_bindgen]
-    pub fn get_animation_state(&self, clip_name: &str) -> Result<String, JsError> {
-        serialize_runtime_json(&self.animation.state(clip_name), "animation state")
-    }
-
-    #[wasm_bindgen]
-    pub fn get_playing_animations(&self) -> Result<String, JsError> {
-        serialize_runtime_json(&self.animation.playing(), "playing animations")
-    }
-
-    #[wasm_bindgen]
-    pub fn drain_animation_events(&mut self) -> Result<String, JsError> {
-        serialize_runtime_json(&self.animation.drain_events(), "animation events")
-    }
-
-    /// Packed rows: `[bone_id, px, py, pz, qx, qy, qz, qw] * N`
     #[wasm_bindgen]
     pub fn load_bone_rest_transforms(&mut self, values: &[f32]) {
         self.bone_rest_transforms.clear();
@@ -1349,6 +1058,86 @@ impl RuntimeCore {
         self.bone_frame_writes(true)
     }
 
+    /// Compile the current live semantic controls into ordinary native tracks.
+    /// The connector captures inherited starts at play time; Rust never ticks
+    /// or interpolates these samples. Empty output relinquishes all live tracks.
+    #[wasm_bindgen]
+    pub fn build_live_clip(&self, name: &str, duration_seconds: f64) -> Result<String, JsError> {
+        if name.trim().is_empty() || !duration_seconds.is_finite() || duration_seconds < 0.0 {
+            return Err(JsError::new("Live clips require a name and finite nonnegative seconds."));
+        }
+        let mut tracks = Vec::new();
+        let times = if duration_seconds > 0.0 { vec![0.0, duration_seconds] } else { vec![0.0] };
+        let mut push = |target: serde_json::Value, value_type: &str, value: &[f32]| {
+            let mut values: Vec<f64> = value.iter().map(|v| *v as f64).collect();
+            if duration_seconds > 0.0 { values.extend(value.iter().map(|v| *v as f64)); }
+            tracks.push(ClipTrackIR {
+                id: tracks.len() as u32 + 1, channel_id: 1, target,
+                value_type: value_type.into(), times: times.clone(), values,
+                interpolation: Some("linear".into()), inherit_start: duration_seconds > 0.0,
+                source_name: None,
+            });
+        };
+        for row in self.evaluate_active_morph_frame().chunks_exact(PACKED_MORPH_FRAME_DELTA_STRIDE as usize) {
+            push(serde_json::json!({"kind":"morphTarget","meshId":row[0] as u32,"morphTargetId":row[1] as u32}), "scalar", &row[2..3]);
+        }
+        for row in self.evaluate_active_bone_frame().chunks_exact(PACKED_BONE_FRAME_DELTA_STRIDE as usize) {
+            let flags = row[8] as u32;
+            if flags & FLAG_HAS_POSITION != 0 {
+                push(serde_json::json!({"kind":"boneTransform","boneId":row[0] as u32,"property":"position"}), "vec3", &row[1..4]);
+            }
+            if flags & FLAG_HAS_ROTATION != 0 {
+                push(serde_json::json!({"kind":"boneTransform","boneId":row[0] as u32,"property":"rotation"}), "quat", &row[4..8]);
+            }
+        }
+        serde_json::to_string(&ClipIR {
+            id: None, name: name.into(), duration_seconds,
+            channels: vec![ClipChannel { id: 1, kind: "live".into(), name: None }],
+            tracks, metadata: None,
+        }).map_err(|error| JsError::new(&error.to_string()))
+    }
+
+    /// Compile relinquished live targets back to their reference values. Run
+    /// this clip with finalPose=release so native ownership ends at completion.
+    #[wasm_bindgen]
+    pub fn build_live_release_clip(&self, name: &str, previous_clip_json: &str, duration_seconds: f64) -> Result<String, JsError> {
+        let previous: ClipIR = serde_json::from_str(previous_clip_json)
+            .map_err(|error| JsError::new(&error.to_string()))?;
+        let active: ClipIR = serde_json::from_str(&self.build_live_clip(name, duration_seconds)?)
+            .map_err(|error| JsError::new(&error.to_string()))?;
+        let active_targets: HashSet<String> = active.tracks.iter().map(|track| track.target.to_string()).collect();
+        let mut tracks = Vec::new();
+        for mut track in previous.tracks {
+            if active_targets.contains(&track.target.to_string()) { continue; }
+            let target = &track.target;
+            let neutral: Vec<f64> = match target.get("kind").and_then(serde_json::Value::as_str) {
+                Some("morphTarget") => {
+                    let mesh = target["meshId"].as_u64().unwrap_or(0) as u32;
+                    let morph = target["morphTargetId"].as_u64().unwrap_or(0) as u32;
+                    vec![self.initial_morph_values.get(&(mesh, morph)).copied().unwrap_or(0.0) as f64]
+                },
+                Some("boneTransform") => {
+                    let id = target["boneId"].as_u64().unwrap_or(0) as u32;
+                    let rest = self.bone_rest_transforms.get(&id).copied().unwrap_or(RestTransform {
+                        position: [0.0; 3], rotation: [0.0, 0.0, 0.0, 1.0],
+                    });
+                    if target["property"].as_str() == Some("position") {
+                        rest.position.iter().map(|v| *v as f64).collect()
+                    } else { rest.rotation.iter().map(|v| *v as f64).collect() }
+                },
+                _ => return Err(JsError::new("Live release requires mapped morph or bone targets.")),
+            };
+            track.id = tracks.len() as u32 + 1;
+            track.channel_id = 1;
+            track.times = if duration_seconds > 0.0 { vec![0.0, duration_seconds] } else { vec![0.0] };
+            track.values = neutral.clone();
+            if duration_seconds > 0.0 { track.values.extend(neutral); }
+            track.inherit_start = duration_seconds > 0.0;
+            tracks.push(track);
+        }
+        serde_json::to_string(&ClipIR { tracks, ..active }).map_err(|error| JsError::new(&error.to_string()))
+    }
+
     /// Emit only currently/previously owned bone properties. Position and
     /// rotation ownership are separate; inactive properties release once.
     #[wasm_bindgen]
@@ -1553,11 +1342,10 @@ impl RuntimeCore {
             .profile
             .as_ref()
             .and_then(|profile| profile.morph_to_mesh.get("face"))
-            .cloned()
-            .unwrap_or_default();
+            .cloned();
         let requested = if !explicit_names.is_empty() {
             explicit_names
-        } else if !profile_names.is_empty() {
+        } else if let Some(profile_names) = profile_names {
             profile_names
         } else {
             model.meshes.iter().map(|mesh| mesh.name.clone()).collect()
@@ -1695,7 +1483,8 @@ impl RuntimeCore {
             options: &compile_options,
         })
         .map_err(|error| JsError::new(&error))?;
-        clip_from_tracks(clip_name, tracks)
+        let duration = snippet_curves.iter().flat_map(|curve| &curve.points).map(|point| point.time).fold(0.0_f64, f64::max);
+        clip_from_tracks(clip_name, tracks, duration)
     }
 
     fn classify_baked_clip(&self, clip: &mut ClipIR) {
@@ -1803,6 +1592,7 @@ impl RuntimeCore {
         let mut tracks = Vec::new();
         let mut next_track_id = 1u32;
         let global_scale = options.intensity_scale.unwrap_or(1.0);
+        let duration = channels.iter().flat_map(|channel| &channel.keyframes).map(|point| point.time).fold(0.0_f64, f64::max);
 
         // Preserve each channel's namespace, balance and curve until concrete
         // targets are resolved. Numeric id alone is not a channel identity.
@@ -2012,7 +1802,7 @@ impl RuntimeCore {
                 _ => {}
             }
         }
-        clip_from_tracks(clip_name, tracks)
+        clip_from_tracks(clip_name, tracks, duration)
     }
 
     fn resolve_bone_id(&self, node_key: &str) -> Option<u32> {
@@ -2090,17 +1880,6 @@ where
         .map_err(|error| JsError::new(&format!("Failed to serialize {label}: {error}")))
 }
 
-fn parse_loop_mode(value: &str) -> Result<LoopMode, JsError> {
-    match value {
-        "once" => Ok(LoopMode::Once),
-        "repeat" => Ok(LoopMode::Repeat),
-        "pingpong" => Ok(LoopMode::Pingpong),
-        _ => Err(JsError::new(
-            "Animation loop mode must be once, repeat, or pingpong.",
-        )),
-    }
-}
-
 fn scalar_track(
     id: u32,
     target: serde_json::Value,
@@ -2143,17 +1922,12 @@ fn vector_track(
     }
 }
 
-fn clip_from_tracks(clip_name: &str, tracks: Vec<ClipTrackIR>) -> Result<ClipIR, JsError> {
-    if tracks.is_empty() {
-        return Err(JsError::new(&format!(
-            "No runtime tracks could be resolved for clip \"{clip_name}\"."
-        )));
-    }
+fn clip_from_tracks(clip_name: &str, tracks: Vec<ClipTrackIR>, authored_duration: f64) -> Result<ClipIR, JsError> {
     let duration = tracks
         .iter()
         .flat_map(|track| track.times.iter())
         .copied()
-        .fold(0.0f64, f64::max);
+        .fold(authored_duration, f64::max);
     Ok(ClipIR {
         id: None,
         name: clip_name.to_string(),
@@ -2300,7 +2074,8 @@ mod tests {
         assert_eq!(core.get_viseme_jaw_scale(0), 0.25);
         assert_eq!(core.viseme_values, values);
         assert_eq!(core.viseme_jaw_scales, scales);
-        core.transition_viseme(0, 0.5, 200.0, 0.0);
+        core.set_viseme(0, 0.5);
+        core.set_viseme_jaw_scale(0, 0.0);
         assert_eq!(core.get_viseme(0), 0.5);
         assert_eq!(core.get_viseme_jaw_scale(0), 0.0);
         core.set_viseme(999, 1.0);
@@ -2333,7 +2108,7 @@ mod tests {
         assert_eq!(core.get_au_balance(12), 0.0);
         core.set_au_signed(43, 0.5, 0.5);
         assert_eq!(core.get_au_balance(43), 0.5);
-        core.transition_au(43, 0.0, 200.0, f32::NAN);
+        core.set_au_signed(43, 0.0, core.get_au_balance(43));
         assert_eq!(
             core.get_au_balance(43),
             0.5,
@@ -2469,6 +2244,42 @@ mod tests {
                 assert!((actual - f64::from(expected)).abs() < 1e-6);
             }
         }
+    }
+
+    #[test]
+    fn inherited_bone_tracks_keep_their_own_timeline_and_full_intensity() {
+        let mut core = RuntimeCore::new(0);
+        core.composite_axes.push(CompositeAxis {
+            bone_id: 1,
+            has_directional_groups: false,
+            value_rows: vec![AxisValueRow { au_id: 43, group: crate::bones::GROUP_PLAIN, side: crate::bones::SIDE_NONE }],
+            binding_rows: vec![AxisBindingRow {
+                au_id: 43, group: crate::bones::GROUP_PLAIN, side: crate::bones::SIDE_NONE,
+                channel: 0, scale: 1.0, max_degrees: 30.0,
+            }],
+        });
+        core.translation_rows.push(TranslationRow { au_id: 43, bone_id: 2, axis: 0, scale: 1.0, max_units: 0.1 });
+        let channels = serde_json::from_value(serde_json::json!([
+            { "target": { "type": "au", "id": 43 }, "keyframes": [
+                { "time": 1, "intensity": 0, "inherit": true }, { "time": 2, "intensity": 1 }
+            ] },
+            { "target": { "type": "au", "id": 99 }, "keyframes": [
+                { "time": 0, "intensity": 0 }, { "time": 0.5, "intensity": 1 }
+            ] }
+        ])).unwrap();
+        let options = ClipBuildOptions { intensity_scale: Some(2.0), ..Default::default() };
+        let clip = core.compile_typed_channels("bone-transition", channels, &options).unwrap();
+        assert_eq!(clip.tracks.len(), 2);
+        for track in &clip.tracks {
+            assert_eq!(track.times, vec![1.0, 2.0]);
+            assert!(track.inherit_start);
+        }
+        let rotation = clip.tracks.iter().find(|track| track.value_type == "quat").unwrap();
+        for (actual, expected) in rotation.values[4..].iter().zip(quat_from_channel(0, 60.0_f32.to_radians())) {
+            assert!((actual - f64::from(expected)).abs() < 1e-6);
+        }
+        let position = clip.tracks.iter().find(|track| track.value_type == "vec3").unwrap();
+        assert!((position.values[3] - 0.2).abs() < 1e-6);
     }
 
     #[test]
@@ -2641,22 +2452,13 @@ mod tests {
     }
 
     #[test]
-    fn additive_baked_registration_preserves_existing_clips_and_playback() {
+    fn additive_baked_registration_preserves_existing_clips() {
         let mut core = animation_test_runtime();
         core.load_animation_clips(&serde_json::json!([mixed_animation_clip("idle")]).to_string())
             .unwrap();
         core.register_animation_clip(&mixed_animation_clip("gesture").to_string(), "snippet")
             .unwrap();
-        core.animation
-            .play("idle", Default::default(), |_| vec![])
-            .unwrap();
-        core.animation
-            .play("gesture", Default::default(), |_| vec![])
-            .unwrap();
-        core.animation.update(0.25);
         let catalog_before = core.animation.list();
-        let playing_before = serde_json::to_value(core.animation.playing()).unwrap();
-        core.animation.drain_events();
 
         core.register_animation_clip(&mixed_animation_clip("optional").to_string(), "baked")
             .unwrap();
@@ -2673,14 +2475,7 @@ mod tests {
                 serde_json::to_value(previous).unwrap()
             );
         }
-        assert_eq!(
-            serde_json::to_value(core.animation.playing()).unwrap(),
-            playing_before
-        );
-        assert!(core.animation.drain_events().is_empty());
-        core.animation.update(0.25);
-        assert_eq!(core.animation.state("idle").unwrap().time, 0.5);
-        assert_eq!(core.animation.state("gesture").unwrap().time, 0.5);
+
     }
 
     #[test]
@@ -3324,7 +3119,7 @@ mod tests {
         }
         core.set_au_signed(52, 0.0, 0.0);
         assert_eq!(core.get_au(51), 0.4, "inactive direction release keeps its partner");
-        core.transition_au(52, 0.8, 100.0, 0.25);
+        core.set_au_signed(52, 0.8, 0.25);
         assert_eq!(core.get_au(51), 0.0);
         assert_eq!(core.get_au(52), 0.8);
         core.set_au_signed(52, 0.0, 0.25);
@@ -3582,7 +3377,7 @@ mod tests {
         core.set_au_signed(1004, -0.5, -0.5);
         assert_eq!(core.get_au_balance(1003), -0.5);
         assert_eq!(core.get_au_balance(1004), -0.5);
-        core.transition_au(1001, 0.25, 0.0, f32::NAN);
+        core.set_au_signed(1001, 0.25, core.get_au_balance(1001));
         assert_eq!(core.get_au_balance(1001), -0.75);
         core.clear();
         assert_eq!(core.get_au_balance(1001), 0.0);
@@ -3632,22 +3427,37 @@ mod tests {
     }
 
     #[test]
-    fn transition_au_applies_instantly_without_rust_lerp() {
+    fn explicit_empty_face_selection_excludes_implicit_named_morphs() {
         let mut core = RuntimeCore::new(0);
-        core.transition_au(12, 1.0, 200.0, f32::NAN);
-        assert_eq!(core.active_transition_count(), 0);
-        assert!((core.get_au(12) - 1.0).abs() < 1e-6);
-        assert_eq!(core.update(0.1), 0);
+        core.configure_with_profile(
+            r#"{"morphToMesh":{"face":[]}}"#,
+            r#"{"meshes":[{"id":1,"name":"Face","morphTargetIds":[2]}],"morphTargets":[{"id":2,"meshId":1,"name":"Smile","hostIndex":0}]}"#,
+        ).unwrap();
+        assert!(core.resolve_morph_targets("Smile", None, "[]").is_empty());
+        assert_eq!(core.resolve_morph_targets("Smile", None, r#"["Face"]"#), vec![(1, 2)]);
     }
 
     #[test]
-    fn zero_duration_transition_applies_instantly() {
-        let mut core = RuntimeCore::new(1);
-        core.transition_viseme(0, 0.8, 0.0, 1.5);
-        assert_eq!(core.active_transition_count(), 0);
-        let packed = core.evaluate_morph_frame_delta();
-        // No viseme bindings loaded, so no rows, but state is set.
-        assert!(packed.is_empty());
+    fn live_control_tracks_and_release_are_native_clips() {
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(
+            r#"{"auToMorphs":{"12":{"center":["Smile"]}},"morphToMesh":{"face":["Face"]}}"#,
+            r#"{"meshes":[{"id":1,"name":"Face","morphTargetIds":[2]}],"morphTargets":[{"id":2,"meshId":1,"name":"Smile","hostIndex":0}]}"#,
+        ).unwrap();
+        core.set_au(12, 1.0, 0.0);
+        let live_json = core.build_live_clip("live", 0.2).unwrap();
+        let live: ClipIR = serde_json::from_str(&live_json).unwrap();
+        assert_eq!(live.tracks.len(), 1);
+        assert_eq!(live.tracks[0].values, vec![1.0, 1.0]);
+        assert!(live.tracks[0].inherit_start);
+        core.set_au(12, 0.0, 0.0);
+        let inactive: ClipIR = serde_json::from_str(&core.build_live_clip("live", 0.2).unwrap()).unwrap();
+        assert!(inactive.tracks.is_empty());
+        let release: ClipIR = serde_json::from_str(&core.build_live_release_clip("release", &live_json, 0.2).unwrap()).unwrap();
+        assert_eq!(release.tracks.len(), 1);
+        assert_eq!(release.tracks[0].times, vec![0.0, 0.2]);
+        assert_eq!(release.tracks[0].values, vec![0.0, 0.0]);
+        assert!(release.tracks[0].inherit_start);
     }
 
     fn unpack_rows(packed: &[f32]) -> Vec<(u32, u32, f32)> {

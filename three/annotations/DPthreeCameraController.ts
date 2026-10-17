@@ -5,6 +5,7 @@ import type { CharacterSceneRenderer } from '../scene';
 import { bindSceneRendering, reportSceneRenderingFailure } from '../sceneRenderingBinding';
 import { compileModelForRender, drawModelForRender } from './modelRenderPreparation';
 import { prepareModelSkinning } from '../modelSkinning';
+import { renderScenePlayback } from '../playbackRendering';
 import {
   detectAnnotationLaterality,
   fuzzyNameMatch,
@@ -561,6 +562,7 @@ export class DPthreeCameraController {
 
   // Renderer and render loop (when controller manages the render loop)
   private renderer: CharacterSceneRenderer | null = null;
+  private readonly playbackTimer = new THREE.Timer();
   private renderFrame: DPthreeCameraControllerConfig['renderFrame'] = undefined;
   private resizeRenderer: DPthreeCameraControllerConfig['resizeRenderer'] = undefined;
   private onRenderError: DPthreeCameraControllerConfig['onRenderError'] = undefined;
@@ -685,14 +687,23 @@ export class DPthreeCameraController {
   private startRenderLoop(propagateFailure = false): void | Promise<void> {
     if (!this.renderer) return;
     const renderer = this.renderer;
+    this.playbackTimer.disconnect();
+    if (renderer.domElement.ownerDocument) this.playbackTimer.connect(renderer.domElement.ownerDocument);
+    this.playbackTimer.reset();
+    let playbackStarted = false;
     try {
-      const started = renderer.setAnimationLoop(() => {
-        if (this.disposed || this.renderFailed || this.renderingSuspended || this.framePending || renderer !== this.renderer) return;
+      const started = renderer.setAnimationLoop((timestamp?: number) => {
+        if (this.disposed || renderer !== this.renderer) return;
+        this.playbackTimer.update(timestamp);
+        const samplePlayback = playbackStarted;
+        playbackStarted = true;
+        if (this.renderFailed || this.renderingSuspended || this.framePending) return;
         try {
           // Native shadows are updated once per camera/frame. Prepare the full
           // scene first and leave its pixels untouched until the next frame.
           const preparationDraw = this.modelPreparation?.draw;
           if (preparationDraw) { preparationDraw(); return; }
+          if (samplePlayback) renderScenePlayback(this.scene, this.playbackTimer);
           this.update();
           const frame = this.renderFrame
             ? this.renderFrame(this.renderer!, this.scene, this.camera)
@@ -735,6 +746,7 @@ export class DPthreeCameraController {
    * Stop the render loop
    */
   private stopRenderLoop(): void {
+    this.playbackTimer.reset();
     try {
       const stopped = this.renderer?.setAnimationLoop(null);
       if (stopped) void stopped.catch((error) => console.error('Character camera render loop stop failed.', error));
@@ -2140,6 +2152,7 @@ export class DPthreeCameraController {
 
     // Stop render loop if we're managing it
     this.stopRenderLoop();
+    this.playbackTimer.dispose();
     const renderingSettled = this.unbindRendering?.();
     this.unbindRendering = null;
 
