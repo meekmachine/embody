@@ -136,7 +136,15 @@ const createMorphAttribute = (
 };
 
 export type ThreeModelInspection = {
-  descriptor: Record<string, unknown>;
+  descriptor: Record<string, unknown> & {
+    morphTargets: Array<{
+      id: number;
+      meshId: number | undefined;
+      name: string;
+      hostIndex: number;
+      initialValue: number;
+    }>;
+  };
   meshByName: Map<string, Mesh>;
   allMeshes: Mesh[];
   morphMeshes: Mesh[];
@@ -228,7 +236,7 @@ export class ThreeModelInspector {
     const boneIds = new Map(Array.from(boneBindings, ([id, bone]) => [bone, id]));
     const objectIds = new Map(Array.from(objectBindings, ([id, object]) => [object, id]));
     const morphBindings = new Map<number, { mesh: Mesh; index: number }>();
-    const morphTargets: Array<Record<string, unknown>> = [];
+    const morphTargets: ThreeModelInspection['descriptor']['morphTargets'] = [];
     const morphIdsByMesh = new Map<Mesh, number[]>();
     let morphId = 1;
     for (const mesh of allMeshes) {
@@ -241,7 +249,7 @@ export class ThreeModelInspector {
           meshId: meshIds.get(mesh),
           name: entry.name,
           hostIndex: entry.index,
-          initialValue: references?.get(mesh)?.morphInfluences?.[entry.index] ?? mesh.morphTargetInfluences?.[entry.index] ?? 0,
+          initialValue: mesh.morphTargetInfluences?.[entry.index] ?? 0,
         });
         morphId += 1;
       }

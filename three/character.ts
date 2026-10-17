@@ -172,11 +172,20 @@ export class Embody {
   private bind(model: Object3D, reference: ThreeModelReferencePose, inspection: ThreeModelInspection, source: JsonObject, profile: JsonObject): void {
     // Prepare every fallible profile/reference operation before releasing the old binding.
     const referenceBindings = bindModelReferencePose(model, reference);
+    // Inspection stays live; release clips need the separately captured baseline.
+    const runtimeDescriptor = {
+      ...inspection.descriptor,
+      morphTargets: inspection.descriptor.morphTargets.map((morph) => {
+        const binding = inspection.morphBindings.get(morph.id);
+        const baseline = binding && referenceBindings.get(binding.mesh)?.morphInfluences?.[binding.index];
+        return { ...morph, initialValue: baseline ?? morph.initialValue };
+      }),
+    };
     const replacingModel = !!this.boundModel && this.boundModel !== model;
     const core = new this.wasm.RuntimeCore(0);
     try {
-      if (this.profileMode === 'profile') core.configure_with_profile(json(source), json(inspection.descriptor));
-      else core.configure_with_preset(this.preset, json(source), json(inspection.descriptor));
+      if (this.profileMode === 'profile') core.configure_with_profile(json(source), json(runtimeDescriptor));
+      else core.configure_with_preset(this.preset, json(source), json(runtimeDescriptor));
       for (const registered of replacingModel ? [] : this.sources.values()) {
         if (registered.kind === 'native') {
           const [clip] = serializeAnimationClips(model, [registered.clip], inspection);

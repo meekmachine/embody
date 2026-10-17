@@ -134,6 +134,15 @@ try {
   character.stopAllAnimations();
 
   character.setAU(200, 0.8); step(0.001); near(value(), 0.8);
+  character.setProfile(profile);
+  character.setAU(200, 0.8); step(0.001); near(value(), 0.8);
+  // Rebinding while posed must not replace the captured release baseline.
+  const reboundRelease = character.transitionAU(200, 0, 1000);
+  step(0.5); near(value(), 0.4);
+  step(0.5); near(value(), 0);
+  await reboundRelease.promise;
+
+  character.setAU(200, 0.8); step(0.001); near(value(), 0.8);
   character.setProfile({ ...profile, morphToMesh: { face: [] } });
   step(0); near(value(), 0);
   character.setAU(200, 1); step(0.001); near(value(), 0);
