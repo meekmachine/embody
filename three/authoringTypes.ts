@@ -155,14 +155,14 @@ export interface HairPhysicsProfileConfig {
   impulseClipDuration?: number;
   direction?: { yawSign?: 1 | -1; pitchSign?: 1 | -1 };
   morphTargets?: {
-    swayLeft?: HairMorphTargetMapping;
-    swayRight?: HairMorphTargetMapping;
-    swayFront?: HairMorphTargetMapping;
-    fluffRight?: HairMorphTargetMapping;
-    fluffBottom?: HairMorphTargetMapping;
-    headUp?: Record<string, HairMorphTargetValueMapping>;
-    headDown?: Record<string, HairMorphTargetValueMapping>;
-  };
+    swayLeft?: HairMorphTargetMapping | null;
+    swayRight?: HairMorphTargetMapping | null;
+    swayFront?: HairMorphTargetMapping | null;
+    fluffRight?: HairMorphTargetMapping | null;
+    fluffBottom?: HairMorphTargetMapping | null;
+    headUp?: Record<string, HairMorphTargetValueMapping | null> | null;
+    headDown?: Record<string, HairMorphTargetValueMapping | null> | null;
+  } | null;
 }
 
 export type VRMHumanoidRole =
@@ -402,4 +402,3 @@ export interface ModelAnalysisReport { model: ModelData; validation?: Validation
 
 export interface HumanoidSkeletonTemplateBone { readonly name: string; readonly parent: string | null; readonly translation: HumanoidSkeletonTemplateVec3; }
 export interface HumanoidSkeletonTemplate { readonly id: string; readonly sourceCharacterId: string; readonly sourceAsset: string; readonly sourceSkinName: string; readonly bones: readonly HumanoidSkeletonTemplateBone[]; }
-

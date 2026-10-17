@@ -240,7 +240,6 @@ fn push_scaled_curve_track(
     side_enabled: bool,
     source: MorphSource,
     channel_index: usize,
-    _retain_zero_owner: bool,
 ) {
     let inherit_start = points.first().is_some_and(|point| point.inherit);
     // Authored zero strength is still a concrete mapped target. Keep its native
@@ -397,19 +396,12 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Result<Vec<Clip
         CurveTarget::Viseme(id) => MorphSource::Viseme(*id),
         CurveTarget::Morph(name) => MorphSource::Named(name.clone()),
     };
-    let mut channel_counts = BTreeMap::new();
-    if options.merge_duplicate_channels {
-        for curve in input.curves.iter().filter(|curve| !curve.points.is_empty()) {
-            *channel_counts.entry(source_for(&curve.target)).or_insert(0) += 1;
-        }
-    }
     for (channel_index, curve) in input.curves.iter().enumerate() {
         let points = &curve.points;
         if points.is_empty() {
             continue;
         }
         let source = source_for(&curve.target);
-        let retain_zero_owner = channel_counts.get(&source).is_some_and(|count| *count > 1);
         match &curve.target {
             CurveTarget::Viseme(id) => {
                 viseme_curves.entry(*id).or_default().push(points);
@@ -428,7 +420,6 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Result<Vec<Clip
                         true,
                         source.clone(),
                         channel_index,
-                        retain_zero_owner,
                     );
                 }
             }
@@ -458,7 +449,6 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Result<Vec<Clip
                         au_side_scale(*balance, binding.side) > 0.0,
                         source.clone(),
                         channel_index,
-                        retain_zero_owner,
                     );
                 }
             }
@@ -475,7 +465,6 @@ pub fn compile_snippet_tracks(input: SnippetCompileInput<'_>) -> Result<Vec<Clip
                             true,
                             source.clone(),
                             channel_index,
-                            retain_zero_owner,
                         );
                     }
                 }

@@ -10,7 +10,8 @@ target.name = 'Target';
 model.add(target);
 const mixer = new AnimationMixer(model);
 const inspection = new ThreeModelInspector().inspectModel(model);
-const connector = new ThreeNativePlaybackConnector(new wasm.NativePlaybackSession(), { model, inspection, mixer });
+const releases = [];
+const connector = new ThreeNativePlaybackConnector(new wasm.NativePlaybackSession(), { model, inspection, mixer, onRelease: (handle) => releases.push(handle) });
 connector.rebind(model.uuid, 'profile');
 const timer = new Timer();
 timer.update(0);
@@ -49,6 +50,7 @@ try {
   assert.equal(connector.getAction(first), heldAction, 'resampling an authored easing curve retains native playback identity');
   connector.control(first, { type: 'stop' });
   assert.equal(events.length, 1, 'releasing a held pose does not settle it twice');
+  assert.deepEqual(releases, [first], 'held resource release retires owner bookkeeping without another terminal event');
 
   // Two requests may deliberately share the same clip and target. Each owns a
   // distinct native action and participates in native weight normalization.

@@ -449,20 +449,15 @@ pub struct HairMorphTargetValueData {
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct HairMorphTargetsData {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub sway_left: Option<HairMorphTargetData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub sway_right: Option<HairMorphTargetData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub sway_front: Option<HairMorphTargetData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub fluff_right: Option<HairMorphTargetData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub fluff_bottom: Option<HairMorphTargetData>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub head_up: HashMap<String, HairMorphTargetValueData>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub head_down: HashMap<String, HairMorphTargetValueData>,
+    #[serde(deserialize_with = "null_default")]
+    pub head_up: HashMap<String, Option<HairMorphTargetValueData>>,
+    #[serde(deserialize_with = "null_default")]
+    pub head_down: HashMap<String, Option<HairMorphTargetValueData>>,
     #[serde(flatten)]
     pub extensions: Map<String, Value>,
 }
@@ -594,7 +589,7 @@ pub struct ProfileData {
 
 /// A VRM humanoid role resolves through an existing profile node key. This
 /// keeps current AU-to-bone bindings on their established evaluation path.
-#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct HumanoidRoleData {
     pub node_key: String,
@@ -609,7 +604,7 @@ pub struct HumanoidRoleData {
     pub extensions: Map<String, Value>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct HumanoidCharacterizationData {
     pub schema_version: u32,
@@ -1341,7 +1336,9 @@ fn viseme_binding_targets(
 
     if let Some(binding) = binding {
         if let Some(targets) = &binding.targets {
-            let bound: Vec<(MorphRef, f64)> = targets
+            // An authored target list owns the slot, including an empty list
+            // that deliberately clears a legacy/preset morph assignment.
+            return targets
                 .iter()
                 .filter_map(|target| {
                     let morph = target.morph.clone()?;
@@ -1356,15 +1353,13 @@ fn viseme_binding_targets(
                     Some((morph, weight))
                 })
                 .collect();
-            if !bound.is_empty() {
-                return bound;
-            }
         }
 
         if let Some(morph) = &binding.morph {
-            if !matches!(morph, MorphRef::Name(name) if name.is_empty()) {
-                return vec![(morph.clone(), 1.0)];
+            if matches!(morph, MorphRef::Name(name) if name.is_empty()) {
+                return Vec::new();
             }
+            return vec![(morph.clone(), 1.0)];
         }
     }
 
@@ -1853,6 +1848,36 @@ mod tests {
         assert_eq!(view["meshes"]["EyeMesh"]["category"], "eye");
         assert_eq!(view["meshes"]["EyeMesh"]["material"]["renderOrder"], -10);
         assert_eq!(view["mappingSections"][0]["meshCategory"], "eye");
+    }
+
+    #[test]
+    fn explicit_empty_viseme_targets_do_not_restore_legacy_morphs() {
+        let model: ModelData = serde_json::from_value(serde_json::json!({
+            "meshes": [{"id": 1, "name": "Mouth", "morphTargetIds": [10]}],
+            "morphTargets": [{"id": 10, "meshId": 1, "name": "LegacyMouth"}]
+        })).unwrap();
+        let mut profile: ProfileData = serde_json::from_value(serde_json::json!({
+            "visemeSlots": [{"id": "open"}],
+            "visemeKeys": ["LegacyMouth"],
+            "morphToMesh": {"face": ["Mouth"]}
+        })).unwrap();
+        assert_eq!(compile_tables(&profile, &model).viseme_morph_bindings.len(), 4);
+
+        for binding in [
+            serde_json::json!({"targets": []}),
+            serde_json::json!({"targets": [], "morph": "LegacyMouth"}),
+            serde_json::json!({"morph": ""}),
+        ] {
+            profile.viseme_bindings.insert("open".into(), serde_json::from_value(binding).unwrap());
+            assert!(resolve_profile_view(&profile).viseme_binding_targets[0].is_empty());
+            assert!(compile_tables(&profile, &model).viseme_morph_bindings.is_empty());
+        }
+
+        // Editing only jaw metadata does not author a morph override.
+        profile.viseme_bindings.insert("open".into(), serde_json::from_value(
+            serde_json::json!({"jawAmount": 0.5})
+        ).unwrap());
+        assert_eq!(compile_tables(&profile, &model).viseme_morph_bindings.len(), 4);
     }
 
     #[test]

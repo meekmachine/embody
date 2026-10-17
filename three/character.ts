@@ -1,6 +1,6 @@
 import {
   AdditiveAnimationBlendMode, AnimationClip, AnimationUtils, LoopOnce, LoopPingPong,
-  NormalAnimationBlendMode, PropertyBinding, Quaternion, InterpolateDiscrete, InterpolateLinear, Euler,
+  NormalAnimationBlendMode, PropertyBinding, Quaternion, InterpolateDiscrete, InterpolateLinear,
 } from 'three';
 import type { KeyframeTrack, Mesh, Object3D } from 'three';
 import { initEmbodyCore, requireInitializedEmbodyCore, DEFAULT_HAIR_COLOR_APPEARANCE } from '../wasm/index';
@@ -184,7 +184,8 @@ export class Embody {
         }
       }
     } catch (error) { core.free(); throw error; }
-    this.connector?.dispose();
+    try { this.connector?.dispose(); }
+    catch (error) { core.free(); throw error; }
     this.core.free();
     this.core = core;
     if (replacingModel) this.sources.clear();
@@ -206,13 +207,21 @@ export class Embody {
     this.applier.setBindings(inspection);
     this.applier.applyMeshMaterialConfigs(model, profile.meshes ?? {});
     const session = new this.wasm.NativePlaybackSession();
-    try { this.connector = new ThreeNativePlaybackConnector(session, { model, inspection }); }
+    try {
+      this.connector = new ThreeNativePlaybackConnector(session, {
+        model, inspection,
+        onRelease: (id) => {
+          const playback = this.playbacks.get(id);
+          if (playback?.terminal) this.forget(playback);
+        },
+      });
+    }
     catch (error) { session.free(); throw error; }
     this.connector.rebind(model.uuid, String(this.bindingGeneration));
     this.connector.setRendering(this.rendering);
     this.connector.setTimeScale(this.timeScale);
     this.connector.subscribe((event) => this.onPlaybackEvent(event));
-    this.hairConfig = this.mergeHairConfig(this.defaultHairConfig(), profile.hairPhysics ?? {});
+    this.hairConfig = parse(this.core.get_hair_config_json());
     this.registerHairObjects(inspection.allMeshes.filter((mesh) => ['hair', 'eyebrow'].includes(this.meshCategory(mesh))));
   }
 
@@ -399,8 +408,15 @@ export class Embody {
       }
     };
     for (const track of clip.tracks) {
-      if (track.getInterpolation() === InterpolateDiscrete || track.times.length < 2) continue;
+      if (track.getInterpolation() === InterpolateDiscrete || track.times.length === 0) continue;
       const customInterpolant = (track as NativeTrack).createInterpolant.isInterpolantFactoryMethodGLTFCubicSpline === true;
+      if (track.times.length === 1) {
+        if (customInterpolant && resampleCustom) {
+          track.values = new Float32Array((track as NativeTrack).createInterpolant().evaluate(track.times[0]));
+          track.setInterpolation(InterpolateLinear);
+        }
+        continue;
+      }
       if ((customInterpolant || track.getInterpolation() !== InterpolateLinear) && easing === 'linear' && !resampleCustom) continue;
       const stride = track.getValueSize();
       const width = customInterpolant ? stride / 3 : stride;
@@ -534,10 +550,13 @@ export class Embody {
         return result;
       };
       result.updateParams = result.setParams = (value) => { ensure(); this.updatePlayback(playback, value); return result; };
-      const fade = options.fadeInSec ?? options.crossfadeDuration;
-      if (finite(fade) && fade > 0) connector.fadeIn(id, fade);
-      this.playDepth -= 1;
-      while (!this.playDepth && this.pendingEvents.length) this.onPlaybackEvent(this.pendingEvents.shift()!);
+      try {
+        const fade = options.fadeInSec ?? options.crossfadeDuration;
+        if (finite(fade) && fade > 0) connector.fadeIn(id, fade);
+      } finally {
+        this.playDepth -= 1;
+        while (!this.playDepth && this.pendingEvents.length) this.onPlaybackEvent(this.pendingEvents.shift()!);
+      }
       if (hairMotion && connector.getAction(id)) {
         this.playHairImpulse(hairMotion.horizontal, hairMotion.vertical);
         this.setHairGravity(hairMotion.pitch, clip.duration);
@@ -546,9 +565,30 @@ export class Embody {
     };
     result.play = () => { if (current) options = { ...current.options }; return start(); };
     const beforePlay = () => { throw new Error('Play this compiled clip before changing playback.'); };
-    result.stop = result.cancel = result.pause = result.resume = beforePlay;
-    result.setWeight = result.setIntensity = result.setSpeed = result.setPlaybackRate = result.setTime = result.seek = beforePlay;
-    result.updateParams = result.setParams = beforePlay;
+    // A prepared clip has options but owns no native action to stop or pause.
+    result.stop = result.cancel = () => result;
+    result.pause = result.resume = beforePlay;
+    result.updateParams = result.setParams = (patch) => {
+      this.assertAlive();
+      this.validateEasing(patch);
+      options = { ...options, ...patch };
+      if ('finalPose' in patch && !('clampWhenFinished' in patch)) options.clampWhenFinished = patch.finalPose !== 'release';
+      if ('clampWhenFinished' in patch && !('finalPose' in patch)) options.finalPose = patch.clampWhenFinished === false ? 'release' : 'hold';
+      if ('loop' in patch && !('loopMode' in patch)) options.loopMode = patch.loop ? 'repeat' : 'once';
+      if ('loopMode' in patch && !('repeatCount' in patch)) delete options.repeatCount;
+      if ('weight' in patch || 'intensity' in patch || 'intensityScale' in patch) options.intensityScale = intensity(patch);
+      if ('time' in patch || 'offsetSec' in patch) options.time = patch.time ?? patch.offsetSec;
+      if ('speed' in patch || 'playbackRate' in patch || 'rate' in patch || 'timeScale' in patch || 'reverse' in patch) {
+        let speed = patch.speed ?? patch.playbackRate ?? patch.rate ?? patch.timeScale ?? options.speed ?? options.playbackRate ?? options.rate ?? options.timeScale ?? 1;
+        if ('reverse' in patch) speed = Math.abs(speed) * (patch.reverse ? -1 : 1);
+        options.speed = speed;
+        delete options.reverse;
+      }
+      return result;
+    };
+    result.setWeight = result.setIntensity = (value) => result.updateParams({ intensityScale: value });
+    result.setSpeed = result.setPlaybackRate = (speed) => result.updateParams({ speed });
+    result.setTime = result.seek = (time) => result.updateParams({ time });
     return autoPlay ? start() : result;
   }
 
@@ -562,6 +602,9 @@ export class Embody {
     const action = connector.getAction(playback.id);
     if (connector !== this.connector || !action) throw new Error('Unknown, released or obsolete playback handle.');
     const options = { ...playback.options, ...patch };
+    if ('finalPose' in patch && !('clampWhenFinished' in patch)) options.clampWhenFinished = patch.finalPose !== 'release';
+    if ('clampWhenFinished' in patch && !('finalPose' in patch)) options.finalPose = patch.clampWhenFinished === false ? 'release' : 'hold';
+    if ('loop' in patch && !('loopMode' in patch)) options.loopMode = patch.loop ? 'repeat' : 'once';
     if ('loopMode' in patch && !('repeatCount' in patch)) delete options.repeatCount;
     if ('weight' in patch || 'intensity' in patch || 'intensityScale' in patch) options.intensityScale = intensity(patch);
     if (['weight', 'intensity', 'intensityScale', 'blendMode', 'easing', 'balance', 'balanceMap', 'mixWeights'].some((key) => key in patch)) {
@@ -577,7 +620,10 @@ export class Embody {
       options.speed = speed;
       delete options.reverse;
     }
-    if ('time' in patch || 'offsetSec' in patch) connector.control(playback.id, { type: 'seek', seconds: patch.time ?? patch.offsetSec });
+    if ('time' in patch || 'offsetSec' in patch) {
+      options.time = patch.time ?? patch.offsetSec;
+      connector.control(playback.id, { type: 'seek', seconds: options.time });
+    }
     if ('loopMode' in patch || 'loop' in patch || 'repeatCount' in patch) {
       if (playback.terminal) {
         playback.replay({ ...options, time: action.time });
@@ -735,9 +781,9 @@ export class Embody {
     // An unmapped control has already reached its destination without owning a
     // renderer resource. Mapped transitions settle from the native action event.
     let settled = !handle;
-    const unsubscribe = handle?.subscribe(() => { settled = true; unsubscribe?.(); });
+    const promise = handle ? handle.promise.then(() => { settled = true; }) : Promise.resolve();
     return {
-      promise: handle ? handle.promise.then(() => undefined) : Promise.resolve(),
+      promise,
       pause: () => { if (!settled) handle!.pause(); },
       resume: () => { if (!settled) handle!.resume(); },
       cancel: () => { if (!settled) handle!.cancel(); },
@@ -769,7 +815,7 @@ export class Embody {
     (this.profileSource.auMixDefaults ??= {})[id] = weight;
   }
   getAUMixWeight(id: number): number { return this.core.get_au_mix_weight(id); }
-  hasLeftRightBones(id: number): boolean { const sides = new Set((this.profile.auToBones?.[id] ?? []).map((binding: JsonObject) => binding.side)); return sides.has('left') && sides.has('right'); }
+  hasLeftRightBones(id: number): boolean { return this.core.has_left_right_bones(id); }
   setMorph(key: string | number, value: number, meshNames: string[] = []): void { this.mutateLive(() => { if (typeof key === 'number') this.core.set_morph_index(key, value, json(meshNames)); else this.core.set_morph(key, value, json(meshNames)); }); }
   setMorphOnMeshes(meshNames: string[], key: string | number, value: number): void { this.setMorph(key, value, meshNames); }
   releaseMorph(key: string | number, meshNames: string[] = []): void { this.mutateLive(() => { if (typeof key === 'number') this.core.release_morph_index(key, json(meshNames)); else this.core.release_morph(key, json(meshNames)); }); }
@@ -788,18 +834,6 @@ export class Embody {
   getMeshMaterialConfig(name: string): Record<string, unknown> | null { return this.applier.getMeshMaterialConfig(this.requireModel(), name); }
   setMeshMaterialConfig(name: string, value: Parameters<ThreeFrameApplier['setMeshMaterialConfig']>[2]): void { this.applier.setMeshMaterialConfig(this.requireModel(), name, value); const entry = this.meshProfile(name); entry.material = { ...entry.material, ...value }; }
 
-  private defaultHairConfig(): JsonObject {
-    return { enabled: false, stiffness: 7.5, damping: 0.18, inertia: 3.5, gravity: 12, responseScale: 2.5,
-      idleSwayAmount: 0.12, idleSwaySpeed: 1, windStrength: 0, windDirectionX: 1, windDirectionZ: 0,
-      windTurbulence: 0.3, windFrequency: 1.4, idleClipDuration: 10, impulseClipDuration: 1.4,
-      direction: { yawSign: -1, pitchSign: -1 }, morphTargets: { swayLeft: 'L_Hair_Left', swayRight: 'L_Hair_Right', swayFront: 'L_Hair_Front', fluffRight: 'Fluffy_Right', fluffBottom: 'Fluffy_Bottom_ALL', headUp: { Hairline_High_ALL: 0.45, Length_Short: 0.65 }, headDown: { L_Hair_Front: 2, Fluffy_Bottom_ALL: 1 } } };
-  }
-  private mergeHairConfig(current: JsonObject, update: JsonObject): JsonObject {
-    const next = { ...current, ...copy(update), direction: { ...current.direction, ...update.direction }, morphTargets: { ...current.morphTargets, ...update.morphTargets } };
-    for (const name of ['swayLeft', 'swayRight', 'swayFront', 'fluffRight', 'fluffBottom']) if (typeof next.morphTargets[name] === 'object') next.morphTargets[name] = next.morphTargets[name]?.key;
-    for (const group of ['headUp', 'headDown']) next.morphTargets[group] = Object.fromEntries(Object.entries({ ...current.morphTargets?.[group], ...update.morphTargets?.[group] }).map(([key, value]) => [key, typeof value === 'object' ? (value as JsonObject)?.value : value]));
-    return next;
-  }
   registerHairObjects(objects: Object3D[]): { name: string; isMesh: boolean; isEyebrow: boolean }[] {
     this.hairObjects.clear();
     for (const object of objects) if ((object as Mesh).isMesh) this.hairObjects.set(object.name, object as Mesh);
@@ -835,15 +869,12 @@ export class Embody {
       if (Object.keys(curves).length) this.playSnippet('__embody_hair_idle', curves, { loopMode: 'repeat', meshNames: [...this.hairObjects.keys()], source: 'hair', blendMode: 'additive' });
     }
   }
-  setHairPhysicsEnabled(value: boolean): void { this.hairConfig.enabled = value; this.restartHair(); }
+  setHairPhysicsEnabled(value: boolean): void { this.setHairPhysicsConfig({ enabled: value }); }
   isHairPhysicsEnabled(): boolean { return !!this.hairConfig.enabled; }
-  setHairPhysicsConfig(value: JsonObject): void { this.hairConfig = this.mergeHairConfig(this.hairConfig, value); this.restartHair(); }
+  setHairPhysicsConfig(value: JsonObject): void { this.hairConfig = parse(this.core.set_hair_config_json(json(value))); this.restartHair(); }
   getHairPhysicsConfig(): JsonObject { return copy(this.hairConfig); }
   validateHairMorphTargets(): string[] {
-    const targets = this.hairConfig.morphTargets ?? {};
-    const configured = Object.entries(targets).flatMap(([key, value]) => key === 'headUp' || key === 'headDown' ? Object.keys(value as JsonObject) : typeof value === 'string' ? [value] : []);
-    const available = new Set(this.getHairMorphTargets());
-    return [...new Set(configured.filter((key) => !available.has(key)))].sort();
+    return parse(this.core.get_missing_hair_morph_targets_json(json(this.getHairMorphTargets())));
   }
   applyHairStateToObject(name: string, state: JsonObject): void {
     const mesh = this.hairObjects.get(name);
@@ -855,10 +886,9 @@ export class Embody {
   }
   private authoredHeadMotion(clip: AnimationClip): { horizontal: number; vertical: number; pitch: number } | undefined {
     if (!this.hairConfig.enabled || clip.name.startsWith('__embody_hair') || !this.hairObjects.size) return undefined;
-    const headNames = new Set<string>(this.getSemanticPoseCatalog().filter((control) => control.roles.includes('head')).flatMap((control) => control.boneNames));
-    let yaw = 0;
-    let pitch = 0;
-    let targetPitch = 0;
+    // Serialize native bindings and sample storage only. The core resolves the
+    // character's head role and compiles its configured hair response.
+    const tracks: Array<{ boneName: string; current: number[]; reference: number[]; samples: number[][] }> = [];
     for (const track of clip.tracks) {
       if (track.ValueTypeName !== 'quaternion') continue;
       const parsed = PropertyBinding.parseTrackName(track.name);
@@ -867,42 +897,23 @@ export class Embody {
         const skeleton = (object as Object3D & { skeleton?: { bones: Object3D[] } }).skeleton;
         object = skeleton?.bones.find((bone) => bone.name === String(parsed.objectIndex)) ?? skeleton?.bones[Number(parsed.objectIndex)];
       }
-      if (!object || !headNames.has(object.name)) continue;
+      if (!object) continue;
       const cubic = (track as NativeTrack).createInterpolant.isInterpolantFactoryMethodGLTFCubicSpline === true;
       const stride = track.getValueSize();
-      const first = object.quaternion.clone();
-      const rest = new Quaternion().fromArray(this.restValues(track) ?? [0, 0, 0, 1]);
+      const reference = this.restValues(track);
+      if (!reference) continue;
+      const samples: number[][] = [];
       for (let index = 0; index < track.times.length; index += 1) {
-        const sample = new Quaternion().fromArray(track.values, index * stride + (cubic ? 4 : 0));
-        if (clip.blendMode === AdditiveAnimationBlendMode) sample.premultiply(rest);
-        if (index === track.times.length - 1) targetPitch = new Euler().setFromQuaternion(rest.clone().invert().multiply(sample), 'YXZ').x;
-        const delta = new Euler().setFromQuaternion(first.clone().invert().multiply(sample), 'YXZ');
-        if (Math.abs(delta.y) > Math.abs(yaw)) yaw = delta.y;
-        if (Math.abs(delta.x) > Math.abs(pitch)) pitch = delta.x;
+        const offset = index * stride + (cubic ? 4 : 0);
+        samples.push(Array.from(track.values.subarray(offset, offset + 4)));
       }
+      tracks.push({ boneName: object.name, current: object.quaternion.toArray(), reference, samples });
     }
-    if (Math.abs(yaw) < 1e-5 && Math.abs(pitch) < 1e-5) return undefined;
-    const response = this.hairConfig.responseScale;
-    return {
-      horizontal: yaw * this.hairConfig.inertia * response * this.hairConfig.direction.yawSign,
-      vertical: pitch * this.hairConfig.gravity * 0.25 * response * this.hairConfig.direction.pitchSign,
-      pitch: targetPitch * this.hairConfig.direction.pitchSign,
-    };
+    return parse(this.core.resolve_hair_motion_json(json(tracks), clip.blendMode === AdditiveAnimationBlendMode)) ?? undefined;
   }
   private setHairGravity(pitch: number, durationSeconds: number): void {
-    const curves = parse(this.wasm.build_hair_gravity_curves(json(this.hairConfig)));
-    const source = parse<ClipIR>(this.core.build_clip('__embody_hair_gravity_source', json(curves), json({ meshNames: [...this.hairObjects.keys()], source: 'hair' })));
-    if (!source.tracks.length) return;
-    const native = createAnimationClipFromClipIR(source, this.inspection!);
-    const parameter = (Math.max(-1, Math.min(1, pitch)) + 1) / 2;
-    const duration = Math.max(0, durationSeconds);
-    const clip: ClipIR = {
-      ...source, name: '__embody_hair_gravity', durationSeconds: duration,
-      tracks: source.tracks.map((track, index) => {
-        const values = Array.from((native.tracks[index] as NativeTrack).createInterpolant().evaluate(parameter));
-        return { ...track, times: duration ? [0, duration] : [0], values: duration ? [...values, ...values] : values, inheritStart: duration > 0 };
-      }),
-    };
+    const clip = parse<ClipIR>(this.core.build_hair_gravity_clip('__embody_hair_gravity', pitch, durationSeconds, json({ meshNames: [...this.hairObjects.keys()], source: 'hair' })));
+    if (!clip.tracks.length) return;
     this.handle({ name: clip.name, kind: 'compiled', clip }, { loopMode: 'once', finalPose: 'hold', blendMode: 'additive' }, true);
   }
   playHairImpulse(horizontal: number, vertical: number): CharacterPlaybackHandle | undefined {

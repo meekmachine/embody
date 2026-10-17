@@ -101,14 +101,16 @@ export class ThreeNativePlaybackConnector {
   private sessionDisposed = false;
   private disposed = false;
   private readonly onError?: (error: Error) => void;
+  private readonly onRelease?: (handle: string) => void;
 
   constructor(
     private readonly session: NativePlaybackSession,
-    binding: ThreeNativePlaybackBinding & { onError?: (error: Error) => void },
+    binding: ThreeNativePlaybackBinding & { onError?: (error: Error) => void; onRelease?: (handle: string) => void },
   ) {
     validateBinding(binding);
     this.binding = { ...binding, mixer: binding.mixer ?? new AnimationMixer(binding.model) };
     this.onError = binding.onError;
+    this.onRelease = binding.onRelease;
     this.binding.mixer.addEventListener('finished', this.finished);
     this.rendering = bindPlaybackRendering(binding.model, this.binding.mixer, () => this.flushEvents());
   }
@@ -314,6 +316,12 @@ export class ThreeNativePlaybackConnector {
       resource.binding.mixer.uncacheClip(resource.clip);
       if (resource.action) this.actionHandles.delete(resource.action);
       this.resources.delete(command.handle);
+      // Releasing a completed held pose is not a second terminal event. The
+      // owning facade still needs to retire its resource bookkeeping.
+      try { this.onRelease?.(command.handle); } catch (error) {
+        const failure = asError(error);
+        queueMicrotask(() => { if (this.onError) this.onError(failure); else throw failure; });
+      }
       return;
     }
     if (command.type === 'replaceClip') {

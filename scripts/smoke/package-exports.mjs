@@ -1,5 +1,6 @@
 import { createRequire, register } from 'node:module';
 import { readFile, readdir } from 'node:fs/promises';
+import { isDeepStrictEqual } from 'node:util';
 import {
   AnimationClip,
   Bone,
@@ -39,6 +40,7 @@ const core = await wasm.initEmbodyCore();
 const distEntries = await readdir(new URL('../../dist/', import.meta.url));
 const wasmEntrySource = await readFile(new URL('../../dist/wasm.js', import.meta.url), 'utf8');
 const preset = JSON.parse(core.get_preset_json('cc4'));
+const authoringDefaults = JSON.parse(core.embody_request(JSON.stringify({ op: 'bone.constants' })));
 const hairPresets = JSON.parse(core.hair_color_presets_json());
 const templates = JSON.parse(core.list_humanoid_skeleton_templates_json());
 const model = {
@@ -105,6 +107,11 @@ const checks = [
   ['Wasm loader avoids eval/new Function', !wasmEntrySource.includes('new Function')],
   ['Wasm loader uses native dynamic import', wasmEntrySource.includes('import(')],
   ['embedded profile data', preset.meshes.CC_Base_Eye.category === 'eye'],
+  ['authoring axis defaults match Rust data', isDeepStrictEqual(three.DEFAULT_AXIS_TO_CHANNEL, authoringDefaults.defaultAxisToChannel)],
+  ['authoring degree default matches Rust data', three.DEFAULT_BONE_MAX_DEGREES === authoringDefaults.defaultBoneMaxDegrees],
+  ['authoring section matches Rust data', three.JOINT_CONTROL_SECTION === authoringDefaults.jointControlSection],
+  ['viseme compatibility keys match preset data', JSON.stringify(three.VISEME_KEYS) === JSON.stringify(preset.visemeKeys)],
+  ['obsolete partial CC4 bone table is absent', !('CC4_BONES' in three) && !('CC4_BONES' in root)],
   ['Rust hair appearance data', hairPresets.natural_brown.baseColor === '#4a3728'],
   ['CC4 preset owns hair color swatches', preset.hairColorPresets?.natural_brown?.baseColor === '#4a3728'],
   ['Rust humanoid template data', templates[0].id === 'cc4-humanoid'],

@@ -153,6 +153,7 @@ pub struct RuntimeCore {
     animation: ClipRegistry,
     procedural_bone_flags: HashMap<u32, u32>,
     procedural_morph_targets: BTreeSet<(u32, u32)>,
+    hair_config: crate::hair_curves::HairPlaybackConfig,
     body_controls_json: String,
     body_control_au_ids: BTreeSet<u32>,
 }
@@ -190,6 +191,7 @@ impl RuntimeCore {
             animation: ClipRegistry::new(),
             procedural_bone_flags: HashMap::new(),
             procedural_morph_targets: BTreeSet::new(),
+            hair_config: crate::hair_curves::HairPlaybackConfig::default(),
             body_controls_json: "[]".into(),
             body_control_au_ids: BTreeSet::new(),
         }
@@ -207,7 +209,7 @@ impl RuntimeCore {
         let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")
             .map_err(|err| JsError::new(&err))?;
         let tables = compile_tables(&profile, &model);
-        self.apply_profile_model(profile, model, tables);
+        self.apply_profile_model(profile, model, tables)?;
         Ok(())
     }
 
@@ -231,7 +233,7 @@ impl RuntimeCore {
         let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")
             .map_err(|err| JsError::new(&err))?;
         let tables = compile_tables(&profile, &model);
-        self.apply_profile_model(profile, model, tables);
+        self.apply_profile_model(profile, model, tables)?;
         Ok(())
     }
 
@@ -252,7 +254,7 @@ impl RuntimeCore {
         let model: ModelData = deserialize_json(model_json, "Invalid model descriptor JSON")
             .map_err(|err| JsError::new(&err))?;
         let tables = compile_tables(&profile, &model);
-        self.apply_profile_model(profile, model, tables);
+        self.apply_profile_model(profile, model, tables)?;
         Ok(())
     }
 
@@ -261,8 +263,13 @@ impl RuntimeCore {
         profile: ProfileData,
         model: ModelData,
         tables: CompiledTables,
-    ) {
+    ) -> Result<(), JsError> {
+        let hair_value = serde_json::to_value(&profile.hair_physics)
+            .map_err(|error| JsError::new(&format!("Invalid profile hair config: {error}")))?;
+        let hair_config = crate::hair_curves::normalize_config(&crate::hair_curves::HairPlaybackConfig::default(), &hair_value)
+            .map_err(|error| JsError::new(&error))?;
         self.reset_procedural_frame_tracking();
+        self.hair_config = hair_config;
         self.body_controls_json = crate::body_controls::resolve(&profile, Some(&model)).to_string();
         self.body_control_au_ids = profile.body_controls.values()
             .flat_map(|control| std::iter::once(control.au_id).chain(control.negative_au_id))
@@ -319,6 +326,7 @@ impl RuntimeCore {
         self.profile = Some(profile);
         self.model = Some(model);
         self.apply_compiled_tables(tables);
+        Ok(())
     }
 
     fn apply_compiled_tables(&mut self, tables: crate::profile::CompiledTables) {
@@ -523,6 +531,58 @@ impl RuntimeCore {
         let copy_scales = self.viseme_jaw_scales.len().min(count);
         next_scales[..copy_scales].copy_from_slice(&self.viseme_jaw_scales[..copy_scales]);
         self.viseme_jaw_scales = next_scales;
+    }
+
+    /// Normalized hair configuration belongs to the selected profile, never an
+    /// adapter fallback. Explicit empty/null mappings remain empty.
+    #[wasm_bindgen]
+    pub fn get_hair_config_json(&self) -> Result<String, JsError> {
+        serialize_runtime_json(&self.hair_config, "hair config")
+    }
+
+    #[wasm_bindgen]
+    pub fn set_hair_config_json(&mut self, update_json: &str) -> Result<String, JsError> {
+        let update: serde_json::Value = parse_runtime_json(update_json, "hair config update")?;
+        let next = crate::hair_curves::normalize_config(&self.hair_config, &update)
+            .map_err(|error| JsError::new(&error))?;
+        let serialized = serialize_runtime_json(&next, "hair config")?;
+        self.hair_config = next;
+        Ok(serialized)
+    }
+
+    #[wasm_bindgen]
+    pub fn get_missing_hair_morph_targets_json(&self, available_json: &str) -> Result<String, JsError> {
+        let available: BTreeSet<String> = parse_runtime_json(available_json, "available hair morph targets")?;
+        let missing: Vec<_> = crate::hair_curves::configured_targets(&self.hair_config).difference(&available).cloned().collect();
+        serialize_runtime_json(&missing, "missing hair morph targets")
+    }
+
+    /// The adapter supplies native quaternion samples and scene/reference
+    /// transforms; the profile resolves which tracks represent head motion.
+    #[wasm_bindgen]
+    pub fn resolve_hair_motion_json(&self, tracks_json: &str, additive: bool) -> Result<String, JsError> {
+        let tracks: Vec<crate::hair_curves::NativeQuaternionTrack> = parse_runtime_json(tracks_json, "native quaternion tracks")?;
+        let motion = if let Some(profile) = &self.profile {
+            crate::hair_curves::authored_motion(&self.hair_config, profile, self.model.as_ref(), &tracks, additive)
+                .map_err(|error| JsError::new(&error))?
+        } else { None };
+        serialize_runtime_json(&motion, "authored hair motion")
+    }
+
+    /// Compile the configured gravity response directly to concrete morph
+    /// tracks. Three owns interpolation from the captured initial scene pose.
+    #[wasm_bindgen]
+    pub fn build_hair_gravity_clip(&mut self, name: &str, pitch: f32, duration_seconds: f64, options_json: &str) -> Result<String, JsError> {
+        let curves = crate::hair_curves::gravity_pose_curves(&self.hair_config, pitch, duration_seconds)
+            .map_err(|error| JsError::new(&error))?;
+        self.build_clip(name, &curves.to_string(), options_json)
+    }
+
+    #[wasm_bindgen]
+    pub fn has_left_right_bones(&self, au_id: u32) -> bool {
+        let Some(bindings) = self.profile.as_ref().and_then(|profile| profile.au_to_bones.get(&au_id.to_string())) else { return false; };
+        bindings.iter().any(|binding| binding.side.as_deref() == Some("left"))
+            && bindings.iter().any(|binding| binding.side.as_deref() == Some("right"))
     }
 
     /// Profile-derived motions and resolved model support for prompt/pose editors.
@@ -1990,6 +2050,29 @@ fn clamp_signed(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hair_configuration_rebinds_to_the_selected_profile_and_compiles_native_targets() {
+        let mut core = RuntimeCore::new(0);
+        let profile = serde_json::json!({"hairPhysics":{"enabled":true,"morphTargets":{"headDown":{"custom-tip":{"value":1.6,"axis":"pitch"}}}},
+            "auToBones":{"9":[{"node":"A","channel":"ry","side":"left"},{"node":"B","channel":"ry","side":"right"}]}});
+        let model = serde_json::json!({"meshes":[{"id":1,"name":"Hair","morphTargetIds":[2]}],"morphTargets":[{"id":2,"meshId":1,"name":"custom-tip"}]});
+        core.configure_with_profile(&profile.to_string(), &model.to_string()).unwrap();
+        assert!(core.has_left_right_bones(9));
+        assert!(!core.has_left_right_bones(10));
+        assert_eq!(core.get_missing_hair_morph_targets_json("[]").unwrap(), "[\"custom-tip\"]");
+        assert_eq!(core.get_missing_hair_morph_targets_json("[\"custom-tip\"]").unwrap(), "[]");
+        let clip: ClipIR = serde_json::from_str(&core.build_hair_gravity_clip("gravity",0.5,2.0,"{\"meshNames\":[\"Hair\"],\"source\":\"hair\"}").unwrap()).unwrap();
+        assert_eq!(clip.tracks.len(), 1);
+        assert_eq!(clip.tracks[0].target, serde_json::json!({"kind":"morphTarget","meshId":1,"morphTargetId":2}));
+        assert_eq!(clip.tracks[0].times, vec![0.0, 2.0]);
+        assert!(clip.tracks[0].values.iter().all(|value| (value - 0.8).abs() < 1e-6));
+        assert!(clip.tracks[0].inherit_start);
+        core.configure_with_profile("{}", "{}").unwrap();
+        assert!(crate::hair_curves::configured_targets(&core.hair_config).is_empty());
+        assert!(!core.hair_config.enabled);
+        assert!(!core.has_left_right_bones(9));
+    }
 
     #[test]
     fn cc4_speech_au_103_uses_the_existing_jaw_opening_group() {

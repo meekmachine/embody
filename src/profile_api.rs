@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::sync::OnceLock;
 
 use regex_lite::Regex;
 use serde::{Deserialize, Serialize};
@@ -12,8 +13,29 @@ use crate::profile::{
 };
 use crate::profile_merge::{extend_preset_with_profile, parse_profile_patch};
 
-const JOINT_CONTROL_SECTION: &str = "Joint Controls";
-const DEFAULT_BONE_MAX_DEGREES: f64 = 60.0;
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthoringDefaults {
+    default_axis_to_channel: AxisChannels,
+    default_bone_max_degrees: f64,
+    joint_control_section: String,
+}
+
+#[derive(Deserialize, Serialize)]
+struct AxisChannels {
+    pitch: String,
+    yaw: String,
+    roll: String,
+}
+
+fn authoring_defaults() -> &'static AuthoringDefaults {
+    static DEFAULTS: OnceLock<AuthoringDefaults> = OnceLock::new();
+    DEFAULTS.get_or_init(|| {
+        serde_json::from_str(include_str!("../assets/authoring-defaults.json"))
+            .expect("embedded bone authoring defaults must be valid")
+    })
+}
+
 const PROFILE_OVERRIDE_KEYS: &[&str] = &[
     "name",
     "animalType",
@@ -70,10 +92,11 @@ impl Axis {
     }
 
     fn channel(self) -> &'static str {
+        let channels = &authoring_defaults().default_axis_to_channel;
         match self {
-            Axis::Pitch => "rx",
-            Axis::Yaw => "ry",
-            Axis::Roll => "rz",
+            Axis::Pitch => &channels.pitch,
+            Axis::Yaw => &channels.yaw,
+            Axis::Roll => &channels.roll,
         }
     }
 
@@ -86,12 +109,9 @@ impl Axis {
     }
 
     fn from_channel(channel: &str) -> Option<Self> {
-        match channel {
-            "rx" => Some(Axis::Pitch),
-            "ry" => Some(Axis::Yaw),
-            "rz" => Some(Axis::Roll),
-            _ => None,
-        }
+        [Axis::Pitch, Axis::Yaw, Axis::Roll]
+            .into_iter()
+            .find(|axis| axis.channel() == channel)
     }
 }
 
@@ -271,7 +291,7 @@ fn object(value: &Value) -> Map<String, Value> {
 fn normalize_degrees(value: Option<f64>) -> f64 {
     value
         .filter(|entry| entry.is_finite())
-        .unwrap_or(DEFAULT_BONE_MAX_DEGREES)
+        .unwrap_or(authoring_defaults().default_bone_max_degrees)
         .round()
         .clamp(1.0, 180.0)
 }
@@ -1150,7 +1170,7 @@ fn create_axis_au(
             muscular_basis: None,
             links: Vec::new(),
             face_area: Some(area.to_string()),
-            face_part: Some(JOINT_CONTROL_SECTION.to_string()),
+            face_part: Some(authoring_defaults().joint_control_section.clone()),
             extensions: Map::new(),
         },
     );
@@ -1731,7 +1751,8 @@ fn bone_au_options(profile: &ProfileData) -> Vec<Value> {
     let mut result = vec![json!({ "value": "", "label": "Unassigned" })];
     for id in std::mem::take(&mut ids) {
         let info = profile.au_info.get(&id.to_string());
-        let joint = info.and_then(|info| info.face_part.as_deref()) == Some(JOINT_CONTROL_SECTION);
+        let joint = info.and_then(|info| info.face_part.as_deref())
+            == Some(authoring_defaults().joint_control_section.as_str());
         let pair = profile
             .continuum_pairs
             .get(&id.to_string())
@@ -1771,7 +1792,7 @@ fn bone_au_options(profile: &ProfileData) -> Vec<Value> {
             detail_parts.push(original_name);
         }
         if joint {
-            detail_parts.push(JOINT_CONTROL_SECTION.to_string());
+            detail_parts.push(authoring_defaults().joint_control_section.clone());
         } else if let Some(face_part) = info.and_then(|info| info.face_part.clone()) {
             detail_parts.push(face_part);
         }
@@ -2261,11 +2282,8 @@ fn execute(request: Request) -> Result<Value, String> {
             let profile = profile_field(&payload)?;
             profile_view(&profile, op, &payload)
         }
-        "bone.constants" => Ok(json!({
-            "jointControlSection": JOINT_CONTROL_SECTION,
-            "defaultBoneMaxDegrees": DEFAULT_BONE_MAX_DEGREES,
-            "defaultAxisToChannel": { "pitch": "rx", "yaw": "ry", "roll": "rz" }
-        })),
+        "bone.constants" => serde_json::to_value(authoring_defaults())
+            .map_err(|error| error.to_string()),
         "bone.isMaxDegreesOnlyUpdate" => {
             let update = object(value_field(&payload, "update")?);
             Ok(json!(
@@ -2517,7 +2535,7 @@ fn execute(request: Request) -> Result<Value, String> {
                     muscular_basis: None,
                     links: Vec::new(),
                     face_area: Some("Upper".to_string()),
-                    face_part: Some(JOINT_CONTROL_SECTION.to_string()),
+                    face_part: Some(authoring_defaults().joint_control_section.clone()),
                     extensions: Map::new(),
                 },
             );
@@ -2532,7 +2550,7 @@ fn execute(request: Request) -> Result<Value, String> {
                 .get("info")
                 .and_then(|info| info.get("facePart"))
                 .and_then(Value::as_str)
-                == Some(JOINT_CONTROL_SECTION)
+                == Some(authoring_defaults().joint_control_section.as_str())
         )),
         "bone.resolveContinuumLabel" => {
             let profile = profile_field(&payload)?;
@@ -2546,7 +2564,7 @@ fn execute(request: Request) -> Result<Value, String> {
             let key = id.to_string();
             let mut info = profile.au_info.get(&key).cloned().unwrap_or_default();
             info.id.get_or_insert_with(|| key.clone());
-            info.face_part = Some(JOINT_CONTROL_SECTION.to_string());
+            info.face_part = Some(authoring_defaults().joint_control_section.clone());
             profile.au_info.insert(key, info);
             serde_json::to_value(profile).map_err(|error| error.to_string())
         }
@@ -2632,11 +2650,14 @@ mod tests {
         assert_eq!(legacy["visemeSlots"].as_array().unwrap().iter().map(|slot| slot["id"].clone()).collect::<Vec<_>>(),
             vec![json!("mouth-open"), json!("viseme-1"), json!("viseme-2")]);
         assert_eq!(legacy["visemeBindingTargets"], json!([[{"morph":"Mouth Open","weight":1.0}],[{"morph":1,"weight":1.0}],[]]));
-        let empty = request("profile.resolveVisemes", json!({"profile":{}}));
-        assert_eq!(empty["routingMode"], "legacy");
-        assert_eq!(empty["visemeSlots"], json!([]));
-        assert_eq!(empty["visemeBindingTargets"], json!([]));
-        assert!(empty.get("canonicalSlotIndices").is_none());
+        for profile in [json!({}), request("preset.get", json!({"id":"fish"})),
+            json!({"visemeKeys":[],"visemeSlots":[],"visemeBindings":{}})] {
+            let empty = request("profile.resolveVisemes", json!({"profile":profile}));
+            assert_eq!(empty["routingMode"], "legacy");
+            assert_eq!(empty["visemeSlots"], json!([]));
+            assert_eq!(empty["visemeBindingTargets"], json!([]));
+            assert!(empty.get("canonicalSlotIndices").is_none());
+        }
     }
 
     #[test]

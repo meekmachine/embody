@@ -2,6 +2,8 @@
 
 import cc4Preset from '../assets/presets/cc4.json';
 import cc4HumanoidSkeletonTemplate from '../assets/templates/cc4-humanoid.json';
+import authoringDefaults from '../assets/authoring-defaults.json';
+import type { BoneAxisKey, RotationChannel } from '../three/authoringTypes';
 import type { InitInput } from './embody_wasm.js';
 
 // wasm-bindgen generates this module during the package build. TypeScript's
@@ -24,9 +26,12 @@ export const CAMERA_FLIGHT_SAMPLE_STRIDE = 7;
 export const MARKER_VISIBILITY_FACTORS_STRIDE = 3;
 export const MARKER_ENDPOINT_STRIDE = 3;
 
-// Synchronous compatibility data is bundled from the same JSON assets embedded
-// by Rust. Hair color swatches and the CC4 humanoid skeleton live with the
-// CC4 rig preset — not as character-specific side registries.
+// These synchronous exports use the same data assets as Rust and remain safe to
+// import before Wasm initializes. Character controls use their resolved profile.
+export const DEFAULT_AXIS_TO_CHANNEL = authoringDefaults.defaultAxisToChannel as Record<BoneAxisKey, RotationChannel>;
+export const DEFAULT_BONE_MAX_DEGREES = authoringDefaults.defaultBoneMaxDegrees;
+export const JOINT_CONTROL_SECTION = authoringDefaults.jointControlSection;
+export const VISEME_KEYS = cc4Preset.visemeKeys;
 export const HAIR_COLOR_PRESETS = cc4Preset.hairColorPresets;
 export const DEFAULT_HAIR_COLOR_APPEARANCE = HAIR_COLOR_PRESETS.natural_brown;
 export const CC4_HUMANOID_SKELETON_TEMPLATE = cc4HumanoidSkeletonTemplate;

@@ -1,8 +1,28 @@
 import assert from 'node:assert/strict';
-import { AnimationClip, BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial, NumberKeyframeTrack, Timer } from 'three';
+import { AdditiveAnimationBlendMode, AnimationClip, BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial, NumberKeyframeTrack, Timer } from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createRustEmbodyHost, renderScenePlayback } from '../../dist/three.js';
 
 const model = new Group();
+// Load an actual single-key glTF cubic track, including its tangent storage.
+const cubicSamples = new Float32Array([0, 0, 0, 0, 2, 3, 4, 0, 0, 0]);
+const cubicJson = new TextEncoder().encode(JSON.stringify({
+  asset: { version: '2.0' }, buffers: [{ byteLength: cubicSamples.byteLength }],
+  bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 4 }, { buffer: 0, byteOffset: 4, byteLength: 36 }],
+  accessors: [{ bufferView: 0, componentType: 5126, count: 1, type: 'SCALAR', min: [0], max: [0] }, { bufferView: 1, componentType: 5126, count: 3, type: 'VEC3' }],
+  nodes: [{ name: 'CubicProp' }], scenes: [{ nodes: [0] }], scene: 0,
+  animations: [{ name: 'single-cubic', samplers: [{ input: 0, output: 1, interpolation: 'CUBICSPLINE' }], channels: [{ sampler: 0, target: { node: 0, path: 'scale' } }] }],
+}));
+const jsonChunkLength = Math.ceil(cubicJson.length / 4) * 4;
+const cubicGlb = new ArrayBuffer(28 + jsonChunkLength + cubicSamples.byteLength);
+const cubicHeader = new DataView(cubicGlb);
+for (const [offset, value] of [[0, 0x46546c67], [4, 2], [8, cubicGlb.byteLength], [12, jsonChunkLength], [16, 0x4e4f534a], [20 + jsonChunkLength, cubicSamples.byteLength], [24 + jsonChunkLength, 0x004e4942]]) cubicHeader.setUint32(offset, value, true);
+const cubicBytes = new Uint8Array(cubicGlb);
+cubicBytes.fill(32, 20, 20 + jsonChunkLength);
+cubicBytes.set(cubicJson, 20);
+cubicBytes.set(new Uint8Array(cubicSamples.buffer), 28 + jsonChunkLength);
+const cubicAsset = await new GLTFLoader().parseAsync(cubicGlb, '');
+model.add(cubicAsset.scene);
 const geometry = new BufferGeometry();
 geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0], 3));
 const face = new Mesh(geometry, new MeshBasicMaterial());
@@ -30,6 +50,10 @@ try {
   handle.seek(1.5); step(0); near(value(), 0.75);
   handle.setIntensity(0.5); step(0); near(value(), 0.375);
   near(character.getAnimationState('move').mixerWeight, 1);
+  handle.updateParams({ loop: false });
+  assert.equal(character.getAnimationState('move').loopMode, 'once');
+  handle.updateParams({ loop: true });
+  assert.equal(character.getAnimationState('move').loopMode, 'repeat');
   const stalePause = handle.pause;
   const oldId = handle.actionId;
   handle.stop(); handle.play();
@@ -37,6 +61,43 @@ try {
   assert.throws(stalePause, /obsolete|released/);
   assert.equal(handle.finished, handle.promise);
   character.stopAllAnimations();
+
+  const cubicClip = cubicAsset.animations[0];
+  const originalCubicValues = Array.from(cubicClip.tracks[0].values);
+  character.registerAnimationClips([cubicClip]);
+  const cubicHandle = character.playAnimation(cubicClip.name, { blendMode: 'additive', intensityScale: 0.5 });
+  step(0);
+  const cubicProp = cubicAsset.scene.getObjectByName('CubicProp');
+  cubicProp.scale.toArray().forEach((value, axis) => near(value, [1.5, 2, 2.5][axis]));
+  cubicHandle.stop();
+  const additiveCubic = cubicClip.clone();
+  additiveCubic.name = 'single-cubic-additive';
+  additiveCubic.blendMode = AdditiveAnimationBlendMode;
+  character.registerAnimationClips([additiveCubic]);
+  character.playAnimation(additiveCubic.name, { blendMode: 'replace' });
+  step(0);
+  cubicProp.scale.toArray().forEach((value, axis) => near(value, [3, 4, 5][axis]));
+  assert.deepEqual(Array.from(cubicClip.tracks[0].values), originalCubicValues);
+  character.stopAllAnimations();
+
+  const prepared = character.buildClip('prepared', { 200: [{ time: 0, intensity: 0 }, { time: 1, intensity: 1 }] }, { loopMode: 'repeat', intensityScale: 1, time: 0.1, clampWhenFinished: false });
+  prepared.stop();
+  prepared.updateParams({ weight: 0.5, loop: false, offsetSec: 0.5, finalPose: 'hold' });
+  assert.equal(character.getAnimationState('prepared').playing, false);
+  prepared.play();
+  assert.equal(character.getAnimationState('prepared').loopMode, 'once');
+  step(0); near(value(), 0.25);
+  prepared.updateParams({ offsetSec: 0.6 });
+  prepared.play();
+  step(0); near(value(), 0.3);
+  step(0.5); near(value(), 0.5);
+  assert.equal(character.getAnimationState('prepared').completed, true);
+  prepared.updateParams({ clampWhenFinished: false });
+  step(0); near(value(), 0);
+  prepared.play();
+  prepared.updateParams({ finalPose: 'hold' });
+  step(0.5); near(value(), 0.5);
+  prepared.stop();
 
   character.setAU(200, 0.8);
   step(0.001); near(value(), 0.8);

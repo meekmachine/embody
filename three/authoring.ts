@@ -7,20 +7,11 @@ import type * as Types from './authoringTypes';
 
 export * from './authoringTypes';
 export { resolveBoneNames, fuzzyNameMatch } from './annotations/adapter';
-export { HAIR_COLOR_PRESETS, DEFAULT_HAIR_COLOR_APPEARANCE, HUMANOID_SKELETON_TEMPLATES, CC4_HUMANOID_SKELETON_TEMPLATE } from '../wasm/index';
-
-export const DEFAULT_AXIS_TO_CHANNEL: Record<Types.BoneAxisKey, Types.RotationChannel> = { pitch: 'rx', yaw: 'ry', roll: 'rz' };
-export const DEFAULT_BONE_MAX_DEGREES = 60;
-export const JOINT_CONTROL_SECTION = 'Joint Controls';
-export const CC4_BONES = {
-  EYE_L: 'CC_Base_L_Eye', EYE_R: 'CC_Base_R_Eye', HEAD: 'CC_Base_Head',
-  NECK: 'CC_Base_NeckTwist01', NECK_TWIST: 'CC_Base_NeckTwist02', JAW: 'CC_Base_JawRoot',
-  TONGUE: 'CC_Base_Tongue01', SPINE_01: 'CC_Base_Spine01', SPINE_02: 'CC_Base_Spine02',
-  CLAVICLE_L: 'CC_Base_L_Clavicle', CLAVICLE_R: 'CC_Base_R_Clavicle', HAND_L: 'CC_Base_L_Hand',
-  HAND_R: 'CC_Base_R_Hand', FOOT_L: 'CC_Base_L_Foot', FOOT_R: 'CC_Base_R_Foot',
-  TOEBASE_L: 'CC_Base_L_ToeBase', TOEBASE_R: 'CC_Base_R_ToeBase',
-};
-export const VISEME_KEYS = ['AE', 'Ah', 'B_M_P', 'Ch_J', 'EE', 'Er', 'F_V', 'Ih', 'K_G_H_NG', 'Oh', 'R', 'S_Z', 'T_L_D_N', 'Th', 'W_OO'];
+export {
+  DEFAULT_AXIS_TO_CHANNEL, DEFAULT_BONE_MAX_DEGREES, JOINT_CONTROL_SECTION,
+  VISEME_KEYS, HAIR_COLOR_PRESETS, DEFAULT_HAIR_COLOR_APPEARANCE,
+  HUMANOID_SKELETON_TEMPLATES, CC4_HUMANOID_SKELETON_TEMPLATE,
+} from '../wasm/index';
 
 const json = (value: unknown) => JSON.stringify(value ?? {});
 function request<T>(op: string, payload: unknown = {}): T {
@@ -37,17 +28,8 @@ export const setAUMorphTargets = (profile: Types.Profile, auId: number, side: 'l
 export const setHumanoidRoleBinding = (profile: Types.Profile, role: Types.VRMHumanoidRole, boneName: string | null): Types.Profile => request('profile.setHumanoidRoleBinding', { profile, role, boneName });
 export const resolveHumanoidCharacterization = (profile: Types.Profile): Types.HumanoidCharacterizationResolution => request('profile.resolveHumanoidCharacterization', { profile });
 
-export function hasLeftRightMorphs(auId: number): boolean;
-export function hasLeftRightMorphs(profile: Types.Profile, auId: number): boolean;
-export function hasLeftRightMorphs(profile: Types.Profile | number, auId?: number): boolean {
-  return request('profile.hasLeftRightMorphs', typeof profile === 'number' ? { profile: getPreset('cc4'), auId: profile } : { profile, auId });
-}
-export function isMixedAU(auId: number): boolean;
-export function isMixedAU(profile: Types.Profile, auId: number): boolean;
-export function isMixedAU(profile: Types.Profile | number, auId?: number): boolean {
-  return request('profile.isMixedAU', typeof profile === 'number' ? { profile: getPreset('cc4'), auId: profile } : { profile, auId });
-}
-
+export const hasLeftRightMorphs = (profile: Types.Profile, auId: number): boolean => request('profile.hasLeftRightMorphs', { profile, auId });
+export const isMixedAU = (profile: Types.Profile, auId: number): boolean => request('profile.isMixedAU', { profile, auId });
 export const resolveVisemeProfile = (profile: Partial<Types.Profile>): Types.ResolvedVisemeProfile => request('profile.resolveVisemes', { profile });
 
 export const isMaxDegreesOnlyAxisBindingUpdate = (update: Types.BoneAxisBindingUpdate): boolean => request('bone.isMaxDegreesOnlyUpdate', { update });
