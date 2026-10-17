@@ -11,6 +11,7 @@ import type { NativePlaybackSession } from '../wasm/index';
 import { createAnimationClipFromClipIR, serializeAnimationClips } from './index';
 import type { ClipIR, ThreeModelInspection } from './index';
 import { bindPlaybackRendering } from './playbackRendering';
+import { cloneWithConcreteTrackNames } from './clipBindings';
 
 export type ThreeNativeLoop = { mode: 'once' | 'repeat' | 'pingPong'; count?: number | null };
 export type ThreeNativePlaybackOptions = {
@@ -142,8 +143,8 @@ export class ThreeNativePlaybackConnector {
 
   /**
    * Validate native track bindings through the existing serializer, then retain
-   * the native clone's interpolants and authored/additive sample values. The
-   * validation IR is not used to rebuild or normalize the supplied tracks.
+   * the native clone's interpolants and authored/additive sample values. Concrete
+   * binding names match compiled tracks so Three shares their PropertyMixer.
    */
   playNativeClip(clip: AnimationClip, options: ThreeNativePlaybackOptions = {}): string {
     this.beforeOperation();
@@ -151,7 +152,7 @@ export class ThreeNativePlaybackConnector {
     if (ir.tracks.length !== clip.tracks.length) {
       throw new Error('Every native playback track must serialize against the bound model.');
     }
-    const native = clip.clone();
+    const native = cloneWithConcreteTrackNames(clip, ir.tracks, this.binding.inspection);
     const settings = {
       ...options,
       blendMode: options.blendMode ?? (clip.blendMode === AdditiveAnimationBlendMode ? 'additive' : 'normal'),
@@ -197,17 +198,18 @@ export class ThreeNativePlaybackConnector {
     this.beforeOperation();
     const resource = this.resources.get(handle);
     if (!resource) throw new Error('Unknown, foreign or stale playback handle.');
-    if (clip.tracks.length !== resource.clip.tracks.length || clip.tracks.some((track, index) => {
+    const [ir] = serializeAnimationClips(this.binding.model, [clip], this.binding.inspection);
+    if (ir.tracks.length !== clip.tracks.length) throw new Error('Every edited track must resolve on the bound model.');
+    const native = cloneWithConcreteTrackNames(clip, ir.tracks, this.binding.inspection);
+    if (native.tracks.length !== resource.clip.tracks.length || native.tracks.some((track, index) => {
       const old = resource.clip.tracks[index];
       return track.name !== old.name || track.ValueTypeName !== old.ValueTypeName || sampleSize(track) !== sampleSize(old);
     })) throw new Error('Editing samples must preserve track bindings; play a new clip to change its bindings.');
     const editable = resource.action as EditableAction | undefined;
-    if (!editable || !Array.isArray(editable._interpolants) || editable._interpolants.length !== clip.tracks.length) {
+    if (!editable || !Array.isArray(editable._interpolants) || editable._interpolants.length !== native.tracks.length) {
       throw new Error('This Three version does not support editing native action samples.');
     }
-    const [ir] = serializeAnimationClips(this.binding.model, [clip], this.binding.inspection);
-    if (ir.tracks.length !== clip.tracks.length) throw new Error('Every edited track must resolve on the bound model.');
-    this.dispatch(this.session.replace_clip(handle, JSON.stringify(ir)), clip);
+    this.dispatch(this.session.replace_clip(handle, JSON.stringify(ir)), native);
   }
 
   /** Native state for the owning adapter; never exposed through Polymer. */

@@ -20,6 +20,7 @@ export * from './character';
 export * from './characterHost';
 export { renderScenePlayback, createScenePlaybackFrame } from './playbackRendering';
 import { bindModelReferencePose } from './reference-pose';
+import { concreteTrackName } from './clipBindings';
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
 
 export { captureModelReferencePose, bindModelReferencePose, extendModelReferencePose } from './reference-pose';
@@ -373,6 +374,8 @@ export function createAnimationClipFromClipIR(
   const tracks: KeyframeTrack[] = [];
   for (const track of clip.tracks ?? []) {
     const kind = track.target?.kind;
+    const trackName = concreteTrackName(track.target, inspection);
+    if (!trackName) continue;
     const times = Array.from(track.times ?? []);
     const values = Array.from(track.values ?? []);
     if (!times.length || !values.length) continue;
@@ -383,7 +386,6 @@ export function createAnimationClipFromClipIR(
     if (kind === 'morphTarget') {
       const binding = inspection.morphBindings.get(Number(track.target.morphTargetId));
       if (!binding?.mesh) continue;
-      const trackName = `${binding.mesh.uuid}.morphTargetInfluences[${binding.index}]`;
       if (track.inheritStart) {
         values[0] = binding.mesh.morphTargetInfluences?.[binding.index] ?? 0;
       }
@@ -399,13 +401,13 @@ export function createAnimationClipFromClipIR(
       const property = track.target.property ?? 'rotation';
       if (property === 'rotation' || property === 'quaternion') {
         if (track.inheritStart) object.quaternion.toArray(values, 0);
-        tracks.push(new QuaternionKeyframeTrack(`${object.uuid}.quaternion`, times, values, interpolation));
+        tracks.push(new QuaternionKeyframeTrack(trackName, times, values, interpolation));
       } else if (property === 'position') {
         if (track.inheritStart) object.position.toArray(values, 0);
-        tracks.push(new VectorKeyframeTrack(`${object.uuid}.position`, times, values, interpolation));
+        tracks.push(new VectorKeyframeTrack(trackName, times, values, interpolation));
       } else if (property === 'scale') {
         if (track.inheritStart) object.scale.toArray(values, 0);
-        tracks.push(new VectorKeyframeTrack(`${object.uuid}.scale`, times, values, interpolation));
+        tracks.push(new VectorKeyframeTrack(trackName, times, values, interpolation));
       }
       continue;
     }
@@ -414,7 +416,7 @@ export function createAnimationClipFromClipIR(
       const mesh = inspection.meshBindings.get(Number(track.target.meshId));
       if (!mesh) continue;
       if (track.inheritStart) values[0] = Number(mesh.visible);
-      tracks.push(new NumberKeyframeTrack(`${mesh.uuid}.visible`, times, values, interpolation));
+      tracks.push(new NumberKeyframeTrack(trackName, times, values, interpolation));
     }
   }
 
@@ -433,7 +435,7 @@ export function serializeAnimationClips(
   const boneIds = new Map<object, number>(Array.from(inspection.boneBindings, ([id, bone]) => [bone, id]));
   const objectIds = new Map<object, number>(Array.from(inspection.objectBindings, ([id, object]) => [object, id]));
   return clips.map((clip) => {
-    const tracks: Array<Record<string, unknown>> = [];
+    const tracks: ClipIRTrack[] = [];
     const channelKinds = new Map<string, number>();
     const channelId = (kind: 'face' | 'body' | 'scene') => {
       const existing = channelKinds.get(kind);
@@ -446,7 +448,7 @@ export function serializeAnimationClips(
       const found = findTrackTarget(model, track);
       if (!found?.object) return;
       const { parsed, object } = found;
-      let target: Record<string, unknown> | null = null;
+      let target: ClipIRTrack['target'] | null = null;
       const property = parsed.propertyName;
       if ((property === 'morphTargetInfluences' || property === 'weights') && (object as any).isMesh) {
         const mesh = object as Mesh;

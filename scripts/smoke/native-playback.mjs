@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { AnimationClip, AnimationMixer, Group, Object3D, Timer, VectorKeyframeTrack } from 'three';
+import { AnimationClip, AnimationMixer, Bone, BufferGeometry, Group, Mesh, MeshBasicMaterial, NumberKeyframeTrack, Object3D, QuaternionKeyframeTrack, Timer, VectorKeyframeTrack } from 'three';
 import { initEmbodyCore } from '../../dist/wasm.js';
 import { renderScenePlayback, ThreeModelInspector, ThreeNativePlaybackConnector } from '../../dist/three.js';
 
@@ -7,7 +7,13 @@ const wasm = await initEmbodyCore();
 const model = new Group();
 const target = new Object3D();
 target.name = 'Target';
-model.add(target);
+const face = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+face.name = 'Face';
+face.morphTargetDictionary = { Smile: 0 };
+face.morphTargetInfluences = [0];
+const head = new Bone();
+head.name = 'Head';
+model.add(target, face, head);
 const mixer = new AnimationMixer(model);
 const inspection = new ThreeModelInspector().inspectModel(model);
 const releases = [];
@@ -100,10 +106,55 @@ try {
   assert.equal(events.filter((event) => event.handle === empty).length, 0);
   step(0.25);
   assert.deepEqual(events.filter((event) => event.handle === empty).map((event) => event.type), ['completed']);
+
+  const concreteClip = (name, destination, valueType, value) => ({
+    name, durationSeconds: 1, channels: [{ id: 1, kind: 'face' }],
+    tracks: [{ id: 1, channelId: 1, target: destination, valueType, times: [0, 1], values: [...value, ...value] }],
+  });
+  const [morphId, morphBinding] = [...inspection.morphBindings].find(([, binding]) => binding.mesh === face && binding.index === 0);
+  const meshId = [...inspection.meshBindings].find(([, mesh]) => mesh === face)[0];
+  const namedMorph = new AnimationClip('named-morph', 1, [
+    new NumberKeyframeTrack('Face.morphTargetInfluences[Smile]', [0, 1], [0, 0.4]),
+  ]);
+  const numericMorph = new AnimationClip('numeric-morph', 1, [
+    new NumberKeyframeTrack('Face.morphTargetInfluences[0]', [0, 1], [0.8, 0.8]),
+  ]);
+  const namedMorphHandle = connector.playNativeClip(namedMorph, { startSeconds: 0.5, loop: { mode: 'repeat' } });
+  const numericMorphHandle = connector.playNativeClip(numericMorph, { loop: { mode: 'repeat' } });
+  step(0); close(face.morphTargetInfluences[0], 0.5);
+  const compiledMorph = connector.play(concreteClip('compiled-morph', { kind: 'morphTarget', meshId, morphTargetId: morphId }, 'scalar', [1]), { loop: { mode: 'repeat' } });
+  step(0); close(face.morphTargetInfluences[0], 2 / 3);
+  const namedAction = connector.getAction(namedMorphHandle);
+  assert.equal(namedAction.getClip().tracks[0].name, `${morphBinding.mesh.uuid}.morphTargetInfluences[0]`);
+  assert.equal(namedMorph.tracks[0].name, 'Face.morphTargetInfluences[Smile]', 'normalization never mutates the source name');
+  const editedMorph = numericMorph.clone();
+  editedMorph.tracks[0].values.set([0, 0.8]);
+  connector.replaceClip(namedMorphHandle, editedMorph);
+  assert.equal(connector.getAction(namedMorphHandle), namedAction, 'a numeric alias edits the existing named action');
+  close(namedAction.time, 0.5);
+  step(0); close(face.morphTargetInfluences[0], 2.2 / 3);
+  assert.deepEqual(Array.from(namedMorph.tracks[0].values), Array.from(new Float32Array([0, 0.4])));
+  assert.equal(editedMorph.tracks[0].name, 'Face.morphTargetInfluences[0]');
+  for (const handle of [namedMorphHandle, numericMorphHandle, compiledMorph]) connector.control(handle, { type: 'stop' });
+
+  const objectId = [...inspection.objectBindings].find(([, object]) => object === target)[0];
+  const boneId = [...inspection.boneBindings].find(([, bone]) => bone === head)[0];
+  const nativeTransforms = new AnimationClip('named-transforms', 1, [
+    new VectorKeyframeTrack('Target.position', [0, 1], [2, 0, 0, 2, 0, 0]),
+    new QuaternionKeyframeTrack('Head.quaternion', [0, 1], [0, 0, 0, 1, 0, 0, 0, 1]),
+  ]);
+  const transforms = connector.playNativeClip(nativeTransforms, { loop: { mode: 'repeat' } });
+  const position = connector.play(concreteClip('compiled-position', { kind: 'objectTransform', objectId, property: 'position' }, 'vec3', [8, 0, 0]), { loop: { mode: 'repeat' } });
+  const rotation = connector.play(concreteClip('compiled-rotation', { kind: 'boneTransform', boneId, property: 'rotation' }, 'quat', [0, 0, Math.SQRT1_2, Math.SQRT1_2]), { loop: { mode: 'repeat' } });
+  step(0); close(target.position.x, 5); close(head.quaternion.z, Math.sin(Math.PI / 8));
+  assert.deepEqual(nativeTransforms.tracks.map((track) => track.name), ['Target.position', 'Head.quaternion']);
+  for (const handle of [transforms, position, rotation]) connector.control(handle, { type: 'stop' });
 } finally {
   connector.dispose();
   connector.dispose();
   timer.dispose();
+  face.geometry.dispose();
+  face.material.dispose();
 }
 assert.equal(mixer.stats.actions.inUse, 0);
 assert.equal(mixer.stats.actions.total, 0, 'replacement and disposal release owned native actions');
