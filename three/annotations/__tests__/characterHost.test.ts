@@ -8,7 +8,7 @@ const acquisition = vi.hoisted(() => ({
   load: vi.fn(), scene: vi.fn(), release: vi.fn(), engines: [] as Array<{ start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }>,
   prepare: vi.fn(), cancelPreparation: undefined as (() => void) | undefined, controllerDisposed: vi.fn(),
 }));
-vi.mock('../../../wasm/index', () => ({ initEmbodyCore: async () => ({}) }));
+vi.mock('@lovelace_lol/embody/wasm', () => ({ initEmbodyCore: async () => ({}) }));
 vi.mock('../../model', () => ({
   loadCharacterModel: (...args: unknown[]) => acquisition.load(...args),
   applyCharacterModelTransform: vi.fn(),

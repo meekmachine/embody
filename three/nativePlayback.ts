@@ -52,11 +52,13 @@ type Command =
   | { type: 'release'; handle: string };
 type Batch = { handle?: string; commands: Command[]; events: ThreeNativePlaybackEvent[] };
 type NativeNotification = { type: 'completed' | 'cancelled' | 'error'; handle: string; message?: string };
-type Resource = { clip: AnimationClip; action?: AnimationAction; binding: BoundPlayback; fadingOut?: boolean; suspendedPaused?: boolean };
+type PausedFade = { seconds: number; from: number; to: number; weight: number };
+type Resource = { clip: AnimationClip; action?: AnimationAction; binding: BoundPlayback; fadingOut?: boolean; pausedFade?: PausedFade; explicitlyPaused?: boolean; suspendedPaused?: boolean };
 type PendingBatch = { batch: Batch; nextCommand: number; clip?: AnimationClip; afterCommands?: () => void };
 type NativeInterpolant = { resultBuffer: unknown; settings?: unknown; valueSize: number };
 type NativeTrack = KeyframeTrack & { createInterpolant: ((buffer: unknown) => NativeInterpolant) & { isInterpolantFactoryMethodGLTFCubicSpline?: boolean } };
-type EditableAction = AnimationAction & { _interpolants: NativeInterpolant[]; _interpolantSettings: unknown };
+type FadeInterpolant = { parameterPositions: ArrayLike<number>; sampleValues: { [index: number]: number }; evaluate(time: number): ArrayLike<number> };
+type EditableAction = AnimationAction & { _interpolants: NativeInterpolant[]; _interpolantSettings: unknown; _weightInterpolant: FadeInterpolant | null };
 const sampleSize = (track: KeyframeTrack) => track.getValueSize() / ((track as NativeTrack).createInterpolant.isInterpolantFactoryMethodGLTFCubicSpline ? 3 : 1);
 
 const asError = (error: unknown): Error => error instanceof Error ? error : new Error(String(error));
@@ -171,9 +173,11 @@ export class ThreeNativePlaybackConnector {
       if (!resource.action) continue;
       if (!enabled) {
         resource.suspendedPaused = resource.action.paused;
+        this.pauseFade(resource);
         resource.action.paused = true;
       } else if (resource.suspendedPaused !== undefined) {
         resource.action.paused = resource.suspendedPaused;
+        if (!resource.explicitlyPaused) this.resumeFade(resource);
         resource.suspendedPaused = undefined;
       }
     }
@@ -248,6 +252,31 @@ export class ThreeNativePlaybackConnector {
     this.listeners.clear();
     this.session.free();
     this.disposed = true;
+  }
+
+  private pauseFade(resource: Resource): void {
+    const action = resource.action as EditableAction | undefined;
+    const fade = action?._weightInterpolant;
+    if (!action || !fade) return;
+    // Preserve Three's own fade segment. Mixer time remains its only clock.
+    resource.pausedFade = {
+      seconds: Math.max(0, fade.parameterPositions[1] - resource.binding.mixer.time),
+      from: fade.evaluate(resource.binding.mixer.time)[0], to: fade.sampleValues[1], weight: action.weight,
+    };
+    action.stopFading();
+    action.setEffectiveWeight(resource.pausedFade.weight * resource.pausedFade.from);
+  }
+
+  private resumeFade(resource: Resource): void {
+    const action = resource.action as EditableAction | undefined;
+    const fade = resource.pausedFade;
+    if (!action || !fade) return;
+    resource.pausedFade = undefined;
+    action.setEffectiveWeight(fade.weight);
+    action.fadeIn(fade.seconds);
+    const interpolant = action._weightInterpolant!;
+    interpolant.sampleValues[0] = fade.from;
+    interpolant.sampleValues[1] = fade.to;
   }
 
   private beforeOperation(): void {
@@ -359,31 +388,41 @@ export class ThreeNativePlaybackConnector {
       action.play();
       return;
     }
-    const action = this.resources.get(command.handle)?.action;
-    if (!action) throw new Error('Native playback action is unavailable.');
+    const resource = this.resources.get(command.handle);
+    const action = resource?.action;
+    if (!resource || !action) throw new Error('Native playback action is unavailable.');
     const control = command.control;
     switch (control.type) {
       case 'pause':
+        resource.explicitlyPaused = true;
+        this.pauseFade(resource);
         action.paused = true;
         if (!this.renderingEnabled) this.resources.get(command.handle)!.suspendedPaused = true;
         break;
       case 'resume':
-        if (this.renderingEnabled) action.paused = false;
+        resource.explicitlyPaused = false;
+        if (this.renderingEnabled) { action.paused = false; this.resumeFade(resource); }
         else this.resources.get(command.handle)!.suspendedPaused = false;
         break;
       case 'seek': action.time = control.seconds; break;
       case 'setSpeed': action.setEffectiveTimeScale(control.speed); break;
       case 'setWeight':
+        resource.pausedFade = undefined;
         action.setEffectiveWeight(control.weight);
         this.resources.get(command.handle)!.fadingOut = false;
         break;
       case 'setBlendMode': action.blendMode = blendMode(control.blendMode); break;
       case 'setLoop': action.setLoop(loopMode(control.loop.mode), control.loop.count ?? Infinity); break;
       case 'setFinalPose': action.clampWhenFinished = control.finalPose === 'hold'; break;
-      case 'fadeIn': action.fadeIn(control.seconds); this.resources.get(command.handle)!.fadingOut = false; break;
+      case 'fadeIn':
+        resource.pausedFade = undefined;
+        action.fadeIn(control.seconds); resource.fadingOut = false;
+        if (resource.explicitlyPaused || !this.renderingEnabled) this.pauseFade(resource);
+        break;
       case 'fadeOut':
+        resource.pausedFade = undefined;
         if (control.seconds === 0) this.notifications.push({ type: 'cancelled', handle: command.handle });
-        else { action.fadeOut(control.seconds); this.resources.get(command.handle)!.fadingOut = true; }
+        else { action.fadeOut(control.seconds); resource.fadingOut = true; if (resource.explicitlyPaused || !this.renderingEnabled) this.pauseFade(resource); }
         break;
       case 'stop': throw new Error('Rust must translate stop into a resource release.');
     }

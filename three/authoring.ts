@@ -1,6 +1,6 @@
 import type { AnimationClip, Mesh, Object3D } from 'three';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { requireInitializedEmbodyCore, CC4_HUMANOID_SKELETON_TEMPLATE, HUMANOID_SKELETON_TEMPLATES, DEFAULT_HAIR_COLOR_APPEARANCE } from '../wasm/index';
+import { requireInitializedEmbodyCore, CC4_HUMANOID_SKELETON_TEMPLATE, HUMANOID_SKELETON_TEMPLATES, DEFAULT_HAIR_COLOR_APPEARANCE } from '@lovelace_lol/embody/wasm';
 import { ThreeModelInspector, serializeAnimationClips } from './index';
 import type { Region } from './annotations/types';
 import type * as Types from './authoringTypes';
@@ -11,7 +11,7 @@ export {
   DEFAULT_AXIS_TO_CHANNEL, DEFAULT_BONE_MAX_DEGREES, JOINT_CONTROL_SECTION,
   VISEME_KEYS, HAIR_COLOR_PRESETS, DEFAULT_HAIR_COLOR_APPEARANCE,
   HUMANOID_SKELETON_TEMPLATES, CC4_HUMANOID_SKELETON_TEMPLATE,
-} from '../wasm/index';
+} from '@lovelace_lol/embody/wasm';
 
 const json = (value: unknown) => JSON.stringify(value ?? {});
 function request<T>(op: string, payload: unknown = {}): T {

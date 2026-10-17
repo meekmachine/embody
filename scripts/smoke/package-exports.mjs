@@ -28,6 +28,16 @@ const serviceWorkerSource = await readFile(serviceWorkerPath, 'utf8');
 const root = await import('@lovelace_lol/embody');
 const three = await import('@lovelace_lol/embody/three');
 const wasm = await import('@lovelace_lol/embody/wasm');
+const core = await wasm.initEmbodyCore();
+// Consumers initialize the public loader once, then call synchronous exports.
+// No async character factory may initialize a second bundled loader first.
+const synchronousPreset = three.getPreset('cc4');
+const synchronousVisemes = three.resolveVisemeProfile({});
+const unboundCharacter = three.createRustEmbodyHostUnbound({ profileMode: 'profile', profile: {} });
+const unboundProfileMode = unboundCharacter.getProfileMode();
+unboundCharacter.dispose();
+const rootUnboundCharacter = root.createRustEmbodyHostUnbound({ profileMode: 'profile', profile: {} });
+rootUnboundCharacter.dispose();
 // The Three adapter must share the auto-initialized public loader, including
 // synchronous calls made immediately after importing the package.
 const markerAngleVisible = three.passesMarkerCameraAngleGate({ markerAngle: 0, currentCameraAngle: 0 });
@@ -36,7 +46,6 @@ const annotationMath = await three.createRustAnnotationCameraCore();
 const orbit = annotationMath.createCameraOrbit({ x: 0, y: 0, z: 0 }, 2, 1, 100);
 const orbitPose = orbit.sample(100); orbit.dispose();
 
-const core = await wasm.initEmbodyCore();
 const distEntries = await readdir(new URL('../../dist/', import.meta.url));
 const wasmEntrySource = await readFile(new URL('../../dist/wasm.js', import.meta.url), 'utf8');
 const preset = JSON.parse(core.get_preset_json('cc4'));
@@ -92,6 +101,9 @@ new three.ThreeFrameApplier().addMorphTarget(morphRoot, {
 
 const checks = [
   ['root ESM Three adapter', typeof root.ThreeModelInspector === 'function'],
+  ['root and Wasm exports share one loader', root.initEmbodyCore === wasm.initEmbodyCore && root.requireInitializedEmbodyCore() === core],
+  ['synchronous Three authoring uses public Wasm initialization', synchronousPreset.meshes.CC_Base_Eye.category === 'eye' && synchronousVisemes.visemeSlots.length === 0],
+  ['synchronous Three unbound character uses public Wasm initialization', unboundProfileMode === 'profile'],
   ...['DPthree', 'DPthreeCameraController', 'DPthree3DMarkers', 'DPthreeHTMLMarkers', 'DPthreeMarkers', 'CameraDOMControls', 'createMarkerVisibilityLifecycle', 'createRuntimeAnnotationPreviewLifecycle'].map(name => [`annotation runtime ${name}`, typeof three[name] === 'function']),
   ['annotation adapter shares initialized Wasm', markerAngleVisible],
   ['standalone annotation preset resolution', annotationConfig.regions.length > 0 && !!annotationConfig.auToMorphs],

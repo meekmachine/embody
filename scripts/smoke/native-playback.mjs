@@ -69,7 +69,23 @@ try {
   const fading = connector.playNativeClip(clip, { loop: { mode: 'repeat' } });
   connector.fadeOut(fading, 0.25);
   step(0.125); assert(connector.getAction(fading));
-  step(0.125); assert.equal(connector.getAction(fading), undefined);
+  connector.control(fading, { type: 'pause' });
+  const pausedFadeWeight = connector.getAction(fading).getEffectiveWeight();
+  step(1); close(connector.getAction(fading).getEffectiveWeight(), pausedFadeWeight);
+  connector.control(fading, { type: 'resume' });
+  step(0.0625); close(connector.getAction(fading).getEffectiveWeight(), pausedFadeWeight / 2);
+  step(0.0625); assert.equal(connector.getAction(fading), undefined);
+
+  const heldFade = connector.playNativeClip(clip, { finalPose: 'hold' });
+  step(1);
+  assert.equal(connector.getAction(heldFade).paused, true, 'native completion clamps the held action');
+  connector.fadeOut(heldFade, 0.5);
+  step(0.125); close(connector.getAction(heldFade).getEffectiveWeight(), 0.75);
+  connector.setRendering(false);
+  step(2); close(connector.getAction(heldFade).getEffectiveWeight(), 0.75);
+  connector.setRendering(true);
+  step(0.125); close(connector.getAction(heldFade).getEffectiveWeight(), 0.5);
+  step(0.25); assert.equal(connector.getAction(heldFade), undefined, 'completed holds still fade and release after render suspension');
   const rebound = connector.playNativeClip(clip);
   connector.rebind(model.uuid, 'next-profile');
   assert.equal(connector.getAction(rebound), undefined);

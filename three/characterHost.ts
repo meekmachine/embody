@@ -1,6 +1,6 @@
 import { PerspectiveCamera } from 'three';
 import type { Camera, Scene } from 'three';
-import { initEmbodyCore } from '../wasm/index';
+import { initEmbodyCore } from '@lovelace_lol/embody/wasm';
 import { Embody } from './character';
 import type { RustEmbodyHostConfig } from './character';
 import { loadCharacterModel, applyCharacterModelTransform, disposeCharacterModel } from './model';

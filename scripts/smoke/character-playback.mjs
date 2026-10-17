@@ -126,6 +126,21 @@ try {
   replacement.stop();
   character.stopAllAnimations();
 
+  character.playAnimation('base', { loopMode: 'repeat' });
+  character.setAU(200, 0.8); step(0.001); near(value(), 0.5);
+  const mixedTransition = character.transitionAU(200, 0.4, 1000);
+  step(0); near(value(), 0.5);
+  step(0.5); near(value(), 0.4);
+  step(0.5); near(value(), 0.3);
+  await mixedTransition.promise;
+  const mixedRelease = character.transitionAU(200, 0, 1000);
+  step(0); near(value(), 0.3);
+  step(0.5); near(value(), (0.2 + 0.4 * 0.5) / 1.5);
+  mixedRelease.pause(); step(1); near(value(), (0.2 + 0.4 * 0.5) / 1.5);
+  mixedRelease.resume(); step(0.5); near(value(), 0.2);
+  await mixedRelease.promise;
+  character.stopAllAnimations();
+
   character.playAnimation('move', { loopMode: 'repeat' });
   step(0.25);
   const nativeTime = character.getAnimationState('move').time;

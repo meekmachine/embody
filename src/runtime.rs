@@ -144,6 +144,7 @@ pub struct RuntimeCore {
     profile: Option<ProfileData>,
     model: Option<ModelData>,
     direct_morph_values: HashMap<(u32, u32), f32>,
+    live_command_targets: BTreeSet<String>,
     initial_morph_values: HashMap<(u32, u32), f32>,
     bone_rest_scales: HashMap<u32, [f32; 3]>,
     object_rest_positions: HashMap<u32, [f32; 3]>,
@@ -182,6 +183,7 @@ impl RuntimeCore {
             profile: None,
             model: None,
             direct_morph_values: HashMap::new(),
+            live_command_targets: BTreeSet::new(),
             initial_morph_values: HashMap::new(),
             bone_rest_scales: HashMap::new(),
             object_rest_positions: HashMap::new(),
@@ -414,8 +416,102 @@ impl RuntimeCore {
         }
     }
 
+    /// Begin one host command; its concrete destinations determine which native
+    /// actions are replaced. Unrelated targets keep their existing playback.
+    #[wasm_bindgen]
+    pub fn begin_live_command(&mut self) { self.live_command_targets.clear(); }
+
+    #[wasm_bindgen]
+    pub fn live_command_targets_json(&self) -> String {
+        let targets: Vec<serde_json::Value> = self.live_command_targets.iter()
+            .map(|target| serde_json::from_str(target).expect("serialized concrete target")).collect();
+        serde_json::to_string(&targets).expect("concrete target list")
+    }
+
+    fn touch_morph(&mut self, mesh_id: u32, morph_target_id: u32) {
+        self.live_command_targets.insert(serde_json::json!({
+            "kind":"morphTarget", "meshId":mesh_id, "morphTargetId":morph_target_id,
+        }).to_string());
+    }
+
+    fn touch_au_morphs(&mut self, id: u32) {
+        for binding in &self.au_bindings {
+            if binding.au_id == id {
+                self.live_command_targets.insert(serde_json::json!({
+                    "kind":"morphTarget", "meshId":binding.mesh_id, "morphTargetId":binding.morph_target_id,
+                }).to_string());
+            }
+        }
+    }
+
+    fn touch_au(&mut self, id: u32) {
+        self.touch_au_morphs(id);
+        for axis in &self.composite_axes {
+            if axis.value_rows.iter().any(|row| row.au_id == id) || axis.binding_rows.iter().any(|row| row.au_id == id) {
+                self.live_command_targets.insert(serde_json::json!({
+                    "kind":"boneTransform", "boneId":axis.bone_id, "property":"rotation",
+                }).to_string());
+            }
+        }
+        for row in &self.translation_rows {
+            if row.au_id == id {
+                self.live_command_targets.insert(serde_json::json!({
+                    "kind":"boneTransform", "boneId":row.bone_id, "property":"position",
+                }).to_string());
+            }
+        }
+    }
+
+    fn touch_viseme(&mut self, index: usize) {
+        for binding in &self.viseme_bindings {
+            if binding.viseme_index as usize == index {
+                self.live_command_targets.insert(serde_json::json!({
+                    "kind":"morphTarget", "meshId":binding.mesh_id, "morphTargetId":binding.morph_target_id,
+                }).to_string());
+            }
+        }
+        let tongue_aus: Vec<_> = self.viseme_tongue_targets.get(index)
+            .map(|targets| targets.keys().copied().collect()).unwrap_or_default();
+        for id in tongue_aus { self.touch_au(id); }
+        if self.viseme_jaw_amounts.get(index).copied().unwrap_or(0.0) != 0.0 {
+            if let Some(jaw) = self.jaw_binding {
+                self.live_command_targets.insert(serde_json::json!({
+                    "kind":"boneTransform", "boneId":jaw.bone_id, "property":"rotation",
+                }).to_string());
+            }
+        }
+    }
+
+    /// Carry canonical controls across a renderer rebind. Model-local IDs and
+    /// reference values belong to the new binding and are never copied.
+    #[wasm_bindgen]
+    pub fn copy_live_state_from(&mut self, previous: &RuntimeCore) {
+        self.au_values = previous.au_values.clone();
+        self.au_balances = previous.au_balances.clone();
+        self.mix_weights = previous.mix_weights.clone();
+        for (index, id) in self.viseme_slot_ids.iter().enumerate() {
+            if let Some(old_index) = previous.viseme_slot_ids.iter().position(|old| old == id) {
+                self.viseme_values[index] = previous.get_viseme(old_index as u32);
+                self.viseme_jaw_scales[index] = previous.get_viseme_jaw_scale(old_index as u32);
+            }
+        }
+        self.direct_morph_values.clear();
+        if let (Some(old_model), Some(model)) = (&previous.model, &self.model) {
+            for ((mesh_id, target_id), value) in &previous.direct_morph_values {
+                let Some(old_mesh) = old_model.meshes.iter().find(|mesh| mesh.id == *mesh_id) else { continue; };
+                let Some(old_target) = old_model.morph_targets.iter().find(|target| target.mesh_id == *mesh_id && target.id == *target_id) else { continue; };
+                for mesh in model.meshes.iter().filter(|mesh| mesh.name == old_mesh.name) {
+                    for target in model.morph_targets.iter().filter(|target| target.mesh_id == mesh.id && target.name == old_target.name) {
+                        self.direct_morph_values.insert((mesh.id, target.id), *value);
+                    }
+                }
+            }
+        }
+    }
+
     #[wasm_bindgen]
     pub fn set_au(&mut self, id: u32, value: f32, balance: f32) {
+        self.touch_au(id);
         self.au_values.insert(id, clamp01(value));
         self.au_balances.insert(id, clamp_signed(balance));
     }
@@ -482,6 +578,7 @@ impl RuntimeCore {
 
     #[wasm_bindgen]
     pub fn set_au_mix_weight(&mut self, id: u32, weight: f32) {
+        if self.mixed_aus.contains_key(&id) { self.touch_au_morphs(id); }
         self.mix_weights.insert(id, clamp01(weight));
     }
 
@@ -491,6 +588,7 @@ impl RuntimeCore {
         if index >= self.viseme_values.len() {
             return;
         }
+        self.touch_viseme(index);
         self.viseme_values[index] = clamp01(value);
     }
 
@@ -500,6 +598,7 @@ impl RuntimeCore {
         if index >= self.viseme_jaw_scales.len() {
             return;
         }
+        self.touch_viseme(index);
         self.viseme_jaw_scales[index] = finite_or(jaw_scale, 1.0);
     }
 
@@ -715,6 +814,7 @@ impl RuntimeCore {
     /// visemes, direct morph overrides, and authored/current morph mix weights.
     #[wasm_bindgen]
     pub fn reset_body_controls(&mut self) {
+        for id in self.body_control_au_ids.iter().copied().collect::<Vec<_>>() { self.touch_au(id); }
         for id in &self.body_control_au_ids {
             self.au_values.remove(id);
             self.au_balances.remove(id);
@@ -743,6 +843,22 @@ impl RuntimeCore {
 
     #[wasm_bindgen]
     pub fn clear(&mut self) {
+        // Include targets already fading out: clear also cancels those native
+        // releases even though their canonical controls are already neutral.
+        if let Some(model) = &self.model {
+            for target in &model.morph_targets {
+                self.live_command_targets.insert(serde_json::json!({
+                    "kind":"morphTarget", "meshId":target.mesh_id, "morphTargetId":target.id,
+                }).to_string());
+            }
+            for bone in &model.bones {
+                for property in ["rotation", "position"] {
+                    self.live_command_targets.insert(serde_json::json!({
+                        "kind":"boneTransform", "boneId":bone.id, "property":property,
+                    }).to_string());
+                }
+            }
+        }
         self.au_values.clear();
         self.au_balances.clear();
         self.mix_weights.clear();
@@ -759,6 +875,7 @@ impl RuntimeCore {
     pub fn set_morph(&mut self, morph_name: &str, value: f32, mesh_names_json: &str) -> u32 {
         let targets = self.resolve_morph_targets(morph_name, None, mesh_names_json);
         for target in &targets {
+            self.touch_morph(target.0, target.1);
             self.direct_morph_values.insert(*target, clamp01(value));
         }
         targets.len() as u32
@@ -768,6 +885,7 @@ impl RuntimeCore {
     pub fn set_morph_index(&mut self, morph_index: i32, value: f32, mesh_names_json: &str) -> u32 {
         let targets = self.resolve_morph_targets("", Some(morph_index), mesh_names_json);
         for target in &targets {
+            self.touch_morph(target.0, target.1);
             self.direct_morph_values.insert(*target, clamp01(value));
         }
         targets.len() as u32
@@ -780,6 +898,7 @@ impl RuntimeCore {
     #[wasm_bindgen]
     pub fn release_morph(&mut self, morph_name: &str, mesh_names_json: &str) -> u32 {
         let targets = self.resolve_morph_targets(morph_name, None, mesh_names_json);
+        for target in &targets { self.touch_morph(target.0, target.1); }
         targets.iter().filter(|target| self.direct_morph_values.remove(target).is_some()).count() as u32
     }
 
@@ -787,6 +906,7 @@ impl RuntimeCore {
     #[wasm_bindgen]
     pub fn release_morph_index(&mut self, morph_index: i32, mesh_names_json: &str) -> u32 {
         let targets = self.resolve_morph_targets("", Some(morph_index), mesh_names_json);
+        for target in &targets { self.touch_morph(target.0, target.1); }
         targets.iter().filter(|target| self.direct_morph_values.remove(target).is_some()).count() as u32
     }
 
@@ -2932,6 +3052,78 @@ mod tests {
         core.set_au(51, 0.0, 0.0);
         core.set_viseme(0, 0.0);
         assert_eq!(core.evaluate_active_bone_frame().len(), 0);
+    }
+
+    #[test]
+    fn live_commands_identify_only_their_concrete_targets_even_when_values_repeat() {
+        let mut core = RuntimeCore::new(2);
+        core.load_au_morph_bindings(&[1., 2., 10., 100., 1., 2., 2., 10., 101., 1.]);
+        core.load_viseme_morph_bindings(&[0., 10., 100., 1., 1., 10., 102., 1.]);
+        core.load_jaw_binding(&[3., 0., 1., 30.]);
+        core.load_viseme_jaw_amounts(&[1., 1.]);
+        core.set_au(2, 0.5, 0.);
+        core.set_au(1, 0.5, 0.);
+        core.begin_live_command();
+        core.set_au(1, 0.5, 0.);
+        let targets: Vec<serde_json::Value> = serde_json::from_str(&core.live_command_targets_json()).unwrap();
+        assert_eq!(targets, vec![serde_json::json!({"kind":"morphTarget","meshId":10,"morphTargetId":100})]);
+        let clip: ClipIR = serde_json::from_str(&core.build_live_clip("live", 1.).unwrap()).unwrap();
+        assert_eq!(clip.tracks.len(), 2, "untouched canonical targets remain in the complete pose");
+        assert!(clip.tracks.iter().any(|track| track.target == targets[0]));
+        core.begin_live_command();
+        core.set_viseme(1, 1.);
+        let targets: Vec<serde_json::Value> = serde_json::from_str(&core.live_command_targets_json()).unwrap();
+        assert_eq!(targets.len(), 2);
+        assert!(targets.contains(&serde_json::json!({"kind":"morphTarget","meshId":10,"morphTargetId":102})));
+        assert!(targets.contains(&serde_json::json!({"kind":"boneTransform","boneId":3,"property":"rotation"})));
+        core.begin_live_command();
+        core.set_viseme(99, 1.);
+        assert_eq!(core.live_command_targets_json(), "[]");
+    }
+
+    #[test]
+    fn morph_strength_commands_do_not_replace_bone_or_unmixed_morph_transitions() {
+        let mut core = RuntimeCore::new(0);
+        core.load_au_morph_bindings(&[1., 2., 10., 100., 1., 2., 2., 10., 101., 1.]);
+        core.set_mixed_aus(&[1]);
+        core.load_bone_translations(&[1., 3., 0., 1., 1.]);
+        core.set_au(1, 1., 0.);
+        core.begin_live_command();
+        core.set_au_mix_weight(1, 0.5);
+        let targets: Vec<serde_json::Value> = serde_json::from_str(&core.live_command_targets_json()).unwrap();
+        assert_eq!(targets, vec![serde_json::json!({"kind":"morphTarget","meshId":10,"morphTargetId":100})]);
+        core.begin_live_command();
+        core.set_au_mix_weight(2, 0.5);
+        assert_eq!(core.live_command_targets_json(), "[]", "unmixed morphs ignore strength changes");
+    }
+
+    #[test]
+    fn renderer_rebind_transfers_semantic_state_and_remaps_direct_targets_without_copying_baselines() {
+        let profile = r#"{"visemeSlots":[{"id":"a"},{"id":"b"}],"morphToMesh":{"face":["Face"]}}"#;
+        let mut previous = RuntimeCore::new(0);
+        previous.configure_with_profile(profile, r#"{"meshes":[{"id":1,"name":"Face","morphTargetIds":[2]}],"morphTargets":[{"id":2,"meshId":1,"name":"Smile","hostIndex":0,"initialValue":0.1}]}"#).unwrap();
+        previous.set_au(12, 0.75, -0.25);
+        previous.set_au_mix_weight(12, 0.5);
+        previous.set_viseme(0, 0.6);
+        previous.set_viseme_jaw_scale(0, 0.25);
+        previous.set_morph("Smile", 0.9, "[]");
+        let mut rebound = RuntimeCore::new(0);
+        rebound.configure_with_profile(r#"{"visemeSlots":[{"id":"b"},{"id":"a"}],"morphToMesh":{"face":["Face"]}}"#,
+            r#"{"meshes":[{"id":4,"name":"Face","morphTargetIds":[7]}],"morphTargets":[{"id":7,"meshId":4,"name":"Smile","hostIndex":0,"initialValue":0.3}]}"#).unwrap();
+        rebound.copy_live_state_from(&previous);
+        assert_eq!(rebound.get_au(12), 0.75);
+        assert_eq!(rebound.get_au_balance(12), -0.25);
+        assert_eq!(rebound.get_au_mix_weight(12), 0.5);
+        assert_eq!(rebound.get_viseme(0), 0.);
+        assert_eq!(rebound.get_viseme(1), 0.6);
+        assert_eq!(rebound.get_viseme_jaw_scale(1), 0.25);
+        assert_eq!(rebound.direct_morph_values.get(&(4, 7)), Some(&0.9));
+        assert!(!rebound.direct_morph_values.contains_key(&(1, 2)));
+        assert_eq!(rebound.initial_morph_values.get(&(4, 7)), Some(&0.3));
+        rebound.begin_live_command();
+        rebound.release_morph_index(0, "[]");
+        let targets: Vec<serde_json::Value> = serde_json::from_str(&rebound.live_command_targets_json()).unwrap();
+        assert_eq!(targets, vec![serde_json::json!({"kind":"morphTarget","meshId":4,"morphTargetId":7})]);
     }
 
     #[test]

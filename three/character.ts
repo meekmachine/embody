@@ -3,13 +3,13 @@ import {
   NormalAnimationBlendMode, PropertyBinding, Quaternion, InterpolateDiscrete, InterpolateLinear,
 } from 'three';
 import type { KeyframeTrack, Mesh, Object3D } from 'three';
-import { initEmbodyCore, requireInitializedEmbodyCore, DEFAULT_HAIR_COLOR_APPEARANCE } from '../wasm/index';
-import type { RuntimeCore } from '../wasm/index';
+import { initEmbodyCore, requireInitializedEmbodyCore, DEFAULT_HAIR_COLOR_APPEARANCE } from '@lovelace_lol/embody/wasm';
+import type { RuntimeCore } from '@lovelace_lol/embody/wasm';
 import {
   ThreeFrameApplier, ThreeModelInspector, createAnimationClipFromClipIR,
   serializeAnimationClips,
 } from './index';
-import type { ClipIR, ThreeModelInspection } from './index';
+import type { ClipIR, ClipIRTrack, ThreeModelInspection } from './index';
 import {
   bindModelReferencePose, captureModelReferencePose, extendModelReferencePose,
 } from './reference-pose';
@@ -71,6 +71,7 @@ type Playback = {
   notify(event: CharacterPlaybackEvent): void;
 };
 const json = (value: unknown): string => JSON.stringify(value ?? {});
+const targetKey = (target: ClipIRTrack['target']): string => JSON.stringify([target.kind, target.meshId, target.morphTargetId, target.boneId, target.objectId, target.property]);
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const parse = <T = any>(value: string): T => JSON.parse(value);
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
@@ -112,9 +113,8 @@ export class Embody {
   private disposed = false;
   private rendering = true;
   private timeScale = 1;
-  private liveClip?: ClipIR;
-  private live?: CharacterPlaybackHandle;
-  private readonly liveReleases = new Set<CharacterPlaybackHandle>();
+  private nextLiveTarget = 0;
+  private readonly liveTargets = new Map<string, { track: ClipIRTrack; handle: CharacterPlaybackHandle; releasing: boolean }>();
   private readonly hairObjects = new Map<string, Mesh>();
   private hairConfig: JsonObject = {};
   private hairAppearance: JsonObject = {
@@ -169,7 +169,7 @@ export class Embody {
     if (options.animations) this.loadAnimationClips(options.animations);
   }
 
-  private bind(model: Object3D, reference: ThreeModelReferencePose, inspection: ThreeModelInspection, source: JsonObject, profile: JsonObject): void {
+  private bind(model: Object3D, reference: ThreeModelReferencePose, inspection: ThreeModelInspection, source: JsonObject, profile: JsonObject, preserveLiveState = true): void {
     // Prepare every fallible profile/reference operation before releasing the old binding.
     const referenceBindings = bindModelReferencePose(model, reference);
     // Inspection stays live; release clips need the separately captured baseline.
@@ -186,6 +186,7 @@ export class Embody {
     try {
       if (this.profileMode === 'profile') core.configure_with_profile(json(source), json(runtimeDescriptor));
       else core.configure_with_preset(this.preset, json(source), json(runtimeDescriptor));
+      if (preserveLiveState && this.boundModel) core.copy_live_state_from(this.core);
       for (const registered of replacingModel ? [] : this.sources.values()) {
         if (registered.kind === 'native') {
           const [clip] = serializeAnimationClips(model, [registered.clip], inspection);
@@ -207,9 +208,7 @@ export class Embody {
     this.bindingGeneration += 1;
     this.playbacks.clear();
     this.current.clear();
-    this.live = undefined;
-    this.liveClip = undefined;
-    this.liveReleases.clear();
+    this.liveTargets.clear();
     this.meshes.splice(0, this.meshes.length, ...(inspection.morphMeshes.length ? inspection.morphMeshes : inspection.allMeshes));
     this.meshByName = inspection.meshByName;
     this.bones = inspection.bones;
@@ -232,6 +231,7 @@ export class Embody {
     this.connector.subscribe((event) => this.onPlaybackEvent(event));
     this.hairConfig = parse(this.core.get_hair_config_json());
     this.registerHairObjects(inspection.allMeshes.filter((mesh) => ['hair', 'eyebrow'].includes(this.meshCategory(mesh))));
+    if (preserveLiveState) this.commitLive();
   }
 
   bindModel(meshes?: Mesh[]): void {
@@ -254,7 +254,7 @@ export class Embody {
     if (!this.boundModel) { this.profileSource = source; this.profile = profile; return; }
     const reference = this.references.get(this.boundModel)!;
     const inspection = this.inspector.inspectModel(this.boundModel, { profile, referencePose: reference });
-    this.bind(this.boundModel, reference, inspection, source, profile);
+    this.bind(this.boundModel, reference, inspection, source, profile, false);
   }
   getProfile(): JsonObject { return this.profile; }
   getProfileMode(): 'preset' | 'profile' { return this.profileMode; }
@@ -715,12 +715,10 @@ export class Embody {
   }
   stopAllAnimations(): void {
     for (const playback of [...this.playbacks.values()]) {
+      if (playback.source.kind === 'compiled') continue;
       if (playback.connector.getAction(playback.id)) playback.connector.control(playback.id, { type: 'stop' });
       this.forget(playback);
     }
-    this.live = undefined;
-    this.liveClip = undefined;
-    this.liveReleases.clear();
   }
   pauseAnimation(name: string): void { const p = this.current.get(name); if (p) p.connector.control(p.id, { type: 'pause' }); }
   resumeAnimation(name: string): void {
@@ -760,43 +758,76 @@ export class Embody {
   }
   getPlayingAnimations(): string[] { return [...this.current.keys()].filter((name) => this.getAnimationState(name).playing); }
 
-  private commitLive(durationMs = 0): CharacterPlaybackHandle | undefined {
-    this.requireConnector();
+  private commitLive(durationMs = 0): CharacterPlaybackHandle[] {
+    const connector = this.requireConnector();
     const duration = Math.max(0, durationMs) / 1000;
     const clip = parse<ClipIR>(this.core.build_live_clip('__embody_live', duration));
-    const previous = this.liveClip;
-    // Capture inherited starts before releasing the preceding native action.
-    let release: CharacterPlaybackHandle | undefined;
-    if (previous && duration > 0) {
-      const released = parse<ClipIR>(this.core.build_live_release_clip('__embody_live_release', json(previous), duration));
-      if (released.tracks.length) {
-        release = this.handle({ name: released.name, kind: 'compiled', clip: released }, { loopMode: 'once', finalPose: 'release' }, true);
-        this.liveReleases.add(release);
-        void release.promise.then(() => this.liveReleases.delete(release!));
+    const touched = new Set(parse<ClipIRTrack['target'][]>(this.core.live_command_targets_json()).map(targetKey));
+    const tracks = new Map<string, ClipIRTrack>(clip.tracks.map((track) => [targetKey(track.target), track]));
+    const handles: CharacterPlaybackHandle[] = [];
+    for (const [key, previous] of this.liveTargets) {
+      if (tracks.has(key)) continue;
+      if (previous.releasing && !touched.has(key)) continue;
+      const action = previous.handle.actionId && connector.getAction(previous.handle.actionId);
+      if (!action || duration === 0) {
+        previous.handle.stop();
+        this.liveTargets.delete(key);
+        continue;
       }
+      // Fade this action's own contribution. Inheriting the already mixed pose
+      // would blend it a second time and jump when the released track disappears.
+      const nativeTrack = action.getClip().tracks[0] as NativeTrack;
+      const sample = Array.from(nativeTrack.createInterpolant().evaluate(action.time));
+      const released: ClipIRTrack = { ...previous.track, times: [0, duration], values: [...sample, ...sample], inheritStart: false };
+      const releaseClip = { ...clip, name: previous.handle.name, tracks: [released] };
+      const handle = this.handle({ name: releaseClip.name, kind: 'compiled', clip: releaseClip },
+        { loopMode: 'once', finalPose: 'release', mixerWeight: action.getEffectiveWeight() }, true);
+      connector.fadeOut(handle.actionId!, duration);
+      const record = { track: released, handle, releasing: true };
+      this.liveTargets.set(key, record);
+      void handle.promise.then(() => { if (this.liveTargets.get(key) === record) this.liveTargets.delete(key); });
+      handles.push(handle);
     }
-    if (clip.tracks.length) this.live = this.handle({ name: clip.name, kind: 'compiled', clip }, { loopMode: 'once', finalPose: 'hold' }, true);
-    else { this.stopAnimation('__embody_live'); this.live = undefined; }
-    if (!release) this.stopAnimation('__embody_live_release');
-    this.liveClip = clip;
-    return this.live ?? release;
+    for (const [key, track] of tracks) {
+      const previous = this.liveTargets.get(key);
+      const endpoint = (value: ClipIRTrack) => value.values.slice(value.values.length / value.times.length * (value.times.length - 1));
+      // Rust identifies semantic command destinations. Concrete targets outside
+      // that command keep their native action, including an intentionally cancelled one.
+      if (previous && !previous.releasing && !touched.has(key) && json(endpoint(previous.track)) === json(endpoint(track))) continue;
+      const name = previous?.handle.name ?? `__embody_live_${this.nextLiveTarget++}`;
+      const outgoing = previous?.handle.actionId && connector.getAction(previous.handle.actionId);
+      let nativeTrack = track;
+      if (duration > 0 && outgoing) {
+        const start = Array.from((outgoing.getClip().tracks[0] as NativeTrack).createInterpolant().evaluate(outgoing.time));
+        nativeTrack = { ...track, values: [...start, ...endpoint(track)], inheritStart: false };
+      }
+      const targetClip = { ...clip, name, tracks: [nativeTrack] };
+      const handle = this.handle({ name, kind: 'compiled', clip: targetClip }, { loopMode: 'once', finalPose: 'hold' }, true);
+      this.liveTargets.set(key, { track, handle, releasing: false });
+      handles.push(handle);
+    }
+    return handles;
   }
-  private mutateLive(mutate: () => void, durationMs = 0): CharacterPlaybackHandle | undefined {
+  private mutateLive(mutate: () => void, durationMs = 0): CharacterPlaybackHandle[] {
     this.requireModel();
+    this.core.begin_live_command();
     mutate();
     return this.commitLive(durationMs);
   }
-  private transition(handle: CharacterPlaybackHandle | undefined): CharacterTransitionHandle {
-    // An unmapped control has already reached its destination without owning a
-    // renderer resource. Mapped transitions settle from the native action event.
-    let settled = !handle;
-    const promise = handle ? handle.promise.then(() => { settled = true; }) : Promise.resolve();
-    return {
-      promise,
-      pause: () => { if (!settled) handle!.pause(); },
-      resume: () => { if (!settled) handle!.resume(); },
-      cancel: () => { if (!settled) handle!.cancel(); },
+  private transition(handles: CharacterPlaybackHandle[]): CharacterTransitionHandle {
+    // A single control may own several concrete tracks. Replacement of one
+    // shared target must not settle or cancel its other independent targets.
+    let settled = handles.length === 0;
+    const promise = Promise.all(handles.map((handle) => handle.promise)).then(() => { settled = true; });
+    const control = (command: 'pause' | 'resume' | 'cancel') => {
+      if (settled) return;
+      for (const handle of handles) {
+        const playback = handle.actionId && this.playbacks.get(handle.actionId);
+        if (!playback || !playback.connector.getAction(playback.id)) continue;
+        if (command === 'cancel' || !playback.terminal) handle[command]();
+      }
     };
+    return { promise, pause: () => control('pause'), resume: () => control('resume'), cancel: () => control('cancel') };
   }
   setAU(id: number, value: number, balance = this.core.get_au_balance(id)): void { this.mutateLive(() => this.core.set_au_signed(id, value, balance)); }
   getAU(id: number): number { return this.core.get_au(id); }
@@ -816,7 +847,7 @@ export class Embody {
   getVisemeJawScale(index: number): number { return this.core.get_viseme_jaw_scale(index); }
   setVisemeById(id: string, value: number, jawScale = 1): void { const index = this.core.viseme_slot_index(id); if (index < 0) throw new Error(`Unknown viseme: ${id}`); this.setViseme(index, value, jawScale); }
   transitionViseme(index: number, value: number, durationMs = 80, jawScale = 1): CharacterTransitionHandle { return this.transition(this.mutateLive(() => { this.core.set_viseme(index, value); this.core.set_viseme_jaw_scale(index, jawScale); }, durationMs)); }
-  transitionVisemeById(id: string, value: number, durationMs = 80, jawScale = 1): CharacterTransitionHandle { const index = this.core.viseme_slot_index(id); if (index < 0) throw new Error(`Unknown viseme: ${id}`); return this.transitionViseme(index, value, durationMs, jawScale); }
+  transitionVisemeById(id: string, value: number, durationMs = 80, jawScale = 1): CharacterTransitionHandle { const index = this.core.viseme_slot_index(id); if (index < 0) return this.transition([]); return this.transitionViseme(index, value, durationMs, jawScale); }
   setAUMixWeight(id: number, value: number): void {
     const weight = Math.max(0, Math.min(1, value));
     this.mutateLive(() => this.core.set_au_mix_weight(id, weight));
@@ -946,7 +977,7 @@ export class Embody {
     this.meshes.length = 0;
     this.meshByName.clear();
     this.bones = {};
-    this.liveReleases.clear();
+    this.liveTargets.clear();
     this.connector = undefined;
     this.inspection = undefined;
     this.boundModel = undefined;
