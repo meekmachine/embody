@@ -7,6 +7,7 @@ import {
   requireInitializedEmbodyCore,
   type EmbodyCore,
   type RuntimeCore,
+  type NativePlaybackSession,
 } from '@lovelace_lol/embody/wasm';
 import { Object3D, type WebGLRenderer } from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
@@ -66,6 +67,27 @@ const frame: Float32Array = runtime.evaluate_active_morph_frame();
 const clip: string = runtime.build_clip('smile', '{}', '{}');
 const removed: boolean = runtime.remove_animation_clip('smile');
 runtime.free();
+
+// Lifecycle signatures come only from generated wasm-bindgen declarations.
+const playback: NativePlaybackSession = new core.NativePlaybackSession();
+const bindingBatch: string = playback.rebind('model', 'profile');
+const playBatch: string = playback.play(clip, '{}');
+const controlBatch: string = playback.control('opaque-handle', '{"type":"pause"}');
+const eventBatch: string = playback.notify('{"type":"completed","handle":"opaque-handle"}');
+const disposalBatch: string = playback.dispose();
+playback.free();
+// @ts-expect-error Playback takes serialized ClipIR, not a renderer object.
+playback.play({}, '{}');
+// @ts-expect-error Native controls require both handle and serialized request.
+playback.control('opaque-handle');
+// @ts-expect-error Handle identity is an opaque string.
+playback.control(1, '{"type":"stop"}');
+// @ts-expect-error Native callbacks are serialized events, not a frame delta.
+playback.notify(0.016);
+// @ts-expect-error This protocol has no frame update or elapsed-time API.
+playback.update(0.016);
+// @ts-expect-error Returned command batches retain their generated string type.
+const wrongPlaybackBatch: number = playback.dispose();
 
 const result: Float32Array = core.solve_bilateral_values(1, 0);
 const presets: string[] = core.list_presets();

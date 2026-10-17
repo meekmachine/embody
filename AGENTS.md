@@ -90,6 +90,25 @@ CI, the user, or explicitly requested validation. Report what was not run.
   for CI to execute. In review, identify the ambiguity and its concrete failure
   risk rather than imposing subjective style preferences or size limits.
 
+## Native playback migration
+
+- Follow [the playback boundary](docs/ADAPTER_TARGETS.md) and the staged
+  [Polymer #299 migration](docs/native-playback-migration.md). Rust validates
+  commands, compiles semantic inputs, and owns handle lifecycle. Native hosts
+  own playback time, interpolation and blending; connectors translate commands
+  and native events. Do not add a sampler, playhead integrator, duration deadline,
+  fallback animation timer or per-frame pose override to complete the migration.
+- Prove the connection to the existing rendering integration before removing
+  the old host. Preserve real initialization, start/stop, binding and disposal;
+  missing behavior must not be concealed behind no-op compatibility methods.
+- Three.js provides playback timing. Polymer and LoomLarge must not call an
+  `engine.update(dt)` API or drive an Embody animation clock. Remove existing
+  such callers during migration; never preserve them as inert compatibility
+  methods. Use native action commands through Embody's connector.
+- A command-contract test does not establish Three or LoomLarge integration.
+  State which migration slice is implemented and which consumers still use the
+  legacy path. Leave local execution and CI/artifact waiting restrictions intact.
+
 ## Source-only repository
 
 - Commit Rust, TypeScript, configuration, tests, and documentation. Do not commit `dist/`, `target/`, `node_modules/`, npm tarballs, `.wasm` binaries, or other generated output.
