@@ -3,10 +3,10 @@
 LoomLarge's animation controls and Polymer's scheduled snippets need the same
 Embody playback interface. A native animation host must execute the resulting
 clips. [Polymer #299](https://github.com/meekmachine/Polymer/issues/299) defines
-the required end state and exclusions. This plan has five stages. Mapping and
-character lifecycle remain separate PRs within stage 3; stage 5 separates caller
-cleanup from the final pins-only preview. The first PR adds a command contract,
-not working application playback.
+the required end state and exclusions. The nine PRs below separate the command
+contract, native connector, render connection, mapping, lifecycle, Polymer
+cleanup and final application adoption. The first PR adds a command contract;
+working application playback requires the later integration PRs.
 
 The user's clarification makes the command boundary explicit: Polymer and
 LoomLarge must not call `engine.update`. Three.js supplies playback timing;
@@ -36,22 +36,24 @@ The source audit did not establish a universal 35% multiplier in the Rust
 compiler. Full-strength output and asymmetric bounds remain required regression
 cases; do not change unrelated policy constants merely because they equal 0.35.
 
-## Delivery stages and acceptance gates
+## PR order and acceptance criteria
 
 Each implementation PR starts from its repository's current `main`. Same-repo
-dependent slices wait for an authorized merge; they are not branches stacked on
-open PRs. CI executes the authored coverage. No slice is complete merely because
-its interfaces exist.
+dependent PRs wait for an authorized merge; they are not branches stacked on
+open PRs. CI executes the authored coverage. Each PR needs the evidence listed
+below before it is considered complete.
 
-| Stage / PR | Owner and deliverable | CI evidence required | Dependency and status |
+| PR | Owner and deliverable | CI evidence required | Dependency and status |
 | --- | --- | --- | --- |
 | 1. Rust command and lifecycle contract | Embody `NativePlaybackSession`: validated compiled clips, opaque handles, playback controls, replacement/overlap, native terminal events and release commands. | A non-Three fake connector exercises stale/foreign handles, duplicate/late completion, interruption, held poses, zero-duration clips, looping, invalid replacement, rebind and disposal. Built-package imports and generated declarations cover the API. | First implementation in this branch. No native connector or migrated consumer yet. |
-| 2. Three connector and render connection | Embody maps the contract to native clips/actions. Three supplies timing inside the existing render integration; no external `engine.update` API. | Native action tests cover pause/resume, speed/weight/blending, finite/infinite loops, overlap/replacement, native completion, held pose release and resource counts. Render tests prove zero advancement while suspended and exactly one advancement per step, including renderer replacement. | Requires slice 1. Prove the character editor/preview, R3F and embed render connections below before deleting their old runtime. |
-| 3a. Semantic and face mapping parity | Embody compiles semantic, live preview and hair inputs for that connector. Include reviewed #145 routing and remove active contributions from meshes excluded by a new selection. | AU103 and other custom mappings retain every bone and morph; full activation reaches configured bounds, including asymmetric rotations. Absent/empty/replaced face selection has explicit results; body/hair/bone output stays independent. Semantic strength and native weight each apply once. | Rust mapping work can be reviewed independently; active-clip cleanup requires stage 2. Do not claim #145 alone covers that case. |
-| 3b. Embody character facade | Embody owns creation, initialization, model/profile binding, clip catalog/authoring and disposal. Provide the supported UI command contract over the connector. Remove obsolete Rust playback and legacy gaze implementation once callers use the replacement. | Initialization failure, model/profile replacement, disposal during load, repeated replacement without resource growth, real start/stop and consumer declaration tests. All imported clips, snippets, previews and hair use the shared contract. | Requires 2 and 3a. This is the replacement needed by Polymer, not a renamed copy of Polymer's animation runtime. |
-| 4. Polymer forwarding and deletion | Delete all `src/polymer/runtime/`; update exports/declarations/contract checks and existing callers to minimal Embody forwarding. Replace timers/fades/seek loops outside that folder with commands and native facts. Keep agency planning/routing unchanged, subject to the terminal-delivery decision below. | Public consumer imports, scheduler request/terminal-event tests, stale callback isolation, actual lifecycle parity, and a source ownership check against reintroducing the runtime. | Requires 3b's compiled immutable package. Runtime deletion and caller updates land together. |
-| 5a. LoomLarge caller cleanup | Remove `engine.update` calls and elapsed-time arithmetic from the landing character and embed render paths. Adopt the compiled connector dependency required by those removals. | Native-render fixtures replace tests that drive the old engine; UI controls still issue the same native playback requests without a host clock. | Requires stage 4's compiled immutable package. This is an explicit consumer source PR, separate from the final preview. |
-| 5b. LoomLarge dependency-only preview | Change only `frontend/package.json`, `loomlarge_lol/package.json` and `pnpm-lock.yaml` after caller cleanup. | CI exercises built-package imports and supported UI commands against the exact Polymer package and transitive Embody package. Character editor/preview playback, speed, intensity, loops, pause/resume, stop and seek remain end-to-end acceptance criteria. | Requires 5a and the exact compiled packages selected for adoption. No host PR or package pin is fabricated for stage 1. |
+| 2. Three connector | Embody maps the contract to native clips/actions, controls and terminal events. | Native action tests cover pause/resume, speed/weight/blending, finite/infinite loops, overlap/replacement, native completion, held pose release and resource counts. | Requires PR 1. Application playback also needs the render connection in PR 3. |
+| 3. Existing render connection | Three supplies timing inside Embody's connection to the existing render integration; no external `engine.update` API. | Render tests prove zero advancement while suspended and exactly one advancement per step, including renderer replacement and additional render passes. | Requires PR 2. Prove the character editor/preview, R3F and embed render connections below before deleting their old runtime. |
+| 4. Semantic and face mapping parity | Embody compiles semantic, live preview and hair inputs for that connector. Include reviewed #145 routing and remove active contributions from meshes excluded by a new selection. | AU103 and other custom mappings retain every bone and morph; full activation reaches configured bounds, including asymmetric rotations. Absent/empty/replaced face selection has explicit results; body/hair/bone output stays independent. Semantic strength and native weight each apply once. | Follows PR 3. Rust mapping work can be reviewed independently; active-clip cleanup needs the connector. Do not claim #145 alone covers that case. |
+| 5. Embody character lifecycle and public API | Embody owns creation, initialization, model/profile binding, clip catalog/authoring and disposal. Provide the supported UI command contract over the connector. Remove obsolete Rust playback and legacy gaze implementation once callers use the replacement. | Initialization failure, model/profile replacement, disposal during load, repeated replacement without resource growth, real start/stop and consumer declaration tests. All imported clips, snippets, previews and hair use the shared contract. | Requires PRs 3 and 4. This supplies the replacement needed by Polymer. |
+| 6. Polymer runtime deletion and forwarding | Delete all `src/polymer/runtime/`; update exports/declarations/contract checks and affected callers to minimal Embody forwarding. | Public consumer imports, actual lifecycle parity, stale callback isolation and a source ownership check against reintroducing the runtime. | Requires PR 5's compiled immutable package. Combine PRs 6 and 7 if deleting the folder alone cannot leave functioning callers. |
+| 7. Remaining Polymer playback cleanup | Replace timers/fades/seek loops and duplicate playback state outside the deleted folder with commands and native facts. Keep agency planning/routing unchanged, subject to the terminal-delivery decision below. | Animation, EyeHead, LipSync and Gesture request/terminal-event tests cover pause, speed changes, interruption and replacement without estimated completion. Existing UI completion subscriptions receive native outcomes. | Follows PR 6, or lands with it if the changes are inseparable. |
+| 8. LoomLarge caller cleanup | Remove `engine.update` calls and elapsed-time arithmetic from the landing character and embed render paths. Adopt the compiled connector dependency required by those removals. | Native-render fixtures replace tests that drive the old engine; UI controls still issue the same native playback requests without a host clock. | Requires the compiled immutable Polymer package from PRs 6 and 7. This is a consumer source PR, separate from the final preview. |
+| 9. LoomLarge dependency-only preview | Change only `frontend/package.json`, `loomlarge_lol/package.json` and `pnpm-lock.yaml` after caller cleanup. | CI exercises built-package imports and supported UI commands against the exact Polymer package and transitive Embody package. Character editor/preview playback, speed, intensity, loops, pause/resume, stop and seek remain end-to-end acceptance criteria. | Requires PR 8 and the exact compiled packages selected for adoption. No host PR or package pin is fabricated for PR 1. |
 
 ## Render connection is a prerequisite
 
@@ -66,7 +68,7 @@ replacement, not character animation.
 The [R3F host](https://github.com/meekmachine/LoomLarge/blob/f84d9c66e0e70864ab38170aff86ee50ae21eb1e/frontend/src/components/LoomBustScene.tsx#L47)
 and [embed host](https://github.com/meekmachine/LoomLarge/blob/f84d9c66e0e70864ab38170aff86ee50ae21eb1e/frontend/src/embed/runtime.ts#L383)
 already call `engine.update(dt)` from their own frame callbacks.
-Those calls must be removed, not preserved or turned into no-ops. Slice 2 must
+Those calls must be removed, not preserved or turned into no-ops. PR 3 must
 establish an Embody-owned connection to the existing Three rendering paths and
 prevent duplicate advancement. Model identity alone does not identify which
 renderer owns a frame; an explicit binding to that rendering integration needs
@@ -106,7 +108,7 @@ host-side routing, or silently expand this into an agency redesign.
 
 ## Consumer compatibility inventory
 
-Stage 3b must establish these call families before stage 4 deletes their
+PR 5 must establish these call families before PR 6 deletes their
 implementation. Minimal forwarding may preserve names; it must not maintain a
 second playback state or implementation.
 
@@ -128,7 +130,7 @@ second playback state or implementation.
 [Embody #148](https://github.com/meekmachine/embody/pull/148) remain existing
 drafts, not accepted replacements. Review individual compilation/cleanup fixes
 before carrying them forward. Include the approved face-selection behavior from
-[#145](https://github.com/meekmachine/embody/pull/145) in stage 3a. Closing or merging
+[#145](https://github.com/meekmachine/embody/pull/145) in PR 4. Closing or merging
 any of these PRs is a separate, explicitly authorized action.
 
 Camera-relative features, Bones-tab UI, annotation migration and broader agency
