@@ -11,7 +11,7 @@ import type { NativePlaybackSession } from '../wasm/index';
 import { createAnimationClipFromClipIR, serializeAnimationClips } from './index';
 import type { ClipIR, ThreeModelInspection } from './index';
 import { bindPlaybackRendering } from './playbackRendering';
-import { cloneWithConcreteTrackNames } from './clipBindings';
+import { cloneWithConcreteTrackNames, withComponentTracks } from './clipBindings';
 
 export type ThreeNativeLoop = { mode: 'once' | 'repeat' | 'pingPong'; count?: number | null };
 export type ThreeNativePlaybackOptions = {
@@ -148,6 +148,7 @@ export class ThreeNativePlaybackConnector {
    */
   playNativeClip(clip: AnimationClip, options: ThreeNativePlaybackOptions = {}): string {
     this.beforeOperation();
+    clip = withComponentTracks(clip);
     const [ir] = serializeAnimationClips(this.binding.model, [clip], this.binding.inspection);
     if (ir.tracks.length !== clip.tracks.length) {
       throw new Error('Every native playback track must serialize against the bound model.');
@@ -196,6 +197,7 @@ export class ThreeNativePlaybackConnector {
   /** Edit authored samples, retaining the native action and its loop/fade progress. */
   replaceClip(handle: string, clip: AnimationClip): void {
     this.beforeOperation();
+    clip = withComponentTracks(clip);
     const resource = this.resources.get(handle);
     if (!resource) throw new Error('Unknown, foreign or stale playback handle.');
     const [ir] = serializeAnimationClips(this.binding.model, [clip], this.binding.inspection);
