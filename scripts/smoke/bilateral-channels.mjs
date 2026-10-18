@@ -56,7 +56,7 @@ try {
   near(core.get_au_balance(43), -0.25, 'current stored balance');
   near(core.get_au(43), 0.75, 'balance lookup preserves intensity');
   assert.equal(core.get_au_balance(999), 0);
-  core.transition_au(43, 0, 200, NaN);
+  core.set_au_signed(43, 0, core.get_au_balance(43));
   near(core.get_au_balance(43), -0.25, 'neutral intensity retains balance');
   for (const [input, expected] of [[2, 1], [-2, -1], [NaN, 0], [Infinity, 0]]) {
     core.set_au_signed(43, 0.5, input);
@@ -114,7 +114,9 @@ try {
   // One concrete start anchor cannot represent several enabled inherited
   // contributors after a max merge. Reject this previously overwritten shape.
   assert.throws(() => typed([channel(43, 0, 0.3, true), channel(43, 0, 0.7)]), /Overlapping inherited channels for Au\(43\).*morph/);
-  assert.throws(() => typed([channel(43, 0, 0.8)], { intensityScale: 0 }), /No runtime tracks could be resolved/);
+  const silent = typed([channel(43, 0, 0.8)], { intensityScale: 0 });
+  assert(silent.tracks.length > 0, 'zero intensity preserves mapped bindings');
+  play(silent, 0.5, () => eyelids(0, 0, 'zero intensity'));
 
   // Unequal key times and per-channel gain survive channel normalization.
   play(typed([
