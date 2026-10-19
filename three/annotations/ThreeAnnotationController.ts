@@ -3,6 +3,7 @@ import { initEmbodyCore, requireInitializedEmbodyCore } from '@lovelace_lol/embo
 import type { CharacterSceneRenderer } from '../scene';
 import { bindSceneRendering, reportSceneRenderingFailure } from '../sceneRenderingBinding';
 import { prepareModelSkinning } from '../modelSkinning';
+import { renderScenePlayback } from '../playbackRendering';
 import { compileModelForRender, drawModelForRender } from './modelRenderPreparation';
 import { resolveAnnotationCharacterConfig } from './adapter';
 import { CameraDOMControls } from './DOMControls';
@@ -42,6 +43,7 @@ export class ThreeAnnotationController {
   private readonly markerStateListeners = new Set<(state: MarkerStateSnapshot) => void>();
   private readonly regionListeners = new Set<RegionChangeCallback>();
   private renderer: CharacterSceneRenderer | null = null;
+  private readonly playbackTimer = new THREE.Timer();
   private renderFrame: ThreeAnnotationControllerConfig['renderFrame'];
   private resizeRenderer: ThreeAnnotationControllerConfig['resizeRenderer'];
   private onRenderError: ThreeAnnotationControllerConfig['onRenderError'];
@@ -284,6 +286,7 @@ export class ThreeAnnotationController {
   }
   dispose(): void {
     if (this.disposed) return; this.disposed = true; this.cancelModelPreparation(); this.stopRenderLoop(); this.cleanupResizeHandling();
+    this.playbackTimer.dispose();
     const renderingSettled = this.unbindRendering?.(); this.unbindRendering = null;
     if (this.fallbackFrame !== null) cancelAnimationFrame(this.fallbackFrame); this.fallbackFrame = null;
     this.controls.dispose();
@@ -297,14 +300,24 @@ export class ThreeAnnotationController {
   private startRenderLoop(propagateFailure = false): void | Promise<void> {
     if (!this.renderer) return;
     const renderer = this.renderer;
+    this.playbackTimer.disconnect();
+    const ownerDocument = renderer.domElement?.ownerDocument;
+    if (ownerDocument) this.playbackTimer.connect(ownerDocument);
+    this.playbackTimer.reset();
+    let playbackStarted = false;
     try {
-      const started = renderer.setAnimationLoop(() => {
-        if (this.disposed || this.renderFailed || this.renderingSuspended || this.framePending || renderer !== this.renderer) return;
+      const started = renderer.setAnimationLoop((timestamp?: number) => {
+        if (this.disposed || renderer !== this.renderer) return;
+        this.playbackTimer.update(timestamp);
+        const samplePlayback = playbackStarted;
+        playbackStarted = true;
+        if (this.renderFailed || this.renderingSuspended || this.framePending) return;
         try {
           // Native shadows are updated once per camera/frame. Prepare the full
           // scene first and leave its pixels untouched until the next frame.
           const preparationDraw = this.modelPreparation?.draw;
           if (preparationDraw) { preparationDraw(); return; }
+          if (samplePlayback) renderScenePlayback(this.scene, this.playbackTimer);
           this.update();
           const frame = this.renderFrame
             ? this.renderFrame(this.renderer!, this.scene, this.camera)
@@ -347,6 +360,7 @@ export class ThreeAnnotationController {
    * Stop the render loop
    */
   private stopRenderLoop(): void {
+    this.playbackTimer.reset();
     try {
       const stopped = this.renderer?.setAnimationLoop(null);
       if (stopped) void stopped.catch((error) => console.error('Character camera render loop stop failed.', error));

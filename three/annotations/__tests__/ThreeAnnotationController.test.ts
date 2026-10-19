@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ThreeAnnotationController } from '../ThreeAnnotationController';
 import type { ThreeAnnotationControllerConfig } from '../types';
+import { bindPlaybackRendering } from '../../playbackRendering';
 import { deferred, installAnnotationDom } from './annotationDom';
 
 const controllers: ThreeAnnotationController[] = [];
@@ -120,12 +121,49 @@ describe('Rust-owned annotation controller contract', () => {
 });
 describe('native renderer lifecycle', () => {
   function rendererFixture() {
-    let loop: (() => void) | null = null;
-    const renderer = { setAnimationLoop: vi.fn((callback: (() => void) | null) => { loop = callback; }), setSize: vi.fn(), setPixelRatio: vi.fn(), render: vi.fn() };
+    let loop: ((timestamp?: number) => void) | null = null;
+    const renderer = { setAnimationLoop: vi.fn((callback: ((timestamp?: number) => void) | null) => { loop = callback; }), setSize: vi.fn(), setPixelRatio: vi.fn(), render: vi.fn() };
     const renderFrame = vi.fn<() => void | Promise<void>>(); const onRenderError = vi.fn();
     const f = fixture({ renderer: renderer as unknown as THREE.WebGLRenderer, renderFrame, onRenderError });
-    return { ...f, renderer, renderFrame, onRenderError, tick: () => loop?.() };
+    return { ...f, renderer, renderFrame, onRenderError, tick: (timestamp?: number) => loop?.(timestamp) };
   }
+  it('advances native character clips before drawing without accumulating skipped async frames', async () => {
+    const f = rendererFixture();
+    f.scene.add(f.model);
+    const mixer = new THREE.AnimationMixer(f.model);
+    mixer.clipAction(new THREE.AnimationClip('move', 1, [
+      new THREE.NumberKeyframeTrack('.position[x]', [0, 1], [0, 1]),
+    ])).play();
+    const afterFrame = vi.fn();
+    const binding = bindPlaybackRendering(f.model, mixer, afterFrame);
+    const renderedPositions: number[] = [];
+    f.renderFrame.mockImplementation(() => { renderedPositions.push(f.model.position.x); });
+    try {
+      f.tick(1000);
+      expect(f.model.position.x).toBe(0);
+      f.tick(1100);
+      expect(f.model.position.x).toBeCloseTo(0.1);
+      expect(renderedPositions).toEqual([0, expect.closeTo(0.1)]);
+      expect(afterFrame).toHaveBeenCalledOnce();
+
+      const pending = deferred();
+      f.renderFrame.mockReturnValueOnce(pending.promise);
+      f.tick(1200);
+      f.tick(1500);
+      expect(f.model.position.x).toBeCloseTo(0.2);
+      pending.resolve();
+      await pending.promise;
+      f.tick(1600);
+      expect(f.model.position.x).toBeCloseTo(0.3);
+      f.controller.dispose();
+      f.tick(1700);
+      expect(f.model.position.x).toBeCloseTo(0.3);
+    } finally {
+      binding.dispose();
+      mixer.stopAllAction();
+      mixer.uncacheRoot(f.model);
+    }
+  });
   it('uses the host renderer loop and skips overlapping async frames', async () => {
     const f = rendererFixture(); const pending = deferred(); f.renderFrame.mockReturnValueOnce(pending.promise);
     f.tick(); f.tick(); expect(f.renderFrame).toHaveBeenCalledOnce();

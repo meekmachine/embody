@@ -101,6 +101,12 @@ controller retains renderer rebinding, canvas input reconnect and resource-drain
 support through the scene's rendering controller.
 Runtime preview region IDs retain the `runtime:annotation:` namespace.
 
+When the annotation controller owns the renderer loop, it advances registered
+native character mixers before observing annotation transforms and drawing the
+scene. The first frame establishes the timer origin; skipped asynchronous draws
+do not accumulate playback time. External render loops use the existing
+`createScenePlaybackFrame` integration to advance character playback.
+
 ```ts
 import { ThreeAnnotations } from '@lovelace_lol/embody/three';
 
