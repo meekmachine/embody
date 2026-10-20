@@ -38,9 +38,11 @@ function fixture(cameraDistance = 1.2) {
     return label;
   });
   vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  // This line exceeds the viewport but retains more than Rust's 18% minimum
+  // after clipping. More extreme lines intentionally hide the marker.
   const config: CharacterConfig = {
     characterId: 'initial-layout', characterName: 'Initial layout', modelPath: 'test.glb',
-    regions: [{ name: 'first', bones: ['Head'], style: { line: { length: 10 } } }],
+    regions: [{ name: 'first', bones: ['Head'], style: { line: { length: 3 } } }],
   };
   const expectFitted = (name: string, scaleX = 0.085) => {
     const label = internals.labelSprites.get(name) as THREE.Sprite;
@@ -50,6 +52,9 @@ function fixture(cameraDistance = 1.2) {
     expect(Math.abs(projected.x)).toBeLessThanOrEqual(bounds.safeX + 1e-6);
     expect(Math.abs(projected.y)).toBeLessThanOrEqual(bounds.safeY + 1e-6);
     expect(label.scale.x).toBeCloseTo(scaleX);
+    const endpoints = internals.lineEndpoints.get(name);
+    const fullLength = internals.originalLineLengths.get(name) * (internals.isZoomedIn ? 0.3 : 1);
+    expect(endpoints.start.distanceTo(endpoints.end)).toBeLessThan(fullLength);
   };
   return { markers, internals, config, expectFitted };
 }
@@ -60,7 +65,7 @@ describe('initial marker layout', () => {
     await markers.loadRegions(config);
     expectFitted('first');
     const firstScale = internals.markerMeshes.get('first').scale.clone();
-    markers.updateRegion('second', { bones: ['Head'], style: { line: { length: 10 } } });
+    markers.updateRegion('second', { bones: ['Head'], style: { line: { length: 3 } } });
     expectFitted('second');
     expect(internals.markerMeshes.get('second').scale.toArray()).toEqual(firstScale.toArray());
   });
@@ -69,10 +74,20 @@ describe('initial marker layout', () => {
     const { markers, internals, config, expectFitted } = fixture(3.2);
     await markers.loadRegions(config);
     expectFitted('first', 0.1);
-    markers.updateRegion('second', { bones: ['Head'], style: { line: { length: 10 } } });
+    markers.updateRegion('second', { bones: ['Head'], style: { line: { length: 3 } } });
     expectFitted('second', 0.1);
     expect(internals.markerMeshes.get('first').scale.x).toBeCloseTo(2);
     expect(internals.markerMeshes.get('second').scale.x).toBeCloseTo(2);
+  });
+
+  it('keeps an excessively shortened line hidden according to the Rust minimum-length rule', async () => {
+    const { markers, internals, config } = fixture();
+    await markers.loadRegions({ ...config, regions: [
+      { name: 'extreme', bones: ['Head'], style: { line: { length: 10 } } },
+    ] });
+    expect(internals.markerMeshes.get('extreme').visible).toBe(false);
+    expect(internals.labelSprites.get('extreme').visible).toBe(false);
+    expect(internals.markerViewportVisibility.get('extreme')).toBe(false);
   });
 
   it('captures fitted scales before a hidden marker starts its first reveal', async () => {
@@ -99,7 +114,7 @@ describe('initial marker layout', () => {
     markers.setVisible(false);
     await markers.loadRegions(config);
     markers.setVisible(true);
-    markers.updateRegion('second', { bones: ['Head'], style: { line: { length: 10 } } });
+    markers.updateRegion('second', { bones: ['Head'], style: { line: { length: 3 } } });
     expect(internals.labelSprites.get('second').visible).toBe(false);
     internals.stopVisibilityAnimation(true);
     markers.update();
@@ -120,7 +135,7 @@ describe('initial marker layout', () => {
       }
     });
     await markers.loadRegions({ ...config, regions: [
-      ...config.regions!, { name: 'second', bones: ['Head'], style: { line: { length: 10 } } },
+      ...config.regions!, { name: 'second', bones: ['Head'], style: { line: { length: 3 } } },
     ] });
     expectFitted('first');
     expectFitted('second');
