@@ -256,7 +256,7 @@ mod tests {
         let mut profile = preset();
         let actions: BTreeSet<_> = profile.body_controls.values()
             .flat_map(|control| std::iter::once(control.au_id).chain(control.negative_au_id)).collect();
-        assert_eq!(actions.len(), 98);
+        assert_eq!(actions.len(), 100);
         let mut targets = Vec::new();
         let mut meshes = Vec::new();
         for (mesh_id, name) in [(1, "Skin_1"), (2, "Clothing_2"), (3, "Unrelated")] {
@@ -490,7 +490,7 @@ mod tests {
                 core.set_au(au, 1.0, 0.0);
             }
         }
-        assert_eq!(core.evaluate_active_morph_frame().len(), 98 * 3 * 3 * 4);
+        assert_eq!(core.evaluate_active_morph_frame().len(), 100 * 3 * 3 * 4);
     }
 
     #[test]
