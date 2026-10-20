@@ -135,6 +135,8 @@ mod tests {
         let roll = catalog.as_array().unwrap().iter().find(|row|row["id"]=="body.eyeRoll").unwrap();
         assert_eq!(roll["positive"]["available"], true);
         assert_eq!(roll["negative"]["available"], true);
+        assert_eq!(roll["positive"]["angularRangeDegrees"], 10.0);
+        assert_eq!(roll["negative"]["angularRangeDegrees"], 10.0);
         assert_eq!(roll["positive"]["availableSides"], json!(["left","right"]));
         core.set_au(1091, 1.0, -1.0);
         let frame = core.evaluate_bone_frame_delta();
@@ -147,6 +149,28 @@ mod tests {
         assert!(clip["tracks"].as_array().unwrap().iter().any(|track|track["target"]["boneId"]==1));
         assert!(clip["tracks"].as_array().unwrap().iter().any(|track|track["target"]["boneId"]==2));
         assert_eq!(core.get_au(1091), 1.0, "compilation preserves live controls");
+    }
+
+    #[test]
+    fn gaze_catalog_reports_scaled_directional_ranges_and_unknown_articulation() {
+        let mut profile = preset();
+        profile.bone_nodes.insert("EYE_L".into(), "CustomLeft".into());
+        profile.bone_nodes.insert("EYE_R".into(), "CustomRight".into());
+        profile.bone_prefix = None;
+        profile.au_to_bones.get_mut("1091").unwrap()[0].scale = 0.5;
+        profile.au_to_bones.get_mut("1092").unwrap()[1].max_degrees = Some(7.0);
+        let model: ModelData = serde_json::from_value(json!({"bones":[
+            {"id":1,"name":"CustomLeft"},{"id":2,"name":"CustomRight"}]})).unwrap();
+        let catalog = crate::semantic_pose::catalog(&profile, Some(&model));
+        let roll = catalog.as_array().unwrap().iter().find(|row|row["id"]=="body.eyeRoll").unwrap();
+        assert_eq!(roll["positive"]["angularRangeDegrees"], 5.0);
+        assert_eq!(roll["negative"]["angularRangeDegrees"], 7.0);
+        let duplicate = profile.au_to_bones["1091"][0].clone();
+        profile.au_to_bones.get_mut("1091").unwrap().push(duplicate);
+        let catalog = crate::semantic_pose::catalog(&profile, Some(&model));
+        let roll = catalog.as_array().unwrap().iter().find(|row|row["id"]=="body.eyeRoll").unwrap();
+        assert!(roll["positive"]["angularRangeDegrees"].is_null(), "ambiguous multiple bindings must not advertise a guessed excursion");
+        assert_eq!(roll["negative"]["angularRangeDegrees"], 7.0);
     }
 
     #[test]

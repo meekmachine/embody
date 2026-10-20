@@ -246,7 +246,13 @@ side selection and profile mapping as eye turn/look. These are not FACS 65/66,
 which retain their existing left-eye yaw meaning. Recalibrate axes/ranges for
 other rigs. `engine.getGazeControlCapabilities()` returns per-direction availability
 for head turn/nod/tilt and eye turn/look/roll; absent custom-profile mappings are
-explicitly unavailable. A geometry result alone does not establish motor support.
+explicitly unavailable. Each record also returns `positiveDegrees` and
+`negativeDegrees` from the Rust semantic catalog's `angularRangeDegrees`.
+These include absolute authored scale and use the smaller available bilateral
+range. Calibration is `null` for missing/morph-only outputs, invalid angular
+ranges or multiple bindings per side; articulated local rotations cannot be
+summed without a calibrated common frame. Consumers must distinguish playable
+outputs from calibrated angular support and report uncalibrated controls. A geometry result alone does not establish motor support.
 
 
 `solveGazeGeometry(input)` from the root or `/wasm` export is a stateless,

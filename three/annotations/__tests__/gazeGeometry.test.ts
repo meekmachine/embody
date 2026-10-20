@@ -47,7 +47,7 @@ describe('character gaze observation', () => {
     expect(facts.eyeOriginWorld).toEqual([0, 2, 0]);
     expect(facts.characterWorldQuaternion[1]).toBeCloseTo(Math.sin(Math.PI / 8));
     expect(facts.verticalFovDegrees).toBeCloseTo(camera.getEffectiveFOV());
-    expect(engine.getGazeControlCapabilities()['body.eyeRoll']).toEqual({ positive: false, negative: false });
+    expect(engine.getGazeControlCapabilities()['body.eyeRoll']).toEqual({ positive: false, negative: false, positiveDegrees: null, negativeDegrees: null });
     engine.dispose();
   });
   it('reports unavailable origin instead of silently using the model center', () => {

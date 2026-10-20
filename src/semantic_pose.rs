@@ -36,6 +36,36 @@ pub(crate) struct Track {
 #[serde(rename_all="camelCase", deny_unknown_fields)]
 pub(crate) struct Animation { pub version: u32, pub duration_seconds: f64, pub tracks: Vec<Track> }
 
+/// A single axis on one bone per side has a known authored excursion. Multiple
+/// articulated bones cannot be added without their reference-frame calibration.
+fn angular_range_degrees(profile: &ProfileData, model: Option<&ModelData>, au: u32) -> Option<f64> {
+    let model = model?;
+    let resolver = crate::profile::NameResolver::new(profile, model);
+    let bindings = profile.au_to_bones.get(&au.to_string())?;
+    let mut sides = BTreeMap::<String, Vec<f64>>::new();
+    for binding in bindings {
+        if !matches!(binding.channel.as_str(), "rx" | "ry" | "rz") { continue; }
+        if resolver.resolve_bone(model, profile, &binding.node).is_none() { continue; }
+        let participating = profile.composite_rotations.iter().any(|composite| {
+            crate::body_controls::configured_bone_name(profile, &composite.node)
+                == crate::body_controls::configured_bone_name(profile, &binding.node)
+                && [&composite.pitch, &composite.yaw, &composite.roll].into_iter().flatten().any(|axis| {
+                    axis.aus.contains(&au) || [&axis.negative, &axis.positive].into_iter().flatten().any(|selector| {
+                        match selector { crate::profile::AuSelector::One(id) => *id == au,
+                            crate::profile::AuSelector::Many(ids) => ids.contains(&au) }
+                    })
+                })
+        });
+        if !participating { continue; }
+        let degrees = (binding.max_degrees? * binding.scale).abs();
+        if !degrees.is_finite() || degrees <= 0.0 { return None; }
+        sides.entry(binding.side.clone().unwrap_or_else(|| "center".into())).or_default().push(degrees);
+    }
+    if sides.is_empty() || sides.values().any(|ranges| ranges.len() != 1) { return None; }
+    // Shared bilateral commands must stay within the smaller available side.
+    sides.values().map(|ranges| ranges[0]).reduce(f64::min)
+}
+
 pub(crate) fn catalog(profile: &ProfileData, model: Option<&ModelData>) -> Value {
     let descriptors = crate::body_controls::resolve(profile, model);
     Value::Array(descriptors.as_array().unwrap().iter().map(|descriptor| {
@@ -63,7 +93,8 @@ pub(crate) fn catalog(profile: &ProfileData, model: Option<&ModelData>) -> Value
                 .and_then(|info| info.name.as_deref()).unwrap_or(&control.label);
             json!({"auId":au,"label":label,"available":support["available"],
                 "hasBones":support["hasBones"],"hasMorphs":support["hasMorphs"],"availableSides":available_sides,
-                "morphStrength":profile.au_mix_defaults.get(&key).copied().unwrap_or(1.0)})
+                "morphStrength":profile.au_mix_defaults.get(&key).copied().unwrap_or(1.0),
+                "angularRangeDegrees":angular_range_degrees(profile, model, au)})
         };
         let names:BTreeSet<_> = descriptor["boneBindings"].as_array().unwrap().iter()
             .filter_map(|binding| binding["boneName"].as_str()).collect();

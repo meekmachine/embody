@@ -252,3 +252,11 @@ rigs. Bilateral balance and semantic clip compilation use the normal body
 control evaluator. FACS 65/66 remain left-eye yaw and are never roll aliases.
 `getGazeControlCapabilities()` reports missing custom-profile directions as
 unavailable; target geometry alone does not imply a playable roll channel.
+
+Each semantic catalog direction exposes `angularRangeDegrees`, also forwarded
+as `positiveDegrees`/`negativeDegrees` by `getGazeControlCapabilities()`. Rust
+resolves actual model bones and participating composite groups, includes
+`abs(scale * maxDegrees)`, and returns the smaller available bilateral side.
+Missing/morph-only output or multiple bindings per side yields `null`: the
+endpoint angle of articulated local axes requires further calibration. Hosts
+must not normalize desired degrees against an invented range in that case.

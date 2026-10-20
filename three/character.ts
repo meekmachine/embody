@@ -878,11 +878,15 @@ export class Embody {
   getMeshList(): JsonObject[] { return (this.inspection?.allMeshes ?? []).map((mesh) => ({ name: mesh.name, visible: mesh.visible, morphCount: mesh.morphTargetInfluences?.length ?? 0, category: this.meshCategory(mesh) })); }
   getBones(): ThreeModelInspection['bones'] { return this.bones; }
   /** Actual profile/model support; missing directions remain explicitly unavailable. */
-  getGazeControlCapabilities(): Record<string, { positive: boolean; negative: boolean }> {
+  getGazeControlCapabilities(): Record<string, { positive: boolean; negative: boolean; positiveDegrees: number | null; negativeDegrees: number | null }> {
     const catalog = this.getSemanticPoseCatalog();
     return Object.fromEntries(['body.headTurn', 'body.headNod', 'body.headTilt', 'body.eyeTurn', 'body.eyeLook', 'body.eyeRoll'].map(id => {
       const control = catalog.find(row => row.id === id);
-      return [id, { positive: control?.positive?.available === true, negative: control?.negative?.available === true }];
+      return [id, {
+        positive: control?.positive?.available === true, negative: control?.negative?.available === true,
+        positiveDegrees: control?.positive?.angularRangeDegrees ?? null,
+        negativeDegrees: control?.negative?.angularRangeDegrees ?? null,
+      }];
     }));
   }
   /** Observe portable scene facts; no gaze policy, animation or render-loop ownership. */
