@@ -430,6 +430,7 @@ enum ConcreteTarget {
 fn transform_type(property: Option<&str>) -> Result<(&'static str, &'static str), String> {
     match property.unwrap_or("rotation") {
         "rotation" | "quaternion" => Ok(("quat", "quaternion")),
+        "eulerX" | "eulerY" | "eulerZ" => Ok(("scalar", "rotation")),
         "position" => Ok(("vec3", "position")),
         "scale" => Ok(("vec3", "scale")),
         other => Err(format!("Unsupported concrete transform property {other:?}.")),
@@ -517,6 +518,24 @@ mod tests {
     }
 
     fn value(batch: Batch) -> Value { serde_json::to_value(batch).unwrap() }
+
+    #[test]
+    fn native_euler_components_require_scalar_samples() {
+        for property in ["eulerX", "eulerY", "eulerZ"] {
+            for target in [json!({"kind":"boneTransform","boneId":1,"property":property}),
+                json!({"kind":"objectTransform","objectId":1,"property":property})] {
+                let mut source = clip();
+                source["tracks"][0]["target"] = target;
+                source["tracks"][0]["values"] = json!([6.4, 6.8]);
+                let mut session = session();
+                assert!(session.play_inner(&source.to_string(), "{}").is_ok());
+                source["tracks"][0]["valueType"] = json!("vec3");
+                source["tracks"][0]["values"] = json!([6.4, 0.0, 0.0, 6.8, 0.0, 0.0]);
+                assert!(session.play_inner(&source.to_string(), "{}").is_err());
+                assert_eq!(session.resources.len(), 1);
+            }
+        }
+    }
 
     #[test]
     fn play_passes_concrete_clip_and_native_settings_without_sampling() {
