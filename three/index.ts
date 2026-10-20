@@ -20,7 +20,7 @@ export * from './character';
 export * from './characterHost';
 export { renderScenePlayback, createScenePlaybackFrame } from './playbackRendering';
 import { bindModelReferencePose } from './reference-pose';
-import { concreteTrackName } from './clipBindings';
+import { concreteTrackName, withComponentTracks } from './clipBindings';
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
 
 export { captureModelReferencePose, bindModelReferencePose, extendModelReferencePose } from './reference-pose';
@@ -402,6 +402,10 @@ export function createAnimationClipFromClipIR(
       if (property === 'rotation' || property === 'quaternion') {
         if (track.inheritStart) object.quaternion.toArray(values, 0);
         tracks.push(new QuaternionKeyframeTrack(trackName, times, values, interpolation));
+      } else if (property === 'eulerX' || property === 'eulerY' || property === 'eulerZ') {
+        const axis = property.slice(-1).toLowerCase() as 'x' | 'y' | 'z';
+        if (track.inheritStart) values[0] = object.rotation[axis];
+        tracks.push(new NumberKeyframeTrack(trackName, times, values, interpolation));
       } else if (property === 'position') {
         if (track.inheritStart) object.position.toArray(values, 0);
         tracks.push(new VectorKeyframeTrack(trackName, times, values, interpolation));
@@ -444,7 +448,7 @@ export function serializeAnimationClips(
       channelKinds.set(kind, id);
       return id;
     };
-    clip.tracks.forEach((track, index) => {
+    withComponentTracks(clip).tracks.forEach((track, index) => {
       const found = findTrackTarget(model, track);
       if (!found?.object) return;
       const { parsed, object } = found;
@@ -463,13 +467,15 @@ export function serializeAnimationClips(
       } else if (property === 'visible' && (object as any).isMesh) {
         target = { kind: 'meshVisibility', meshId: meshIds.get(object as Mesh) };
       } else {
-        const transformProperty = property === 'quaternion' || property === 'rotation'
-          ? 'rotation'
-          : property === 'position'
-            ? 'position'
-            : property === 'scale'
-              ? 'scale'
-              : null;
+        const transformProperty = property === 'rotation' && ['x', 'y', 'z'].includes(String(parsed.propertyIndex))
+          ? `euler${String(parsed.propertyIndex).toUpperCase()}`
+          : property === 'quaternion'
+            ? 'rotation'
+            : property === 'position'
+              ? 'position'
+              : property === 'scale'
+                ? 'scale'
+                : null;
         if (transformProperty) {
           const boneId = boneIds.get(object);
           target = boneId

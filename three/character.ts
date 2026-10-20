@@ -1,6 +1,6 @@
 import {
   AdditiveAnimationBlendMode, AnimationClip, AnimationUtils, LoopOnce, LoopPingPong,
-  NormalAnimationBlendMode, PropertyBinding, Quaternion, InterpolateDiscrete, InterpolateLinear,
+  NormalAnimationBlendMode, PropertyBinding, Quaternion, Euler, InterpolateDiscrete, InterpolateLinear,
 } from 'three';
 import type { KeyframeTrack, Mesh, Object3D } from 'three';
 import { initEmbodyCore, requireInitializedEmbodyCore, DEFAULT_HAIR_COLOR_APPEARANCE } from '@lovelace_lol/embody/wasm';
@@ -15,6 +15,7 @@ import {
 } from './reference-pose';
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
 import { ThreeNativePlaybackConnector } from './nativePlayback';
+import { withComponentTracks } from './clipBindings';
 import type { ThreeNativePlaybackControl, ThreeNativePlaybackEvent, ThreeNativePlaybackOptions } from './nativePlayback';
 
 type JsonObject = Record<string, any>;
@@ -317,8 +318,15 @@ export class Embody {
     if (!reference) return undefined;
     switch (parsed.propertyName) {
       case 'quaternion': return Object.values(reference.transform.rotation);
+      case 'rotation': {
+        const rotation = reference.transform.rotation;
+        const euler = reference.rotationEuler ?? new Euler().setFromQuaternion(new Quaternion(rotation.x, rotation.y, rotation.z, rotation.w), reference.rotationOrder);
+        const axis = parsed.propertyIndex;
+        return axis === 'x' || axis === 'y' || axis === 'z' ? [euler[axis]] : [euler.x, euler.y, euler.z];
+      }
       case 'position': return Object.values(reference.transform.position);
       case 'scale': return Object.values(reference.transform.scale);
+      case 'weights':
       case 'morphTargetInfluences': {
         const mesh = object as Mesh;
         const index = typeof parsed.propertyIndex === 'string' && !/^\d+$/.test(parsed.propertyIndex)
@@ -336,7 +344,7 @@ export class Embody {
     if (!nativeSource) {
       ir = this.compile(source, options);
     }
-    const clip = nativeSource ? source.clip.clone() : createAnimationClipFromClipIR(ir!, this.inspection);
+    const clip = nativeSource ? withComponentTracks(source.clip).clone() : createAnimationClipFromClipIR(ir!, this.inspection);
     if (ir) {
       const predecessor = this.current.get(source.name);
       const outgoing = predecessor?.connector.getAction(predecessor.id);
