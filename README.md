@@ -239,6 +239,31 @@ inheritance behavior.
 
 ### Gaze geometry contract
 
+`solveGazeGeometry(input)` from the root or `/wasm` export is a stateless,
+renderer-neutral camera/character geometry API. Call after `initEmbodyCore()`;
+Rust also exposes `solve_gaze_geometry(inputJson)`. It takes world-space
+`cameraPosition`, `eyeOriginWorld`, normalized `[x,y,z,w]` camera and character
+world quaternions (nonunit inputs are normalized), `verticalFovDegrees`, `aspect`,
+and either `target: {kind:'screen', x, y, depth?}` or
+`target: {kind:'world', position:[x,y,z]}`. Screen XY is NDC in [-1,1], +Y up;
+zero follows the eye-to-camera bearing rather than the image center. Offsets
+use camera right/up and perspective FOV at `depth` (default eye-camera distance).
+Positions/depth share scene units. Camera and eye positions must differ.
+
+The result contains `targetAnglesDegrees`, `cameraAnglesDegrees`,
+`targetDirectionCharacter` and `characterFacingCamera`. Character-neutral +Z
+is forward, +Y up; semantic yaw is `-atan2(local.x,local.z)` (positive subject
+right), pitch is positive up. Model world orientation is removed before solving.
+Camera roll measures camera up around the viewer bearing against character up;
+at the vertical pole the reference right axis falls back to +X.
+`targetRollDegrees` is authored independently and defaults to zero: screen offset
+never invents roll. Invalid/degenerate positions, quaternions, screen bounds,
+FOV, aspect or depth throw without mutation. A world target ignores FOV/aspect.
+This returns geometric facts, not profile limits, animation curves, velocity
+estimates, a gaze motor or a planner. Polymer owns those policies and native
+Animation scheduling. Legacy profile solvers described below are separate APIs.
+
+
 `solve_profile_screen_space_gaze` and `solve_profile_viewer_space_gaze` return
 14 floats: combined target XY, eye target XY, head target XY, total yaw/pitch,
 camera yaw/pitch, eye-to-camera distance, and viewer world XYZ. XY outputs are

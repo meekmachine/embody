@@ -90,3 +90,6 @@ async function load(): Promise<EmbodyCore> {
   loaded = core;
   return core;
 }
+
+export { solveGazeGeometry } from './gazeGeometry';
+export type { GazeGeometryInput, GazeGeometryResult, GazeAnglesDegrees, GazeVector3, GazeQuaternion } from './gazeGeometry';
