@@ -254,7 +254,135 @@ describe('full-body framing', () => {
   });
 });
 
+describe('skinned region framing', () => {
+  function createSkinnedPatch(boneIndex: number, centerX = 0, morphOffsetY = 0): THREE.SkinnedMesh {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+      centerX - 0.1, -0.1, 0,
+      centerX + 0.1, 0.1, 0,
+    ], 3));
+    geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute([
+      boneIndex, 0, 0, 0, boneIndex, 0, 0, 0,
+    ], 4));
+    geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute([
+      1, 0, 0, 0, 1, 0, 0, 0,
+    ], 4));
+    if (morphOffsetY) {
+      geometry.morphTargetsRelative = true;
+      geometry.morphAttributes.position = [new THREE.Float32BufferAttribute([
+        0, morphOffsetY, 0, 0, morphOffsetY, 0,
+      ], 3)];
+    }
+    return new THREE.SkinnedMesh(geometry, new THREE.MeshBasicMaterial());
+  }
+
+  it('focuses the rendered bone region with a translated bind matrix and active morph', async () => {
+    const { scene, controller } = createController();
+    const model = new THREE.Group();
+    model.position.set(3, 4, 5);
+    const eye = new THREE.Bone();
+    eye.name = 'Eye';
+    eye.position.y = 2;
+    const mesh = createSkinnedPatch(0, 0, 0.5);
+    mesh.position.x = 2;
+    model.add(eye, mesh);
+    scene.add(model);
+    model.updateMatrixWorld(true);
+    mesh.bind(new THREE.Skeleton([eye]));
+    mesh.morphTargetInfluences![0] = 1;
+    eye.position.y += 1;
+    controller.setModel(model);
+
+    try {
+      await controller.focusBones(['Eye'], 0);
+
+      // The patch starts at world (5, 4, 5); the bone adds 1 and morph adds 0.5 to Y.
+      expect(controller.controls.target.x).toBeCloseTo(5, 5);
+      expect(controller.controls.target.y).toBeCloseTo(5.5, 5);
+      expect(controller.controls.target.z).toBeCloseTo(5, 5);
+    } finally {
+      controller.dispose();
+      mesh.skeleton.dispose();
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+    }
+  });
+
+  it('includes every mesh sharing a bone even when its skeleton index differs', async () => {
+    const { scene, controller } = createController();
+    const model = new THREE.Group();
+    model.position.set(3, 4, 5);
+    const eye = new THREE.Bone();
+    eye.name = 'Eye';
+    eye.position.y = 2;
+    const otherBone = new THREE.Bone();
+    const leftPatch = createSkinnedPatch(0, -2);
+    const rightPatch = createSkinnedPatch(1, 2);
+    model.add(eye, otherBone, leftPatch, rightPatch);
+    scene.add(model);
+    model.updateMatrixWorld(true);
+    leftPatch.bind(new THREE.Skeleton([eye, otherBone]));
+    rightPatch.bind(new THREE.Skeleton([otherBone, eye]));
+    eye.position.y += 1;
+    controller.setModel(model);
+
+    try {
+      await controller.focusBones(['Eye'], 0);
+
+      expect(controller.controls.target.x).toBeCloseTo(3, 5);
+      expect(controller.controls.target.y).toBeCloseTo(5, 5);
+      expect(controller.controls.target.z).toBeCloseTo(5, 5);
+    } finally {
+      controller.dispose();
+      for (const mesh of [leftPatch, rightPatch]) {
+        mesh.skeleton.dispose();
+        mesh.geometry.dispose();
+        (mesh.material as THREE.Material).dispose();
+      }
+    }
+  });
+});
+
 describe('annotation focus targets', () => {
+  it.each(['point', 'bone'] as const)('uses the authored %s focus target during the load intro', async (type) => {
+    const { scene, controller } = createController();
+    const { model } = createEyeModel();
+    const authoredTarget = new THREE.Vector3(0.4, 0.7, 0.2);
+    const focusBone = new THREE.Bone();
+    focusBone.name = 'AuthoredFocus';
+    focusBone.position.copy(authoredTarget);
+    model.add(focusBone);
+    scene.add(model);
+    controller.setModel(model);
+    (controller as any).regions = [{
+      name: 'left_eye',
+      bones: ['LeftEye'],
+      focusTarget: type === 'point'
+        ? { type, position: { x: authoredTarget.x, y: authoredTarget.y, z: authoredTarget.z }, cameraAngle: 0 }
+        : { type, bones: ['AuthoredFocus'], cameraAngle: 0 },
+      cameraOffset: { x: 0.2, y: 0.1, z: 0.05 },
+    }];
+
+    try {
+      await controller.focusRegion('left_eye', 0);
+      const selectedPosition = controller.camera.position.clone();
+      const selectedTarget = controller.controls.target.clone();
+      vi.spyOn(controller as any, 'animateOrbit').mockResolvedValue(undefined);
+      const animateCamera = vi.spyOn(controller as any, 'animateCamera').mockResolvedValue(undefined);
+
+      await controller.playIntroAnimation(250, 400);
+
+      expect(animateCamera).toHaveBeenCalledOnce();
+      const [position, target] = animateCamera.mock.calls[0] as [THREE.Vector3, THREE.Vector3];
+      expect(target.distanceTo(authoredTarget)).toBeLessThan(1e-5);
+      expect(target.distanceTo(selectedTarget)).toBeLessThan(1e-5);
+      expect(position.distanceTo(selectedPosition)).toBeLessThan(1e-5);
+      expect(controller.getCurrentRegion()).toBe('left_eye');
+    } finally {
+      controller.dispose();
+    }
+  });
+
   it('can focus an explicit point separately from the marker region targets', async () => {
     const { scene, controller } = createController();
     const model = createBoxModel();

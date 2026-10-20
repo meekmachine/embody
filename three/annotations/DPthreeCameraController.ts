@@ -2280,39 +2280,16 @@ export class DPthreeCameraController {
   private getBoneInfluencedBoundingBox(bone: THREE.Bone): THREE.Box3 | null {
     if (!this.model) return null;
 
+    this.model.updateWorldMatrix(true, true);
     const box = new THREE.Box3();
-
-    // Find the bone index in any skeleton
-    let boneIndex = -1;
-    let skeleton: THREE.Skeleton | null = null;
+    const vertex = new THREE.Vector3();
 
     this.model.traverse((obj) => {
       const mesh = obj as THREE.SkinnedMesh;
-      if (mesh.isSkinnedMesh && mesh.skeleton) {
-        const idx = mesh.skeleton.bones.indexOf(bone);
-        if (idx !== -1) {
-          boneIndex = idx;
-          skeleton = mesh.skeleton;
-        }
-      }
-    });
+      if (!mesh.isSkinnedMesh || !mesh.skeleton) return;
+      const boneIndex = mesh.skeleton.bones.indexOf(bone);
+      if (boneIndex === -1) return;
 
-    if (boneIndex === -1 || !skeleton) {
-      return null;
-    }
-
-    // Find all skinned meshes and collect vertices influenced by this bone
-    const tempVertex = new THREE.Vector3();
-    const skinned = new THREE.Vector3();
-    const tempMatrix = new THREE.Matrix4();
-
-    this.model.traverse((obj) => {
-      const mesh = obj as THREE.SkinnedMesh;
-      if (!mesh.isSkinnedMesh || mesh.skeleton !== skeleton) return;
-      const boneMatrices = mesh.skeleton.boneMatrices;
-      if (!boneMatrices) return;
-
-      // Ensure bone matrices are up to date
       mesh.skeleton.update();
 
       const geometry = mesh.geometry;
@@ -2321,9 +2298,6 @@ export class DPthreeCameraController {
       const skinWeightAttr = geometry.getAttribute('skinWeight');
 
       if (!positionAttr || !skinIndexAttr || !skinWeightAttr) return;
-
-      // Get the bind matrix inverse for skinning calculation
-      const bindMatrixInverse = mesh.bindMatrixInverse;
 
       // Check each vertex
       for (let i = 0; i < positionAttr.count; i++) {
@@ -2339,34 +2313,9 @@ export class DPthreeCameraController {
         }
 
         if (isInfluenced) {
-          // Get the vertex position in local space
-          tempVertex.fromBufferAttribute(positionAttr, i);
-
-          // Apply skinning transformation
-          // skinned = sum(weight_i * boneMatrix_i * bindMatrixInverse * vertex)
-          skinned.set(0, 0, 0);
-
-          for (let j = 0; j < 4; j++) {
-            const skinIdx = skinIndexAttr.getComponent(i, j);
-            const weight = skinWeightAttr.getComponent(i, j);
-
-            if (weight > 0) {
-              // Get bone matrix (already includes world transform)
-              tempMatrix.fromArray(boneMatrices, skinIdx * 16);
-
-              // Transform vertex: boneMatrix * bindMatrixInverse * vertex
-              const transformed = tempVertex.clone();
-              transformed.applyMatrix4(bindMatrixInverse);
-              transformed.applyMatrix4(tempMatrix);
-              transformed.multiplyScalar(weight);
-
-              skinned.add(transformed);
-            }
-          }
-
-          // Apply mesh world matrix to get final world position
-          skinned.applyMatrix4(mesh.matrixWorld);
-          box.expandByPoint(skinned);
+          // Match the rendered surface, including morphs and both bind matrices.
+          mesh.getVertexPosition(i, vertex);
+          box.expandByPoint(vertex.applyMatrix4(mesh.matrixWorld));
         }
       }
     });
@@ -2509,16 +2458,21 @@ export class DPthreeCameraController {
   }
 
   private calculateIntroLeftEyeFocusPosition(region: Region): FocusPosition | null {
-    const objects = this.resolveRegionObjects(region);
-    if (objects.length === 0) {
-      return null;
+    const focusTarget = (region as AnnotationAnchoredRegion).focusTarget;
+    const hasExplicitTarget = focusTarget && focusTarget.type !== 'region';
+    let focusPos: FocusPosition | null;
+    if (hasExplicitTarget) {
+      focusPos = this.resolveRegionFocusPosition(region);
+    } else {
+      const objects = this.resolveRegionObjects(region);
+      if (objects.length === 0) return null;
+      focusPos = this.calculateFocusPosition(
+        objects,
+        this.resolveIntroLeftEyePadding(region),
+        resolveRegionCameraAngle(region, this.laterality)
+      );
     }
-
-    const focusPos = this.calculateFocusPosition(
-      objects,
-      this.resolveIntroLeftEyePadding(region),
-      resolveRegionCameraAngle(region, this.laterality)
-    );
+    if (!focusPos) return null;
 
     if (region.cameraOffset) {
       if (region.cameraOffset.x) focusPos.position.x += region.cameraOffset.x;
@@ -2526,7 +2480,7 @@ export class DPthreeCameraController {
       if (region.cameraOffset.z) focusPos.position.z += region.cameraOffset.z;
     }
 
-    return this.applyIntroLeftEyeCompositionBias(focusPos);
+    return hasExplicitTarget ? focusPos : this.applyIntroLeftEyeCompositionBias(focusPos);
   }
 
   private applyIntroLeftEyeCompositionBias(focusPos: FocusPosition): FocusPosition {
