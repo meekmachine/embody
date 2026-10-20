@@ -426,7 +426,7 @@ for (const paused of [false, true]) {
       const baked = new AnimationClip('independent-baked', 2, [
         new VectorKeyframeTrack('Unbound.position', [0, 2], [0, 0, 0, 2, 0, 0]),
       ]);
-      rig.host.loadAnimationClips([baked]);
+      rig.host.registerAnimationClips([baked]);
       const bakedHandle = rig.host.playAnimation(baked.name, { fadeInSec: 0, loop: true });
       rig.host.setViseme(1, 0.3);
       renderHostFrame(rig.host, 0.5);
