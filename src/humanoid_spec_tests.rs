@@ -219,7 +219,7 @@ fn new_finger_motion_can_mix_bone_skin_and_clothing_targets() {
 #[test]
 fn legacy_saved_profile_upgrades_all_roles_and_missing_axes_without_overriding_custom_data() {
     let base=cc4();
-    let saved=include_str!("../tests/fixtures/legacy-cc4-body-profile.json");
+    let saved=include_str!("../assets/legacy/cc4-body-profile.json");
     let merged=crate::profile_merge::extend_preset_with_profile(&base,crate::profile_merge::parse_profile_patch(saved).unwrap());
     assert_eq!(merged.humanoid_characterization.as_ref().unwrap().roles.len(),55);
     assert!(humanoid::validate(&merged,&cc4_model()).valid);
@@ -272,7 +272,7 @@ fn clearing_role_disables_raw_and_prefixed_aliases_and_custom_metadata_does_not_
         let mut core=compiled(&profile,&cc4_model());core.set_au(1001,0.5,-1.0);
         assert!(core.evaluate_active_bone_frame().is_empty(),"cleared alias {alias} remains active");
     }
-    let mut authored:Value=serde_json::from_str(include_str!("../tests/fixtures/legacy-cc4-body-profile.json")).unwrap();
+    let mut authored:Value=serde_json::from_str(include_str!("../assets/legacy/cc4-body-profile.json")).unwrap();
     authored["humanoidCharacterization"]["roles"]["head"]["exactBoneName"]=json!("CustomHead");
     let result=crate::profile_merge::extend_preset_with_profile(&cc4(),crate::profile_merge::parse_profile_patch(&authored.to_string()).unwrap());
     assert_eq!(result.humanoid_characterization.unwrap().roles.len(),17);
