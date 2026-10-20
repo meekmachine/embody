@@ -424,7 +424,7 @@ for (const paused of [false, true]) {
         { target: { type: 'au', id: 200 }, keyframes: [{ time: 0, intensity: 0.2 }, { time: 2, intensity: 1 }] },
       ], { fadeInSec: 0, autoVisemeJaw: false, loop: true }).play();
       const baked = new AnimationClip('independent-baked', 2, [
-        new NumberKeyframeTrack('Unbound.position[x]', [0, 2], [0, 2]),
+        new VectorKeyframeTrack('Unbound.position', [0, 2], [0, 0, 0, 2, 0, 0]),
       ]);
       rig.host.loadAnimationClips([baked]);
       const bakedHandle = rig.host.playAnimation(baked.name, { fadeInSec: 0, loop: true });
