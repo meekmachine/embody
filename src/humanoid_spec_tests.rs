@@ -102,7 +102,8 @@ fn uniqueness_checks_aliases_after_model_resolution_and_positive_scales() {
 fn every_catalog_control_moves_its_authored_bones_with_signed_and_bilateral_outputs() {
     let profile=cc4();let model=cc4_model();
     let descriptors=crate::body_controls::resolve(&profile,Some(&model));
-    assert_eq!(descriptors.as_array().unwrap().len(),58);
+    assert_eq!(descriptors.as_array().unwrap().len(),59);
+    assert!(descriptors.as_array().unwrap().iter().any(|entry|entry["id"]=="body.eyeRoll"));
     assert!(descriptors.as_array().unwrap().iter().all(|entry|entry["hasBones"]==true));
     let covered: std::collections::BTreeSet<_>=profile.body_controls.values().flat_map(|control|control.roles.iter()).collect();
     assert_eq!(covered.len(),55);

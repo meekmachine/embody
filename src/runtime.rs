@@ -2914,7 +2914,8 @@ mod tests {
         core.configure_with_preset("cc4", "{}", model).unwrap();
         let expected = crate::body_controls::resolve(core.profile.as_ref().unwrap(), core.model.as_ref());
         assert_eq!(serde_json::from_str::<serde_json::Value>(&core.get_body_controls_json()).unwrap(), expected);
-        assert_eq!(expected.as_array().unwrap().len(), 58);
+        assert_eq!(expected.as_array().unwrap().len(), 59);
+        assert!(expected.as_array().unwrap().iter().any(|control| control["id"] == "body.eyeRoll"));
         let elbow = expected.as_array().unwrap().iter().find(|control| control["id"] == "body.elbowFlex").unwrap();
         assert_eq!(elbow["hasBones"], true);
         assert_eq!(elbow["hasMorphs"], false);

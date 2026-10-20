@@ -322,7 +322,9 @@ mod tests {
         let (authored, model) = authored_morph_catalog();
         assert_eq!(authored.body_controls.values().map(|control| control.section.as_str())
             .collect::<BTreeSet<_>>(), BTreeSet::from(["Torso", "Whole body", "Head", "Arms", "Hands", "Legs", "Feet"]));
-        assert_eq!(authored.body_controls.len(), 58);
+        assert_eq!(authored.body_controls.len(), 59);
+        assert_eq!(authored.body_controls["body.eyeRoll"].au_id, 1091);
+        assert_eq!(authored.body_controls["body.eyeRoll"].negative_au_id, Some(1092));
         // Removing role assignments and removing actuators are distinct authoring
         // operations. Both must leave independent morph mappings usable.
         for mode in ["mixed", "cleared-roles", "morph-only"] {

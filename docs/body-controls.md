@@ -5,7 +5,7 @@ Body controls reuse FACS action evaluation: one numeric action drives
 composite rotations and continuum pairs. VRM supplies anatomical role names;
 control names such as `body.elbowFlex` are Embody profile vocabulary.
 
-The CC4 preset includes **58 motion controls covering all 55 VRM 1.0 bone roles**.
+The CC4 preset includes **59 motion controls covering all 55 VRM 1.0 bone roles**.
 Torso and whole body controls provide bend, twist and side bend. Arms expose shoulder
 raise/swing, upper-arm swing/spread/twist, elbow flex and forearm rotation.
 Hands expose wrist bend/deviation, all 15 finger-segment curls per side and
