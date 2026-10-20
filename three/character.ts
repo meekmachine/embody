@@ -68,6 +68,7 @@ type Playback = {
   terminal: boolean;
   inheritedStarts: Map<string, number[]>;
   replay(options: CharacterPlaybackOptions): CharacterPlaybackHandle;
+  remap(options: CharacterPlaybackOptions, paused: boolean): void;
   notify(event: CharacterPlaybackEvent): void;
 };
 const json = (value: unknown): string => JSON.stringify(value ?? {});
@@ -110,6 +111,7 @@ export class Embody {
   private playDepth = 0;
   private readonly pendingEvents: ThreeNativePlaybackEvent[] = [];
   private bindingGeneration = 0;
+  private readonly remappingPlaybacks = new Set<string>();
   private disposed = false;
   private rendering = true;
   private timeScale = 1;
@@ -169,7 +171,7 @@ export class Embody {
     if (options.animations) this.loadAnimationClips(options.animations);
   }
 
-  private bind(model: Object3D, reference: ThreeModelReferencePose, inspection: ThreeModelInspection, source: JsonObject, profile: JsonObject, preserveLiveState = true): void {
+  private bind(model: Object3D, reference: ThreeModelReferencePose, inspection: ThreeModelInspection, source: JsonObject, profile: JsonObject, preserveLiveState = true, preservePlayback = false): void {
     // Prepare every fallible profile/reference operation before releasing the old binding.
     const referenceBindings = bindModelReferencePose(model, reference);
     // Inspection stays live; release clips need the separately captured baseline.
@@ -182,6 +184,16 @@ export class Embody {
       }),
     };
     const replacingModel = !!this.boundModel && this.boundModel !== model;
+    const continuing = preservePlayback && !replacingModel
+      ? [...this.playbacks.values()].flatMap(playback => {
+        const action = playback.connector.getAction(playback.id);
+        // Direct controls/transitions are rebuilt from canonical live state.
+        if (!action || playback.source.kind === 'compiled') return [];
+        return [{ playback, paused: action.paused, options: {
+          ...playback.options, time: action.time, speed: action.timeScale,
+          mixerWeight: action.weight, fadeInSec: 0, crossfadeDuration: 0,
+        } }];
+      }) : [];
     const core = new this.wasm.RuntimeCore(0);
     try {
       if (this.profileMode === 'profile') core.configure_with_profile(json(source), json(runtimeDescriptor));
@@ -193,9 +205,15 @@ export class Embody {
           core.register_animation_clip(json(clip), 'baked');
         }
       }
+      // Reject invalid remapped semantic sources before releasing current playback.
+      for (const { playback, options } of continuing) {
+        if (playback.source.kind !== 'native') this.compile(playback.source, options, core);
+      }
     } catch (error) { core.free(); throw error; }
+    for (const { playback } of continuing) this.remappingPlaybacks.add(playback.id);
     try { this.connector?.dispose(); }
     catch (error) { core.free(); throw error; }
+    finally { this.remappingPlaybacks.clear(); }
     this.core.free();
     this.core = core;
     if (replacingModel) this.sources.clear();
@@ -205,7 +223,7 @@ export class Embody {
     this.references.set(model, reference);
     this.profileSource = source;
     this.profile = profile;
-    this.bindingGeneration += 1;
+    if (!preservePlayback || replacingModel) this.bindingGeneration += 1;
     this.playbacks.clear();
     this.current.clear();
     this.liveTargets.clear();
@@ -232,6 +250,7 @@ export class Embody {
     this.hairConfig = parse(this.core.get_hair_config_json());
     this.registerHairObjects(inspection.allMeshes.filter((mesh) => ['hair', 'eyebrow'].includes(this.meshCategory(mesh))));
     if (preserveLiveState) this.commitLive();
+    for (const { playback, options, paused } of continuing) playback.remap(options, paused);
   }
 
   bindModel(meshes?: Mesh[]): void {
@@ -247,14 +266,14 @@ export class Embody {
     this.bind(model, reference, inspection, this.profileSource, this.profile);
     return reference;
   }
-  setProfile(value: JsonObject): void {
+  setProfile(value: JsonObject, { preservePlayback = false }: { preservePlayback?: boolean } = {}): void {
     this.assertAlive();
     const source = this.validateProfile(value);
     const profile = this.resolveProfile(source);
     if (!this.boundModel) { this.profileSource = source; this.profile = profile; return; }
     const reference = this.references.get(this.boundModel)!;
     const inspection = this.inspector.inspectModel(this.boundModel, { profile, referencePose: reference });
-    this.bind(this.boundModel, reference, inspection, source, profile, false);
+    this.bind(this.boundModel, reference, inspection, source, profile, preservePlayback, preservePlayback);
   }
   getProfile(): JsonObject { return this.profile; }
   getProfileMode(): 'preset' | 'profile' { return this.profileMode; }
@@ -262,6 +281,7 @@ export class Embody {
   supportsPreset(value?: string): boolean { return supportsRustEmbodyPreset(value); }
 
   private onPlaybackEvent(event: ThreeNativePlaybackEvent): void {
+    if (this.remappingPlaybacks.has(event.handle)) return;
     if (this.playDepth) { this.pendingEvents.push(event); return; }
     const playback = this.playbacks.get(event.handle);
     if (!playback) return;
@@ -272,12 +292,12 @@ export class Embody {
     }
     playback.notify({ ...event, actionId: event.handle, clipName: playback.source.name });
   }
-  private compile(source: Source, options: CharacterPlaybackOptions): ClipIR {
+  private compile(source: Source, options: CharacterPlaybackOptions, core: RuntimeCore = this.core): ClipIR {
     const buildOptions = { ...('options' in source ? source.options : {}), ...options, intensityScale: intensity(options) };
     switch (source.kind) {
-      case 'curves': return parse(this.core.build_clip(source.name, json(source.input), json(buildOptions)));
-      case 'typed': return parse(this.core.build_typed_clip(source.name, json(source.input), json(buildOptions)));
-      case 'semantic': return parse(this.core.build_semantic_clip(source.name, json(source.input), json(buildOptions)));
+      case 'curves': return parse(core.build_clip(source.name, json(source.input), json(buildOptions)));
+      case 'typed': return parse(core.build_typed_clip(source.name, json(source.input), json(buildOptions)));
+      case 'semantic': return parse(core.build_semantic_clip(source.name, json(source.input), json(buildOptions)));
       case 'compiled': return source.clip;
       case 'native': throw new Error('Native animation sources do not require semantic compilation.');
     }
@@ -474,7 +494,8 @@ export class Embody {
   private handle(source: Source, options: CharacterPlaybackOptions, autoPlay: boolean): CharacterPlaybackHandle {
     options = { ...('options' in source ? source.options : {}), ...options };
     const listeners = new Set<(event: CharacterPlaybackEvent) => void>();
-    const generation = this.bindingGeneration;
+    let generation = this.bindingGeneration;
+    let remapping = false;
     let current: Playback | undefined;
     let resolvePromise: (event: CharacterPlaybackEvent) => void = () => {};
     const result = { name: source.name } as CharacterPlaybackHandle;
@@ -496,7 +517,7 @@ export class Embody {
       const previous = this.current.get(source.name);
       const settings = this.nativeOptions(options, clip);
       if (previous && connector.getAction(previous.id)) settings.replace = previous.id;
-      if (current) newPromise();
+      if (current && !remapping) newPromise();
       const resolve = resolvePromise;
       let settled = false;
       this.playDepth += 1;
@@ -510,6 +531,13 @@ export class Embody {
       const playback: Playback = {
         id, source, options: { ...options, intensityScale: intensity(options) }, connector, terminal: false, inheritedStarts,
         replay: (next) => { options = next; return start(); },
+        remap: (next, paused) => {
+          generation = this.bindingGeneration;
+          options = next;
+          remapping = true;
+          try { start(); if (paused) result.pause(); }
+          finally { remapping = false; }
+        },
         notify: (event) => {
           if (settled) return;
           settled = true;

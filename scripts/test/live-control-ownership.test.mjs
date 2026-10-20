@@ -412,3 +412,46 @@ for (const mode of ['live', 'compiled']) {
     }
   });
 }
+
+for (const paused of [false, true]) {
+  test(`mapping edits retain live controls and ${paused ? 'paused' : 'playing'} public clip handles`, async () => {
+    const rig = await fixture();
+    try {
+      const prepared = rig.host.buildTypedClip('prepared', [
+        { target: { type: 'au', id: 201 }, keyframes: [{ time: 0, intensity: 0.7 }, { time: 2, intensity: 0.7 }] },
+      ], { fadeInSec: 0, autoVisemeJaw: false });
+      const playing = rig.host.buildTypedClip('editing', [
+        { target: { type: 'au', id: 200 }, keyframes: [{ time: 0, intensity: 0.2 }, { time: 2, intensity: 1 }] },
+      ], { fadeInSec: 0, autoVisemeJaw: false, loop: true }).play();
+      const baked = new AnimationClip('independent-baked', 2, [
+        new NumberKeyframeTrack('Unbound.position[x]', [0, 2], [0, 2]),
+      ]);
+      rig.host.loadAnimationClips([baked]);
+      const bakedHandle = rig.host.playAnimation(baked.name, { fadeInSec: 0, loop: true });
+      rig.host.setViseme(1, 0.3);
+      renderHostFrame(rig.host, 0.5);
+      if (paused) { playing.pause(); bakedHandle.pause(); }
+      const finished = playing.finished;
+      const events = [];
+      playing.subscribe(event => events.push(event));
+      for (const face of [[], ['Face'], [], ['Face']]) {
+        rig.host.setProfile({ ...profile, morphToMesh: { face } }, { preservePlayback: true });
+        assert.equal(playing.finished, finished, 'remapping retains the pending completion promise');
+        assert.deepEqual(events, [], 'editing does not report playback cancellation');
+        near(rig.host.getViseme(1), 0.3, 'canonical live control remains accepted');
+        renderHostFrame(rig.host, 0);
+        near(rig.mesh.morphTargetInfluences[0], face.length ? 0.4 : 0, 'clip retains its local time and follows selection');
+        near(rig.mesh.morphTargetInfluences[1], face.length ? 0.3 : 0, 'live control follows selection');
+        near(rig.model.getObjectByName('Unbound').position.x, 0.5, 'baked playback retains its time');
+        assert.doesNotThrow(() => playing.setSpeed(1));
+        assert.doesNotThrow(() => bakedHandle.setSpeed(1));
+      }
+      renderHostFrame(rig.host, 0.25);
+      near(rig.mesh.morphTargetInfluences[0], paused ? 0.4 : 0.5, 'paused state survives editing');
+      assert.doesNotThrow(() => playing.seek(1).setWeight(0.5).pause().resume());
+      assert.doesNotThrow(() => prepared.play().stop(), 'prepared handles remain playable after edits');
+      playing.stop();
+      assert.equal((await finished).type, 'cancelled');
+    } finally { rig.dispose(); }
+  });
+}

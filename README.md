@@ -86,6 +86,17 @@ The `Visemes` section also follows face selection, regardless of its older speec
 mesh category. Body and hair controls retain their own lists. This keeps editor
 previews and writes on the same mesh selection as animation.
 
+For edits to the currently loaded character, use
+`host.setProfile(profile, { preservePlayback: true })`. This retains canonical
+live AU/viseme values and remaps active semantic and baked clips at their current
+local time, speed, weight and paused state. Existing public clip handles and
+pending completion promises remain usable. Prepared clips remain playable.
+Semantic clips compile against the new mappings, so cleared face selection takes
+effect immediately. Direct transitions are cancelled and their accepted live
+targets are retained; callers must end temporary hover overrides after an edit.
+The default `setProfile(profile)` remains a full profile replacement that cancels
+playback and clears live controls. Model replacement still retires old handles.
+
 The TypeScript adapter is intentionally limited to operations that require
 Three.js objects: scene traversal, ClipIR ↔ `AnimationClip` conversion, frame
 application, material writes, model loading/disposal, and default scene
