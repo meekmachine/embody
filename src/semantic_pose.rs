@@ -62,8 +62,14 @@ fn angular_range_degrees(profile: &ProfileData, model: Option<&ModelData>, au: u
         sides.entry(binding.side.clone().unwrap_or_else(|| "center".into())).or_default().push(degrees);
     }
     if sides.is_empty() || sides.values().any(|ranges| ranges.len() != 1) { return None; }
-    // Shared bilateral commands must stay within the smaller available side.
-    sides.values().map(|ranges| ranges[0]).reduce(f64::min)
+    // One shared amplitude cannot produce equal angles on asymmetrically
+    // calibrated eyes. Require symmetric excursion; never advertise the minimum
+    // as though it calibrated both outputs.
+    let reference = sides.values().next()?[0];
+    if sides.values().any(|ranges| (ranges[0] - reference).abs() > 1e-6 * reference.max(1.0)) {
+        return None;
+    }
+    Some(reference)
 }
 
 pub(crate) fn catalog(profile: &ProfileData, model: Option<&ModelData>) -> Value {

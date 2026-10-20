@@ -256,7 +256,7 @@ unavailable; target geometry alone does not imply a playable roll channel.
 Each semantic catalog direction exposes `angularRangeDegrees`, also forwarded
 as `positiveDegrees`/`negativeDegrees` by `getGazeControlCapabilities()`. Rust
 resolves actual model bones and participating composite groups, includes
-`abs(scale * maxDegrees)`, and returns the smaller available bilateral side.
-Missing/morph-only output or multiple bindings per side yields `null`: the
+`abs(scale * maxDegrees)`, and requires equal available bilateral excursions.
+Asymmetric sides, missing/morph-only output or multiple bindings per side yield `null`: the
 endpoint angle of articulated local axes requires further calibration. Hosts
 must not normalize desired degrees against an invented range in that case.

@@ -157,14 +157,19 @@ mod tests {
         profile.bone_nodes.insert("EYE_L".into(), "CustomLeft".into());
         profile.bone_nodes.insert("EYE_R".into(), "CustomRight".into());
         profile.bone_prefix = None;
-        profile.au_to_bones.get_mut("1091").unwrap()[0].scale = 0.5;
-        profile.au_to_bones.get_mut("1092").unwrap()[1].max_degrees = Some(7.0);
+        for binding in profile.au_to_bones.get_mut("1091").unwrap() { binding.scale = 0.5; }
+        for binding in profile.au_to_bones.get_mut("1092").unwrap() { binding.max_degrees = Some(7.0); }
         let model: ModelData = serde_json::from_value(json!({"bones":[
             {"id":1,"name":"CustomLeft"},{"id":2,"name":"CustomRight"}]})).unwrap();
         let catalog = crate::semantic_pose::catalog(&profile, Some(&model));
         let roll = catalog.as_array().unwrap().iter().find(|row|row["id"]=="body.eyeRoll").unwrap();
         assert_eq!(roll["positive"]["angularRangeDegrees"], 5.0);
         assert_eq!(roll["negative"]["angularRangeDegrees"], 7.0);
+        profile.au_to_bones.get_mut("1091").unwrap()[1].scale = 1.0;
+        let asymmetric = crate::semantic_pose::catalog(&profile, Some(&model));
+        let roll = asymmetric.as_array().unwrap().iter().find(|row|row["id"]=="body.eyeRoll").unwrap();
+        assert!(roll["positive"]["angularRangeDegrees"].is_null(), "one amplitude cannot calibrate unequal bilateral excursions");
+        profile.au_to_bones.get_mut("1091").unwrap()[1].scale = 0.5;
         let duplicate = profile.au_to_bones["1091"][0].clone();
         profile.au_to_bones.get_mut("1091").unwrap().push(duplicate);
         let catalog = crate::semantic_pose::catalog(&profile, Some(&model));

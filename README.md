@@ -248,9 +248,9 @@ other rigs. `engine.getGazeControlCapabilities()` returns per-direction availabi
 for head turn/nod/tilt and eye turn/look/roll; absent custom-profile mappings are
 explicitly unavailable. Each record also returns `positiveDegrees` and
 `negativeDegrees` from the Rust semantic catalog's `angularRangeDegrees`.
-These include absolute authored scale and use the smaller available bilateral
-range. Calibration is `null` for missing/morph-only outputs, invalid angular
-ranges or multiple bindings per side; articulated local rotations cannot be
+These include absolute authored scale and require equal angular excursion
+across available bilateral sides. Calibration is `null` for asymmetric sides,
+missing/morph-only outputs, invalid angular ranges or multiple bindings per side; articulated local rotations cannot be
 summed without a calibrated common frame. Consumers must distinguish playable
 outputs from calibrated angular support and report uncalibrated controls. A geometry result alone does not establish motor support.
 
