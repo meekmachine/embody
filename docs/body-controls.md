@@ -10,7 +10,7 @@ Torso and whole body controls provide bend, twist and side bend. Arms expose sho
 raise/swing, upper-arm swing/spread/twist, elbow flex and forearm rotation.
 Hands expose wrist bend/deviation, all 15 finger-segment curls per side and
 spread for each finger. Legs/feet expose hip swing/spread/twist, knee bend,
-ankle bend, foot tilt and toes. Head/eyes/jaw reuse existing facial actions.
+ankle bend, foot tilt and toes. Head/eyes/jaw reuse existing facial actions; eye optical-axis roll uses supplemental body actions.
 Bilateral controls expose independent left/right balance; signed motions use
 continuum pairs. This catalog is authored CC4 motion data, not a VRM-defined
 motion vocabulary or a motion generator for arbitrary imported rigs.
@@ -27,7 +27,7 @@ Sparse CC4 profiles inherit this grouping; explicit authored labels and sections
 remain overrides, including saved complete preset snapshots.
 
 Original IDs remain stable: elbow flex (1001), knee bend (1002), and torso twist
-(negative 1003, positive 1004). Added body actions use 1010–1090. These are not standardized FACS AUs.
+(negative 1003, positive 1004). Added body actions use 1010–1092. These are not standardized FACS AUs.
 `profile.getBodyControls` returns sorted descriptors for the Body drawer;
 an optional model descriptor enables missing-bone and missing-morph diagnostics.
 
@@ -89,7 +89,7 @@ Speech sends an AU 103 curve through the normal animation system; the same
 compiler produces its bone output and any configured morph output. The group
 uses the existing strongest-opening rule when these AUs play together.
 
-Head and eye controls use the original AU IDs (51–56 and 61–64), so their
+Head turn/nod/tilt and eye turn/look controls use the original AU IDs (51–56 and 61–64), so their
 facial and semantic editors read and write the same `auToMorphs` and
 `auMixDefaults` entries. Skeleton axis reads, edits and clears resolve role,
 `boneNodes` key and literal bone targets to the same configured bone, including
@@ -241,3 +241,14 @@ only the named action. This prevents opposite head or body tissue morphs from
 remaining active after switching sliders. Distinct axes and head/neck actions
 remain independent. Raw `set_au` state ingestion and authored clip blending
 retain their existing composition semantics.
+
+### Eye optical-axis roll
+
+`body.eyeRoll` pairs positive action 1091 and negative action 1092. The CC4
+preset maps both eyes to local `ry`, distinct from its `rx` pitch and `rz` yaw,
+and includes those actions in each eye's composite roll group. Its 10-degree
+range is an authored demonstration limit; configure axes and ranges for other
+rigs. Bilateral balance and semantic clip compilation use the normal body
+control evaluator. FACS 65/66 remain left-eye yaw and are never roll aliases.
+`getGazeControlCapabilities()` reports missing custom-profile directions as
+unavailable; target geometry alone does not imply a playable roll channel.
