@@ -23,6 +23,9 @@ it('the convenience facade uses one controller-owned marker layer and one update
   expect(dp.controller.getMarkersVisible()).toBe(true);
   expect(markerLoad).toHaveBeenCalledTimes(1);
   expect(scene.children.filter(object => object instanceof THREE.Group)).toHaveLength(1);
+  // Loading refreshes marker layout before reveal. Count only the explicit
+  // frame update here to detect duplicate controller/facade update paths.
+  markerUpdate.mockClear();
   dp.update(); expect(markerUpdate).toHaveBeenCalledTimes(1);
   dp.setMarkersVisible(true); expect(dp.controller.getMarkersVisible()).toBe(true);
   dp.dispose(); expect(controllerDispose).toHaveBeenCalledTimes(1);
