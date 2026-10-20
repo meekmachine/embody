@@ -2175,6 +2175,38 @@
         "maxDegrees": 15,
         "side": "right"
       }
+    ],
+    "1091": [
+      {
+        "node": "EYE_L",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 10,
+        "side": "left"
+      },
+      {
+        "node": "EYE_R",
+        "channel": "ry",
+        "scale": 1,
+        "maxDegrees": 10,
+        "side": "right"
+      }
+    ],
+    "1092": [
+      {
+        "node": "EYE_L",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 10,
+        "side": "left"
+      },
+      {
+        "node": "EYE_R",
+        "channel": "ry",
+        "scale": -1,
+        "maxDegrees": 10,
+        "side": "right"
+      }
     ]
   },
   "boneNodes": {
@@ -4048,6 +4080,18 @@
       "name": "Little spread — Inward",
       "faceArea": "Body",
       "facePart": "Body"
+    },
+    "1091": {
+      "id": "1091",
+      "name": "Eyes roll — Positive",
+      "faceArea": "Body",
+      "facePart": "Body"
+    },
+    "1092": {
+      "id": "1092",
+      "name": "Eyes roll — Negative",
+      "faceArea": "Body",
+      "facePart": "Body"
     }
   },
   "eyeMeshNodes": {
@@ -4795,6 +4839,18 @@
       "isNegative": true,
       "axis": "roll",
       "node": "leftLittleProximal"
+    },
+    "1091": {
+      "pairId": 1092,
+      "isNegative": false,
+      "axis": "roll",
+      "node": "EYE_L"
+    },
+    "1092": {
+      "pairId": 1091,
+      "isNegative": true,
+      "axis": "roll",
+      "node": "EYE_L"
     }
   },
   "continuumLabels": {
@@ -5109,7 +5165,15 @@
           66
         ]
       },
-      "roll": null
+      "roll": {
+        "aus": [
+          1092,
+          1091
+        ],
+        "axis": "ry",
+        "negative": 1092,
+        "positive": 1091
+      }
     },
     {
       "node": "EYE_R",
@@ -5147,7 +5211,15 @@
           70
         ]
       },
-      "roll": null
+      "roll": {
+        "aus": [
+          1092,
+          1091
+        ],
+        "axis": "ry",
+        "negative": 1092,
+        "positive": 1091
+      }
     },
     {
       "node": "TONGUE",
@@ -6899,6 +6971,18 @@
       ],
       "order": 580,
       "negativeAuId": 30
+    },
+    "body.eyeRoll": {
+      "label": "Eyes roll",
+      "section": "Head",
+      "auId": 1091,
+      "negativeAuId": 1092,
+      "bilateral": true,
+      "roles": [
+        "leftEye",
+        "rightEye"
+      ],
+      "order": 565
     }
   },
   "bodyControlCalibration": {

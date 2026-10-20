@@ -239,6 +239,16 @@ inheritance behavior.
 
 ### Gaze geometry contract
 
+The CC4 semantic catalog includes `body.eyeRoll`, paired supplemental actions
+1091 (positive) and 1092 (negative), with bilateral optical-axis rotation and a
+10-degree authored demonstration range. It uses the same semantic clip compiler,
+side selection and profile mapping as eye turn/look. These are not FACS 65/66,
+which retain their existing left-eye yaw meaning. Recalibrate axes/ranges for
+other rigs. `engine.getGazeControlCapabilities()` returns per-direction availability
+for head turn/nod/tilt and eye turn/look/roll; absent custom-profile mappings are
+explicitly unavailable. A geometry result alone does not establish motor support.
+
+
 `solveGazeGeometry(input)` from the root or `/wasm` export is a stateless,
 renderer-neutral camera/character geometry API. Call after `initEmbodyCore()`;
 Rust also exposes `solve_gaze_geometry(inputJson)`. It takes world-space
@@ -249,6 +259,12 @@ and either `target: {kind:'screen', x, y, depth?}` or
 zero follows the eye-to-camera bearing rather than the image center. Offsets
 use camera right/up and perspective FOV at `depth` (default eye-camera distance).
 Positions/depth share scene units. Camera and eye positions must differ.
+`engine.getGazeGeometryFacts(perspectiveCamera)` observes those camera and
+character facts from the bound Three model: its root world quaternion, current
+mapped VRM eye midpoint (one eye if only one exists), or mapped head position.
+It requires characterized eye/head roles, throws if no origin is mapped, and
+uses effective perspective FOV (including camera zoom). Animated head rotation
+is never substituted for the neutral model-root orientation.
 
 The result contains `targetAnglesDegrees`, `cameraAnglesDegrees`,
 `targetDirectionCharacter` and `characterFacingCamera`. Character-neutral +Z
@@ -262,7 +278,6 @@ FOV, aspect or depth throw without mutation. A world target ignores FOV/aspect.
 This returns geometric facts, not profile limits, animation curves, velocity
 estimates, a gaze motor or a planner. Polymer owns those policies and native
 Animation scheduling. Legacy profile solvers described below are separate APIs.
-
 
 `solve_profile_screen_space_gaze` and `solve_profile_viewer_space_gaze` return
 14 floats: combined target XY, eye target XY, head target XY, total yaw/pitch,

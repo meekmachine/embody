@@ -123,6 +123,33 @@ mod tests {
     }
 
     #[test]
+    fn eye_roll_uses_remapped_roles_and_preserves_bilateral_selection() {
+        let mut profile = preset();
+        profile.bone_nodes.insert("EYE_L".into(), "CustomLeft".into());
+        profile.bone_nodes.insert("EYE_R".into(), "CustomRight".into());
+        profile.bone_prefix = None;
+        let model = json!({"bones":[{"id":1,"name":"CustomLeft"},{"id":2,"name":"CustomRight"}]});
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(&serde_json::to_string(&profile).unwrap(), &model.to_string()).unwrap();
+        let catalog: Value = serde_json::from_str(&core.get_semantic_pose_catalog_json()).unwrap();
+        let roll = catalog.as_array().unwrap().iter().find(|row|row["id"]=="body.eyeRoll").unwrap();
+        assert_eq!(roll["positive"]["available"], true);
+        assert_eq!(roll["negative"]["available"], true);
+        assert_eq!(roll["positive"]["availableSides"], json!(["left","right"]));
+        core.set_au(1091, 1.0, -1.0);
+        let frame = core.evaluate_bone_frame_delta();
+        let left = frame.chunks_exact(9).find(|row|row[0]==1.0).unwrap();
+        let right = frame.chunks_exact(9).find(|row|row[0]==2.0).unwrap();
+        assert!(left[5].abs()>0.08, "left optical axis roll must rotate");
+        assert!(right[5].abs()<1e-6, "unselected right eye must remain neutral");
+        let clip: Value = serde_json::from_str(&core.build_semantic_clip("roll",
+            r#"{"version":1,"durationSeconds":1,"tracks":[{"controlId":"body.eyeRoll","direction":"negative","keyframes":[{"time":0,"intensity":0},{"time":1,"intensity":1}]}]}"#, "{}").unwrap()).unwrap();
+        assert!(clip["tracks"].as_array().unwrap().iter().any(|track|track["target"]["boneId"]==1));
+        assert!(clip["tracks"].as_array().unwrap().iter().any(|track|track["target"]["boneId"]==2));
+        assert_eq!(core.get_au(1091), 1.0, "compilation preserves live controls");
+    }
+
+    #[test]
     fn body_action_drives_bones_and_skin_clothing_morphs_with_facs_mix_and_balance() {
         let mut core = RuntimeCore::new(0);
         let extension = json!({"auToMorphs":{"1001":{"left":["LL_Body_Bicep_Flex_L","Shirt_Flex_L"],

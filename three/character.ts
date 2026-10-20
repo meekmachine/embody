@@ -1,8 +1,9 @@
 import {
   AdditiveAnimationBlendMode, AnimationClip, AnimationUtils, LoopOnce, LoopPingPong,
-  NormalAnimationBlendMode, PropertyBinding, Quaternion, Euler, InterpolateDiscrete, InterpolateLinear,
+  NormalAnimationBlendMode, PropertyBinding, Quaternion, Vector3, Euler, InterpolateDiscrete, InterpolateLinear,
 } from 'three';
-import type { KeyframeTrack, Mesh, Object3D } from 'three';
+import type { KeyframeTrack, Mesh, Object3D, PerspectiveCamera } from 'three';
+import type { GazeGeometryInput } from '@lovelace_lol/embody/wasm';
 import { initEmbodyCore, requireInitializedEmbodyCore, DEFAULT_HAIR_COLOR_APPEARANCE } from '@lovelace_lol/embody/wasm';
 import type { RuntimeCore } from '@lovelace_lol/embody/wasm';
 import {
@@ -876,6 +877,40 @@ export class Embody {
   private meshCategory(mesh: Object3D): string { return this.profile.meshes?.[mesh.name]?.category ?? 'other'; }
   getMeshList(): JsonObject[] { return (this.inspection?.allMeshes ?? []).map((mesh) => ({ name: mesh.name, visible: mesh.visible, morphCount: mesh.morphTargetInfluences?.length ?? 0, category: this.meshCategory(mesh) })); }
   getBones(): ThreeModelInspection['bones'] { return this.bones; }
+  /** Actual profile/model support; missing directions remain explicitly unavailable. */
+  getGazeControlCapabilities(): Record<string, { positive: boolean; negative: boolean }> {
+    const catalog = this.getSemanticPoseCatalog();
+    return Object.fromEntries(['body.headTurn', 'body.headNod', 'body.headTilt', 'body.eyeTurn', 'body.eyeLook', 'body.eyeRoll'].map(id => {
+      const control = catalog.find(row => row.id === id);
+      return [id, { positive: control?.positive?.available === true, negative: control?.negative?.available === true }];
+    }));
+  }
+  /** Observe portable scene facts; no gaze policy, animation or render-loop ownership. */
+  getGazeGeometryFacts(camera: PerspectiveCamera): Omit<GazeGeometryInput, 'target' | 'targetRollDegrees'> {
+    const model = this.requireModel();
+    if (!camera?.isPerspectiveCamera) throw new Error('Gaze geometry requires a perspective camera.');
+    model.updateWorldMatrix(true, true);
+    camera.updateWorldMatrix(true, false);
+    const roles = this.profile.humanoidCharacterization?.roles ?? {};
+    const mapped = (role: string): Object3D | undefined => {
+      const key = roles[role]?.nodeKey;
+      return key ? this.bones[key]?.obj : undefined;
+    };
+    const eyes = [mapped('leftEye'), mapped('rightEye')].filter((eye): eye is Object3D => !!eye);
+    const origins = eyes.length ? eyes : [mapped('head')].filter((head): head is Object3D => !!head);
+    if (!origins.length) throw new Error('Gaze geometry requires mapped eye or head humanoid roles.');
+    const origin = new Vector3();
+    for (const bone of origins) origin.add(bone.getWorldPosition(new Vector3()));
+    origin.multiplyScalar(1 / origins.length);
+    return {
+      cameraPosition: camera.getWorldPosition(new Vector3()).toArray() as [number, number, number],
+      cameraQuaternion: camera.getWorldQuaternion(new Quaternion()).toArray() as [number, number, number, number],
+      characterWorldQuaternion: model.getWorldQuaternion(new Quaternion()).toArray() as [number, number, number, number],
+      eyeOriginWorld: origin.toArray() as [number, number, number],
+      verticalFovDegrees: camera.getEffectiveFOV(), aspect: camera.aspect,
+    };
+  }
+
   private meshProfile(name: string): JsonObject { return (this.profile.meshes ??= {})[name] ??= { category: 'other' }; }
   setMeshVisible(name: string, visible: boolean): void { this.applier.setMeshVisible(this.requireModel(), name, visible); this.meshProfile(name).visible = visible; }
   highlightMesh(name: string | null, color?: number, value?: number): void { this.applier.highlightMesh(this.requireModel(), name, color, value); }
