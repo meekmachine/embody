@@ -549,3 +549,15 @@ values/curves, using their original profile mappings. `LEGACY_BODY_CONTROL_AUS`
 is a deprecated reader-only historical identity snapshot for old CC4 records;
 it is never consulted for current controls, actuation or profile compilation.
 Unknown legacy names must be reported rather than silently omitted.
+
+### Mesh highlight previews
+
+`character.highlightMesh(name, color?, intensity?)` delegates to
+`ThreeFrameApplier.highlightMesh`. It temporarily applies an emissive fill where
+supported and a darker wireframe in the same color family. The wireframe shares
+the source geometry, morph weights, and skeleton so it follows mesh deformation.
+Passing `null` or selecting another mesh restores original materials and removes
+obsolete overlays. Hidden source meshes remain hidden. Temporary materials are
+isolated from other meshes sharing the original material; geometry and skeletons
+remain owned by the source model. Character disposal clears these resources;
+direct applier consumers should call `clearMeshHighlights()` on disposal.
