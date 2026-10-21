@@ -358,3 +358,58 @@ test('registering optional clips leaves paused native actions and live contribut
     near(rig.mesh.morphTargetInfluences[0], 0.6, 'the next playback uses the replacement source');
   } finally { rig.dispose(); }
 });
+
+for (const mode of ['live', 'compiled']) {
+  test(`face edits restrict expression, blink and speech on native ${mode} frames`, async () => {
+    const model = new Group();
+    const names = ['Skin_1', 'Skin_2', 'Brows', 'Lashes', 'Shirt'];
+    const meshes = names.map(name => {
+      const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+      mesh.name = name;
+      mesh.morphTargetDictionary = { Smile: 0, Blink: 1, Talk: 2, Flex: 3 };
+      mesh.morphTargetInfluences = [0, 0, 0, 0];
+      model.add(mesh);
+      return mesh;
+    });
+    const channels = [
+      { target: { type: 'au', id: 12 } },
+      { target: { type: 'au', id: 45 } },
+      { target: { type: 'viseme', id: 0 } },
+      { target: { type: 'au', id: 1001 } },
+    ].map(channel => ({ ...channel, keyframes: [{ time: 0, intensity: 1 }, { time: 1, intensity: 1 }] }));
+    const configuration = face => ({
+      auToMorphs: { 12: { center: ['Smile'] }, 45: { center: ['Blink'] }, 1001: { center: ['Flex'] } },
+      auInfo: { 45: { facePart: 'Eyelids' }, 1001: { facePart: 'Body' } },
+      auFacePartToMeshCategory: { Eyelids: 'eye', Body: 'body' },
+      // Legacy eye/speech lists must not animate the unselected Shirt.
+      morphToMesh: { face, eye: ['Shirt'], viseme: ['Shirt'], body: ['Shirt'] },
+      visemeKeys: ['Talk'], visemeMeshCategory: 'viseme', hairPhysics: { enabled: false },
+    });
+    const host = await createRustEmbodyHost(model, { profileMode: 'profile', profile: configuration(['Skin']) });
+    try {
+      for (const selection of [['Skin'], ['Skin_2', 'Brows'], ['Lashes'], [], ['Missing'], ['Skin', 'Lashes']]) {
+        host.stopAllAnimations();
+        host.clear();
+        host.setProfile(configuration(selection));
+        if (mode === 'live') {
+          host.setAU(12, 1); host.setAU(45, 1); host.setViseme(0, 1); host.setAU(1001, 1);
+        } else {
+          host.buildTypedClip('face-selection', channels, { autoVisemeJaw: false, fadeInSec: 0 }).play();
+        }
+        renderHostFrame(host, 0.25);
+        for (const mesh of meshes) {
+          const selected = selection.includes(mesh.name) || (selection.includes('Skin') && mesh.name.startsWith('Skin_'));
+          for (const target of ['Smile', 'Blink', 'Talk']) {
+            near(mesh.morphTargetInfluences[mesh.morphTargetDictionary[target]], selected ? 1 : 0,
+              `${selection}/${mesh.name}/${target}`);
+          }
+          near(mesh.morphTargetInfluences[3], mesh.name === 'Shirt' ? 1 : 0, 'body route remains independent');
+        }
+      }
+    } finally {
+      host.dispose();
+      for (const mesh of meshes) { mesh.geometry.dispose(); mesh.material.dispose(); }
+    }
+  });
+}
+
