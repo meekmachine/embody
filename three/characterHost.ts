@@ -1,4 +1,6 @@
 import { PerspectiveCamera } from 'three';
+import { createSceneInkBackground } from './sceneInkBackground';
+import { resolveCharacterMaterialPalette, resolveCharacterTexturePalette } from './characterTexturePalette';
 import type { Camera, Scene } from 'three';
 import { initEmbodyCore } from '@lovelace_lol/embody/wasm';
 import { Embody } from './character';
@@ -93,6 +95,27 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
   let activeChange: AbortController | undefined;
   let request = 0;
   let mountedCanvas: HTMLCanvasElement | undefined;
+  const previousBackground = options.container.style?.background ?? '';
+  let backgroundRevision = 0;
+  const applyCharacterBackground = (value: CharacterModelLoadResult, character: CharacterHostCharacterOptions) => {
+    const revision = ++backgroundRevision;
+    const settings = sceneSettings(character);
+    // Explicit appearance (including transparency) and external scenes remain authoritative.
+    const usePalette = !options.external && settings.background === undefined
+      && (settings.type === undefined || settings.type === 'studio');
+    if (options.container.style) options.container.style.background = previousBackground;
+    if (!usePalette) return;
+    const background = createSceneInkBackground(css => {
+      if (!disposed && revision === backgroundRevision && options.container.style) options.container.style.background = css;
+    });
+    const key = character.modelUrl;
+    const materialPalette = resolveCharacterMaterialPalette(value.model, key);
+    background.setPalette(materialPalette);
+    void resolveCharacterTexturePalette(value.model, key).then(palette => {
+      background.setPalette(palette ?? materialPalette);
+      background.dispose();
+    });
+  };
   const visibility = new WeakMap<CharacterModelLoadResult['model'], boolean>();
   const lifetime = new AbortController();
   const initial = new AbortController();
@@ -152,6 +175,8 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
   const dispose = (): Promise<void> => {
     if (disposal) return disposal;
     disposed = true;
+    backgroundRevision += 1;
+    if (options.container.style) options.container.style.background = previousBackground;
     cancel();
     options.signal?.removeEventListener('abort', cancelCreation);
     disposal = (async () => {
@@ -229,6 +254,7 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
       await prepare(loaded, engine, first.character, initial.signal);
       await ready(loaded, engine, first.character, initial.signal);
       loaded.model.visible = visibility.get(loaded.model) ?? true;
+      applyCharacterBackground(loaded, first.character);
     } finally { initialLease?.release(); }
     if (options.autoStart !== false) engine.start();
     const sceneState = state;
@@ -275,6 +301,7 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
             engine = nextEngine;
             loaded = next;
             currentCharacter = prepared.character;
+            applyCharacterBackground(next, currentCharacter);
             host!.engine = engine;
             host!.model = next.model;
             host!.meshes = next.meshes;

@@ -564,3 +564,15 @@ partial rig. Stored static poses retain their portability across missing outputs
 `evaluate_semantic_body_bone_frame()` returns exact Body-owned properties including
 neutral values, allowing an explicit semantic pose/reset to replace old raw bone
 edits without touching unrelated properties.
+
+### Character-derived studio background
+
+The Three `createCharacterHost` paints its container with soft gradients sampled
+from the selected model's material and texture colors. The studio uses the
+original visible ink strengths (24/12%, 22/10%, 18%) over a gunmetal base.
+Embody owns palette extraction and updates after successful character replacement;
+late extraction cannot repaint a newer selection or a disposed host. Disposal
+restores the container's original inline background. Explicit saved backgrounds,
+including `null` transparency, non-studio scene types and external scenes retain
+their authored appearance. Polymer forwards the host; applications do not sample
+textures or construct a second scene background.

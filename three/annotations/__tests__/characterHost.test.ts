@@ -1,4 +1,4 @@
-import { AnimationClip, Group, PerspectiveCamera, Scene } from 'three';
+import { AnimationClip, BoxGeometry, Group, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene } from 'three';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CharacterModelLoadResult } from '../../model';
 import type { CharacterSceneRenderer, ReadyDefaultCharacterScene } from '../../scene';
@@ -218,4 +218,47 @@ describe('character host acquisition and disposal', () => {
     expect(acquisition.engines.every(engine => engine.dispose.mock.calls.length === 1)).toBe(true);
     expect(owned.dispose).toHaveBeenCalledOnce();
   });
+});
+
+
+describe('character host palette background', () => {
+  function coloredModel(color: string) {
+    const value = model();
+    const mesh = new Mesh(new BoxGeometry(), new MeshStandardMaterial({ color }));
+    value.model.add(mesh);
+    return { value, release() { mesh.geometry.dispose(); mesh.material.dispose(); } };
+  }
+
+  it('colors the mount for the selected character, switches palettes and restores host styling on disposal', async () => {
+    const first = coloredModel('#cd765c'); const second = coloredModel('#26969c');
+    const mount = { style: { background: 'original' } } as unknown as HTMLElement;
+    acquisition.scene.mockResolvedValueOnce(scene());
+    acquisition.load.mockResolvedValueOnce(first.value).mockResolvedValueOnce(second.value);
+    const host = await createCharacterHost({ container: mount, character: { modelUrl: 'palette-coral.glb' } });
+    try {
+      const coralBackground = mount.style.background;
+      expect(coralBackground).toContain('radial-gradient');
+      await host.setCharacter({ modelUrl: 'palette-teal.glb' });
+      expect(mount.style.background).toContain('radial-gradient');
+      expect(mount.style.background).not.toBe(coralBackground);
+      const tealBackground = mount.style.background;
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(mount.style.background).toBe(tealBackground);
+    } finally { await host.dispose(); first.release(); second.release(); }
+    expect(mount.style.background).toBe('original');
+    // Deferred texture extraction must not repaint a disposed host.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mount.style.background).toBe('original');
+  });
+
+  it.each([{ background: '#123456' }, { background: null }, { type: 'void' as const }])(
+    'preserves explicit scene appearance %j', async settings => {
+      const loaded = coloredModel('#cd765c');
+      const mount = { style: { background: 'original' } } as unknown as HTMLElement;
+      acquisition.scene.mockResolvedValueOnce(scene()); acquisition.load.mockResolvedValueOnce(loaded.value);
+      const host = await createCharacterHost({ container: mount, character: { modelUrl: 'explicit.glb', scene: settings } });
+      try { expect(mount.style.background).toBe('original'); }
+      finally { await host.dispose(); loaded.release(); }
+    },
+  );
 });
