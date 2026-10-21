@@ -5,6 +5,9 @@ current ownership. [VISION_AND_PRD](../VISION_AND_PRD.md) describes product inte
 it is not proof that an API or renderer integration exists. These rules guide
 new and touched code, not an unsolicited rewrite of existing modules.
 
+See [real writing examples](writing-examples.md) for source-backed weak/strong
+comparisons and existing good contracts worth preserving.
+
 ## Agent handoff
 
 Follow the root [delivery workflow](../AGENTS.md#default-engineering-delivery-workflow):
