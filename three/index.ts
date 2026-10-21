@@ -828,3 +828,6 @@ export const collectMorphMeshes = (root: Object3D) => {
 
 export * from './model';
 export * from './scene';
+
+export * from './editor/SkeletonOverlay';
+export * from './editor/morphVertexPreview';
