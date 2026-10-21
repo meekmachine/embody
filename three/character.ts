@@ -507,9 +507,6 @@ export class Embody {
       const previous = this.current.get(source.name);
       const settings = this.nativeOptions(options, clip);
       if (previous && connector.getAction(previous.id)) settings.replace = previous.id;
-      if (current) newPromise();
-      const resolve = resolvePromise;
-      let settled = false;
       this.playDepth += 1;
       let id: string;
       try { id = connector.playNativeClip(clip, settings); }
@@ -518,6 +515,9 @@ export class Embody {
         while (!this.playDepth && this.pendingEvents.length) this.onPlaybackEvent(this.pendingEvents.shift()!);
         throw error;
       }
+      if (current) newPromise();
+      const resolve = resolvePromise;
+      let settled = false;
       const playback: Playback = {
         id, source, options: { ...options, intensityScale: intensity(options) }, connector, terminal: false, inheritedStarts,
         replay: (next) => { options = next; return start(); },

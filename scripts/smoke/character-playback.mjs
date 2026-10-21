@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { AdditiveAnimationBlendMode, AnimationClip, BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial, NumberKeyframeTrack } from 'three';
+import { AdditiveAnimationBlendMode, AnimationClip, Bone, BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial, NumberKeyframeTrack, Quaternion, Vector3 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createRustEmbodyHost, renderScenePlayback } from '../../dist/three.js';
 import { createPlaybackTimer } from '../test/helpers/render-playback.mjs';
@@ -65,6 +65,10 @@ try {
   assert.equal(character.supportsBoundedPlayback(), true);
   const bounded = character.playAnimation('move', { time: 1, endSeconds: 1.8, speed: 1, finalPose: 'hold' });
   step(0.2); near(value(), 0.6);
+  const acceptedTravel = bounded.finished;
+  assert.throws(() => bounded.updateParams({ endSeconds: 3 }));
+  assert.equal(bounded.finished, acceptedTravel, 'invalid retarget must preserve the admitted request promise');
+  near(character.getAnimationState('move').time, 1.2);
   const oldTravel = bounded.finished;
   bounded.updateParams({ endSeconds: 0.4, speed: 2 });
   assert.notEqual(bounded.finished, oldTravel);
@@ -183,4 +187,33 @@ try {
   timer.dispose();
   geometry.dispose();
   face.material.dispose();
+}
+
+// Saved axes must compose on a shared bone and retain each AU's mapped morphs.
+const axisModel = new Group();
+const axisHead = new Bone(); axisHead.name = 'Head'; axisModel.add(axisHead);
+const axisFace = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+axisFace.name = 'Face'; axisFace.morphTargetDictionary = { Smile: 0 }; axisFace.morphTargetInfluences = [0];
+axisModel.add(axisFace);
+const axisCharacter = await createRustEmbodyHost(axisModel, { profileMode: 'profile', profile: {
+  auToMorphs: { 901: { center: ['Smile'], left: [], right: [] }, 902: { center: ['Smile'], left: [], right: [] } },
+  morphToMesh: { face: ['Face'] }, boneNodes: { HEAD: 'Head' },
+  auToBones: { 901: [{ node: 'HEAD', channel: 'ry', scale: 1, maxDegrees: 30 }],
+    902: [{ node: 'HEAD', channel: 'rx', scale: 1, maxDegrees: 20 }] },
+  compositeRotations: [{ node: 'HEAD', yaw: { aus: [901], axis: 'ry' }, pitch: { aus: [902], axis: 'rx' }, roll: null }],
+  hairPhysics: { enabled: false },
+} });
+const axisTimer = createPlaybackTimer();
+try {
+  for (const [name, au] of [['saved-yaw', 901], ['saved-pitch', 902]]) {
+    axisCharacter.playSnippet({ name, curves: { [au]: [{ time: 0, intensity: 0 }, { time: 1, intensity: 1 }] } },
+      { time: 0, endSeconds: 0.5, speed: 1, loopMode: 'once', finalPose: 'hold', blendMode: 'additive', additiveReferenceTimeSec: 0 });
+  }
+  axisTimer.update(1000); renderScenePlayback(axisModel, axisTimer);
+  const expected = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 12)
+    .multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), Math.PI / 18));
+  assert.ok(axisHead.quaternion.angleTo(expected) < 1e-4, 'native additive axes compose rather than averaging away other axes');
+  near(axisFace.morphTargetInfluences[0], 1);
+} finally {
+  axisCharacter.dispose(); axisTimer.dispose(); axisFace.geometry.dispose(); axisFace.material.dispose();
 }
