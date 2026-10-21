@@ -1,0 +1,274 @@
+{
+  "body.elbowFlex": {
+    "positiveAuId": 1001,
+    "bilateral": true
+  },
+  "body.kneeBend": {
+    "positiveAuId": 1002,
+    "bilateral": true
+  },
+  "body.torsoTwist": {
+    "positiveAuId": 1004,
+    "negativeAuId": 1003,
+    "bilateral": false
+  },
+  "body.hipsBend": {
+    "positiveAuId": 1011,
+    "negativeAuId": 1010,
+    "bilateral": false
+  },
+  "body.hipsTwist": {
+    "positiveAuId": 1013,
+    "negativeAuId": 1012,
+    "bilateral": false
+  },
+  "body.hipsSideBend": {
+    "positiveAuId": 1015,
+    "negativeAuId": 1014,
+    "bilateral": false
+  },
+  "body.spineBend": {
+    "positiveAuId": 1017,
+    "negativeAuId": 1016,
+    "bilateral": false
+  },
+  "body.spineTwist": {
+    "positiveAuId": 1019,
+    "negativeAuId": 1018,
+    "bilateral": false
+  },
+  "body.spineSideBend": {
+    "positiveAuId": 1021,
+    "negativeAuId": 1020,
+    "bilateral": false
+  },
+  "body.chestBend": {
+    "positiveAuId": 1023,
+    "negativeAuId": 1022,
+    "bilateral": false
+  },
+  "body.chestSideBend": {
+    "positiveAuId": 1025,
+    "negativeAuId": 1024,
+    "bilateral": false
+  },
+  "body.upperChestBend": {
+    "positiveAuId": 1027,
+    "negativeAuId": 1026,
+    "bilateral": false
+  },
+  "body.upperChestTwist": {
+    "positiveAuId": 1029,
+    "negativeAuId": 1028,
+    "bilateral": false
+  },
+  "body.upperChestSideBend": {
+    "positiveAuId": 1031,
+    "negativeAuId": 1030,
+    "bilateral": false
+  },
+  "body.neckBend": {
+    "positiveAuId": 1033,
+    "negativeAuId": 1032,
+    "bilateral": false
+  },
+  "body.neckTwist": {
+    "positiveAuId": 1035,
+    "negativeAuId": 1034,
+    "bilateral": false
+  },
+  "body.neckSideBend": {
+    "positiveAuId": 1037,
+    "negativeAuId": 1036,
+    "bilateral": false
+  },
+  "body.shoulderRaise": {
+    "positiveAuId": 1039,
+    "negativeAuId": 1038,
+    "bilateral": true
+  },
+  "body.shoulderSwing": {
+    "positiveAuId": 1041,
+    "negativeAuId": 1040,
+    "bilateral": true
+  },
+  "body.armSwing": {
+    "positiveAuId": 1043,
+    "negativeAuId": 1042,
+    "bilateral": true
+  },
+  "body.armSpread": {
+    "positiveAuId": 1045,
+    "negativeAuId": 1044,
+    "bilateral": true
+  },
+  "body.armTwist": {
+    "positiveAuId": 1047,
+    "negativeAuId": 1046,
+    "bilateral": true
+  },
+  "body.forearmTwist": {
+    "positiveAuId": 1049,
+    "negativeAuId": 1048,
+    "bilateral": true
+  },
+  "body.wristBend": {
+    "positiveAuId": 1051,
+    "negativeAuId": 1050,
+    "bilateral": true
+  },
+  "body.wristDeviation": {
+    "positiveAuId": 1053,
+    "negativeAuId": 1052,
+    "bilateral": true
+  },
+  "body.hipSwing": {
+    "positiveAuId": 1055,
+    "negativeAuId": 1054,
+    "bilateral": true
+  },
+  "body.hipSpread": {
+    "positiveAuId": 1057,
+    "negativeAuId": 1056,
+    "bilateral": true
+  },
+  "body.hipTwist": {
+    "positiveAuId": 1059,
+    "negativeAuId": 1058,
+    "bilateral": true
+  },
+  "body.ankleBend": {
+    "positiveAuId": 1061,
+    "negativeAuId": 1060,
+    "bilateral": true
+  },
+  "body.footTilt": {
+    "positiveAuId": 1063,
+    "negativeAuId": 1062,
+    "bilateral": true
+  },
+  "body.toeBend": {
+    "positiveAuId": 1065,
+    "negativeAuId": 1064,
+    "bilateral": true
+  },
+  "body.thumbMetacarpalCurl": {
+    "positiveAuId": 1066,
+    "bilateral": true
+  },
+  "body.thumbProximalCurl": {
+    "positiveAuId": 1067,
+    "bilateral": true
+  },
+  "body.thumbDistalCurl": {
+    "positiveAuId": 1068,
+    "bilateral": true
+  },
+  "body.thumbSpread": {
+    "positiveAuId": 1070,
+    "negativeAuId": 1069,
+    "bilateral": true
+  },
+  "body.indexProximalCurl": {
+    "positiveAuId": 1071,
+    "bilateral": true
+  },
+  "body.indexIntermediateCurl": {
+    "positiveAuId": 1072,
+    "bilateral": true
+  },
+  "body.indexDistalCurl": {
+    "positiveAuId": 1073,
+    "bilateral": true
+  },
+  "body.indexSpread": {
+    "positiveAuId": 1075,
+    "negativeAuId": 1074,
+    "bilateral": true
+  },
+  "body.middleProximalCurl": {
+    "positiveAuId": 1076,
+    "bilateral": true
+  },
+  "body.middleIntermediateCurl": {
+    "positiveAuId": 1077,
+    "bilateral": true
+  },
+  "body.middleDistalCurl": {
+    "positiveAuId": 1078,
+    "bilateral": true
+  },
+  "body.middleSpread": {
+    "positiveAuId": 1080,
+    "negativeAuId": 1079,
+    "bilateral": true
+  },
+  "body.ringProximalCurl": {
+    "positiveAuId": 1081,
+    "bilateral": true
+  },
+  "body.ringIntermediateCurl": {
+    "positiveAuId": 1082,
+    "bilateral": true
+  },
+  "body.ringDistalCurl": {
+    "positiveAuId": 1083,
+    "bilateral": true
+  },
+  "body.ringSpread": {
+    "positiveAuId": 1085,
+    "negativeAuId": 1084,
+    "bilateral": true
+  },
+  "body.littleProximalCurl": {
+    "positiveAuId": 1086,
+    "bilateral": true
+  },
+  "body.littleIntermediateCurl": {
+    "positiveAuId": 1087,
+    "bilateral": true
+  },
+  "body.littleDistalCurl": {
+    "positiveAuId": 1088,
+    "bilateral": true
+  },
+  "body.littleSpread": {
+    "positiveAuId": 1090,
+    "negativeAuId": 1089,
+    "bilateral": true
+  },
+  "body.headTurn": {
+    "positiveAuId": 52,
+    "negativeAuId": 51,
+    "bilateral": false
+  },
+  "body.headNod": {
+    "positiveAuId": 53,
+    "negativeAuId": 54,
+    "bilateral": false
+  },
+  "body.headTilt": {
+    "positiveAuId": 56,
+    "negativeAuId": 55,
+    "bilateral": false
+  },
+  "body.eyeTurn": {
+    "positiveAuId": 62,
+    "negativeAuId": 61,
+    "bilateral": true
+  },
+  "body.eyeLook": {
+    "positiveAuId": 63,
+    "negativeAuId": 64,
+    "bilateral": true
+  },
+  "body.jawOpen": {
+    "positiveAuId": 26,
+    "bilateral": false
+  },
+  "body.jawSide": {
+    "positiveAuId": 35,
+    "negativeAuId": 30,
+    "bilateral": false
+  }
+}
