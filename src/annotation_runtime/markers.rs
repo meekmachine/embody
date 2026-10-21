@@ -193,7 +193,11 @@ pub fn resolve_anchor(
         return Some((p, None, text(&resolved, "projection") == "project"));
     }
     if strings(&anchor["objects"]).iter().any(|n| n == "*") {
-        return Some((model.bounds.center(), None, true));
+        return Some((
+            model.bounds.center(),
+            None,
+            text(&resolved, "projection") != "skip",
+        ));
     }
     let face = text(&resolved["anchor"], "type") == "face-center"
         || (resolved["useLegacyRegionSemantics"] == true
@@ -522,7 +526,26 @@ impl Marker {
             ]
             .into_boxed_slice()
         };
-        let end = add_scaled3(self.start, sub3(end, self.start), constrained[1]);
+        // Resting bounds determine transition eligibility. Fit the actual
+        // animated label separately so reveal overshoot cannot cross the edge
+        // or repeatedly restart a transition when it temporarily cannot fit.
+        let animated_bounds = math::resolve_viewport_safe_bounds(
+            label_x * factors[1],
+            label_y * factors[1],
+            *projection.first().unwrap_or(&1.),
+            *projection.get(5).unwrap_or(&1.),
+            viewport[0],
+            viewport[1],
+            None,
+        );
+        let animated_constraint = math::resolve_viewport_constrained_line_scale(
+            &projected_start,
+            &projected_end,
+            animated_bounds[0],
+            animated_bounds[1],
+            None,
+        );
+        let end = add_scaled3(self.start, sub3(end, self.start), animated_constraint[1]);
         self.last_end = end;
         let curve = match text(&self.style["line"], "curve") {
             "bezier" => math::sample_marker_bezier_curve(&self.start, &end, 16),
@@ -550,14 +573,18 @@ impl Marker {
         };
         let mut out = [0.; FRAME_STRIDE];
         out[0] = self.id as f32;
-        out[1] = if visible || self.transition.is_some() {
+        out[1] = if (visible || self.transition.is_some()) && (html || animated_constraint[0] >= 1.) {
             1.
         } else {
             0.
         };
         out[2..5].copy_from_slice(&self.start);
         out[5..8].copy_from_slice(&end);
-        out[8] = if zoom { 0.25 } else { 1. } * if selected { 1.3 } else { 1. };
+        out[8] = if zoom {
+            0.25
+        } else {
+            (distance / (height * 0.8)).clamp(0.3, 2.)
+        } * if selected { 1.3 } else { 1. };
         out[9] = label_x * factors[1];
         out[10] = label_y * factors[1];
         out[11] = factors[0] * number(&self.style, "opacity", 1.);

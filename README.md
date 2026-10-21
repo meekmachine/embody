@@ -85,6 +85,22 @@ continues to own scene objects and GPU operations; those APIs cannot be replaced
 by renderer-neutral Rust. Both marker styles share the same state and selection
 rules. HTML occlusion uses Rust-planned rays evaluated by Three.
 
+Rust fits marker endpoints before marker loading returns and on each update,
+including additions, endpoint separation and reveal overshoot. Clipping uses
+the displayed label dimensions and preserves the minimum leader-line length;
+temporary overshoot clipping does not restart the reveal. Sphere sizing retains
+the close-up scale and clamped distance scaling outside that range. Explicit
+`markerAnchor.projectToSurface: false` also applies to `objects: ['*']` anchors.
+HTML overlays align with the canvas rectangle inside its container, update on
+resize/rebind, and restore borrowed parent positioning when the final view is
+disposed. These coordinates assume axis-aligned CSS boxes without transforms.
+
+AU morph anchors currently sample native deformed vertices during marker
+preparation, then follow the selected object's transform. They do not yet
+resample morph weights or skinning on subsequent frames. Animated surface
+tracking requires cached vertex candidates and per-frame pose observations;
+ordinary object-transform tracking does not provide that behavior.
+
 This is a breaking replacement of the DPthree exports. Use
 `ThreeAnnotationController.create(options)` or `ThreeAnnotations.create(options)`
 to await Wasm initialization; synchronous constructors require an already initialized

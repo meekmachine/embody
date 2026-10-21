@@ -12,6 +12,31 @@ interface Objects {
   element: HTMLDivElement | null;
 }
 
+type ParentPosition = { users: number; original: string; priority: string };
+const positionedParents = new WeakMap<HTMLElement, ParentPosition>();
+
+/** Several annotation views can borrow the same static canvas container. */
+function positionOverlayParent(parent: HTMLElement): () => void {
+  let position = positionedParents.get(parent);
+  if (position) position.users++;
+  else {
+    const computed = parent.ownerDocument?.defaultView?.getComputedStyle(parent).position ?? parent.style.position;
+    if (computed && computed !== 'static') return () => {};
+    position = { users: 1, original: parent.style.position ?? '', priority: parent.style.getPropertyPriority?.('position') ?? '' };
+    positionedParents.set(parent, position);
+    parent.style.position = 'relative';
+  }
+  const borrowed = position;
+  return () => {
+    if (--borrowed.users > 0) return;
+    positionedParents.delete(parent);
+    // A later host edit owns this property; never restore over it.
+    if (parent.style.position !== 'relative' || (parent.style.getPropertyPriority?.('position') ?? '') !== '') return;
+    if (parent.style.setProperty) parent.style.setProperty('position', borrowed.original, borrowed.priority);
+    else parent.style.position = borrowed.original;
+  };
+}
+
 /** Applies Rust frame records to native objects. No annotation state machine. */
 export class ThreeAnnotationRenderer {
   private readonly group = new THREE.Group();
@@ -20,6 +45,9 @@ export class ThreeAnnotationRenderer {
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly viewProjection = new THREE.Matrix4();
+  private overlayParent: HTMLElement | null = null;
+  private releaseParentPosition: (() => void) | null = null;
+  private readonly overlayResizeObserver: ResizeObserver | null;
   private style = '';
   private revision = -1;
   private meshes: THREE.Mesh[] = [];
@@ -35,15 +63,40 @@ export class ThreeAnnotationRenderer {
   ) {
     this.scene.add(this.group);
     this.overlay = document.createElement('div');
-    this.overlay.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;';
-    (domElement.parentElement ?? domElement).appendChild(this.overlay);
+    this.overlay.style.cssText = 'position:absolute;pointer-events:none;overflow:hidden;';
+    this.overlayResizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => this.layoutOverlay());
+    this.attachOverlay();
     domElement.addEventListener('click', this.click);
   }
+  private attachOverlay(): void {
+    const parent = this.domElement.parentElement ?? this.domElement;
+    if (parent !== this.overlayParent) {
+      this.releaseParentPosition?.();
+      this.releaseParentPosition = positionOverlayParent(parent);
+      this.overlayParent = parent;
+      parent.appendChild(this.overlay);
+    }
+    this.overlayResizeObserver?.disconnect();
+    this.overlayResizeObserver?.observe(this.domElement);
+    if (parent !== this.domElement) this.overlayResizeObserver?.observe(parent);
+    this.layoutOverlay();
+  }
+  private layoutOverlay(): DOMRect {
+    const rect = this.domElement.getBoundingClientRect();
+    // offsetParent can change if the host edits its positioning while attached.
+    const parent = (this.overlay.offsetParent as HTMLElement | null) ?? this.overlayParent;
+    const origin = parent?.getBoundingClientRect();
+    this.overlay.style.left = `${rect.left - (origin?.left ?? 0) - (parent?.clientLeft ?? 0) + (parent?.scrollLeft ?? 0)}px`;
+    this.overlay.style.top = `${rect.top - (origin?.top ?? 0) - (parent?.clientTop ?? 0) + (parent?.scrollTop ?? 0)}px`;
+    this.overlay.style.width = `${rect.width}px`;
+    this.overlay.style.height = `${rect.height}px`;
+    return rect;
+  }
   setDomElement(element: HTMLElement): void {
-    if (element === this.domElement) return;
+    if (element === this.domElement) { this.attachOverlay(); return; }
     this.domElement.removeEventListener('click', this.click);
     this.domElement = element;
-    (element.parentElement ?? element).appendChild(this.overlay);
+    this.attachOverlay();
     element.addEventListener('click', this.click);
   }
   sync(snapshot: AnnotationSnapshot): void {
@@ -102,7 +155,8 @@ export class ThreeAnnotationRenderer {
   update(now: number): void {
     this.camera.updateMatrixWorld();
     this.viewProjection.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
-    const rect = this.domElement.getBoundingClientRect();
+    if ((this.domElement.parentElement ?? this.domElement) !== this.overlayParent) this.attachOverlay();
+    const rect = this.layoutOverlay();
     const rays = this.runtime.occlusion_queries();
     const hits = new Float32Array(rays.length / 8 * 2);
     for (let offset = 0; offset < rays.length; offset += 8) {
@@ -149,5 +203,9 @@ export class ThreeAnnotationRenderer {
     this.group.remove(objects.label); objects.label.material.dispose(); objects.texture.dispose(); objects.element?.remove(); this.objects.delete(id);
   }
   clear(): void { for (const id of this.objects.keys()) this.remove(id); this.revision = -1; }
-  dispose(): void { this.domElement.removeEventListener('click', this.click); this.clear(); this.group.removeFromParent(); this.overlay.remove(); this.meshes = []; }
+  dispose(): void {
+    this.domElement.removeEventListener('click', this.click); this.clear(); this.group.removeFromParent();
+    this.overlayResizeObserver?.disconnect(); this.overlay.remove(); this.releaseParentPosition?.();
+    this.releaseParentPosition = null; this.overlayParent = null; this.meshes = [];
+  }
 }

@@ -588,3 +588,64 @@ fn mesh_marker_primary_target_preserves_configured_order() {
     assert_eq!(observed.resolve(&region, &json!({})), vec![1, 4]);
     assert_eq!(observed.primary_marker_object(&region, &json!({})), Some(4));
 }
+
+#[test]
+fn wildcard_anchor_honors_explicit_surface_projection_override() {
+    for (projection, expected_queries) in [(Some(false), 0), (Some(true), 1), (None, 1)] {
+        let mut region = json!({"name":"whole_model","markerAnchor":{"type":"object","objects":["*"]}});
+        if let Some(projection) = projection {
+            region["markerAnchor"]["projectToSurface"] = json!(projection);
+        }
+        let mut runtime = runtime(json!([region]));
+        let queries: Value = serde_json::from_str(&runtime.plan_markers("{}").unwrap()).unwrap();
+        assert_eq!(queries.as_array().unwrap().len(), expected_queries);
+        assert_eq!(runtime.markers[0].start, model().bounds.center());
+        assert_eq!(runtime.markers[0].ready, expected_queries == 0);
+    }
+}
+
+#[test]
+fn marker_spheres_preserve_distance_and_selection_scaling() {
+    let model = model();
+    let mut marker = Marker::new(1, point_region("point"), &model, &json!({}), 1., [0., 1., 3.2], None).unwrap();
+    for (distance, selected, expected) in [(1.2, false, 0.25), (2.4, false, 1.5), (3.2, false, 2.), (8., true, 2.6)] {
+        let frame = marker.frame(0., &model, [0., 1., distance], &IDENTITY, &IDENTITY, [800., 800.], 1., true, selected, false, false, false);
+        assert!((frame[8] - expected).abs() < 1e-5);
+    }
+}
+
+#[test]
+fn reveal_overshoot_fits_rendered_label_without_restarting_transition() {
+    let model = model();
+    let region = json!({"name":"point","customPosition":{"x":0.,"y":0.,"z":0.},"style":{"lineDirection":{"x":1.,"y":0.,"z":0.},"labelScale":0.04,"line":{"length":3.}}});
+    let mut marker = Marker::new(1, region, &model, &json!({}), 1., [0., 1., 1.2], None).unwrap();
+    marker.label_aspect = 2.5;
+    for now in [0., 220. * 0.68, 220.] {
+        let frame = marker.frame(now, &model, [0., 1., 1.2], &IDENTITY, &IDENTITY, [800., 800.], 1., true, false, false, false, false);
+        assert_eq!(frame[1], 1.);
+        assert!(frame[5].abs() + frame[9] / 2. <= 1. - 24. / 800. + 1e-6);
+        assert!(frame[6].abs() + frame[10] / 2. <= 1. - 24. / 800. + 1e-6);
+        if now == 220. * 0.68 {
+            assert!((frame[9] - 0.085 * 1.28).abs() < 1e-5);
+            assert_eq!(marker.transition, Some((true, 0., 220.)));
+        }
+    }
+    assert!(marker.transition.is_none());
+}
+
+#[test]
+fn temporary_overshoot_clipping_does_not_restart_reveal() {
+    let model = model();
+    let region = json!({"name":"point","customPosition":{"x":0.,"y":0.,"z":0.},"style":{"lineDirection":{"x":1.,"y":0.,"z":0.},"labelScale":0.4,"line":{"length":12.9}}});
+    let mut marker = Marker::new(1, region, &model, &json!({}), 1., [0., 1., 1.2], None).unwrap();
+    marker.label_aspect = 1.;
+    for (now, expected_visible) in [(0., 1.), (220. * 0.68, 0.), (220., 1.)] {
+        let frame = marker.frame(now, &model, [0., 1., 1.2], &IDENTITY, &IDENTITY, [800., 800.], 1., true, false, false, false, false);
+        assert_eq!(frame[1], expected_visible);
+        assert!(marker.current_visibility);
+        if now < 220. {
+            assert_eq!(marker.transition, Some((true, 0., 220.)));
+        }
+    }
+    assert!(marker.transition.is_none());
+}
