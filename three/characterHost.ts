@@ -7,7 +7,7 @@ import { loadCharacterModel, applyCharacterModelTransform, disposeCharacterModel
 import type { CharacterModelLoadOptions, CharacterModelLoadResult, CharacterModelTransform } from './model';
 import { createDefaultCharacterSceneAsync } from './scene';
 import type { CharacterSceneBackend, CharacterSceneRenderer, CharacterSceneRenderingController, DefaultCharacterSceneAsyncOptions, ReadyDefaultCharacterScene } from './scene';
-import { DPthreeCameraController } from './annotations/DPthreeCameraController';
+import { ThreeAnnotationController } from './annotations/ThreeAnnotationController';
 import type { Profile } from './authoringTypes';
 
 export interface CharacterHostCharacterOptions extends CharacterModelTransform {
@@ -58,7 +58,7 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
   let loaded: CharacterModelLoadResult | undefined;
   let state: ReadyDefaultCharacterScene | CharacterHostExternalScene | undefined;
   let engine: Embody | undefined;
-  let controller: DPthreeCameraController | undefined;
+  let controller: ThreeAnnotationController | undefined;
   let disposed = false;
   let disposal: Promise<void> | undefined;
   let switching: Promise<void> = Promise.resolve();
@@ -116,7 +116,7 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
     // Borrowed scenes keep their existing render owner unless explicitly requested.
     if (options.renderLoop ?? !options.external) {
       if (!(state.camera instanceof PerspectiveCamera)) throw new Error('Character host rendering requires a PerspectiveCamera');
-      controller = new DPthreeCameraController({
+      controller = new ThreeAnnotationController({
         scene: state.scene, camera: state.camera, domElement: state.renderer.domElement,
         ...(state.rendering ? { rendering: state.rendering } : { renderer: state.renderer }),
         showDOMControls: false,

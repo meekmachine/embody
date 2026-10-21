@@ -23,8 +23,8 @@ vi.mock('../../character', () => ({
 }));
 // These doubles isolate acquisition and disposal. Native mixer behavior is
 // covered separately; the lifecycle must also settle without another frame.
-vi.mock('../DPthreeCameraController', () => ({
-  DPthreeCameraController: class {
+vi.mock('../ThreeAnnotationController', () => ({
+  ThreeAnnotationController: class {
     setModel = vi.fn(); focusFullBody = vi.fn(async () => {});
     prepareModelForRender = (...args: unknown[]) => acquisition.prepare(...args);
     dispose() { acquisition.controllerDisposed(); acquisition.cancelPreparation?.(); }
