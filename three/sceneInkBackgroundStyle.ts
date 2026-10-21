@@ -1,5 +1,4 @@
-// This definition is shared by the page, scene and loader. It must remain
-// usable before Three.js, the character or its textures have loaded.
+// CSS gradients need no extra renderer resources or animation loop.
 export const SCENE_INK_BASE_COLOR = '#29333b';
 export const SCENE_INK_BASE_GRADIENT =
   'radial-gradient(ellipse at 50% 42%, #46535c 0%, #35414a 42%, #29333b 76%, #252e35 100%)';
@@ -23,12 +22,3 @@ export function createSceneInkBackgroundCss(palette: SceneInkCssPalette = DEFAUL
 }
 
 export const DEFAULT_SCENE_INK_BACKGROUND = createSceneInkBackgroundCss();
-
-/** Sample once at the page owner; progress updates never choose a new layout. */
-export function createSceneInkVariation(seed: number): Record<string, string> {
-  const bounded = Math.max(0, Math.min(1, seed));
-  return {
-    '--scene-ink-shift-x': `${((bounded - 0.5) * 12).toFixed(2)}%`,
-    '--scene-ink-shift-y': `${((Math.sin(bounded * Math.PI * 2)) * 6).toFixed(2)}%`,
-  };
-}

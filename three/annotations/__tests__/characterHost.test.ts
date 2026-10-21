@@ -251,6 +251,17 @@ describe('character host palette background', () => {
     expect(mount.style.background).toBe('original');
   });
 
+  it('does not repaint after disposal while texture extraction is pending', async () => {
+    const loaded = coloredModel('#cd765c');
+    const mount = { style: { background: 'original' } } as unknown as HTMLElement;
+    acquisition.scene.mockResolvedValueOnce(scene()); acquisition.load.mockResolvedValueOnce(loaded.value);
+    const host = await createCharacterHost({ container: mount, character: { modelUrl: 'dispose-palette.glb' } });
+    await host.dispose();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mount.style.background).toBe('original');
+    loaded.release();
+  });
+
   it.each([{ background: '#123456' }, { background: null }, { type: 'void' as const }])(
     'preserves explicit scene appearance %j', async settings => {
       const loaded = coloredModel('#cd765c');
