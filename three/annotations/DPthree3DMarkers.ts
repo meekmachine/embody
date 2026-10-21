@@ -199,6 +199,7 @@ export class DPthree3DMarkers {
   private zoomThreshold = 1.0; // Calculated from model size
   private autoCollapseThreshold = 2.0; // Calculated from model size - collapse expanded regions when zoomed out
   private lastCameraDistance = -1; // Cache to avoid unnecessary checks
+  private markerLayoutDirty = false;
   private visibilityAnimationActive = false;
   private readonly visibilityAnimationScheduler = new AnimationFrameTaskScheduler();
   private visibilityAnimationStates: MarkerVisibilityAnimationState[] = [];
@@ -388,6 +389,8 @@ export class DPthree3DMarkers {
 
       // After all markers are created, separate any that are too close together
       this.separateOverlappingMarkers(annotationCameraCore);
+      this.markerLayoutDirty = true;
+      this.update();
 
       console.log(`[3DMarkers] loadRegions complete. Created markers for:`, Array.from(this.markerMeshes.keys()));
       console.log(`[3DMarkers] lineEndpoints:`, Array.from(this.lineEndpoints.keys()));
@@ -1003,6 +1006,15 @@ export class DPthree3DMarkers {
     this.markerAngleGateVisibility.delete(region.name);
     this.markerViewportVisibility.set(region.name, true);
 
+    // Loads yield between regions, so a stationary camera may already have a
+    // cached layout before this marker exists. Fit it before the next paint.
+    this.markerLayoutDirty = true;
+    if (this.visibilityAnimationActive) {
+      // The current reveal owns existing label scales until it completes.
+      this.setMarkerObjectsVisible(region.name, false, false);
+    } else {
+      this.update();
+    }
   }
 
   /**
@@ -1873,8 +1885,8 @@ export class DPthree3DMarkers {
 
     const cameraDistance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-    // Only update if distance changed by more than 2% (avoids micro-updates)
-    const distanceChanged = this.lastCameraDistance < 0 ||
+    // Refresh new geometry even if distance has not changed by more than 2%.
+    const distanceChanged = this.markerLayoutDirty || this.lastCameraDistance < 0 ||
       Math.abs(cameraDistance - this.lastCameraDistance) > this.lastCameraDistance * 0.02;
 
     if (distanceChanged) {
@@ -1896,10 +1908,14 @@ export class DPthree3DMarkers {
 
       // Update zoom state for other effects (line length, label scale, etc.)
       const shouldBeZoomedIn = cameraDistance < this.zoomThreshold;
-      if (shouldBeZoomedIn !== this.isZoomedIn) {
+      const zoomChanged = shouldBeZoomedIn !== this.isZoomedIn;
+      if (this.markerLayoutDirty || zoomChanged) {
         this.isZoomedIn = shouldBeZoomedIn;
-        // Apply zoom-based scaling to lines and labels when crossing threshold
-        this.applyZoomScale(shouldBeZoomedIn ? ZOOMED_IN_LINE_SCALE : 1.0);
+        // Apply the current zoom state to newly created labels too.
+        this.applyZoomScale(
+          shouldBeZoomedIn ? ZOOMED_IN_LINE_SCALE : 1.0,
+          zoomChanged || shouldBeZoomedIn,
+        );
       }
 
       // Auto-collapse only when crossing the threshold to avoid immediate re-collapse.
@@ -1913,7 +1929,7 @@ export class DPthree3DMarkers {
     }
 
     const cameraMoved =
-      !this.hasCameraAngleUpdateSnapshot ||
+      this.markerLayoutDirty || !this.hasCameraAngleUpdateSnapshot ||
       this.lastCameraAngleUpdatePosition.distanceToSquared(this.camera.position) > 0.0001 ||
       1 - Math.abs(this.lastCameraAngleUpdateQuaternion.dot(this.camera.quaternion)) > 0.00001;
     if (!cameraMoved) {
@@ -1923,6 +1939,7 @@ export class DPthree3DMarkers {
     this.lastCameraAngleUpdatePosition.copy(this.camera.position);
     this.lastCameraAngleUpdateQuaternion.copy(this.camera.quaternion);
     this.hasCameraAngleUpdateSnapshot = true;
+    this.markerLayoutDirty = false;
 
     // Visibility comes from the combination of:
     // - collapsed child state
@@ -1981,16 +1998,19 @@ export class DPthree3DMarkers {
 
   /**
    * Apply zoom-based scaling to all markers, lines, and labels.
-   * Only called when crossing the zoom threshold (not every frame).
+   * Runs on zoom threshold crossings and when marker geometry changes.
    */
-  private applyZoomScale(scaleFactor: number): void {
+  private applyZoomScale(scaleFactor: number, scaleSpheres = true): void {
     const isZoomed = scaleFactor < 1;
     const sphereScaleFactor = isZoomed ? ZOOMED_IN_SPHERE_SCALE : 1.0;
     const labelScaleFactor = isZoomed ? ZOOMED_IN_LABEL_SCALE : 1.0;
 
-    // Scale marker spheres (much smaller when zoomed in)
-    for (const sphere of this.markerMeshes.values()) {
-      sphere.scale.setScalar(sphereScaleFactor);
+    // A layout refresh outside the close-up range keeps the continuous
+    // distance scale already applied above.
+    if (scaleSpheres) {
+      for (const sphere of this.markerMeshes.values()) {
+        sphere.scale.setScalar(sphereScaleFactor);
+      }
     }
 
     for (const line of this.lineMeshes.values()) {
@@ -2126,6 +2146,13 @@ export class DPthree3DMarkers {
         const { object, opacity } = state.arrow;
         object.visible = true;
         this.setObjectOpacity(object, opacity * itemOpacityFactor);
+      }
+
+      // The reveal briefly enlarges labels beyond their resting scale. Keep
+      // clipping against the actual animated size, including that overshoot.
+      const name = state.label?.object.userData.annotation;
+      if (typeof name === 'string' && !this.updateMarkerLineLayout(name)) {
+        this.setMarkerObjectsVisible(name, false, false);
       }
     }
   }
@@ -2349,6 +2376,10 @@ export class DPthree3DMarkers {
 
     if (visible) {
       this.markerGroup.visible = true;
+      // Capture fitted label scales/endpoints, rather than their construction
+      // defaults, before animation temporarily suspends the layout pass.
+      this.markerLayoutDirty = true;
+      this.update();
     }
 
     this.visibilityAnimationStates = this.captureVisibilityAnimationStates();
@@ -2418,6 +2449,7 @@ export class DPthree3DMarkers {
     this.markerAngleGateVisibility.clear();
     this.markerViewportVisibility.clear();
     this.soloedMarker = null;
+    this.markerLayoutDirty = false;
     this.hasCameraAngleUpdateSnapshot = false;
   }
 

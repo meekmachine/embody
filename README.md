@@ -134,6 +134,11 @@ spent. Each native mesh raycast is indivisible; a large mesh can still cause a
 frame drop, and slicing does not reduce total raycast CPU time. Interactive
 annotation changes retain synchronous queries so a marker samples one pose.
 Replacement, clearing and disposal cancel stale loads before scene commits.
+New 3D markers and separated endpoints invalidate the cached camera layout.
+Visible markers receive the current zoom sizing and Rust viewport constraints
+before paint; hidden markers receive that layout before reveal captures label
+scales. Viewport clipping also follows the animated label size during reveal
+overshoot. Markers added during a reveal stay hidden until its layout pass resumes.
 
 For first reveal, call `controller.prepareModelForRender(model, { signal })`
 from the existing `beforeReveal` callback (or directly before attaching the
