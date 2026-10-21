@@ -192,7 +192,8 @@ test('body descriptors are cached and morph strength does not weaken the mapped 
   const traverse = root.traverse;
   root.traverse = () => { throw new Error('descriptor reads must not traverse the scene'); };
   try {
-    const controls = host.getBodyControls(); assert.equal(controls.length, 58);
+    const controls = host.getBodyControls(); assert.equal(controls.length, 59);
+    assert.ok(controls.some(control => control.id === 'body.eyeRoll'));
     const elbow = controls.find(control => control.auId === 1001);
     assert.equal(elbow.isMixed, true); assert.deepEqual(elbow.diagnostics, []);
   } finally { root.traverse = traverse; }

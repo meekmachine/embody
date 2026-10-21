@@ -9,7 +9,10 @@ try {
   core.configure_with_preset('cc4','{}',JSON.stringify(model));
   const catalog=JSON.parse(core.get_semantic_pose_catalog_json());
   const elbow=catalog.find(c=>c.id==='body.elbowFlex');
-  assert.equal(catalog.length,58);assert.equal(elbow.positive.available,true);
+  assert.equal(catalog.length,59);assert.equal(elbow.positive.available,true);
+  const eyeRoll=catalog.find(c=>c.id==='body.eyeRoll');
+  assert.equal(eyeRoll.positive.auId,1091);assert.equal(eyeRoll.negative.auId,1092);
+  assert.equal(eyeRoll.positive.available,false);assert.equal(eyeRoll.negative.available,false);
   assert(elbow.boneNames.includes('CC_Base_L_Forearm'));assert(elbow.morphNames.includes('LL_Body_Bicep_Flex_L'));
   const pose={version:1,controls:[{controlId:elbow.id,positive:{intensity:.5,balance:-1,morphStrength:.25}}]};
   core.set_au(12,.4,0);core.apply_semantic_pose_json(JSON.stringify(pose));

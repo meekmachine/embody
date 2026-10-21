@@ -80,7 +80,9 @@ const specification = request('humanoid.getSpecification', {});
 assert.equal(specification.standard, 'VRMC_vrm-1.0');
 assert.equal(specification.bones.length, 55);
 assert.equal(specification.bones.filter(bone => bone.required).length, 15);
-assert.equal(count, 58);
+assert.equal(count, 59);
+assert.equal(preset.bodyControls['body.eyeRoll'].auId, 1091);
+assert.equal(preset.bodyControls['body.eyeRoll'].negativeAuId, 1092);
 assert.deepEqual(new Set(Object.values(preset.bodyControls).flatMap(control => control.roles)),
   new Set(specification.bones.map(bone => bone.role)));
 const completeModel = {
@@ -90,7 +92,7 @@ const completeModel = {
   }),
 };
 const completeControls = request('profile.getBodyControls', { profile: preset, model: completeModel });
-assert(completeControls.every(control => control.hasBones), 'all 58 controls have real skeletal outputs');
+assert(completeControls.every(control => control.hasBones), 'all 59 controls have real skeletal outputs');
 let editedMorphs = request('profile.setAUMorphTargets', {
   profile: { auPresetType: 'cc4', profile: { auMixDefaults: { 61: 0.25 } } },
   auId: 61, side: 'left', targets: ['CustomEyeTissue'],

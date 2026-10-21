@@ -43,7 +43,10 @@ test('all semantic sections drive saved morph-only mappings through the packaged
   const { profile, controls, root, meshes } = morphOnlyCharacter();
   const host = await createRustEmbodyHost(root, { profileMode: 'profile', profile: JSON.parse(JSON.stringify(profile)) });
   try {
-    assert.equal(controls.length, 58);
+    assert.equal(controls.length, 59);
+    const eyeRoll = controls.find(control => control.id === 'body.eyeRoll');
+    assert.equal(eyeRoll.auId, 1091);
+    assert.equal(eyeRoll.negativeAuId, 1092);
     assert.deepEqual(new Set(controls.map(control => control.section)), new Set(['Whole body', 'Torso', 'Head', 'Arms', 'Hands', 'Legs', 'Feet']));
     assert.deepEqual(
       controls.filter(control => control.section === 'Whole body').map(control => control.id).sort(),
