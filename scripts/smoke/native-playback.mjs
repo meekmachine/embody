@@ -31,6 +31,20 @@ const clip = new AnimationClip('move', 1, [
 ]);
 
 try {
+  // Source keys outside the interval must still determine fractional boundaries.
+  const travel = connector.playNativeClip(clip, { startSeconds: 0.2, endSeconds: 0.7, speed: 2, finalPose: 'hold' });
+  step(0.1); close(target.position.x, 0.4);
+  step(1); close(target.position.x, 0.7);
+  close(connector.getSourceTime(travel), 0.7);
+  assert.equal(events.filter((e) => e.handle === travel && e.type === 'completed').length, 1);
+  const backward = connector.playNativeClip(clip, { replace: travel, startSeconds: 0.7, endSeconds: 0.3, speed: -1, finalPose: 'hold' });
+  step(0.2); close(target.position.x, 0.5);
+  connector.control(backward, { type: 'pause' });
+  step(2); close(target.position.x, 0.5);
+  connector.control(backward, { type: 'resume' });
+  step(2); close(target.position.x, 0.3);
+  connector.control(backward, { type: 'stop' });
+  events.length = 0; releases.length = 0;
   const first = connector.playNativeClip(clip, { finalPose: 'hold' });
   step(0.25); close(target.position.x, 0.25);
   connector.control(first, { type: 'pause' });

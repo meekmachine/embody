@@ -564,3 +564,24 @@ partial rig. Stored static poses retain their portability across missing outputs
 `evaluate_semantic_body_bone_frame()` returns exact Body-owned properties including
 neutral values, allowing an explicit semantic pose/reset to replace old raw bone
 edits without touching unrelated properties.
+
+### Travel within an authored clip
+
+`ThreeNativePlaybackOptions.endSeconds` bounds once playback between
+`startSeconds` and a source-clip endpoint. Speed must point toward that endpoint;
+looping and zero speed are rejected before replacing an existing request. The
+native action retains all authored keys and interpolants, shifts its timeline
+origin, and uses Three's once completion to hold or release at the bound. No
+endpoint timer or independent playhead is introduced.
+
+The character adapter advertises `supportsBoundedPlayback()` and accepts
+`{ time, endSeconds, speed, finalPose: 'hold', loopMode: 'once' }` through ordinary
+snippet and imported-clip playback. It chooses the speed sign toward the target.
+`handle.updateParams({ endSeconds, speed })` replaces the travel request from the
+actual native source time, including when reversing or leaving a completed hold.
+The handle gets a fresh completion promise; obsolete completions cannot settle
+the replacement. `getAnimationState().time` remains in source-clip seconds.
+Intensity uses the existing semantic compiler and retains all mapped bone and
+morph outputs. Editing intensity changes the compiled samples; it does not imply
+a separate intensity tween. Polymer chooses behavior targets, and Animation
+owns these handles. This operation alone does not restore LoomLarge tracking.

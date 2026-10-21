@@ -466,8 +466,11 @@ export class Embody {
     const count = finite(options.repeatCount) && options.repeatCount > 0 ? options.repeatCount : null;
     let speed = options.speed ?? options.playbackRate ?? options.rate ?? options.timeScale ?? 1;
     if (options.reverse === true) speed = -Math.abs(speed);
+    const startSeconds = finite(options.time) ? options.time : finite(options.offsetSec) ? options.offsetSec : speed < 0 ? clip.duration : 0;
+    if (finite(options.endSeconds)) speed = Math.abs(speed) * (options.endSeconds < startSeconds ? -1 : 1);
     return {
-      startSeconds: finite(options.time) ? options.time : finite(options.offsetSec) ? options.offsetSec : speed < 0 ? clip.duration : 0,
+      ...(options.endSeconds !== undefined ? { endSeconds: options.endSeconds } : {}),
+      startSeconds,
       speed,
       weight: finite(options.mixerWeight) ? options.mixerWeight : 1,
       blendMode: clip.blendMode === AdditiveAnimationBlendMode ? 'additive' : 'normal',
@@ -554,7 +557,7 @@ export class Embody {
       result.resume = () => {
         ensure();
         if (playback.terminal) {
-          options = { ...playback.options, time: connector.getAction(id)!.time };
+          options = { ...playback.options, time: connector.getSourceTime(id)! };
           return start();
         }
         return control({ type: 'resume' });
@@ -619,6 +622,11 @@ export class Embody {
     const action = connector.getAction(playback.id);
     if (connector !== this.connector || !action) throw new Error('Unknown, released or obsolete playback handle.');
     const options = { ...playback.options, ...patch };
+    if ('endSeconds' in patch) {
+      // Retarget from the last native sample, never a caller's estimated clock.
+      playback.replay({ ...options, time: connector.getSourceTime(playback.id) });
+      return;
+    }
     if ('finalPose' in patch && !('clampWhenFinished' in patch)) options.clampWhenFinished = patch.finalPose !== 'release';
     if ('clampWhenFinished' in patch && !('finalPose' in patch)) options.finalPose = patch.clampWhenFinished === false ? 'release' : 'hold';
     if ('loop' in patch && !('loopMode' in patch)) options.loopMode = patch.loop ? 'repeat' : 'once';
@@ -708,6 +716,7 @@ export class Embody {
   playTypedSnippet(snippet: { name: string; channels: any[] }, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle { return this.buildTypedClip(snippet.name, snippet.channels, options).play(); }
   playClip(value: string | CharacterPlaybackHandle): CharacterPlaybackHandle { return typeof value === 'string' ? this.playAnimation(value) : value.play(); }
   supportsClipCurves(): boolean { return true; }
+  supportsBoundedPlayback(): boolean { return true; }
   cleanupSnippet(name: string): void { this.stopAnimation(name); this.sources.delete(name); this.core.cleanup_snippet(name); }
   crossfadeTo(name: string, seconds: number, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
     const outgoing = [...this.current.values()].filter((playback) => !playback.source.name.startsWith('__embody_'));
@@ -732,7 +741,7 @@ export class Embody {
   resumeAnimation(name: string): void {
     const p = this.current.get(name);
     if (!p) return;
-    if (p.terminal) p.replay({ ...p.options, time: p.connector.getAction(p.id)?.time ?? 0 });
+    if (p.terminal) p.replay({ ...p.options, time: p.connector.getSourceTime(p.id) ?? 0 });
     else p.connector.control(p.id, { type: 'resume' });
   }
   pauseAllAnimations(): void { for (const p of this.playbacks.values()) if (!p.terminal) p.connector.control(p.id, { type: 'pause' }); }
@@ -758,7 +767,7 @@ export class Embody {
     if (!action || !p) { if (p) this.forget(p); return { name, playing: false, isPlaying: false }; }
     const playing = action.isRunning();
     return { name, actionId: p.id, playing, isPlaying: playing, paused: action.paused, completed: p.terminal,
-      time: action.time, duration: action.getClip().duration, speed: action.timeScale,
+      time: p.connector.getSourceTime(p.id), duration: p.connector.getSourceDuration(p.id), speed: action.timeScale,
       intensityScale: intensity(p.options), mixerWeight: action.getEffectiveWeight(),
       loopMode: action.loop === LoopOnce ? 'once' : action.loop === LoopPingPong ? 'pingpong' : 'repeat',
       repeatCount: Number.isFinite(action.repetitions) ? action.repetitions : null,

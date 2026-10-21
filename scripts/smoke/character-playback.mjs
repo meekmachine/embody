@@ -62,6 +62,19 @@ try {
   assert.equal(handle.finished, handle.promise);
   character.stopAllAnimations();
 
+  assert.equal(character.supportsBoundedPlayback(), true);
+  const bounded = character.playAnimation('move', { time: 1, endSeconds: 1.8, speed: 1, finalPose: 'hold' });
+  step(0.2); near(value(), 0.6);
+  const oldTravel = bounded.finished;
+  bounded.updateParams({ endSeconds: 0.4, speed: 2 });
+  assert.notEqual(bounded.finished, oldTravel);
+  step(0.1); near(value(), 0.5);
+  step(2); near(value(), 0.2);
+  near(character.getAnimationState('move').time, 0.4);
+  bounded.updateParams({ endSeconds: 1.2 });
+  step(2); near(value(), 0.6);
+  bounded.stop();
+
   const cubicClip = cubicAsset.animations[0];
   const originalCubicValues = Array.from(cubicClip.tracks[0].values);
   character.registerAnimationClips([cubicClip]);

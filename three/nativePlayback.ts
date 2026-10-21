@@ -17,6 +17,8 @@ export type ThreeNativeLoop = { mode: 'once' | 'repeat' | 'pingPong'; count?: nu
 export type ThreeNativePlaybackOptions = {
   replace?: string;
   startSeconds?: number;
+  /** Stop at this source-clip time, using native once completion and finalPose. */
+  endSeconds?: number;
   speed?: number;
   /** Native contribution only; semantic intensity belongs in the compiled clip. */
   weight?: number;
@@ -45,7 +47,7 @@ export type ThreeNativePlaybackBinding = {
 };
 type BoundPlayback = ThreeNativePlaybackBinding & { mixer: AnimationMixer };
 
-type Settings = Required<Omit<ThreeNativePlaybackOptions, 'replace'>>;
+type Settings = Required<Omit<ThreeNativePlaybackOptions, 'replace' | 'endSeconds'>> & { endSeconds?: number };
 type Command =
   | { type: 'play'; handle: string; clip: ClipIR; settings: Settings }
   | { type: 'replaceClip'; handle: string; clip: ClipIR }
@@ -54,7 +56,7 @@ type Command =
 type Batch = { handle?: string; commands: Command[]; events: ThreeNativePlaybackEvent[] };
 type NativeNotification = { type: 'completed' | 'cancelled' | 'error'; handle: string; message?: string };
 type PausedFade = { seconds: number; from: number; to: number; weight: number };
-type Resource = { clip: AnimationClip; action?: AnimationAction; binding: BoundPlayback; fadingOut?: boolean; pausedFade?: PausedFade; explicitlyPaused?: boolean; suspendedPaused?: boolean };
+type Resource = { sourceOffset: number; sourceDuration: number; intervalDuration?: number; clip: AnimationClip; action?: AnimationAction; binding: BoundPlayback; fadingOut?: boolean; pausedFade?: PausedFade; explicitlyPaused?: boolean; suspendedPaused?: boolean };
 type PendingBatch = { batch: Batch; nextCommand: number; clip?: AnimationClip; afterCommands?: () => void };
 type NativeInterpolant = { resultBuffer: unknown; settings?: unknown; valueSize: number };
 type NativeTrack = KeyframeTrack & { createInterpolant: ((buffer: unknown) => NativeInterpolant) & { isInterpolantFactoryMethodGLTFCubicSpline?: boolean } };
@@ -219,6 +221,14 @@ export class ThreeNativePlaybackConnector {
     return this.resources.get(handle)?.action;
   }
 
+  /** Observed native source time, including the bounded action's timeline offset. */
+  getSourceTime(handle: string): number | undefined {
+    const resource = this.resources.get(handle);
+    return resource?.action ? resource.sourceOffset + resource.action.time : undefined;
+  }
+
+  getSourceDuration(handle: string): number | undefined { return this.resources.get(handle)?.sourceDuration; }
+
   /** Deliver native completion after the borrowed mixer has finished sampling. */
   flushEvents(): void {
     if (this.disposed) return;
@@ -364,7 +374,11 @@ export class ThreeNativePlaybackConnector {
       // isolated: rebuild native interpolants with the existing PropertyMixer
       // result buffers, without reading or changing time, loop counters or fades.
       const action = resource.action as EditableAction;
-      const tracks = preparedClip.tracks.map((track) => track.clone());
+      const tracks = preparedClip.tracks.map((track) => {
+        const copy = track.clone();
+        copy.shift(-resource.sourceOffset);
+        return copy;
+      });
       const interpolants = tracks.map((track, index) => {
         const interpolant = (track as NativeTrack).createInterpolant(action._interpolants[index].resultBuffer);
         if (interpolant.settings) Object.assign(action._interpolantSettings as object, interpolant.settings);
@@ -377,9 +391,17 @@ export class ThreeNativePlaybackConnector {
     }
     if (command.type === 'play') {
       if (!preparedClip) throw new Error('Native playback has no prepared clip.');
-      const resource: Resource = { clip: preparedClip, binding: this.binding };
-      this.resources.set(command.handle, resource);
       const settings = command.settings;
+      const offset = settings.endSeconds === undefined ? 0 : Math.min(settings.startSeconds, settings.endSeconds);
+      const resource: Resource = { clip: preparedClip, binding: this.binding, sourceOffset: offset, sourceDuration: preparedClip.duration };
+      if (settings.endSeconds !== undefined) {
+        // Retain every authored sample and its native interpolation. Only shift
+        // the action's time origin; do not trim off keys needed at the bounds.
+        resource.intervalDuration = Math.abs(settings.endSeconds - settings.startSeconds);
+        for (const track of preparedClip.tracks) track.shift(-offset);
+        preparedClip.duration = resource.intervalDuration;
+      }
+      this.resources.set(command.handle, resource);
       const action = this.binding.mixer.clipAction(preparedClip, this.binding.model, blendMode(settings.blendMode));
       resource.action = action;
       this.actionHandles.set(action, command.handle);
@@ -387,7 +409,7 @@ export class ThreeNativePlaybackConnector {
       action.clampWhenFinished = settings.finalPose === 'hold';
       action.setEffectiveTimeScale(settings.speed);
       action.setEffectiveWeight(settings.weight);
-      action.time = settings.startSeconds;
+      action.time = settings.startSeconds - offset;
       if (!this.renderingEnabled) { resource.suspendedPaused = false; action.paused = true; }
       action.play();
       return;
@@ -408,7 +430,7 @@ export class ThreeNativePlaybackConnector {
         if (this.renderingEnabled) { action.paused = false; this.resumeFade(resource); }
         else this.resources.get(command.handle)!.suspendedPaused = false;
         break;
-      case 'seek': action.time = control.seconds; break;
+      case 'seek': action.time = control.seconds - resource.sourceOffset; break;
       case 'setSpeed': action.setEffectiveTimeScale(control.speed); break;
       case 'setWeight':
         resource.pausedFade = undefined;

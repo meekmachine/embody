@@ -76,6 +76,7 @@ fn one() -> f64 { 1.0 }
 struct PlayOptions {
     replace: Option<String>,
     start_seconds: Option<f64>,
+    end_seconds: Option<f64>,
     #[serde(default = "one")]
     speed: f64,
     #[serde(default = "one")]
@@ -92,6 +93,8 @@ struct PlayOptions {
 #[serde(rename_all = "camelCase")]
 struct NativeSettings {
     start_seconds: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    end_seconds: Option<f64>,
     speed: f64,
     weight: f64,
     blend_mode: BlendMode,
@@ -170,6 +173,7 @@ impl Batch {
 #[derive(Debug)]
 struct PlaybackResource {
     duration_seconds: f64,
+    bounds: Option<(f64, f64)>,
     final_pose: FinalPose,
     completed: bool,
 }
@@ -291,6 +295,13 @@ impl NativePlaybackSession {
         let start_seconds = options.start_seconds.unwrap_or(if options.speed < 0.0 { clip.duration_seconds } else { 0.0 });
         validate_seek(start_seconds, clip.duration_seconds)?;
         let looping = options.looping.validated(clip.duration_seconds)?;
+        if let Some(end) = options.end_seconds {
+            validate_seek(end, clip.duration_seconds)?;
+            if looping.mode != LoopMode::Once || options.speed == 0.0
+                || (end - start_seconds) * options.speed < 0.0 {
+                return Err("Bounded playback requires once playback and a nonzero speed toward endSeconds.".into());
+            }
+        }
         if let Some(replaced) = &options.replace { self.resource(replaced)?; }
         let next_handle = self.next_handle.checked_add(1).ok_or("Playback handle identity exhausted.")?;
         // Handles are opaque to connectors. Never reuse one, including after
@@ -302,12 +313,13 @@ impl NativePlaybackSession {
         if let Some(replaced) = options.replace { self.release(&replaced, "replaced", &mut batch); }
         self.next_handle = next_handle;
         self.resources.insert(handle.clone(), PlaybackResource {
-            duration_seconds: clip.duration_seconds, final_pose: options.final_pose, completed: false,
+            duration_seconds: clip.duration_seconds,
+            bounds: options.end_seconds.map(|end| (start_seconds.min(end), start_seconds.max(end))), final_pose: options.final_pose, completed: false,
         });
         batch.commands.push(NativeCommand::Play {
             handle, binding, clip,
             settings: NativeSettings {
-                start_seconds, speed: options.speed, weight: options.weight, blend_mode: options.blend_mode,
+                start_seconds, end_seconds: options.end_seconds, speed: options.speed, weight: options.weight, blend_mode: options.blend_mode,
                 looping, final_pose: options.final_pose,
             },
         });
@@ -318,10 +330,20 @@ impl NativePlaybackSession {
         let resource = self.resource(handle)?;
         let mut control: Control = parse(control_json, "playback control")?;
         match &mut control {
-            Control::Seek { seconds } => validate_seek(*seconds, resource.duration_seconds)?,
+            Control::Seek { seconds } => {
+                validate_seek(*seconds, resource.duration_seconds)?;
+                if resource.bounds.is_some_and(|(min, max)| *seconds < min || *seconds > max) {
+                    return Err("Seek must stay within the native playback interval.".into());
+                }
+            },
             Control::SetSpeed { speed } => validate_speed(*speed)?,
             Control::SetWeight { weight } => validate_weight(*weight)?,
-            Control::SetLoop { looping } => *looping = looping.clone().validated(resource.duration_seconds)?,
+            Control::SetLoop { looping } => {
+                *looping = looping.clone().validated(resource.duration_seconds)?;
+                if resource.bounds.is_some() && looping.mode != LoopMode::Once {
+                    return Err("Bounded playback supports only once playback.".into());
+                }
+            },
             Control::FadeIn { seconds } | Control::FadeOut { seconds } => {
                 if !seconds.is_finite() || *seconds < 0.0 {
                     return Err("Native fade duration must be finite and nonnegative seconds.".into());
@@ -518,6 +540,29 @@ mod tests {
     }
 
     fn value(batch: Batch) -> Value { serde_json::to_value(batch).unwrap() }
+
+    #[test]
+    fn bounded_playback_validates_before_replacing_and_retains_source_clip() {
+        let mut session = session();
+        let handle = play(&mut session, json!({"finalPose":"hold"})).handle.unwrap();
+        for options in [
+            json!({"replace":handle,"startSeconds":0.2,"endSeconds":1.1}),
+            json!({"replace":handle,"startSeconds":0.8,"endSeconds":0.2,"speed":1}),
+            json!({"replace":handle,"endSeconds":0.5,"speed":0}),
+            json!({"replace":handle,"endSeconds":0.5,"loop":{"mode":"repeat"}}),
+        ] {
+            assert!(session.play_inner(&clip().to_string(), &options.to_string()).is_err());
+            assert!(session.resources.contains_key(&handle));
+        }
+        let bounded = value(play(&mut session, json!({"replace":handle,"startSeconds":0.8,"endSeconds":0.2,"speed":-2,"finalPose":"hold"})));
+        assert_eq!(bounded["commands"][1]["clip"], clip());
+        assert_eq!(bounded["commands"][1]["settings"]["endSeconds"], 0.2);
+        let next = bounded["handle"].as_str().unwrap();
+        assert!(session.control_inner(next, r#"{"type":"seek","seconds":0.9}"#).is_err());
+        assert!(session.control_inner(next, r#"{"type":"seek","seconds":0.5}"#).is_ok());
+        assert_eq!(notify(&mut session, next, "completed").events.len(), 1);
+        assert!(notify(&mut session, next, "completed").events.is_empty());
+    }
 
     #[test]
     fn native_euler_components_require_scalar_samples() {
