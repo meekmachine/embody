@@ -3,7 +3,7 @@ name: Verify and publish package
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:
@@ -31,12 +31,37 @@ permissions:
   pull-requests: write
 
 jobs:
+  package-source:
+    name: Select preview or release source
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      source_ref: ${{ steps.source.outputs.source_ref }}
+      stable_release: ${{ steps.source.outputs.stable_release }}
+    steps:
+      # The requested preview may predate these helpers. Select its source
+      # using this workflow's code, without npm or coordination credentials.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - name: Test preview and release event policy
+        run: node --test scripts/test/package-source.test.mjs
+      - name: Select package source without reading npm publication state
+        id: source
+        run: node scripts/ci/package-source.mjs
+
   verify:
     name: Verify built package
+    needs: package-source
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
-      stable_release: ${{ steps.source.outputs.stable_release }}
+      stable_release: ${{ needs.package-source.outputs.stable_release }}
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
       release_commit: ${{ steps.release.outputs.release_commit }}
@@ -45,42 +70,10 @@ jobs:
       CARGO_INCREMENTAL: "0"
       CI: "true"
     steps:
-      - name: Resolve source ref
-        id: source
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_SHA: ${{ github.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          DISPATCH_SHA: ${{ github.event.client_payload.sha }}
-          REQUESTED_REF: ${{ github.event.inputs.ref }}
-          STABLE_RELEASE: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.ref == '')) }}
-        run: |
-          set -euo pipefail
-          case "${EVENT_NAME}" in
-            pull_request)
-              ref="${PR_HEAD_SHA}"
-              ;;
-            repository_dispatch)
-              ref="${DISPATCH_SHA}"
-              ;;
-            workflow_dispatch)
-              ref="${REQUESTED_REF:-${EVENT_SHA}}"
-              ;;
-            *)
-              ref="${EVENT_SHA}"
-              ;;
-          esac
-          if [[ -z "${ref}" ]]; then
-            echo "A source ref or SHA is required for ${EVENT_NAME}." >&2
-            exit 1
-          fi
-          echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
-          echo "stable_release=${STABLE_RELEASE}" >> "${GITHUB_OUTPUT}"
-
       - name: Checkout source
         uses: actions/checkout@v5
         with:
-          ref: ${{ steps.source.outputs.ref }}
+          ref: ${{ needs.package-source.outputs.source_ref }}
           fetch-depth: 0
 
       - name: Record the checked-out source
@@ -120,7 +113,7 @@ jobs:
         run: node --test scripts/test/package-publication.test.mjs
 
       - name: Prepare stable npm version and source commit
-        if: steps.source.outputs.stable_release == 'true'
+        if: needs.package-source.outputs.stable_release == 'true'
         id: release
         run: node scripts/ci/determine-release-version.mjs
 
@@ -142,7 +135,7 @@ jobs:
         run: npm run test:package
 
       - name: Publish immutable preview
-        if: steps.source.outputs.stable_release != 'true'
+        if: needs.package-source.outputs.stable_release != 'true'
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -160,13 +153,13 @@ jobs:
           npx --no-install pkg-pr-new "${args[@]}"
 
       - name: Pack the verified npm release
-        if: steps.source.outputs.stable_release == 'true'
+        if: needs.package-source.outputs.stable_release == 'true'
         run: |
           mkdir release-package
           npm pack --pack-destination release-package
 
       - name: Upload the verified npm tarball
-        if: steps.source.outputs.stable_release == 'true'
+        if: needs.package-source.outputs.stable_release == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: npm-release-${{ github.sha }}

@@ -444,6 +444,19 @@ from public npm without read credentials and commit their lockfile. The GitHub
 source repository stays private. A stable release contains the compiled JS,
 TypeScript declarations, and Wasm; consumers do not build Embody from Git.
 
+The workflow selects preview/release mode before checking out the package
+source. PR opening, edits, pushes, reopening, and ready-for-review events use
+the exact PR head; draft status does not change verification or publication mode.
+The selector runs without registry lookups or npm/coordination credentials, so
+an unfinished or unpublished linked stack does not become a stable-release
+prerequisite. Embody has no linked runtime npm dependency to adopt here.
+
+A repository dispatch must identify a full source SHA; a branch name or missing
+SHA fails before build. Explicit manual refs remain previews even when the ref
+is `main`. Stable publication requires both the selector's stable result and the
+publish job's existing main-only event/ref guard and protected `npm` environment.
+The `Verify built package` check name remains unchanged.
+
 The `Verify and publish package` workflow publishes a stable npm release after
 a push to `main`, or a manual run on `main` with the `ref` input left empty.
 It chooses the next patch version, records the source commit in `gitHead`, and
