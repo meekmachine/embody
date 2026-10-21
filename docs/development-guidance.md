@@ -8,6 +8,17 @@ new and touched code, not an unsolicited rewrite of existing modules.
 See [real writing examples](writing-examples.md) for source-backed weak/strong
 comparisons and existing good contracts worth preserving.
 
+## Agent handoff
+
+Follow the root [delivery workflow](../AGENTS.md#default-engineering-delivery-workflow):
+inspect source, implement, commit and push, then provide the PR stack links as
+**ready to test**. Do not execute tests, builds, typechecks, lint, verification
+scripts, or manual/automated browser checks (including Playwright, Cypress,
+screenshots for visual QA and browser performance tools). Do not monitor or wait
+for CI or package publication. Pass the same restrictions to delegated agents;
+only an explicit user request for the particular check changes this default.
+
+
 ## Make the runtime boundary visible
 
 Trace the affected input through validation, profile/runtime computation, the
@@ -17,6 +28,16 @@ Keep the Rust implementation authoritative for semantic controls, profile
 semantics and computation. Adapters operate on renderer objects; the host mixer
 owns clip playback and blending. Do not create a parallel TypeScript semantic
 runtime or a second copy of live AU/viseme state.
+
+For an AU animation bug, trace the caller's AU curve through profile compilation
+to its bone and morph outputs before changing the caller. A mapped AU must drive
+all of its configured outputs in both live controls and compiled clips. Check
+the saved mapping and existing rotation groups before changing the compiler;
+fix the owning profile or Rust code and add a regression for the missing output.
+Do not make Polymer or LoomLarge read bone mappings, substitute a hardcoded jaw
+rotation, or drop mapped morphs to make speech appear to work. Preserve the
+existing LipSync timing and Animation scheduling flow; its AU/viseme curves are
+the inputs to Embody, not a reason to duplicate Embody's mapping logic.
 
 The boundary has real feature-specific responsibilities: annotation camera and
 marker math live in Rust, while Three owns native inspection, labels, DOM controls,

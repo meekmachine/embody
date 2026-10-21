@@ -10,8 +10,8 @@
 
 ## Verification
 
-<!-- State the checks actually performed and their outcomes. For behavior changes, connect evidence to the relevant scenario. Identify anything unverified, including manual browser/hardware flows. -->
+<!-- Default handoff: ready to test, with the top-level LoomLarge PR and all upstream/companion PR links. No local tests/builds/typechecks/lint or manual/automated browser testing (including Playwright/Cypress/screenshots/React Scan), and no CI watching/polling/waiting unless explicitly requested. State the checks actually performed and their outcomes. For behavior changes, connect evidence to the relevant scenario. Identify anything unverified, including manual browser/hardware flows. -->
 
 ## Dependencies or remaining work
 
-<!-- Optional: name the blocking interface/behavior and why it is needed, or the bounded follow-on work. Remove if unnecessary. -->
+<!-- Link the top-level LoomLarge PR and each upstream PR, reciprocally. Use ordinary links for docs-only companions, without package dependency directives or pins. Optional: name the blocking interface/behavior and why it is needed, or the bounded follow-on work. Remove if unnecessary. -->

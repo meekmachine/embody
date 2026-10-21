@@ -1,0 +1,44 @@
+name: Notify package publication
+
+on:
+  workflow_run:
+    workflows: [Verify and publish package]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  notify:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository
+    name: Notify LoomLarge from trusted main
+    runs-on: ubuntu-latest
+    # Configure this environment for main only. CROSS_REPO_CI_TOKEN belongs
+    # here, never in repository secrets or a PR/build/publishing job.
+    environment: release-coordination
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Download only the producer's notification data
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+          name: package-publication-${{ github.event.workflow_run.run_attempt }}
+          path: ${{ runner.temp }}/publication-record
+
+      - name: Validate the completed source and notify LoomLarge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CROSS_REPO_CI_TOKEN: ${{ secrets.CROSS_REPO_CI_TOKEN }}
+          PUBLICATION_FILE: ${{ runner.temp }}/publication-record/package-publication.json
+        run: node scripts/ci/notify-package-published.mjs

@@ -41,12 +41,29 @@ The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
 not sample or lerp clips on the hot path.
 
+An AU animation drives its profile's mapped bones and morphs through the same
+Rust evaluation used by live AU controls. For example, speech can send an AU
+103 curve and separate viseme shape curves; the profile decides which bones
+and morphs AU 103 moves. Hosts must not replace that AU with a hardcoded jaw
+rotation or read `auToBones` to construct their own bone tracks. When LipSync
+already supplies a jaw AU curve, its existing `autoVisemeJaw: false` option
+keeps automatic viseme jaw synthesis from replacing that curve; it does not
+disable the AU's mapped morphs or the viseme shapes.
+
 The TypeScript adapter is intentionally limited to operations that require
 Three.js objects: scene traversal, ClipIR ↔ `AnimationClip` conversion, frame
 application, material writes, model loading/disposal, and default scene
 construction. The annotation adapter also owns camera controls, marker scene
 objects, labels, selection, and their browser lifecycle; applications provide
 the scene/camera/DOM inputs and render controls through the public API.
+
+`ThreeFrameApplier.applyMeshMaterialConfigs(model, profile.meshes)` replays named
+mesh visibility and material overrides when a host binds or replaces a profile.
+It applies explicit `visible: false` and `visible: true` even without a material
+entry, and restores render order, opacity, transparency, depth flags and blending
+from `material`. Omitted fields leave the model's current values unchanged.
+Polymer calls this adapter during model binding and profile replacement; hosts
+do not need a separate mesh-visibility replay loop.
 
 ### Annotation runtime
 
@@ -70,6 +87,21 @@ spent. Each native mesh raycast is indivisible; a large mesh can still cause a
 frame drop, and slicing does not reduce total raycast CPU time. Interactive
 annotation changes retain synchronous queries so a marker samples one pose.
 Replacement, clearing and disposal cancel stale loads before scene commits.
+New 3D markers and separated endpoints invalidate the cached camera layout.
+Visible markers receive the current zoom sizing and Rust viewport constraints
+before paint; hidden markers receive that layout before reveal captures label
+scales. Viewport clipping also follows the animated label size during reveal
+overshoot. Markers added during a reveal stay hidden until its layout pass resumes.
+
+For first reveal, call `controller.prepareModelForRender(model, { signal })`
+from the existing `beforeReveal` callback (or directly before attaching the
+model). It compiles the model's visible surfaces, then uses the controller's
+existing render loop for one complete scene preparation draw. No host warmup
+queue, shadow proxies or texture preparation loop is needed. The promise rejects
+on failure or cancellation; retain borrowed model/scene/renderer resources until
+it settles, even after `controller.dispose()`. This prepares visible variants,
+not every future hidden material or animation state. See the
+[model readiness contract](docs/SCENE_READINESS.md#model-readiness).
 
 `createMarkerVisibilityLifecycle` owns automatic reveal/hide timers;
 `createRuntimeAnnotationPreviewLifecycle` owns temporary authoring previews.
@@ -136,6 +168,36 @@ canonical direct viseme controls without changing a frame or sampling a host
 mixer. Unset, cleared, or out-of-range slots return `0` and `1` respectively.
 Hosts can snapshot these values before a temporary mouth-shape preview and
 restore them with the existing setters; a zero value releases its live override.
+
+### Preparing a default scene
+
+`createDefaultCharacterSceneRuntime(container, { rendering: { preference: 'auto' } })`
+returns a stable scene, camera, lighting controller and `rendering` settings
+controller immediately. `ready` reports the initial attempt; failure retains the
+controller for recovery through `setSettings`. `getSettings`, `getSnapshot` and
+`subscribe` expose the requested preference, actual backend, status and errors.
+Live changes prepare and replace only backend resources, preserving the character,
+scene, camera, lighting and marker state. `DPthreeCameraController({ rendering,
+scene, camera, domElement: container })` retargets its existing loop and controls;
+hosts persist settings and display status without recreating the scene.
+
+Auto tries native WebGPU then falls back only on acquisition/initialization
+failure. Explicit WebGPU remains strict; material/preparation errors retain the
+previous usable renderer. Device loss is observable and recoverable through the
+same controller. `acquireRenderer()` leases protect captures and model mutations;
+release them before requesting a switch. `releaseSceneResources()` drains rendering
+before detaching and freeing borrowed resources, including after device loss or
+scene disposal. Await `runtime.dispose()` before freeing resources on scene teardown.
+
+The existing async factory remains available and rejects after cleanup on initial
+failure. Its successful handles expose the same controller and dynamic backend /
+renderer getters. The synchronous factory stays WebGL-specific. See the owning
+contract for latest-request handling, capture/model leases and teardown ordering.
+
+Three runtime and types are checked at 0.184.0, with a >=0.184.0 runtime peer.
+Initial scene readiness does not prepare subsequently added models or establish
+first-frame/visual parity. See [renderer selection and scene readiness](docs/SCENE_READINESS.md)
+for ownership, version rationale and remaining real-browser acceptance.
 
 ### Bilateral snippet channels
 
@@ -232,8 +294,8 @@ step/linear clip conversion, and remaining import work.
 
 `humanoid.getSpecification` exposes all 55 VRM 1.0 anatomical roles and their
 parent/required rules. CC4 maps all 55 to distinct authored bones and supplies
-58 body controls, including fingers, wrists, shoulders, feet, pelvis, spine,
-head, eyes and jaw. `profile.setHumanoidRoleBinding` edits or clears a role and
+58 body controls for fingers, wrists, shoulders, feet, whole body motion, the
+spine, head, eyes and jaw. `profile.setHumanoidRoleBinding` edits or clears a role and
 retargets its existing actuators. The runtime keeps the same bone/morph evaluator;
 other rigs must author their own calibrated axes/ranges and optional muscle
 morph targets. See [Body controls](docs/body-controls.md) for migration, validation
@@ -305,6 +367,12 @@ reduces the correction; it does not shrink anatomical limits. Reduced eye
 contribution deliberately leaves focus error. These controls do not amplify
 input displacement or control response speed.
 
+During travel, the remaining sampled bearing rotates the requested finite
+target. At the endpoint that rotation becomes identity, reaching the exact
+world target continuously. There is no settled-threshold switch between targets
+constructed from the authored and tracking-shifted eye origins; a larger head
+turn must not introduce a final eye snap.
+
 Pass `{ referencePose }` as the constructor's third argument, reusing the
 reference captured at import. Without it, construction captures the current
 pose, so callers must construct before playback. The head solves its bounded
@@ -342,6 +410,90 @@ last argument. Multiply the authored units-per-meter calibration by the
 presentation's uniform root scale. The original viewer solver keeps its
 existing scale-one behavior. Neither solver infers physical webcam/display
 placement from face landmarks.
+
+`solve_profile_tracking_gaze` maps normalized display-right/up controls to the
+profile's full signed head AU rotation range. Pass `head_follow_fraction = 1`
+for full participation: on an aligned display axis, an input endpoint of +/-1
+requests the same head rotation as the corresponding AU at intensity 1. Binding
+scale and asymmetric `maxDegrees` remain authoritative. Camera distance and FOV
+do not reduce this range. Intermediate inputs interpolate between the bounded
+camera bearing at zero and the corresponding signed endpoint; camera roll
+rotates the display axes into the model frame. With head tracking disabled,
+the target spans the eye AU range instead.
+
+The signature is `(profile_json, tracking_target, camera_position,
+camera_quaternion, gaze_origin, model_quaternion, eyes_enabled, head_enabled,
+head_follow_fraction, lock_head_to_camera, world_units_per_meter)`. It returns
+the same 14-float layout as the existing physical projection solvers. Target Z
+is depth in meters, clamped to 0.2–10 before scene scaling; it sets a finite
+binocular focus distance without attenuating the angular range. X/Y clamp to
+[-1, 1], nonfinite coordinates become zero, invalid positive depth/scale use
+0.8/1 respectively, and absent AU bindings supply no angular capacity.
+
+This is an input-range mapping, not a physical reconstruction of the viewer's
+position. The existing screen/viewer projection APIs retain their contracts.
+Consumers must select this entry point and request full head participation to
+use it; adding the export alone does not change LoomLarge tracking. Eye focus
+still uses the resulting finite target and reports residual error when reduced
+strength, authored motion, or rig limits make that target unreachable.
+
+## npm releases and PR previews
+
+Production consumers install an exact published `@lovelace_lol/embody` version
+from public npm without read credentials and commit their lockfile. The GitHub
+source repository stays private. A stable release contains the compiled JS,
+TypeScript declarations, and Wasm; consumers do not build Embody from Git.
+
+The `Verify and publish package` workflow publishes a stable npm release after
+a push to `main`, or a manual run on `main` with the `ref` input left empty.
+It chooses the next patch version, records the source commit in `gitHead`, and
+builds and validates once. Stable version selection reads public metadata from
+`registry.npmjs.org` anonymously; redirects and failed lookups stop the release.
+Metadata reads never transmit publishing credentials. The separate
+publish job first requires `npm access get status` to report the existing package
+as public, then uses the `npm` environment's `NPM_KEY` to publish the packed
+output with public access and creates its Git tag and GitHub release. Stable
+releases are serialized through version selection and publication. Provenance
+remains disabled for the private source repository. Retrying a published commit
+reuses its existing version, and an older unpublished commit cannot replace a
+newer source release.
+
+PRs, including drafts, manual runs with an explicit `ref`, and `publish-pkg-pr-new`
+repository dispatches run full verification and publish immutable `pkg.pr.new`
+previews for testing linked upstream changes. An explicit ref remains a preview
+request even when it names `main`; it does not publish to npm. Manual and
+repository dispatch requests may include `upstream_pr` to identify their linked PR.
+
+After publication, the producing workflow uploads a JSON notification record
+without a dispatch credential. The separate `Notify package publication`
+`workflow_run` receiver checks out `main`, treats the artifact only as data, and
+validates the successful run attempt, repository, workflow, and source commit.
+Stable records must identify that run's main commit; linked previews must match
+the current open PR head targeting main. The receiver then sends
+`upstream-package-published` to `meekmachine/LoomLarge` using
+`CROSS_REPO_CI_TOKEN` from the `release-coordination` environment. That token must
+not be stored as a repository secret or exposed to a PR build/helper.
+
+Stable notifications contain the exact source SHA and npm version. Preview
+notifications contain the full-SHA URL and upstream PR number, or `null` for an
+unlinked manual preview. The receiver checks the canonical preview URL once and
+fails visibly if it is unavailable. LoomLarge owns downstream dependency updates;
+Embody does not edit Polymer or application branches. Missing credentials and
+failed notifications fail the receiver visibly. Fork PRs do not send
+notifications or receive npm/dispatch secrets.
+
+GitHub activates the receiver after its workflow is present on `main`. The
+release-stack PR's first preview remains usable by its immutable URL before
+that bootstrap merge; subsequent successful publications notify automatically.
+
+Before enabling stable releases, the existing npm package must have public
+visibility and `NPM_KEY` must permit publishing it. No npm read token is required.
+Configure both the `npm` and `release-coordination` GitHub
+environments to allow deployments from `main` only. Store `CROSS_REPO_CI_TOKEN`
+only in `release-coordination`, with permission to dispatch to LoomLarge. These
+account, environment protection, and secret settings are prerequisites; source
+changes do not configure them. Existing versions are never republished or
+overwritten.
 
 ## Development
 

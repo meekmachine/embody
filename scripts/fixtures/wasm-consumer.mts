@@ -7,15 +7,27 @@ import {
   requireInitializedEmbodyCore,
   type EmbodyCore,
   type RuntimeCore,
+  type NativePlaybackSession,
 } from '@lovelace_lol/embody/wasm';
-import { Object3D } from 'three';
+import { Object3D, type WebGLRenderer } from 'three';
+import type { WebGPURenderer } from 'three/webgpu';
 import {
   bindModelReferencePose,
   captureModelReferencePose,
   extendModelReferencePose,
+  createDefaultCharacterScene,
+  createDefaultCharacterSceneAsync,
+  type DefaultCharacterScene,
+  type DefaultCharacterSceneAsyncOptions,
+  type ReadyDefaultCharacterScene,
+  type CharacterSceneBackend,
+  type CharacterSceneRenderer,
+  type CharacterSceneRendererPreference,
   type ThreeModelReferencePose,
   DPthree,
   DPthreeCameraController,
+  Embody,
+  ThreeNativePlaybackConnector,
   resolveAnnotationCharacterConfig,
   createRuntimeAnnotationPreviewLifecycle,
   type AnnotationCharacterConfig,
@@ -27,6 +39,13 @@ const annotationProfile: AnnotationCharacterConfig = { characterId: 'consumer', 
 const resolvedAnnotationProfile = await resolveAnnotationCharacterConfig(annotationProfile);
 declare const cameraOptions: DPthreeCameraControllerConfig;
 const controller = new DPthreeCameraController(cameraOptions);
+declare const renderModel: import('three').Object3D;
+const modelReady: Promise<void> = controller.prepareModelForRender(renderModel, { signal: new AbortController().signal });
+void modelReady;
+// @ts-expect-error Readiness requires a Three model, not a serialized profile.
+controller.prepareModelForRender({ characterId: 'consumer' });
+// @ts-expect-error Cancellation uses an AbortSignal.
+controller.prepareModelForRender(renderModel, { signal: true });
 await controller.loadRegions(resolvedAnnotationProfile);
 controller.subscribeMarkerState((state: MarkerStateSnapshot) => { const visible: boolean = state.visible; });
 const preview = createRuntimeAnnotationPreviewLifecycle({ getAutoClearMs: () => undefined });
@@ -37,6 +56,17 @@ new DPthree({});
 controller.focusRegion(123);
 
 const core: EmbodyCore = await initEmbodyCore();
+const character = new Embody({ profileMode: 'profile', profile: {} });
+character.onReady({ model: new Object3D() });
+character.start();
+character.stop();
+// @ts-expect-error Public character controls cannot drive an animation clock.
+character.update(0.016);
+character.dispose();
+declare const connector: ThreeNativePlaybackConnector;
+connector.control('opaque', { type: 'setWeight', weight: 0.5 });
+// @ts-expect-error Native weight is a number, not semantic intensity metadata.
+connector.control('opaque', { type: 'setWeight', weight: 'strong' });
 const runtime: RuntimeCore = new core.RuntimeCore(15);
 runtime.configure_with_preset('cc4', '{}', '{}');
 runtime.set_au(12, 0.5, 0);
@@ -48,8 +78,34 @@ const viseme: number = runtime.get_viseme(0);
 const jawScale: number = runtime.get_viseme_jaw_scale(0);
 const frame: Float32Array = runtime.evaluate_active_morph_frame();
 const clip: string = runtime.build_clip('smile', '{}', '{}');
+const live: string = runtime.build_live_clip('live', 0.2);
+const release: string = runtime.build_live_release_clip('release', live, 0.2);
 const removed: boolean = runtime.remove_animation_clip('smile');
 runtime.free();
+
+// Lifecycle signatures come only from generated wasm-bindgen declarations.
+const playback: NativePlaybackSession = new core.NativePlaybackSession();
+const bindingBatch: string = playback.rebind('model', 'profile');
+const playBatch: string = playback.play(clip, '{}');
+const controlBatch: string = playback.control('opaque-handle', '{"type":"pause"}');
+const editBatch: string = playback.replace_clip('opaque-handle', clip);
+const eventBatch: string = playback.notify('{"type":"completed","handle":"opaque-handle"}');
+const disposalBatch: string = playback.dispose();
+playback.free();
+// @ts-expect-error Playback takes serialized ClipIR, not a renderer object.
+playback.play({}, '{}');
+// @ts-expect-error Native controls require both handle and serialized request.
+playback.control('opaque-handle');
+// @ts-expect-error Handle identity is an opaque string.
+playback.control(1, '{"type":"stop"}');
+// @ts-expect-error Native callbacks are serialized events, not a frame delta.
+playback.notify(0.016);
+// @ts-expect-error This protocol has no frame update or elapsed-time API.
+playback.update(0.016);
+// @ts-expect-error The semantic compiler no longer has a compatibility clock.
+runtime.update(0.016);
+// @ts-expect-error Returned command batches retain their generated string type.
+const wrongPlaybackBatch: number = playback.dispose();
 
 const result: Float32Array = core.solve_bilateral_values(1, 0);
 const presets: string[] = core.list_presets();
@@ -115,3 +171,52 @@ if (referenceNode?.rotationEuler) {
 }
 // @ts-expect-error Extension requires an explicit prior reference snapshot.
 extendModelReferencePose(model);
+
+// Scene readiness is additive and cannot accidentally widen to an `any` renderer.
+declare const container: HTMLElement;
+const sceneOptions: DefaultCharacterSceneAsyncOptions = {
+  type: 'studio', renderer: 'webgpu', signal: new AbortController().signal, lighting: { envMapEnabled: true },
+  onDeviceLost: (error: Error) => { console.error(error.message); },
+};
+const pendingScene: Promise<ReadyDefaultCharacterScene> = createDefaultCharacterSceneAsync(container, sceneOptions);
+const preference: CharacterSceneRendererPreference = 'auto';
+const automaticScene: Promise<ReadyDefaultCharacterScene> = createDefaultCharacterSceneAsync(container, { renderer: preference });
+const defaultScene: Promise<ReadyDefaultCharacterScene> = createDefaultCharacterSceneAsync(container);
+const readyScene = await pendingScene;
+const backend: CharacterSceneBackend = readyScene.backend;
+// @ts-expect-error Auto is a preference, never a resolved backend.
+const unresolvedBackend: CharacterSceneBackend = 'auto';
+const renderer: CharacterSceneRenderer = readyScene.renderer;
+if (readyScene.backend === 'webgpu') {
+  const nativeRenderer: WebGPURenderer = readyScene.renderer;
+  // @ts-expect-error Native WebGPU is not a WebGL renderer.
+  const incorrectRenderer: WebGLRenderer = readyScene.renderer;
+} else {
+  const glRenderer: WebGLRenderer = readyScene.renderer;
+}
+new DPthreeCameraController({
+  ...cameraOptions, renderer,
+  renderFrame: async (activeRenderer, scene, camera) => { activeRenderer.render(scene, camera); },
+  resizeRenderer: (activeRenderer, width, height) => { activeRenderer.setSize(width, height); },
+  onRenderError: (error: Error) => { console.error(error.message); },
+});
+readyScene.resize();
+readyScene.dispose();
+const synchronousScene: DefaultCharacterScene = createDefaultCharacterScene(container);
+synchronousScene.dispose();
+// @ts-expect-error Scene construction requires an HTMLElement.
+createDefaultCharacterSceneAsync('container');
+// @ts-expect-error Cancellation requires an AbortSignal, not a flag.
+createDefaultCharacterSceneAsync(container, { signal: true });
+// @ts-expect-error The backend choice must be a supported renderer.
+createDefaultCharacterSceneAsync(container, { renderer: 'vulkan' });
+// @ts-expect-error Native WebGPU creation requires the asynchronous factory.
+createDefaultCharacterScene(container, { renderer: 'webgpu' });
+// @ts-expect-error Automatic renderer selection also requires the asynchronous factory.
+createDefaultCharacterScene(container, { renderer: 'auto' });
+// @ts-expect-error Lighting values retain their actual type.
+createDefaultCharacterSceneAsync(container, { lighting: { exposure: 'bright' } });
+// @ts-expect-error The caller must await readiness before using the renderer.
+pendingScene.renderer.render(readyScene.scene, readyScene.camera);
+// @ts-expect-error The renderer remains concrete, not an any-typed capability bag.
+readyScene.renderer.nonexistentMethod();

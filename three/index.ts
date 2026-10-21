@@ -15,20 +15,30 @@ import {
   VectorKeyframeTrack,
 } from 'three';
 export * from './annotations/index';
+export * from './authoring';
+export * from './character';
+export * from './characterHost';
+export { renderScenePlayback, createScenePlaybackFrame } from './playbackRendering';
 import { bindModelReferencePose } from './reference-pose';
+import { concreteTrackName, withComponentTracks } from './clipBindings';
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
 
 export { captureModelReferencePose, bindModelReferencePose, extendModelReferencePose } from './reference-pose';
 export type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
+export { ThreeNativePlaybackConnector } from './nativePlayback';
+export type {
+  ThreeNativeLoop,
+  ThreeNativePlaybackOptions,
+  ThreeNativePlaybackControl,
+  ThreeNativePlaybackEvent,
+  ThreeNativePlaybackBinding,
+} from './nativePlayback';
 import type {
   KeyframeTrack,
   Material,
   Mesh,
   Object3D,
 } from 'three';
-
-export { ThreeGazeFocus } from './gaze';
-export type { ThreeGazeFocusOptions, ThreeGazeFocusRequest, ThreeGazeFocusControls, ThreeGazeFocusDiagnostic } from './gaze';
 
 export const THREE_BLENDING_MODES = {
   Normal: NormalBlending,
@@ -37,6 +47,7 @@ export const THREE_BLENDING_MODES = {
   Multiply: MultiplyBlending,
   None: NoBlending,
 } as const;
+export const BLENDING_MODES = THREE_BLENDING_MODES;
 
 type BoneEntry = {
   obj: Object3D;
@@ -126,7 +137,15 @@ const createMorphAttribute = (
 };
 
 export type ThreeModelInspection = {
-  descriptor: Record<string, unknown>;
+  descriptor: Record<string, unknown> & {
+    morphTargets: Array<{
+      id: number;
+      meshId: number | undefined;
+      name: string;
+      hostIndex: number;
+      initialValue: number;
+    }>;
+  };
   meshByName: Map<string, Mesh>;
   allMeshes: Mesh[];
   morphMeshes: Mesh[];
@@ -218,7 +237,7 @@ export class ThreeModelInspector {
     const boneIds = new Map(Array.from(boneBindings, ([id, bone]) => [bone, id]));
     const objectIds = new Map(Array.from(objectBindings, ([id, object]) => [object, id]));
     const morphBindings = new Map<number, { mesh: Mesh; index: number }>();
-    const morphTargets: Array<Record<string, unknown>> = [];
+    const morphTargets: ThreeModelInspection['descriptor']['morphTargets'] = [];
     const morphIdsByMesh = new Map<Mesh, number[]>();
     let morphId = 1;
     for (const mesh of allMeshes) {
@@ -334,6 +353,7 @@ export type ClipIRTrack = {
 export type ClipIR = {
   name: string;
   durationSeconds?: number;
+  channels?: Array<{ id: number; kind: string; name?: string }>;
   tracks: ClipIRTrack[];
 };
 
@@ -354,6 +374,8 @@ export function createAnimationClipFromClipIR(
   const tracks: KeyframeTrack[] = [];
   for (const track of clip.tracks ?? []) {
     const kind = track.target?.kind;
+    const trackName = concreteTrackName(track.target, inspection);
+    if (!trackName) continue;
     const times = Array.from(track.times ?? []);
     const values = Array.from(track.values ?? []);
     if (!times.length || !values.length) continue;
@@ -364,7 +386,6 @@ export function createAnimationClipFromClipIR(
     if (kind === 'morphTarget') {
       const binding = inspection.morphBindings.get(Number(track.target.morphTargetId));
       if (!binding?.mesh) continue;
-      const trackName = `${binding.mesh.uuid}.morphTargetInfluences[${binding.index}]`;
       if (track.inheritStart) {
         values[0] = binding.mesh.morphTargetInfluences?.[binding.index] ?? 0;
       }
@@ -380,13 +401,17 @@ export function createAnimationClipFromClipIR(
       const property = track.target.property ?? 'rotation';
       if (property === 'rotation' || property === 'quaternion') {
         if (track.inheritStart) object.quaternion.toArray(values, 0);
-        tracks.push(new QuaternionKeyframeTrack(`${object.uuid}.quaternion`, times, values, interpolation));
+        tracks.push(new QuaternionKeyframeTrack(trackName, times, values, interpolation));
+      } else if (property === 'eulerX' || property === 'eulerY' || property === 'eulerZ') {
+        const axis = property.slice(-1).toLowerCase() as 'x' | 'y' | 'z';
+        if (track.inheritStart) values[0] = object.rotation[axis];
+        tracks.push(new NumberKeyframeTrack(trackName, times, values, interpolation));
       } else if (property === 'position') {
         if (track.inheritStart) object.position.toArray(values, 0);
-        tracks.push(new VectorKeyframeTrack(`${object.uuid}.position`, times, values, interpolation));
+        tracks.push(new VectorKeyframeTrack(trackName, times, values, interpolation));
       } else if (property === 'scale') {
         if (track.inheritStart) object.scale.toArray(values, 0);
-        tracks.push(new VectorKeyframeTrack(`${object.uuid}.scale`, times, values, interpolation));
+        tracks.push(new VectorKeyframeTrack(trackName, times, values, interpolation));
       }
       continue;
     }
@@ -395,7 +420,7 @@ export function createAnimationClipFromClipIR(
       const mesh = inspection.meshBindings.get(Number(track.target.meshId));
       if (!mesh) continue;
       if (track.inheritStart) values[0] = Number(mesh.visible);
-      tracks.push(new NumberKeyframeTrack(`${mesh.uuid}.visible`, times, values, interpolation));
+      tracks.push(new NumberKeyframeTrack(trackName, times, values, interpolation));
     }
   }
 
@@ -411,10 +436,10 @@ export function serializeAnimationClips(
   inspection: ThreeModelInspection,
 ) {
   const meshIds = new Map(Array.from(inspection.meshBindings, ([id, mesh]) => [mesh, id]));
-  const boneIds = new Map(Array.from(inspection.boneBindings, ([id, bone]) => [bone, id]));
-  const objectIds = new Map(Array.from(inspection.objectBindings, ([id, object]) => [object, id]));
+  const boneIds = new Map<object, number>(Array.from(inspection.boneBindings, ([id, bone]) => [bone, id]));
+  const objectIds = new Map<object, number>(Array.from(inspection.objectBindings, ([id, object]) => [object, id]));
   return clips.map((clip) => {
-    const tracks: Array<Record<string, unknown>> = [];
+    const tracks: ClipIRTrack[] = [];
     const channelKinds = new Map<string, number>();
     const channelId = (kind: 'face' | 'body' | 'scene') => {
       const existing = channelKinds.get(kind);
@@ -423,11 +448,11 @@ export function serializeAnimationClips(
       channelKinds.set(kind, id);
       return id;
     };
-    clip.tracks.forEach((track, index) => {
+    withComponentTracks(clip).tracks.forEach((track, index) => {
       const found = findTrackTarget(model, track);
       if (!found?.object) return;
       const { parsed, object } = found;
-      let target: Record<string, unknown> | null = null;
+      let target: ClipIRTrack['target'] | null = null;
       const property = parsed.propertyName;
       if ((property === 'morphTargetInfluences' || property === 'weights') && (object as any).isMesh) {
         const mesh = object as Mesh;
@@ -442,13 +467,15 @@ export function serializeAnimationClips(
       } else if (property === 'visible' && (object as any).isMesh) {
         target = { kind: 'meshVisibility', meshId: meshIds.get(object as Mesh) };
       } else {
-        const transformProperty = property === 'quaternion' || property === 'rotation'
-          ? 'rotation'
-          : property === 'position'
-            ? 'position'
-            : property === 'scale'
-              ? 'scale'
-              : null;
+        const transformProperty = property === 'rotation' && ['x', 'y', 'z'].includes(String(parsed.propertyIndex))
+          ? `euler${String(parsed.propertyIndex).toUpperCase()}`
+          : property === 'quaternion'
+            ? 'rotation'
+            : property === 'position'
+              ? 'position'
+              : property === 'scale'
+                ? 'scale'
+                : null;
         if (transformProperty) {
           const boneId = boneIds.get(object);
           target = boneId
@@ -462,14 +489,26 @@ export function serializeAnimationClips(
         : target.kind === 'boneTransform'
           ? 'body'
           : 'scene';
-      const size = track.getValueSize();
+      // glTF cubic tracks store in-tangent/value/out-tangent per key. The
+      // registry/validation view describes values; native playback retains
+      // the original track and its Three interpolant, including its tangents.
+      const cubic = !!(track as KeyframeTrack & {
+        createInterpolant: { isInterpolantFactoryMethodGLTFCubicSpline?: boolean };
+      }).createInterpolant.isInterpolantFactoryMethodGLTFCubicSpline;
+      const size = track.getValueSize() / (cubic ? 3 : 1);
+      if (!Array.from(track.values).every(Number.isFinite)) {
+        throw new Error(`Animation track ${JSON.stringify(track.name)} contains non-finite samples.`);
+      }
+      const values = cubic
+        ? Array.from(track.times).flatMap((_, key) => Array.from(track.values.slice((key * 3 + 1) * size, (key * 3 + 2) * size)))
+        : Array.from(track.values);
       tracks.push({
         id: index + 1,
         channelId: channelId(kind),
         target,
         valueType: size === 4 ? 'quat' : size === 3 ? 'vec3' : 'scalar',
         times: Array.from(track.times),
-        values: Array.from(track.values),
+        values,
         interpolation: track.getInterpolation() === InterpolateDiscrete ? 'step' : 'linear',
         sourceName: track.name,
       });
@@ -546,11 +585,15 @@ export class ThreeFrameApplier {
     }
   }
 
-  applyMeshMaterialConfigs(root: Object3D, configs: Record<string, { material?: MaterialConfig }>) {
+  applyMeshMaterialConfigs(root: Object3D, configs: Record<string, { visible?: boolean; material?: MaterialConfig }>) {
     root.traverse((object: any) => {
-      if (object.isMesh && object.name && configs[object.name]?.material) {
-        this.applyMaterial(object, configs[object.name].material!);
-      }
+      if (!object.isMesh || !object.name) return;
+      const config = configs[object.name];
+      if (!config) return;
+      // Profile replay runs when a model binds and when its profile changes.
+      // A visibility-only entry is just as authored as a material override.
+      if (typeof config.visible === 'boolean') object.visible = config.visible;
+      if (config.material) this.applyMaterial(object, config.material);
     });
   }
 

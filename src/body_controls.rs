@@ -265,7 +265,7 @@ mod tests {
     fn every_body_direction_drives_authored_skin_and_clothing_with_balance_strength_and_reset() {
         let (authored, model) = authored_morph_catalog();
         assert_eq!(authored.body_controls.values().map(|control| control.section.as_str())
-            .collect::<BTreeSet<_>>(), BTreeSet::from(["Torso", "Head", "Arms", "Hands", "Legs", "Feet"]));
+            .collect::<BTreeSet<_>>(), BTreeSet::from(["Torso", "Whole body", "Head", "Arms", "Hands", "Legs", "Feet"]));
         assert_eq!(authored.body_controls.len(), 58);
         // Removing role assignments and removing actuators are distinct authoring
         // operations. Both must leave independent morph mappings usable.
@@ -369,20 +369,37 @@ mod tests {
                 let curves = json!({au.to_string(): [
                     {"time": 0, "intensity": 0}, {"time": 1, "intensity": 0.8}
                 ]});
+                let expected_targets: BTreeSet<_> = [1_u64, 2].into_iter().flat_map(|mesh_id|
+                    (0_u64..3).map(move |side| (mesh_id, mesh_id * 100_000 + u64::from(au) * 10 + side))
+                ).collect();
                 for strength in [0.25, 0.75] {
                     if strength != 0.25 { core.set_au_mix_weight(au, strength); }
-                    let clip: Value = serde_json::from_str(&core.build_clip("body-morph",
-                        &curves.to_string(), r#"{"balance":-1}"#).unwrap()).unwrap();
-                    let tracks = clip["tracks"].as_array().unwrap();
-                    assert_eq!(tracks.len(), 4,
-                        "left and center authored targets; zero-weight tracks are omitted: action {au}");
-                    for track in tracks {
-                        assert_eq!(track["target"]["kind"], "morphTarget");
-                        assert!([1, 2].contains(&track["target"]["meshId"].as_u64().unwrap()));
-                        let side = track["target"]["morphTargetId"].as_u64().unwrap() % 10;
-                        let expected = if side == 1 { 0.0 } else { 0.8 * f64::from(strength) };
-                        assert!((track["values"][1].as_f64().unwrap() - expected).abs() < 1e-6,
-                            "action {au}, strength {strength}, track {track}");
+                    for balance in [-1, 0, 1] {
+                        let clip: Value = serde_json::from_str(&core.build_clip("body-morph",
+                            &curves.to_string(), &json!({"balance": balance}).to_string()).unwrap()).unwrap();
+                        let tracks = clip["tracks"].as_array().unwrap();
+                        // Zero-valued sides retain their bindings so balance edits
+                        // can update samples on the existing native mixer action.
+                        assert_eq!(tracks.len(), expected_targets.len(),
+                            "all authored targets remain bound: action {au}, balance {balance}");
+                        let actual_targets: BTreeSet<_> = tracks.iter().map(|track| (
+                            track["target"]["meshId"].as_u64().unwrap(),
+                            track["target"]["morphTargetId"].as_u64().unwrap(),
+                        )).collect();
+                        assert_eq!(actual_targets, expected_targets,
+                            "action {au}, balance {balance}, strength {strength}");
+                        for track in tracks {
+                            assert_eq!(track["target"]["kind"], "morphTarget");
+                            assert_eq!(track["times"], json!([0.0, 1.0]));
+                            let values = track["values"].as_array().unwrap();
+                            assert_eq!(values.len(), 2);
+                            assert_eq!(values[0].as_f64().unwrap(), 0.0);
+                            let side = track["target"]["morphTargetId"].as_u64().unwrap() % 10;
+                            let muted = (balance == -1 && side == 1) || (balance == 1 && side == 0);
+                            let expected = if muted { 0.0 } else { 0.8 * f64::from(strength) };
+                            assert!((values[1].as_f64().unwrap() - expected).abs() < 1e-6,
+                                "action {au}, balance {balance}, strength {strength}, track {track}");
+                        }
                     }
                 }
             }
@@ -450,17 +467,27 @@ mod tests {
     }
 
     #[test]
-    fn non_body_morph_only_actions_keep_legacy_full_strength() {
-        for meshes in [json!({}), json!({"face": []}), json!({"face": ["Missing"]})] {
+    fn non_body_morph_strength_respects_face_mesh_selection() {
+        // Facial-only actions keep full strength on selected meshes, or through
+        // legacy discovery when no selection was authored. Mix changes must
+        // never reactivate an empty or unresolved face selection.
+        for (meshes, expected) in [
+            (json!({}), vec![1.0, 2.0, 0.8, 0.0]),
+            (json!({"face": ["Face"]}), vec![1.0, 2.0, 0.8, 0.0]),
+            (json!({"face": []}), vec![]),
+            (json!({"face": ["Missing"]}), vec![]),
+        ] {
             let profile = json!({"auToMorphs":{"12":{"center":["Smile"]}},
                 "auMixDefaults":{"12":0.25}, "morphToMesh": meshes});
             let mut core = RuntimeCore::new(0);
             core.configure_with_profile(&profile.to_string(),
                 r#"{"meshes":[{"id":1,"name":"Face","morphTargetIds":[2]}],"morphTargets":[{"id":2,"meshId":1,"name":"Smile","hostIndex":0}]}"#).unwrap();
             core.set_au(12, 0.8, 0.0);
-            assert_eq!(core.evaluate_active_morph_frame()[2], 0.8);
+            assert_eq!(core.evaluate_active_morph_frame().as_ref(), expected.as_slice(),
+                "saved mix weight, mesh selection: {meshes}");
             core.set_au_mix_weight(12, 0.5);
-            assert_eq!(core.evaluate_active_morph_frame()[2], 0.8);
+            assert_eq!(core.evaluate_active_morph_frame().as_ref(), expected.as_slice(),
+                "changed mix weight, mesh selection: {meshes}");
         }
     }
 }

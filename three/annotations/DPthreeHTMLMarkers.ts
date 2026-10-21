@@ -157,6 +157,17 @@ export class DPthreeHTMLMarkers {
     }
   }
 
+  /** Keep labels/selection while rebinding viewport observation to a new canvas. */
+  setDomElement(element: HTMLElement): void {
+    if (element === this.domElement) return;
+    this.resizeObserver?.disconnect();
+    this.domElement = element;
+    const parent = element.parentElement;
+    if (parent && this.labelsContainer.parentElement !== parent) parent.appendChild(this.labelsContainer);
+    this.resizeObserver?.observe(element);
+    this.updateViewportSize();
+  }
+
   setModel(model: THREE.Object3D): void {
     this.model = model;
     this.faceCenterCache.clear(); // Clear cache when model changes

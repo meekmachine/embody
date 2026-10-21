@@ -1,5 +1,6 @@
-import { createRequire } from 'node:module';
+import { createRequire, register } from 'node:module';
 import { readFile, readdir } from 'node:fs/promises';
+import { isDeepStrictEqual } from 'node:util';
 import {
   AnimationClip,
   Bone,
@@ -12,6 +13,13 @@ import {
 } from 'three';
 
 const require = createRequire(import.meta.url);
+// Public imports and the default WebGL path must not eagerly load GPU code.
+register(`data:text/javascript,${encodeURIComponent(`
+  export function resolve(specifier, context, nextResolve) {
+    if (specifier === 'three/webgpu') throw new Error('Unexpected eager WebGPU import');
+    return nextResolve(specifier, context);
+  }
+`)}`, import.meta.url);
 const serviceWorkerPath = require.resolve(
   '@lovelace_lol/embody/character-asset-service-worker.js',
 );
@@ -20,6 +28,16 @@ const serviceWorkerSource = await readFile(serviceWorkerPath, 'utf8');
 const root = await import('@lovelace_lol/embody');
 const three = await import('@lovelace_lol/embody/three');
 const wasm = await import('@lovelace_lol/embody/wasm');
+const core = await wasm.initEmbodyCore();
+// Consumers initialize the public loader once, then call synchronous exports.
+// No async character factory may initialize a second bundled loader first.
+const synchronousPreset = three.getPreset('cc4');
+const synchronousVisemes = three.resolveVisemeProfile({});
+const unboundCharacter = three.createRustEmbodyHostUnbound({ profileMode: 'profile', profile: {} });
+const unboundProfileMode = unboundCharacter.getProfileMode();
+unboundCharacter.dispose();
+const rootUnboundCharacter = root.createRustEmbodyHostUnbound({ profileMode: 'profile', profile: {} });
+rootUnboundCharacter.dispose();
 // The Three adapter must share the auto-initialized public loader, including
 // synchronous calls made immediately after importing the package.
 const markerAngleVisible = three.passesMarkerCameraAngleGate({ markerAngle: 0, currentCameraAngle: 0 });
@@ -28,10 +46,10 @@ const annotationMath = await three.createRustAnnotationCameraCore();
 const orbit = annotationMath.createCameraOrbit({ x: 0, y: 0, z: 0 }, 2, 1, 100);
 const orbitPose = orbit.sample(100); orbit.dispose();
 
-const core = await wasm.initEmbodyCore();
 const distEntries = await readdir(new URL('../../dist/', import.meta.url));
 const wasmEntrySource = await readFile(new URL('../../dist/wasm.js', import.meta.url), 'utf8');
 const preset = JSON.parse(core.get_preset_json('cc4'));
+const authoringDefaults = JSON.parse(core.embody_request(JSON.stringify({ op: 'bone.constants' })));
 const hairPresets = JSON.parse(core.hair_color_presets_json());
 const templates = JSON.parse(core.list_humanoid_skeleton_templates_json());
 const model = {
@@ -83,6 +101,9 @@ new three.ThreeFrameApplier().addMorphTarget(morphRoot, {
 
 const checks = [
   ['root ESM Three adapter', typeof root.ThreeModelInspector === 'function'],
+  ['root and Wasm exports share one loader', root.initEmbodyCore === wasm.initEmbodyCore && root.requireInitializedEmbodyCore() === core],
+  ['synchronous Three authoring uses public Wasm initialization', synchronousPreset.meshes.CC_Base_Eye.category === 'eye' && synchronousVisemes.visemeSlots.length === 0],
+  ['synchronous Three unbound character uses public Wasm initialization', unboundProfileMode === 'profile'],
   ...['DPthree', 'DPthreeCameraController', 'DPthree3DMarkers', 'DPthreeHTMLMarkers', 'DPthreeMarkers', 'CameraDOMControls', 'createMarkerVisibilityLifecycle', 'createRuntimeAnnotationPreviewLifecycle'].map(name => [`annotation runtime ${name}`, typeof three[name] === 'function']),
   ['annotation adapter shares initialized Wasm', markerAngleVisible],
   ['standalone annotation preset resolution', annotationConfig.regions.length > 0 && !!annotationConfig.auToMorphs],
@@ -98,11 +119,16 @@ const checks = [
   ['Wasm loader avoids eval/new Function', !wasmEntrySource.includes('new Function')],
   ['Wasm loader uses native dynamic import', wasmEntrySource.includes('import(')],
   ['embedded profile data', preset.meshes.CC_Base_Eye.category === 'eye'],
+  ['authoring axis defaults match Rust data', isDeepStrictEqual(three.DEFAULT_AXIS_TO_CHANNEL, authoringDefaults.defaultAxisToChannel)],
+  ['authoring degree default matches Rust data', three.DEFAULT_BONE_MAX_DEGREES === authoringDefaults.defaultBoneMaxDegrees],
+  ['authoring section matches Rust data', three.JOINT_CONTROL_SECTION === authoringDefaults.jointControlSection],
+  ['viseme compatibility keys match preset data', JSON.stringify(three.VISEME_KEYS) === JSON.stringify(preset.visemeKeys)],
+  ['obsolete partial CC4 bone table is absent', !('CC4_BONES' in three) && !('CC4_BONES' in root)],
   ['Rust hair appearance data', hairPresets.natural_brown.baseColor === '#4a3728'],
   ['CC4 preset owns hair color swatches', preset.hairColorPresets?.natural_brown?.baseColor === '#4a3728'],
   ['Rust humanoid template data', templates[0].id === 'cc4-humanoid'],
   ['Rust model extraction', extracted.morphs[0].meshName === 'Face'],
-  ['Rust runtime constructor', runtime.active_transition_count() === 0],
+  ['Rust runtime constructor', runtime.get_au(12) === 0],
   ['empty exact profile stays unmapped', staticBoneWrites.length === 0],
   ['exact profile still rejects malformed JSON', rejectsInvalidProfile],
   ['baked clip channel classification', serialized.channels.map(({ kind }) => kind).join(',') === 'body,scene'],

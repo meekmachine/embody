@@ -6,7 +6,7 @@ composite rotations and continuum pairs. VRM supplies anatomical role names;
 control names such as `body.elbowFlex` are Embody profile vocabulary.
 
 The CC4 preset includes **58 motion controls covering all 55 VRM 1.0 bone roles**.
-Torso and pelvis controls provide bend, twist and side bend. Arms expose shoulder
+Torso and whole body controls provide bend, twist and side bend. Arms expose shoulder
 raise/swing, upper-arm swing/spread/twist, elbow flex and forearm rotation.
 Hands expose wrist bend/deviation, all 15 finger-segment curls per side and
 spread for each finger. Legs/feet expose hip swing/spread/twist, knee bend,
@@ -14,6 +14,17 @@ ankle bend, foot tilt and toes. Head/eyes/jaw reuse existing facial actions.
 Bilateral controls expose independent left/right balance; signed motions use
 continuum pairs. This catalog is authored CC4 motion data, not a VRM-defined
 motion vocabulary or a motion generator for arbitrary imported rigs.
+
+The **Torso** section targets the upper-body branch: `CC_Base_Waist`,
+`CC_Base_Spine01` and `CC_Base_Spine02`. The **Whole body** section contains
+`body.hipsBend`, `body.hipsTwist` and `body.hipsSideBend` (actions 1010–1015).
+Those controls rotate `CC_Base_Hip`, which parents both the torso and the legs;
+they cannot isolate the torso or keep the feet planted. Their action IDs,
+bone bindings, ranges and signed pairs retain their existing animation behavior.
+The former “Pelvis” labels now say “Whole body” in control, AU and continuum
+metadata so hosts do not present these root motions as isolated torso controls.
+Sparse CC4 profiles inherit this grouping; explicit authored labels and sections
+remain overrides, including saved complete preset snapshots.
 
 Original IDs remain stable: elbow flex (1001), knee bend (1002), and torso twist
 (negative 1003, positive 1004). Added body actions use 1010–1090. These are not standardized FACS AUs.
@@ -45,8 +56,8 @@ Independent muscle sides require independently authored left/right targets.
 
 Every catalog action, including both directions of signed controls and the
 shared head/eye/jaw actions, accepts independent `auToMorphs` assignments.
-Torso, Head, Arms, Hands, Legs and Feet all use the same evaluator. Map each
-signed direction by its own action ID; the descriptor's `morphBindings` is an
+Torso, Whole body, Head, Arms, Hands, Legs and Feet all use the same evaluator.
+Map each signed direction by its own action ID; the descriptor's `morphBindings` is an
 aggregate for display, not a combined assignment to save back to both actions.
 `auMixDefaults` and live morph-strength changes scale Body morphs even if their
 bone bindings are missing or cleared. Bone intensity remains unchanged.
@@ -72,9 +83,22 @@ in its pitch group. Signed controls additionally declare `continuumPairs`.
 Use `auInfo.facePart: "Body"`, `auFacePartToMeshCategory.Body: "body"` and
 `morphToMesh.body` to route body and clothing targets through the same evaluator.
 
+CC4's jaw-opening group includes speech control 103 alongside AUs 25, 26 and 27.
+Its existing `auToBones` entry supplies the jaw bone, axis and rotation limit.
+Speech sends an AU 103 curve through the normal animation system; the same
+compiler produces its bone output and any configured morph output. The group
+uses the existing strongest-opening rule when these AUs play together.
+
 Head and eye controls use the original AU IDs (51–56 and 61–64), so their
 facial and semantic editors read and write the same `auToMorphs` and
-`auMixDefaults` entries. Neck actions 1032–1037 use the corresponding CC4
+`auMixDefaults` entries. Skeleton axis reads, edits and clears resolve role,
+`boneNodes` key and literal bone targets to the same configured bone, including
+authored exact bone selections. Mixing these aliases across `auToBones`,
+`compositeRotations` and `continuumPairs` does not hide existing mappings or
+add duplicate rotations when an axis is edited. Clearing a bone axis keeps its
+AU's morph targets and other bones' mappings.
+
+Neck actions 1032–1037 use the corresponding CC4
 head-turn/tilt targets as their initial tissue mappings: back/up 1032→53,
 forward/down 1033→54, right turn 1034→52, left turn 1035→51, left tilt
 1036→55 and right tilt 1037→56. These are independently editable neck actions,
