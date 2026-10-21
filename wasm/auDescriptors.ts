@@ -8,6 +8,7 @@ export interface AUDescriptor {
   facePart?: string | null;
   negativeAuId?: number | null;
   positiveAuId?: number | null;
+  /** At least one left/right output supports balance; inspect availableSides for the actual sides. */
   bilateral: boolean;
   boneBindings: Array<Record<string, unknown> & { auId: number; boneName: string }>;
   boneNames: string[];

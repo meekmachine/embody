@@ -7,6 +7,7 @@ pub(crate) fn resolve(profile: &ProfileData, model: Option<&ModelData>) -> Value
     let resolver = model.map(|model|NameResolver::new(profile,model));
     let ids:BTreeSet<u32> = profile.au_info.keys().chain(profile.action_info.keys())
         .chain(profile.au_to_bones.keys()).chain(profile.au_to_morphs.keys()).chain(profile.bone_bindings.keys())
+        .filter(|id|!id.is_empty() && id.bytes().all(|byte|byte.is_ascii_digit()))
         .filter_map(|id|id.parse().ok()).collect();
     Value::Array(ids.into_iter().map(|au| {
         let key=au.to_string();
@@ -41,7 +42,9 @@ pub(crate) fn resolve(profile: &ProfileData, model: Option<&ModelData>) -> Value
         if !has_bones&&!has_morphs {diagnostics.push("No available bone or morph outputs.".into());}
         let pair=profile.continuum_pairs.get(&key).and_then(Option::as_ref);
         let (negative,positive)=pair.map(|pair|if pair.is_negative {(Some(au),Some(pair.pair_id))} else {(Some(pair.pair_id),Some(au))}).unwrap_or((None,None));
-        let bilateral=sides.contains("left")&&sides.contains("right");
+        // A partial rig still supports selecting its available authored side.
+        // availableSides distinguishes that support from a complete bilateral rig.
+        let bilateral=sides.contains("left")||sides.contains("right");
         json!({"auId":au,"label":info.and_then(|info|info.name.as_deref()).unwrap_or(&key),
             "faceArea":info.and_then(|info|info.face_area.as_deref()),"facePart":info.and_then(|info|info.face_part.as_deref()),
             "negativeAuId":negative,"positiveAuId":positive,"bilateral":bilateral,
@@ -79,6 +82,37 @@ mod tests {
         assert_eq!(row["hasBones"],true);assert_eq!(row["hasMorphs"],true);
         let absent=resolve(&profile,Some(&ModelData::default()));assert_eq!(absent[0]["available"],false);
         assert!(!absent[0]["diagnostics"].as_array().unwrap().is_empty());
+    }
+    #[test]
+    fn partial_left_rig_keeps_balance_selection_without_advertising_missing_right() {
+        let (profile,mut model)=fixture();
+        model.bones.retain(|bone|bone.name=="ArmL");
+        model.morph_targets.retain(|target|target.name=="FlexL");
+        let rows=resolve(&profile,Some(&model));let row=&rows[0];
+        assert_eq!(row["bilateral"],true,"one authored side still supports balance selection");
+        assert_eq!(row["availableSides"],json!(["left"]));
+        assert_eq!(row["boneNames"],json!(["ArmL"]));
+        assert!(row["diagnostics"].as_array().unwrap().iter().any(|message|message.as_str().unwrap().contains("ArmR")));
+        let mut core=RuntimeCore::new(0);
+        core.configure_with_profile(&serde_json::to_string(&profile).unwrap(),&serde_json::to_string(&model).unwrap()).unwrap();
+        core.set_au(8001,0.5,-1.0);
+        assert!(core.evaluate_active_bone_frame().chunks_exact(9).any(|row|row[0]==1.0&&row[4].abs()>0.1));
+        core.set_au(8001,0.5,1.0);
+        assert!(!core.evaluate_active_bone_frame().chunks_exact(9).any(|row|row[4..7].iter().any(|value|value.abs()>1e-6)));
+        assert!(core.evaluate_active_morph_frame().chunks_exact(4).all(|row|row[2].abs()<1e-6));
+    }
+    #[test]
+    fn descriptor_count_follows_numeric_profile_keys_and_center_only_has_no_side_selector() {
+        let mut profile:ProfileData=serde_json::from_value(json!({"auInfo":{"3":{"name":"First"},"not-an-au":{"name":"Ignored"},"+5":{"name":"Invalid signed key"}},
+            "auToMorphs":{"3":{"center":["FirstShape"]}}})).unwrap();
+        let rows=resolve(&profile,None);
+        assert_eq!(rows.as_array().unwrap().len(),1);assert_eq!(rows[0]["auId"],3);
+        assert_eq!(rows[0]["bilateral"],false);assert_eq!(rows[0]["availableSides"],json!(["center"]));
+        profile.au_to_morphs.insert("9007".into(),Some(serde_json::from_value(json!({"left":["ExtraShape"]})).unwrap()));
+        let rows=resolve(&profile,None);
+        assert_eq!(rows.as_array().unwrap().iter().map(|row|row["auId"].as_u64().unwrap()).collect::<Vec<_>>(),vec![3,9007]);
+        profile.au_info.remove("3");profile.au_to_morphs.remove("3");
+        let rows=resolve(&profile,None);assert_eq!(rows.as_array().unwrap().len(),1);assert_eq!(rows[0]["auId"],9007);
     }
     #[test]
     fn au_bone_skin_and_clothing_output_preserves_balance_and_live_mix() {

@@ -10,7 +10,10 @@ return AU labels and classification, signed continuum pair IDs, actual available
 sides, saved `morphStrength`, resolved bone/morph names, binding data and support
 diagnostics. The optional model descriptor is renderer-neutral. Profile-only
 queries describe configured outputs; model-aware queries identify missing bones
-and morphs. There is no `body.*` identity or separate active catalog.
+and morphs. `bilateral` indicates side-selectable output even on a partial rig;
+`availableSides` reports which requested sides are actually present. A left-only
+AU retains its valid negative balance without advertising an absent right side.
+There is no `body.*` identity or separate active catalog.
 
 Use `setAU`, `transitionAU` and `setContinuum` to control authored outputs.
 Intensity drives mapped joints; `setAUMixWeight` adjusts mapped morph contribution
