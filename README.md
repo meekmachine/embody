@@ -564,3 +564,14 @@ partial rig. Stored static poses retain their portability across missing outputs
 `evaluate_semantic_body_bone_frame()` returns exact Body-owned properties including
 neutral values, allowing an explicit semantic pose/reset to replace old raw bone
 edits without touching unrelated properties.
+
+### Publication source metadata
+
+Package workflow run titles expose `Package source=<requested revision>
+request=<request ID or automatic>`. Repository dispatch uses `client_payload.sha`
+and optional `client_payload.request_id`; Actions `head_sha` can identify main
+instead of the package source. LoomLarge's local PR router uses this metadata to
+show queued/running publication and the exact source's failed job. Manual branch
+refs remain refs in the title; consumers must resolve them before treating a title
+as immutable source evidence. This metadata does not change verification gates,
+concurrency, package contents, or release policy.

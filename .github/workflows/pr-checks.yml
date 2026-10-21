@@ -1,5 +1,8 @@
 name: Verify and publish package
 
+# Actions head_sha is main for repository_dispatch; expose the requested source.
+run-name: "Package source=${{ github.event.pull_request.head.sha || github.event.client_payload.sha || inputs.ref || github.sha }} request=${{ github.event.client_payload.request_id || 'automatic' }}"
+
 on:
   pull_request:
     branches: [main]
