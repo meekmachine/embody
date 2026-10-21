@@ -34,6 +34,11 @@ exact bone selections. Clearing a role disables its anatomical aliases rather
 than falling back to similarly named raw model bones. Reference poses and
 composite axes remain part of the existing AU evaluator.
 
+Older CC4 snapshots may contain AU bindings without their classification metadata.
+Preset composition uses inherited AU metadata to preserve mapped body rotation
+groups alongside saved facial groups. An explicitly empty rotation table still
+disables rotations, and authored replacement groups retain their selected AUs.
+
 ## Persisted record migration
 
 The active `bodyControls` schema and named semantic pose/animation APIs are

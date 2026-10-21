@@ -1356,7 +1356,7 @@ fn viseme_binding_targets(
     Vec::new()
 }
 
-fn is_body_action(profile: &ProfileData, au_id: u32) -> bool {
+pub(crate) fn is_body_action(profile: &ProfileData, au_id: u32) -> bool {
     profile.au_info.get(&au_id.to_string()).or_else(|| profile.action_info.get(&au_id.to_string()))
         .is_some_and(|info| info.face_area.as_deref() == Some("Body") || info.face_part.as_deref() == Some("Body"))
 }

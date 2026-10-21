@@ -63,6 +63,7 @@ mod tests {
             "auToBones":{"8001":[{"node":"ArmL","channel":"rx","scale":1,"maxDegrees":90,"side":"left"},
                 {"node":"ArmR","channel":"rx","scale":1,"maxDegrees":90,"side":"right"}]},
             "auToMorphs":{"8001":{"left":["FlexL","ClothL"],"right":["FlexR"]}},
+            "auFacePartToMeshCategory":{"Body":"body"},
             "morphToMesh":{"body":["Skin","Shirt"]},"auMixDefaults":{"8001":0.25},
             "compositeRotations":[{"node":"ArmL","pitch":{"aus":[8001],"axis":"rx"}},
                 {"node":"ArmR","pitch":{"aus":[8001],"axis":"rx"}}]})).unwrap(),

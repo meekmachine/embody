@@ -207,8 +207,13 @@ pub(crate) fn extend_preset_with_profile(
         let empty_override = composites.is_empty();
         let legacy_actions = legacy.au_to_bones.keys().filter_map(|id| id.parse::<u32>().ok())
             .collect::<HashSet<_>>();
+        // The old snapshot has AU bindings but no AU classification metadata.
+        // Use the inherited preset's AU metadata to distinguish its body nodes
+        // from facial-only rotation snapshots without consulting named controls.
         let legacy_body_nodes = legacy.au_to_bones.iter().filter(|(id,_)| {
-            legacy.au_info.get(*id).is_some_and(|info| info.face_area.as_deref()==Some("Body"))
+            id.parse::<u32>().ok().is_some_and(|au|
+                crate::profile::is_body_action(legacy, au)
+                    || crate::profile::is_body_action(base, au))
         }).flat_map(|(_,bindings)| bindings).map(|binding| crate::profile_resolution::node_key(legacy, &binding.node)).collect::<HashSet<_>>();
         let legacy_facial_nodes = legacy.composite_rotations.iter()
             .map(|composite| crate::profile_resolution::node_key(legacy, &composite.node))
@@ -220,7 +225,7 @@ pub(crate) fn extend_preset_with_profile(
             let node = crate::profile_resolution::node_key(base, &composite.node);
             if is_cc4_base && legacy_facial_nodes.contains(node) { continue; }
             let is_body = merged.au_to_bones.iter().any(|(id,bindings)| {
-                merged.au_info.get(id).is_some_and(|info| info.face_area.as_deref()==Some("Body"))
+                id.parse::<u32>().ok().is_some_and(|au| crate::profile::is_body_action(&merged, au))
                     && bindings.iter().any(|binding| crate::profile_resolution::configured_bone_name(&merged, &binding.node)
                         == crate::profile_resolution::configured_bone_name(&merged, &composite.node))
             });
@@ -578,6 +583,43 @@ mod tests {
         assert_eq!(merged["auToMorphs"]["2"]["center"][0], "B2");
         assert_eq!(merged["auToMorphs"]["3"]["center"][0], "C");
         assert_eq!(merged["visemeKeys"], json!(["Ooh"]));
+    }
+
+    #[test]
+    fn custom_au_classification_preserves_mapped_rotations_and_explicit_overrides() {
+        for metadata in ["auInfo", "actionInfo"] {
+            for category in ["faceArea", "facePart"] {
+                let mut base = json!({
+                    "auToBones": {"7001": [{
+                        "node": "CustomArm", "channel": "rx", "scale": 1,
+                        "maxDegrees": 60
+                    }]},
+                    "compositeRotations": [{
+                        "node": "CustomArm", "pitch": {"aus": [7001], "axis": "rx"}
+                    }]
+                });
+                base[metadata] = json!({"7001": {"name": "Character-specific arm motion"}});
+                base[metadata]["7001"][category] = json!("Body");
+                let merged = merge(base.clone(), json!({"compositeRotations": [{
+                    "node": "AuthoredHead", "yaw": {"aus": [9002], "axis": "ry"}
+                }]}));
+                let mut core = crate::runtime::RuntimeCore::new(0);
+                core.configure_with_profile(&merged.to_string(),
+                    r#"{"bones":[{"id":17,"name":"CustomArm"}]}"#).unwrap();
+                core.set_au(7001, 0.5, 0.0);
+                let frame = core.evaluate_active_bone_frame();
+                assert!(!frame.is_empty(), "{metadata}/{category} loses its mapped AU");
+                assert_eq!(frame[0], 17.0);
+                assert!(frame[4] > 0.1, "the inherited AU must rotate its mapped bone");
+
+                let authored = merge(base.clone(), json!({"compositeRotations": [{
+                    "node": "CustomArm", "pitch": {"aus": [7002], "axis": "rx"}
+                }]}));
+                assert_eq!(authored["compositeRotations"][0]["pitch"]["aus"], json!([7002]));
+                let disabled = merge(base, json!({"compositeRotations": []}));
+                assert_eq!(disabled["compositeRotations"], json!([]));
+            }
+        }
     }
 
     #[test]
