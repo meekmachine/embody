@@ -172,6 +172,7 @@ export class Embody {
   }
 
   private bind(model: Object3D, reference: ThreeModelReferencePose, inspection: ThreeModelInspection, source: JsonObject, profile: JsonObject, preserveLiveState = true): void {
+    this.applier.clearMeshHighlights();
     // Prepare every fallible profile/reference operation before releasing the old binding.
     const referenceBindings = bindModelReferencePose(model, reference);
     // Inspection stays live; release clips need the separately captured baseline.
@@ -967,6 +968,7 @@ export class Embody {
   dispose(): void {
     if (this.disposed) return;
     this.connector?.dispose();
+    this.applier.clearMeshHighlights();
     this.core.free();
     this.playbacks.clear();
     this.current.clear();
