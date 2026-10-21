@@ -31,6 +31,9 @@ reuses the old inherited value. A host that caches Three clips at registration
 must retain ClipIR and convert it again at playback; simply updating this package
 does not repair that host's cached replay path. Resume, seek and loop cycles on
 an existing action retain the same captured start rather than sampling again.
+A same-model `setProfile(profile, { preservePlayback: true })` edit also retains
+that captured value for targets that remain mapped, including when other tracks
+are removed or reordered. Newly selected targets capture their own first value.
 
 ## Delayed first keys
 

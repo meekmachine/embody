@@ -89,7 +89,9 @@ previews and writes on the same mesh selection as animation.
 For edits to the currently loaded character, use
 `host.setProfile(profile, { preservePlayback: true })`. This retains canonical
 live AU/viseme values and remaps active semantic and baked clips at their current
-local time, speed, weight and paused state. Existing public clip handles and
+local time, speed, weight, completed loop count, fade progress and paused state.
+Inherited starts on retained targets are reused, and remapping does not replay
+head-motion hair impulses. Existing public clip handles and
 pending completion promises remain usable. Prepared clips remain playable.
 Semantic clips compile against the new mappings, so cleared face selection takes
 effect immediately. Direct transitions are cancelled and their accepted live

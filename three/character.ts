@@ -16,7 +16,7 @@ import {
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
 import { ThreeNativePlaybackConnector } from './nativePlayback';
 import { withComponentTracks } from './clipBindings';
-import type { ThreeNativePlaybackControl, ThreeNativePlaybackEvent, ThreeNativePlaybackOptions } from './nativePlayback';
+import type { ThreeNativePlaybackControl, ThreeNativePlaybackEvent, ThreeNativePlaybackOptions, ThreeNativePlaybackContinuation } from './nativePlayback';
 
 type JsonObject = Record<string, any>;
 type NativeTrack = KeyframeTrack & { createInterpolant: ((result?: Float32Array) => { evaluate(time: number): ArrayLike<number> }) & { isInterpolantFactoryMethodGLTFCubicSpline?: boolean } };
@@ -69,7 +69,7 @@ type Playback = {
   terminal: boolean;
   inheritedStarts: Map<string, number[]>;
   replay(options: CharacterPlaybackOptions): CharacterPlaybackHandle;
-  remap(options: CharacterPlaybackOptions, paused: boolean): void;
+  remap(options: CharacterPlaybackOptions, state: ThreeNativePlaybackContinuation): void;
   notify(event: CharacterPlaybackEvent): void;
 };
 const json = (value: unknown): string => JSON.stringify(value ?? {});
@@ -187,12 +187,12 @@ export class Embody {
     const replacingModel = !!this.boundModel && this.boundModel !== model;
     const continuing = preservePlayback && !replacingModel
       ? [...this.playbacks.values()].flatMap(playback => {
-        const action = playback.connector.getAction(playback.id);
+        const state = playback.connector.captureContinuation(playback.id);
         // Direct controls/transitions are rebuilt from canonical live state.
-        if (!action || playback.source.kind === 'compiled') return [];
-        return [{ playback, paused: action.paused, options: {
-          ...playback.options, time: action.time, speed: action.timeScale,
-          mixerWeight: action.weight, fadeInSec: 0, crossfadeDuration: 0,
+        if (!state || playback.source.kind === 'compiled') return [];
+        return [{ playback, state, options: {
+          ...playback.options, time: state.time, speed: state.speed,
+          mixerWeight: state.weight, fadeInSec: 0, crossfadeDuration: 0,
         } }];
       }) : [];
     const core = new this.wasm.RuntimeCore(0);
@@ -251,7 +251,7 @@ export class Embody {
     this.hairConfig = parse(this.core.get_hair_config_json());
     this.registerHairObjects(inspection.allMeshes.filter((mesh) => ['hair', 'eyebrow'].includes(this.meshCategory(mesh))));
     if (preserveLiveState) this.commitLive();
-    for (const { playback, options, paused } of continuing) playback.remap(options, paused);
+    for (const { playback, options, state } of continuing) playback.remap(options, state);
   }
 
   bindModel(meshes?: Mesh[]): void {
@@ -352,7 +352,7 @@ export class Embody {
         if (!ir.tracks[index].inheritStart) continue;
         const track = clip.tracks[index];
         if (!track) throw new Error('Every inherited track must bind to the character.');
-        const startKey = `${index}:${track.name}`;
+        const startKey = `${track.ValueTypeName}:${track.name}`;
         let previous = inheritedStarts.get(startKey);
         if (!previous && options.blendMode === 'additive') {
           // Additive inheritance belongs to this request's contribution, not
@@ -519,11 +519,12 @@ export class Embody {
       if (generation !== this.bindingGeneration) throw new Error('Playback handle belongs to an obsolete model binding.');
       this.validateEasing(options);
       const connector = this.requireConnector();
-      const inheritedStarts = new Map<string, number[]>();
+      const inheritedStarts = new Map<string, number[]>(remapping ? current?.inheritedStarts : undefined);
       const clip = this.materialize(source, options, inheritedStarts);
       const hairMotion = this.authoredHeadMotion(clip);
       const previous = this.current.get(source.name);
       const settings = this.nativeOptions(options, clip);
+      if (remapping) settings.startSeconds = Math.min(settings.startSeconds ?? 0, clip.duration);
       if (previous && connector.getAction(previous.id)) settings.replace = previous.id;
       if (current && !remapping) newPromise();
       const resolve = resolvePromise;
@@ -539,11 +540,16 @@ export class Embody {
       const playback: Playback = {
         id, source, options: { ...options, intensityScale: intensity(options) }, connector, terminal: false, inheritedStarts,
         replay: (next) => { options = next; return start(); },
-        remap: (next, paused) => {
+        remap: (next, state) => {
           generation = this.bindingGeneration;
           options = next;
           remapping = true;
-          try { start(); if (paused) result.pause(); }
+          const terminal = current?.terminal ?? false;
+          try {
+            start();
+            this.requireConnector().restoreContinuation(result.actionId!, state);
+            if (current) current.terminal = terminal;
+          }
           finally { remapping = false; }
         },
         notify: (event) => {
@@ -602,7 +608,7 @@ export class Embody {
         this.playDepth -= 1;
         while (!this.playDepth && this.pendingEvents.length) this.onPlaybackEvent(this.pendingEvents.shift()!);
       }
-      if (hairMotion && connector.getAction(id)) {
+      if (!remapping && hairMotion && connector.getAction(id)) {
         this.playHairImpulse(hairMotion.horizontal, hairMotion.vertical);
         this.setHairGravity(hairMotion.pitch, clip.duration);
       }

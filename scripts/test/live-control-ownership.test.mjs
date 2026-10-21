@@ -455,3 +455,66 @@ for (const paused of [false, true]) {
     } finally { rig.dispose(); }
   });
 }
+
+for (const loopMode of ['repeat', 'pingpong']) {
+  test(`profile edits retain ${loopMode} progress and the remaining finite loop count`, async () => {
+    const edited = await fixture();
+    const control = await fixture();
+    const makeClip = () => new AnimationClip('loops', 1, [
+      new VectorKeyframeTrack('Unbound.position', [0, 1], [0, 0, 0, 1, 0, 0]),
+    ]);
+    try {
+      for (const rig of [edited, control]) {
+        rig.host.registerAnimationClips([makeClip()]);
+        rig.host.playAnimation('loops', { loopMode, repeatCount: 3, finalPose: 'release', fadeInSec: 0 });
+        renderHostFrame(rig.host, 1.25);
+      }
+      edited.host.setProfile(profile, { preservePlayback: true });
+      for (const delta of [0, 0.25, 0.75, 1, 0.1]) {
+        for (const rig of [edited, control]) renderHostFrame(rig.host, delta);
+        near(edited.model.getObjectByName('Unbound').position.x,
+          control.model.getObjectByName('Unbound').position.x, 'profile edit retains native loop direction and completion');
+        assert.equal(edited.host.getAnimationState('loops').playing, control.host.getAnimationState('loops').playing);
+      }
+    } finally { edited.dispose(); control.dispose(); }
+  });
+}
+
+for (const fade of ['in', 'out']) {
+  test(`profile edits retain an active fade ${fade}`, async () => {
+    const edited = await fixture();
+    const control = await fixture();
+    try {
+      for (const rig of [edited, control]) {
+        rig.host.registerAnimationClips([new AnimationClip('fading', 4, [
+          new VectorKeyframeTrack('Unbound.position', [0, 4], [1, 0, 0, 1, 0, 0]),
+        ])]);
+        const handle = rig.host.playAnimation('fading', { fadeInSec: fade === 'in' ? 1 : 0, fadeOutSec: 1 });
+        if (fade === 'out') handle.stop();
+        renderHostFrame(rig.host, 0.25);
+      }
+      edited.host.setProfile(profile, { preservePlayback: true });
+      for (const delta of [0, 0.25, 0.25, 0.3]) {
+        for (const rig of [edited, control]) renderHostFrame(rig.host, delta);
+        near(edited.model.getObjectByName('Unbound').position.x,
+          control.model.getObjectByName('Unbound').position.x, 'editing preserves the current fade and its endpoint');
+      }
+    } finally { edited.dispose(); control.dispose(); }
+  });
+}
+
+test('profile edits keep the inherited start captured before other controls changed', async () => {
+  const rig = await fixture(0.2);
+  try {
+    const clip = rig.host.buildTypedClip('inherited', [{
+      target: { type: 'au', id: 200 },
+      keyframes: [{ time: 0, intensity: 0, inherit: true }, { time: 2, intensity: 1 }],
+    }], { autoVisemeJaw: false, fadeInSec: 0 }).play();
+    renderHostFrame(rig.host, 0.5);
+    const before = rig.mesh.morphTargetInfluences[0];
+    rig.host.setProfile(profile, { preservePlayback: true });
+    renderHostFrame(rig.host, 0);
+    near(rig.mesh.morphTargetInfluences[0], before, 'edit does not recapture the reference or the current mixed pose');
+    clip.stop();
+  } finally { rig.dispose(); }
+});

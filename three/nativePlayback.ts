@@ -54,12 +54,19 @@ type Command =
 type Batch = { handle?: string; commands: Command[]; events: ThreeNativePlaybackEvent[] };
 type NativeNotification = { type: 'completed' | 'cancelled' | 'error'; handle: string; message?: string };
 type PausedFade = { seconds: number; from: number; to: number; weight: number };
+/** Native action progress carried only across a same-model profile edit. */
+export type ThreeNativePlaybackContinuation = {
+  time: number; speed: number; weight: number; paused: boolean; enabled: boolean;
+  loopCount: number; startDelay: number | null; fadingOut: boolean;
+  endings: { endingStart: number; endingEnd: number };
+  fade?: PausedFade;
+};
 type Resource = { clip: AnimationClip; action?: AnimationAction; binding: BoundPlayback; fadingOut?: boolean; pausedFade?: PausedFade; explicitlyPaused?: boolean; suspendedPaused?: boolean };
 type PendingBatch = { batch: Batch; nextCommand: number; clip?: AnimationClip; afterCommands?: () => void };
 type NativeInterpolant = { resultBuffer: unknown; settings?: unknown; valueSize: number };
 type NativeTrack = KeyframeTrack & { createInterpolant: ((buffer: unknown) => NativeInterpolant) & { isInterpolantFactoryMethodGLTFCubicSpline?: boolean } };
 type FadeInterpolant = { parameterPositions: ArrayLike<number>; sampleValues: { [index: number]: number }; evaluate(time: number): ArrayLike<number> };
-type EditableAction = AnimationAction & { _interpolants: NativeInterpolant[]; _interpolantSettings: unknown; _weightInterpolant: FadeInterpolant | null };
+type EditableAction = AnimationAction & { _interpolants: NativeInterpolant[]; _interpolantSettings: { endingStart: number; endingEnd: number }; _weightInterpolant: FadeInterpolant | null; _loopCount: number; _startTime: number | null };
 const sampleSize = (track: KeyframeTrack) => track.getValueSize() / ((track as NativeTrack).createInterpolant.isInterpolantFactoryMethodGLTFCubicSpline ? 3 : 1);
 
 const asError = (error: unknown): Error => error instanceof Error ? error : new Error(String(error));
@@ -217,6 +224,49 @@ export class ThreeNativePlaybackConnector {
   /** Native state for the owning adapter; never exposed through Polymer. */
   getAction(handle: string): AnimationAction | undefined {
     return this.resources.get(handle)?.action;
+  }
+
+  captureContinuation(handle: string): ThreeNativePlaybackContinuation | undefined {
+    const resource = this.resources.get(handle);
+    const action = resource?.action as EditableAction | undefined;
+    if (!resource || !action) return undefined;
+    const fade = action._weightInterpolant;
+    return {
+      time: action.time, speed: action.timeScale, weight: action.weight,
+      paused: resource.suspendedPaused ?? action.paused, enabled: action.enabled,
+      loopCount: action._loopCount, endings: { ...action._interpolantSettings },
+      startDelay: action._startTime === null ? null : action._startTime - resource.binding.mixer.time,
+      fadingOut: Boolean(resource.fadingOut),
+      fade: resource.pausedFade ? { ...resource.pausedFade } : fade ? {
+        seconds: Math.max(0, fade.parameterPositions[1] - resource.binding.mixer.time),
+        from: fade.evaluate(resource.binding.mixer.time)[0], to: fade.sampleValues[1], weight: action.weight,
+      } : undefined,
+    };
+  }
+
+  restoreContinuation(handle: string, state: ThreeNativePlaybackContinuation): void {
+    this.beforeOperation();
+    const resource = this.resources.get(handle);
+    const action = resource?.action as EditableAction | undefined;
+    if (!resource || !action) throw new Error('Cannot restore an unknown playback handle.');
+    // Three still owns progression. Move its counters and fade segment to the
+    // replacement action; do not advance or sample a second playback clock.
+    action.time = Math.min(state.time, action.getClip().duration);
+    action.timeScale = state.speed;
+    action._loopCount = state.loopCount;
+    Object.assign(action._interpolantSettings, state.endings);
+    action._startTime = state.startDelay === null ? null : resource.binding.mixer.time + state.startDelay;
+    action.enabled = state.enabled;
+    action.setEffectiveWeight(state.weight);
+    resource.fadingOut = state.fadingOut;
+    resource.explicitlyPaused = state.paused;
+    resource.pausedFade = state.fade ? { ...state.fade } : undefined;
+    if (state.fade) {
+      this.resumeFade(resource);
+      if (state.paused || !this.renderingEnabled) this.pauseFade(resource);
+    }
+    if (!this.renderingEnabled) resource.suspendedPaused = state.paused;
+    action.paused = state.paused || !this.renderingEnabled;
   }
 
   /** Deliver native completion after the borrowed mixer has finished sampling. */
