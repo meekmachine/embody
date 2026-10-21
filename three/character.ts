@@ -3,6 +3,7 @@ import {
   NormalAnimationBlendMode, PropertyBinding, Quaternion, Euler, InterpolateDiscrete, InterpolateLinear,
 } from 'three';
 import type { KeyframeTrack, Mesh, Object3D } from 'three';
+import type { AUDescriptor } from '@lovelace_lol/embody/wasm';
 import { initEmbodyCore, requireInitializedEmbodyCore, DEFAULT_HAIR_COLOR_APPEARANCE } from '@lovelace_lol/embody/wasm';
 import type { RuntimeCore } from '@lovelace_lol/embody/wasm';
 import {
@@ -59,7 +60,7 @@ export interface CharacterTransitionHandle {
 
 type Source =
   | { name: string; kind: 'native'; clip: AnimationClip }
-  | { name: string; kind: 'curves' | 'typed' | 'semantic'; input: any; options: CharacterPlaybackOptions }
+  | { name: string; kind: 'curves' | 'typed'; input: any; options: CharacterPlaybackOptions }
   | { name: string; kind: 'compiled'; clip: ClipIR };
 type Playback = {
   id: string;
@@ -278,9 +279,8 @@ export class Embody {
     switch (source.kind) {
       case 'curves': return parse(this.core.build_clip(source.name, json(source.input), json(buildOptions)));
       case 'typed': return parse(this.core.build_typed_clip(source.name, json(source.input), json(buildOptions)));
-      case 'semantic': return parse(this.core.build_semantic_clip(source.name, json(source.input), json(buildOptions)));
       case 'compiled': return source.clip;
-      case 'native': throw new Error('Native animation sources do not require semantic compilation.');
+      case 'native': throw new Error('Native animation sources do not require AU compilation.');
     }
   }
 
@@ -690,18 +690,14 @@ export class Embody {
     return this.handle(source, options, play);
   }
   buildClip(name: string, curves: JsonObject, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
-    return options.semanticAnimation
-      ? this.semanticAnimationToClip(name, options.semanticAnimation, { ...options, faceCurves: curves })
-      : this.build({ name, kind: 'curves', input: copy(curves), options: copy(options) }, options, false);
+    if (options.semanticAnimation) throw new Error('Decode legacy named animation tracks to numeric AU curves before building a clip.');
+    return this.build({ name, kind: 'curves', input: copy(curves), options: copy(options) }, options, false);
   }
   snippetToClip(name: string, curves: JsonObject, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle { return this.buildClip(name, curves, options); }
   buildTypedClip(name: string, channels: any[], options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
     return this.build({ name, kind: 'typed', input: copy(channels), options: copy(options) }, options, false);
   }
   typedSnippetToClip(name: string, channels: any[], options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle { return this.buildTypedClip(name, channels, options); }
-  semanticAnimationToClip(name: string, animation: JsonObject, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
-    return this.build({ name, kind: 'semantic', input: copy(animation), options: copy(options) }, options, false);
-  }
   playSnippet(snippet: string | { name: string; curves: JsonObject }, curvesOrOptions: JsonObject = {}, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
     return typeof snippet === 'string' ? this.buildClip(snippet, curvesOrOptions, options).play() : this.buildClip(snippet.name, snippet.curves, curvesOrOptions).play();
   }
@@ -840,12 +836,7 @@ export class Embody {
   setAU(id: number, value: number, balance = this.core.get_au_balance(id)): void { this.mutateLive(() => this.core.set_au_signed(id, value, balance)); }
   getAU(id: number): number { return this.core.get_au(id); }
   getAUBalance(id: number): number { return this.core.get_au_balance(id); }
-  getBodyControls(): any[] { return parse(this.core.get_body_controls_json()); }
-  getSemanticPoseCatalog(): any[] { return parse(this.core.get_semantic_pose_catalog_json()); }
-  captureSemanticPose(): JsonObject { return parse(this.core.capture_semantic_pose_json()); }
-  validateSemanticPose(pose: JsonObject): JsonObject { return parse(this.core.validate_semantic_pose_json(json(pose))); }
-  applySemanticPose(pose: JsonObject): void { this.mutateLive(() => this.core.apply_semantic_pose_json(json(pose))); }
-  validateSemanticAnimation(animation: JsonObject, options: JsonObject = {}): void { this.core.validate_semantic_animation_json(json(animation), json(options)); }
+  getAUDescriptors(): AUDescriptor[] { return parse(this.core.get_au_descriptors_json()); }
   resetBodyControls(): void { this.mutateLive(() => this.core.reset_body_controls()); }
   setContinuum(negative: number, positive: number, value: number, balance = NaN): void { this.mutateLive(() => this.core.set_continuum(negative, positive, value, balance)); }
   getContinuum(negative: number, positive: number): number { return this.core.get_continuum(negative, positive); }

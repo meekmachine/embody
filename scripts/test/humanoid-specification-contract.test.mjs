@@ -6,7 +6,8 @@ import {
   CC4_HUMANOID_SKELETON_TEMPLATE,
   createRustEmbodyHost,
   extendCharacterConfigWithPreset,
-  getBodyControls,
+  getAUDescriptors,
+  ThreeModelInspector,
   getHumanoidSpecification,
   getPreset,
   resolveHumanoidCharacterization,
@@ -71,20 +72,19 @@ test('every CC4 semantic role has a unique real template bone and a working cont
   assert.equal(resolution.valid, true, JSON.stringify(resolution.errors));
   assert.equal(Object.keys(resolution.roles).length, 55);
   assert.equal(new Set(Object.values(resolution.roles).map(role => role.boneName)).size, 55);
-  const controls = getBodyControls(profile, root);
-  const covered = new Set(controls.flatMap(control => control.roles));
-  assert.deepEqual(covered, new Set(getHumanoidSpecification().bones.map(bone => bone.role)));
+  const controls = getAUDescriptors(profile, new ThreeModelInspector().inspectModel(root, { profile }).descriptor).filter(control => control.hasBones);
+  const covered = new Set(controls.flatMap(control => control.boneNames));
+  assert.deepEqual(covered, new Set(Object.values(resolution.roles).map(role => role.boneName)));
   const host = await createRustEmbodyHost(root, { profileMode: 'profile', profile });
   try {
     for (const control of controls) {
       assert.equal(control.hasBones, true, `${control.id}: ${control.diagnostics.join('; ')}`);
-      for (const sign of control.negativeAuId == null ? [1] : [-1, 1]) {
+      for (const sign of [1]) {
         host.clear();
         renderHostFrame(host, 0);
         const targets = control.boneBindings.map(binding => bones.get(binding.boneName)).filter(Boolean);
         const before = new Map(targets.map(bone => [bone, snapshot(bone)]));
-        if (control.negativeAuId == null) host.setAU(control.auId, 0.4, 0);
-        else host.setContinuum(control.negativeAuId, control.auId, sign * 0.4, 0);
+        host.setAU(control.auId, 0.4, 0);
         renderHostFrame(host, 0);
         assert.ok(targets.some(bone => changed(before.get(bone), bone)), `${control.id} direction ${sign} must move a bound bone`);
         assert.ok(targets.every(bone => snapshot(bone).every(Number.isFinite)), control.id);
@@ -101,7 +101,7 @@ test('every CC4 semantic role has a unique real template bone and a working cont
 test('CC4 torso controls preserve hip and leg world transforms through the packaged runtime', async () => {
   const profile = extendCharacterConfigWithPreset({ auPresetType: 'cc4' });
   const { root, bones } = cc4Model();
-  const controls = getBodyControls(profile, root).filter(control => control.section === 'Torso');
+  const controls = getAUDescriptors(profile, new ThreeModelInspector().inspectModel(root, { profile }).descriptor).filter(control => control.auId >= 1016 && control.auId <= 1027 || [1003,1004].includes(control.auId));
   assert.ok(controls.length > 0);
   const stationaryBones = [
     'CC_Base_Hip', 'CC_Base_Pelvis',
@@ -116,14 +116,13 @@ test('CC4 torso controls preserve hip and leg world transforms through the packa
   const host = await createRustEmbodyHost(root, { profileMode: 'profile', profile });
   try {
     for (const control of controls) {
-      for (const sign of control.negativeAuId == null ? [1] : [-1, 1]) {
+      for (const sign of [1]) {
         host.clear();
         renderHostFrame(host, 0);
         root.updateMatrixWorld(true);
         const before = new Map(stationaryBones.map(bone => [bone, bone.matrixWorld.elements.slice()]));
         const torsoBefore = new Map(torsoBones.map(bone => [bone, snapshot(bone)]));
-        if (control.negativeAuId == null) host.setAU(control.auId, 0.4, 0);
-        else host.setContinuum(control.negativeAuId, control.auId, sign * 0.4, 0);
+        host.setAU(control.auId, 0.4, 0);
         renderHostFrame(host, 0);
         root.updateMatrixWorld(true);
         assert.ok(torsoBones.some(bone => changed(torsoBefore.get(bone), bone)),
@@ -183,7 +182,7 @@ test('role assignment and clear survive JSON re-expansion and control the intend
 test('exact empty imported profiles remain unmapped with the full catalog available', async () => {
   const host = await createRustEmbodyHost(new Group(), { profileMode: 'profile', profile: {} });
   try {
-    assert.deepEqual(getBodyControls(host.getProfile()), []);
+    assert.deepEqual(getAUDescriptors(host.getProfile()), []);
     assert.deepEqual(host.getProfile().humanoidCharacterization?.roles ?? {}, {});
     assert.equal(getHumanoidSpecification().bones.length, 55);
   } finally {
@@ -196,8 +195,8 @@ test('semantic neck and eye mappings share authored AU morphs and edits preserve
   const profile = getPreset('cc4');
   assert.deepEqual(profile.auToMorphs['1033'], profile.auToMorphs['54']);
   assert.equal(profile.auMixDefaults['1033'], profile.auMixDefaults['54']);
-  const eye = getBodyControls(profile).find(control => control.id === 'body.eyeTurn');
-  assert.deepEqual(new Set(eye.auIds), new Set([61, 62]));
+  const eye = getAUDescriptors(profile).find(control => control.auId === 62);
+  assert.deepEqual(new Set([eye.auId, eye.negativeAuId]), new Set([61, 62]));
   const { root, bones } = cc4Model();
   const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
   mesh.name = getMeshNamesForAUProfile(profile, 54)[0];

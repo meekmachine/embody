@@ -2,21 +2,22 @@ import { renderHostFrame } from './helpers/render-playback.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AnimationClip, AnimationMixer, BufferGeometry, Group, Mesh, MeshBasicMaterial, NumberKeyframeTrack } from 'three';
-import { createRustEmbodyHost, getBodyControls, getMeshNamesForAUProfile, getPreset } from '@lovelace_lol/embody/three';
+import { createRustEmbodyHost, getAUDescriptors, getMeshNamesForAUProfile, getPreset } from '@lovelace_lol/embody/three';
 import { initEmbodyCore } from '@lovelace_lol/embody/wasm';
 
 await initEmbodyCore();
 
 function morphOnlyCharacter() {
   const profile = structuredClone(getPreset('cc4'));
-  const controls = getBodyControls(profile);
-  const actions = new Set(controls.flatMap(control => control.auIds));
+  const controls = getAUDescriptors(profile);
+  const actions = new Set(controls.flatMap(control => [control.auId]));
   const targets = [...actions].flatMap(id => ['L', 'R', 'C'].map(side => `Authored_${id}_${side}`));
   const categories = new Set();
   profile.auToBones = {};
   profile.compositeRotations = [];
   profile.auToMorphs = {};
   for (const id of actions) {
+    profile.auInfo[id] = { ...profile.auInfo[id], faceArea: 'Body' };
     profile.auToMorphs[id] = {
       left: [`Authored_${id}_L`], right: [`Authored_${id}_R`], center: [`Authored_${id}_C`],
     };
@@ -39,35 +40,29 @@ function close(actual, expected, label) {
   assert.ok(Math.abs(actual - expected) < 1e-6, `${label}: expected ${expected}, got ${actual}`);
 }
 
-test('all semantic sections drive saved morph-only mappings through the packaged runtime', async () => {
+test('all authored AU mappings drive saved morph-only mappings through the packaged runtime', async () => {
   const { profile, controls, root, meshes } = morphOnlyCharacter();
   const host = await createRustEmbodyHost(root, { profileMode: 'profile', profile: JSON.parse(JSON.stringify(profile)) });
   try {
-    assert.equal(controls.length, 58);
-    assert.deepEqual(new Set(controls.map(control => control.section)), new Set(['Whole body', 'Torso', 'Head', 'Arms', 'Hands', 'Legs', 'Feet']));
-    assert.deepEqual(
-      controls.filter(control => control.section === 'Whole body').map(control => control.id).sort(),
-      ['body.hipsBend', 'body.hipsSideBend', 'body.hipsTwist'],
-    );
-    assert.ok(host.getBodyControls().every(control => control.hasMorphs && !control.hasBones && control.available));
-    const eye = controls.find(control => control.id === 'body.eyeTurn');
+    assert.equal(controls.length, new Set([...Object.keys(profile.auInfo), ...Object.keys(profile.auToMorphs)].map(Number)).size);
+    assert.ok(host.getAUDescriptors().every(control => control.hasMorphs && !control.hasBones && control.available));
+    const eye = controls.find(control => control.auId === 62);
     assert.deepEqual(getMeshNamesForAUProfile(profile, eye.auId), profile.morphToMesh.face,
       'the explicit face selection owns eye morphs too');
     for (const control of controls) {
-      for (const direction of control.negativeAuId == null ? [1] : [-1, 1]) {
+      for (const direction of [1]) {
         const id = direction < 0 ? control.negativeAuId : control.auId;
         const selectedMeshes = getMeshNamesForAUProfile(profile, id);
         for (const balance of control.bilateral ? [-1, 0, 1] : [0]) {
-          host.resetBodyControls();
+          for (const row of host.getAUDescriptors()) host.setAU(row.auId, 0, 0);
           host.setAUMixWeight(id, 0.25);
-          if (control.negativeAuId == null) host.setAU(id, 0.8, balance);
-          else host.setContinuum(control.negativeAuId, control.auId, direction * 0.8, balance);
+          host.setAU(id, 0.8, balance);
           renderHostFrame(host, 0);
           for (const mesh of meshes) {
             const assigned = selectedMeshes.includes(mesh.name);
             for (const [side, value] of [['L', balance > 0 ? 0 : 0.2], ['R', balance < 0 ? 0 : 0.2], ['C', 0.2]]) {
               const index = mesh.morphTargetDictionary[`Authored_${id}_${side}`];
-              close(mesh.morphTargetInfluences[index], assigned ? value : 0, `${control.section}/${control.id}/${direction}/${balance}/${mesh.name}/${side}`);
+              close(mesh.morphTargetInfluences[index], assigned ? value : 0, `AU${control.auId}/${direction}/${balance}/${mesh.name}/${side}`);
             }
           }
           host.setAUMixWeight(id, 0);
@@ -76,7 +71,7 @@ test('all semantic sections drive saved morph-only mappings through the packaged
         }
       }
     }
-    host.resetBodyControls();
+    for (const row of host.getAUDescriptors()) host.setAU(row.auId, 0, 0);
     const elbowCategory = profile.auFacePartToMeshCategory?.[profile.auInfo[1001].facePart] ?? 'face';
     const previewMeshes = profile.morphToMesh[elbowCategory];
     const skin = meshes.find(mesh => mesh.name === previewMeshes[0]);
@@ -98,7 +93,7 @@ test('all semantic sections drive saved morph-only mappings through the packaged
     host.releaseMorph(rightIndex, previewMeshes);
     renderHostFrame(host, 0);
     close(skin.morphTargetInfluences[rightIndex], 0.2, 'indexed release also restores the live action');
-    host.resetBodyControls();
+    for (const row of host.getAUDescriptors()) host.setAU(row.auId, 0, 0);
     for (const meshSelection of [[], ['MissingMesh']]) {
       const excluded = JSON.parse(JSON.stringify(profile));
       excluded.morphToMesh[elbowCategory] = meshSelection;
@@ -106,9 +101,9 @@ test('all semantic sections drive saved morph-only mappings through the packaged
       host.setAUMixWeight(1001, 1);
       host.setAU(1001, 1, 0);
       renderHostFrame(host, 0);
-      assert.equal(host.getBodyControls().find(control => control.auId === 1001).hasMorphs, false);
+      assert.equal(host.getAUDescriptors().find(control => control.auId === 1001).hasMorphs, false);
       assert.ok(meshes.every(mesh => mesh.morphTargetInfluences.every(value => Math.abs(value) < 1e-6)), 'an explicit mesh selection must not fall back to excluded meshes');
-      host.resetBodyControls();
+      for (const row of host.getAUDescriptors()) host.setAU(row.auId, 0, 0);
     }
     const cleared = JSON.parse(JSON.stringify(profile));
     cleared.auToMorphs[1001] = { left: [], right: [], center: [] };
@@ -116,7 +111,7 @@ test('all semantic sections drive saved morph-only mappings through the packaged
     host.setAUMixWeight(1001, 1);
     host.setAU(1001, 1, 0);
     renderHostFrame(host, 0);
-    assert.equal(host.getBodyControls().find(control => control.auId === 1001).hasMorphs, false);
+    assert.equal(host.getAUDescriptors().find(control => control.auId === 1001).hasMorphs, false);
     assert.ok(meshes.every(mesh => mesh.morphTargetInfluences.every(value => Math.abs(value) < 1e-6)), 'cleared mappings stay cleared after profile reload');
   } finally {
     host.dispose();
@@ -189,7 +184,7 @@ test('individual semantic previews and Body continuums share exclusive direction
     for (const control of controls.filter(control => control.negativeAuId != null)) {
       const negative = control.negativeAuId;
       const positive = control.auId;
-      host.resetBodyControls();
+      for (const row of host.getAUDescriptors()) host.setAU(row.auId, 0, 0);
       host.setAUMixWeight(negative, 0.25);
       host.setAUMixWeight(positive, 0.5);
       const selectedMeshes = getMeshNamesForAUProfile(profile, positive);
