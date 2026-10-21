@@ -539,9 +539,9 @@ Use `setAU`/`transitionAU`, `setContinuum`, `getAUBalance` and
 AU curves through the same saved bone/morph evaluator; `balanceMap` and
 `mixWeights` are per-AU compilation options. Compilation preserves live state.
 Native playback owns interpolation, pause, resume, cancellation and blending.
-`resetBodyControls` is an AU classification/anatomy operation: it clears
-Body-classified AUs plus mapped head/eye/jaw AU bindings without a parallel
-control list. Other face controls and saved morph strengths remain intact.
+Reset an authored control by setting its mapped AU values to zero. Hosts select
+which mapped AU IDs to reset; unrelated face state and saved mix strengths remain
+under their existing owners.
 
 Named semantic pose/animation APIs and profile `bodyControls` are retired.
 Persisted named records must be decoded at the storage boundary to numeric AU

@@ -23,10 +23,8 @@ not fall back to unselected skin/clothing targets.
 or saved profile defaults. The same compiler emits all saved bone and morph
 outputs. Native playback owns timing, interpolation, cancellation and blending.
 
-`resetBodyControls` derives reset ownership from AUInfo Body classification and
-AU bindings to mapped head/eye/jaw anatomy. It preserves unrelated facial state,
-visemes, direct morph overrides and saved mix weights. It does not read a named
-catalog or use a fixed count of controls.
+Reset controls by setting the selected mapped AU IDs to zero. There is no
+separate Body reset owner or cached list of named-control action IDs.
 
 Humanoid role assignment still resolves through `boneNodes`, including authored
 exact bone selections. Clearing a role disables its anatomical aliases rather

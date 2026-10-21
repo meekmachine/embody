@@ -51,18 +51,6 @@ pub(crate) fn resolve(profile: &ProfileData, model: Option<&ModelData>) -> Value
     }).collect())
 }
 
-/// Reset grouping uses actual AU classification and anatomy, never named UI controls.
-pub(crate) fn body_action_ids(profile:&ProfileData)->BTreeSet<u32> {
-    let targets:BTreeSet<_>=profile.humanoid_characterization.as_ref().into_iter().flat_map(|mapping| &mapping.roles)
-        .filter(|(role,_)|matches!(role.as_str(),"head"|"leftEye"|"rightEye"|"jaw"))
-        .map(|(_,mapping)|crate::profile_resolution::configured_bone_name(profile,&mapping.node_key)).collect();
-    profile.au_info.iter().chain(profile.action_info.iter()).filter(|(_,info)|
-        info.face_area.as_deref()==Some("Body")||info.face_part.as_deref()==Some("Body"))
-        .filter_map(|(id,_)|id.parse().ok()).chain(profile.au_to_bones.iter().filter(|(_,bindings)|bindings.iter().any(|binding|
-            targets.contains(&crate::profile_resolution::configured_bone_name(profile,&binding.node))))
-            .filter_map(|(id,_)|id.parse().ok())).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

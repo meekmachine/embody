@@ -17,6 +17,6 @@ try {
   core.set_au(1001,.5,-1);core.set_au(12,.8,0);core.set_au_mix_weight(1001,.25);
   const frame=Array.from(core.evaluate_active_bone_frame());
   assert(frame.some(value=>Math.abs(value)>0));
-  core.reset_body_controls();assert.equal(core.get_au(1001),0);assert(Math.abs(core.get_au(12)-.8)<1e-6);
+  core.set_au(1001,0,0);assert.equal(core.get_au(1001),0);assert(Math.abs(core.get_au(12)-.8)<1e-6);
   assert.equal(core.get_au_mix_weight(1001),.25);
 } finally {core.free();}

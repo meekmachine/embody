@@ -552,7 +552,7 @@ test('a AU pose replaces canceled body transition properties', async () => {
     nearRotation(right.quaternion, expectedRight, 'AU pose applies the right bone normally');
     renderHostFrame(host, 0.1);
     near(mesh.morphTargetInfluences[0], 0.2, 'AU pose survives the next frame');
-    host.resetBodyControls();
+    host.setAU(1001, 0, 0);
     renderHostFrame(host, 0);
     near(mesh.morphTargetInfluences[0], 0, 'body reset releases semantic output');
     near(left.quaternion.x, 0, 'body reset releases the bone');
@@ -574,7 +574,7 @@ test('body reset keeps a canceled zero-target release neutral without clearing f
     renderHostFrame(host, 0);
     near(host.getAU(1001), 0, 'body target is already neutral');
     near(mesh.morphTargetInfluences[0], 0, 'cancel releases the remaining body contribution');
-    host.resetBodyControls();
+    host.setAU(1001, 0, 0);
     renderHostFrame(host, 0);
     near(mesh.morphTargetInfluences[0], 0, 'explicit reset keeps the body morph neutral');
     nearRotation(left.quaternion, new Quaternion(), 'explicit reset keeps the body rotation neutral');

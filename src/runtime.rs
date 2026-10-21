@@ -683,13 +683,6 @@ impl RuntimeCore {
         self.profile.as_ref().map(|profile| crate::au_descriptors::resolve(profile,self.model.as_ref()).to_string()).unwrap_or_else(|| "[]".into())
     }
 
-    /// Reset Body-classified AUs and anatomical head/eye/jaw AU bindings, preserving unrelated face state.
-    #[wasm_bindgen]
-    pub fn reset_body_controls(&mut self) {
-        let ids=self.profile.as_ref().map(crate::au_descriptors::body_action_ids).unwrap_or_default();
-        for id in ids { self.touch_au(id); self.au_values.remove(&id); self.au_balances.remove(&id); }
-    }
-
     /// Forget ownership when renderer bindings are discarded. Before replacing
     /// bindings, apply release_procedural_morph_frame through the old IDs.
     /// Normal clear/reset deliberately retain tracking for the next frame.
@@ -2797,7 +2790,7 @@ mod tests {
     }
 
     #[test]
-    fn body_reset_uses_unique_configured_actions_preserves_face_and_mix_and_releases_frame() {
+    fn explicit_au_reset_preserves_unrelated_face_and_mix_and_releases_frame() {
         let mut core = RuntimeCore::new(0);
         core.configure_with_preset("cc4", "{}", r#"{"bones":[{"id":1,"name":"CC_Base_L_Forearm"}]}"#).unwrap();
         core.set_au(1001, 0.8, -1.0);
@@ -2807,7 +2800,7 @@ mod tests {
         core.set_au_mix_weight(1001, 0.25);
         core.direct_morph_values.insert((10, 9), 0.8);
         assert!(!core.evaluate_procedural_bone_frame().is_empty());
-        core.reset_body_controls();
+        for id in [1001,1003,1004,51] {core.set_au(id,0.0,0.0);}
         for id in [1001, 1003, 1004, 51] {
             assert_eq!(core.get_au(id), 0.0);
             assert_eq!(core.get_au_balance(id), 0.0);
@@ -2820,7 +2813,7 @@ mod tests {
         assert!(core.evaluate_procedural_bone_frame().is_empty());
         // Read-only legacy metadata cannot claim unrelated AU reset ownership.
         core.configure_with_profile(r#"{"bodyControls":{"custom":{"label":"Custom","auId":12}}}"#, "{}").unwrap();
-        core.set_au(12,0.4,0.0);core.reset_body_controls();assert_eq!(core.get_au(12),0.4);
+        core.set_au(12,0.4,0.0);assert_eq!(core.get_au(12),0.4);assert_eq!(core.get_au_descriptors_json(),"[]");
     }
 
     #[test]

@@ -202,7 +202,7 @@ test('body descriptors are cached and morph strength does not weaken the mapped 
   host.setAUMixWeight(1001, 0.25); renderHostFrame(host, 0);
   near(body.morphTargetInfluences[1], 0.125, 'morph strength scales tissue');
   near(right.quaternion.x, 0.5, 'joint strength is unchanged');
-  host.setAU(12, 0.4); host.resetBodyControls(); renderHostFrame(host, 0);
+  host.setAU(12, 0.4); host.setAU(1001, 0, 0); renderHostFrame(host, 0);
   near(host.getAU(12), 0.4, 'body reset preserves unrelated facial state');
   assert.equal(host.getAUBalance(1001), 0); assert.equal(host.getAUMixWeight(1001), 0.25);
   near(right.quaternion.x, 0, 'body reset releases rotation');

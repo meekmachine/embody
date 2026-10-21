@@ -837,7 +837,6 @@ export class Embody {
   getAU(id: number): number { return this.core.get_au(id); }
   getAUBalance(id: number): number { return this.core.get_au_balance(id); }
   getAUDescriptors(): AUDescriptor[] { return parse(this.core.get_au_descriptors_json()); }
-  resetBodyControls(): void { this.mutateLive(() => this.core.reset_body_controls()); }
   setContinuum(negative: number, positive: number, value: number, balance = NaN): void { this.mutateLive(() => this.core.set_continuum(negative, positive, value, balance)); }
   getContinuum(negative: number, positive: number): number { return this.core.get_continuum(negative, positive); }
   transitionAU(id: number, value: number, durationMs = 200, balance = this.core.get_au_balance(id)): CharacterTransitionHandle { return this.transition(this.mutateLive(() => this.core.set_au_signed(id, value, balance), durationMs)); }

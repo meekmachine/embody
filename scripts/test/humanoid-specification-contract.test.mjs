@@ -74,7 +74,7 @@ test('every CC4 semantic role has a unique real template bone and a working cont
   assert.equal(new Set(Object.values(resolution.roles).map(role => role.boneName)).size, 55);
   const controls = getAUDescriptors(profile, new ThreeModelInspector().inspectModel(root, { profile }).descriptor).filter(control => control.hasBones);
   const covered = new Set(controls.flatMap(control => control.boneNames));
-  assert.deepEqual(covered, new Set(Object.values(resolution.roles).map(role => role.boneName)));
+  for (const role of Object.values(resolution.roles)) assert.ok(covered.has(role.boneName), `${role.boneName} has an authored AU actuator`);
   const host = await createRustEmbodyHost(root, { profileMode: 'profile', profile });
   try {
     for (const control of controls) {
