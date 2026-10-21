@@ -116,6 +116,26 @@ mod tests {
         let rows=resolve(&profile,None);assert_eq!(rows.as_array().unwrap().len(),1);assert_eq!(rows[0]["auId"],9007);
     }
     #[test]
+    fn custom_continuum_descriptors_keep_each_au_identity_and_explicit_pair_directions() {
+        let profile: ProfileData = serde_json::from_value(json!({
+            "auInfo": {"7001": {"name": "Custom left"}, "9007": {"name": "Custom right"}},
+            "auToMorphs": {"7001": {"center": ["LeftShape"]}, "9007": {"center": ["RightShape"]}},
+            "continuumPairs": {
+                "7001": {"pairId": 9007, "isNegative": true},
+                "9007": {"pairId": 7001, "isNegative": false}
+            }
+        })).unwrap();
+        let rows = resolve(&profile, None);
+        let rows = rows.as_array().unwrap();
+        assert_eq!(rows.iter().map(|row| row["auId"].as_u64().unwrap()).collect::<Vec<_>>(), vec![7001, 9007]);
+        for row in rows {
+            assert_eq!(row["negativeAuId"], 7001);
+            assert_eq!(row["positiveAuId"], 9007);
+        }
+        assert_eq!(rows[0]["label"], "Custom left");
+        assert_eq!(rows[1]["label"], "Custom right");
+    }
+    #[test]
     fn au_bone_skin_and_clothing_output_preserves_balance_and_live_mix() {
         let (profile,model)=fixture();let mut core=RuntimeCore::new(0);
         core.configure_with_profile(&serde_json::to_string(&profile).unwrap(),&serde_json::to_string(&model).unwrap()).unwrap();

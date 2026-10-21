@@ -15,6 +15,11 @@ and morphs. `bilateral` indicates side-selectable output even on a partial rig;
 AU retains its valid negative balance without advertising an absent right side.
 There is no `body.*` identity or separate active catalog.
 
+Each descriptor's `auId` identifies that AU, including a continuum's negative
+member. For a paired AU, use `negativeAuId` and `positiveAuId` as the signed
+continuum inputs. Reciprocal `continuumPairs` entries report the same direction
+IDs from either member's descriptor.
+
 Use `setAU`, `transitionAU` and `setContinuum` to control authored outputs.
 Intensity drives mapped joints; `setAUMixWeight` adjusts mapped morph contribution
 without weakening bone output. Bilateral balance is -1 character-left, 0 both,

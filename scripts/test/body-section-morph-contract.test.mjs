@@ -67,7 +67,7 @@ test('all authored AU mappings drive saved morph-only mappings through the packa
           }
           host.setAUMixWeight(id, 0);
           renderHostFrame(host, 0);
-          assert.ok(meshes.every(mesh => mesh.morphTargetInfluences.every(value => Math.abs(value) < 1e-6)), `${control.id}: strength zero clears the current deformation`);
+          assert.ok(meshes.every(mesh => mesh.morphTargetInfluences.every(value => Math.abs(value) < 1e-6)), `AU${control.auId}: strength zero clears the current deformation`);
         }
       }
     }
@@ -177,13 +177,21 @@ for (const blendMode of ['replace', 'additive']) {
 }
 
 
-test('individual semantic previews and Body continuums share exclusive directions', async () => {
+test('mapped AU previews and signed continuums share exclusive directions', async () => {
   const { profile, controls, root, meshes } = morphOnlyCharacter();
   const host = await createRustEmbodyHost(root, { profileMode: 'profile', profile });
   try {
-    for (const control of controls.filter(control => control.negativeAuId != null)) {
+    const directionalAUs = controls.filter(control => control.negativeAuId != null);
+    assert.ok(directionalAUs.length > 0, 'the fixture must exercise mapped continuum pairs');
+    // Each AU has its own row, including the negative member of a pair.
+    // Exercise both rows using the pair identities supplied by the mapping.
+    for (const control of directionalAUs) {
       const negative = control.negativeAuId;
-      const positive = control.auId;
+      const positive = control.positiveAuId;
+      const label = `AU${control.auId} (${control.label}; pair ${negative}/${positive})`;
+      assert.ok(Number.isInteger(positive), `${label}: the mapped pair needs a positive AU`);
+      assert.notEqual(negative, positive, `${label}: opposing directions need distinct AUs`);
+      assert.ok([negative, positive].includes(control.auId), `${label}: the descriptor identifies one member`);
       for (const row of host.getAUDescriptors()) host.setAU(row.auId, 0, 0);
       host.setAUMixWeight(negative, 0.25);
       host.setAUMixWeight(positive, 0.5);
@@ -193,24 +201,24 @@ test('individual semantic previews and Body continuums share exclusive direction
       host.setContinuum(negative, positive, -0.8, -0.5);
       host.setAU(positive, 0.6, 0.5);
       renderHostFrame(host, 0);
-      close(host.getAU(negative), 0, `${control.id} inactive action`);
-      close(weight(negative), 0, `${control.id} inactive tissue`);
-      close(weight(positive), 0.3, `${control.id} active tissue strength`);
-      close(host.getAUBalance(negative), 0.5, `${control.id} shared balance`);
+      close(host.getAU(negative), 0, `${label} inactive action`);
+      close(weight(negative), 0, `${label} inactive tissue`);
+      close(weight(positive), 0.3, `${label} active tissue strength`);
+      close(host.getAUBalance(negative), 0.5, `${label} shared balance`);
       host.setAU(negative, 0, 0);
       renderHostFrame(host, 0);
-      close(weight(positive), 0.3, `${control.id} inactive release preserves current direction`);
+      close(weight(positive), 0.3, `${label} inactive release preserves current direction`);
       host.setAU(negative, 0.4, 0);
       renderHostFrame(host, 0);
-      close(weight(positive), 0, `${control.id} switching direction clears tissue`);
-      close(weight(negative), 0.1, `${control.id} selected negative tissue`);
+      close(weight(positive), 0, `${label} switching direction clears tissue`);
+      close(weight(negative), 0.1, `${label} selected negative tissue`);
       host.setAU(negative, -0.2, 0);
       renderHostFrame(host, 0);
-      close(weight(negative), 0, `${control.id} signed inverse clears tissue`);
-      close(weight(positive), 0.1, `${control.id} signed inverse selects partner`);
+      close(weight(negative), 0, `${label} signed inverse clears tissue`);
+      close(weight(positive), 0.1, `${label} signed inverse selects partner`);
       host.setContinuum(negative, positive, 0, 0);
       renderHostFrame(host, 0);
-      close(weight(positive), 0, `${control.id} Body reset clears individual preview`);
+      close(weight(positive), 0, `${label} neutral continuum clears individual preview`);
     }
   } finally {
     host.dispose();
