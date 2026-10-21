@@ -28,4 +28,6 @@ export function getAUDescriptors(profile: object, model?: object): AUDescriptor[
   }))) as AUDescriptor[];
 }
 /** @deprecated Reader-only identity snapshot for persisted named poses/animations. Never use for active controls. */
-export const LEGACY_BODY_CONTROL_AUS: Readonly<Record<string, { positiveAuId: number; negativeAuId?: number; bilateral: boolean }>> = Object.freeze(legacyBodyControlAUs);
+export const LEGACY_BODY_CONTROL_AUS: Readonly<Record<string, Readonly<{ positiveAuId: number; negativeAuId?: number; bilateral: boolean }>>> = Object.freeze(
+  Object.fromEntries(Object.entries(legacyBodyControlAUs).map(([id, actions]) => [id, Object.freeze({ ...actions })])),
+);
