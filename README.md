@@ -37,6 +37,15 @@ The Rust core owns:
 - profile-aware screen-space gaze geometry for eye/head AU trajectories
 - renderer-neutral model analysis and packed live frame generation
 
+`resolveMorphMeshSelections(profile, categories, availableNames)` resolves editor
+mesh selections in one Rust request. It returns each requested category's effective
+category, `hasSelection` (including explicit empty arrays), resolved loaded names,
+and unresolved configured names. Request `viseme` for speech routing. Facial
+categories share an authored `face` selection; body and hair stay independent.
+Exact names take precedence over legacy mesh aliases. Consumers save concrete
+resolved names plus unresolved names when editing, so deselecting one mesh does
+not reactivate it through a legacy alias. This query does not change the profile.
+
 The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
 not sample or lerp clips on the hot path.

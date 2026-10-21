@@ -2123,6 +2123,31 @@ fn resolve_viseme_profile(profile: &ProfileData) -> Result<Value, String> {
 
 fn profile_view(profile: &ProfileData, op: &str, payload: &Value) -> Result<Value, String> {
     match op {
+        "profile.resolveMorphMeshSelections" => {
+            let categories: Vec<String> = serde_json::from_value(value_field(payload, "categories")?.clone())
+                .map_err(|error| format!("Invalid mesh categories: {error}"))?;
+            let available: Vec<String> = serde_json::from_value(value_field(payload, "availableNames")?.clone())
+                .map_err(|error| format!("Invalid mesh names: {error}"))?;
+            let mut selections = Map::new();
+            for requested in categories {
+                let category = if requested == "viseme" {
+                    crate::profile::viseme_mesh_category(profile)
+                } else {
+                    crate::profile::effective_mesh_category(profile, &requested).to_string()
+                };
+                let configured = profile.morph_to_mesh.get(&category);
+                let selection = crate::profile::resolve_mesh_selection(
+                    configured.map(Vec::as_slice).unwrap_or_default(), &available,
+                );
+                selections.insert(requested, json!({
+                    "category": category,
+                    "hasSelection": configured.is_some(),
+                    "resolvedNames": selection.resolved_names,
+                    "unresolvedNames": selection.unresolved_names,
+                }));
+            }
+            Ok(Value::Object(selections))
+        }
         "profile.getMeshNamesForAU" => {
             let id = value_field(payload, "auId")?.as_u64().unwrap_or(0) as u32;
             let view = crate::profile::resolve_profile_view(profile);
@@ -2580,6 +2605,49 @@ mod tests {
             payload,
         })
         .unwrap()
+    }
+
+    #[test]
+    fn editor_mesh_selections_share_runtime_routing_and_aliases() {
+        let profile = json!({
+            "morphToMesh": { "face": ["Skin", "Missing"], "eye": ["Eyes"], "body": ["Shirt"], "hair": [] },
+            "visemeMeshCategory": "mouth",
+        });
+        let result = request("profile.resolveMorphMeshSelections", json!({
+            "profile": profile, "categories": ["face", "eye", "viseme", "body", "hair"],
+            "availableNames": ["Skin_1", "Skin_2", "Eyes", "Shirt"],
+        }));
+        let face = json!({ "category": "face", "hasSelection": true,
+            "resolvedNames": ["Skin_1", "Skin_2"], "unresolvedNames": ["Missing"] });
+        assert_eq!(result["face"], face);
+        assert_eq!(result["eye"], face);
+        assert_eq!(result["viseme"], face);
+        assert_eq!(result["body"]["resolvedNames"], json!(["Shirt"]));
+        assert_eq!(result["hair"]["category"], "hair");
+        assert_eq!(result["hair"]["hasSelection"], true);
+        assert_eq!(result["hair"]["resolvedNames"], json!([]));
+    }
+
+    #[test]
+    fn editor_mesh_selections_distinguish_missing_empty_and_exact_names() {
+        for (profile, expected_category, selected, explicit) in [
+            (json!({}), "face", json!([]), false),
+            (json!({"morphToMesh": {"face": []}}), "face", json!([]), true),
+            (json!({"morphToMesh": {"face": ["Skin"]}}), "face", json!(["Skin"]), true),
+            (json!({"morphToMesh": {"mouth": ["Skin_1"]}, "visemeMeshCategory": "mouth"}), "mouth", json!(["Skin_1"]), true),
+        ] {
+            let result = request("profile.resolveMorphMeshSelections", json!({
+                "profile": profile, "categories": ["viseme"], "availableNames": ["Skin", "Skin_1"],
+            }));
+            assert_eq!(result["viseme"]["category"], expected_category);
+            assert_eq!(result["viseme"]["resolvedNames"], selected);
+            assert_eq!(result["viseme"]["hasSelection"], explicit);
+        }
+        for bad in [json!(null), json!([1]), json!("Skin")] {
+            assert!(execute(Request { op: "profile.resolveMorphMeshSelections".into(),
+                payload: json!({"profile": {}, "categories": ["face"], "availableNames": bad}),
+            }).is_err());
+        }
     }
 
     fn profile() -> Value {

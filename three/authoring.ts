@@ -23,6 +23,11 @@ export const extendCharacterConfigWithPreset = <T extends Types.ProfileRuntimeCo
 export const extractProfileOverrides = (config: Types.ProfileRuntimeConfig): Partial<Types.Profile> => request('profile.extractOverrides', { config });
 export const mergeCharacterRegionsByName = (base?: Region[], override?: Region[]): Region[] => request('profile.mergeRegions', { base, override });
 export const getMeshNamesForAUProfile = (profile: Types.Profile, auId: number): string[] => request('profile.getMeshNamesForAU', { profile, auId });
+/** Resolve routing and legacy mesh aliases once for an editor inventory. */
+export const resolveMorphMeshSelections = (
+  profile: Partial<Pick<Types.Profile, 'morphToMesh' | 'visemeMeshCategory'>>,
+  categories: string[], availableNames: string[],
+): Record<string, Types.MorphMeshSelection> => request('profile.resolveMorphMeshSelections', { profile, categories, availableNames });
 export const getHumanoidSpecification = (): Types.HumanoidSpecification => request('humanoid.getSpecification');
 export const setAUMorphTargets = (profile: Types.Profile, auId: number, side: 'left' | 'right' | 'center', targets: Types.MorphTargetRef[]): Types.Profile => request('profile.setAUMorphTargets', { profile, auId, side, targets });
 export const setHumanoidRoleBinding = (profile: Types.Profile, role: Types.VRMHumanoidRole, boneName: string | null): Types.Profile => request('profile.setHumanoidRoleBinding', { profile, role, boneName });
