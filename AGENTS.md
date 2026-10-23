@@ -119,8 +119,31 @@ default delivery workflow unless the user explicitly requests local validation.
 
 ## Coordinating Polymer changes
 
-1. Open a draft Embody PR and hand it off as **ready to test**. Do not watch, poll, or wait for its `Verify built package` job or preview publication.
-2. Once an exact compiled preview URL has already been published by Embody CI, use it in the dependent Polymer branch and commit the matching lockfile. If it is not available, report the downstream dependency still pending; do not invent a URL or use a source archive.
-3. Build and publish Polymer from its own CI; LoomLarge PR testing may consume Polymer's immutable preview, without compiling Embody transitively. Production consumes exact npm versions and a committed lockfile.
-4. Only when the user explicitly authorizes merging, merge in dependency order: Embody first, then replace Polymer's preview URL with the intended stable Embody release/version before Polymer's stable release, then update LoomLarge.
-5. For preview testing that needs a source SHA republished, send repository dispatch event `publish-pkg-pr-new` with `client_payload.sha`, or run the workflow manually with `ref`. This does not create a production release. Do not use the preview URL in Polymer's stable npm package.
+1. Create the Embody, Polymer, and LoomLarge draft PRs from their own current
+   `origin/main`, targeting their own `main`, and link the full stack
+   reciprocally. Do not delay downstream drafts for preview publication.
+2. Put `Depends-on: https://github.com/meekmachine/embody/pull/<number>` in the
+   Polymer PR body and `Depends-on: https://github.com/meekmachine/Polymer/pull/<number>`
+   in the LoomLarge PR body. These declarations select package dependencies;
+   ordinary reciprocal links alone do not. Documentation-only companions use
+   ordinary links without `Depends-on:` or package pin changes.
+3. CI resolves each upstream head to its compiled full-SHA pkg.pr.new package.
+   Polymer's linked-dependency workflow applies Embody while building Polymer's
+   preview; LoomLarge consumes that compiled Polymer package. Start with main's
+   valid dependency pins; do not manually add preview URLs or regenerate
+   lockfiles merely to create the stack. LoomLarge's release coordinator can
+   commit matching preview pins and lockfiles to linked branches; preserve
+   valid CI-generated updates and inspect the resolver before diagnosing a
+   mismatch. Do not bypass Polymer with a direct host Embody override.
+4. An unavailable artifact blocks the dependent CI build or preview, not opening
+   its PR. Hand off all draft links as **ready to test**, naming pending CI
+   dependencies without claiming publication or validation succeeded. Do not
+   build locally, invent URLs, use source archives, or wait/watch/poll.
+5. Only merge with user authorization. After upstream merges and stable npm
+   publication, the release coordinator updates downstream manifests and
+   lockfiles to the exact release containing the change and removes completed
+   dependency directives. Production packages must contain stable dependencies.
+6. CI owns preview publication and its existing dispatch/retry paths. A
+   `publish-pkg-pr-new` dispatch with `client_payload.sha`, or a manual workflow
+   run with `ref`, requests a preview rather than a stable release; neither is
+   a prerequisite for opening downstream drafts.
