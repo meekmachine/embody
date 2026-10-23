@@ -21,11 +21,20 @@
       "import": "./dist/wasm.js",
       "default": "./dist/wasm.js"
     },
+    "./model-tools": {
+      "types": "./model-tools/index.d.ts",
+      "import": "./model-tools/index.mjs",
+      "default": "./model-tools/index.mjs"
+    },
     "./character-asset-service-worker.js": "./service-worker/character-asset-service-worker.js"
+  },
+  "bin": {
+    "embody-prepare-actor": "./model-tools/prepare-actor.mjs"
   },
   "files": [
     "dist",
     "service-worker",
+    "model-tools",
     "README.md",
     "LICENSE"
   ],
@@ -41,9 +50,10 @@
     "test:service-worker": "node --test scripts/test/character-asset-service-worker.test.mjs",
     "test:controls": "node --test scripts/test/live-control-ownership.test.mjs scripts/test/timed-control-transitions.test.mjs scripts/test/body-section-morph-contract.test.mjs scripts/test/humanoid-specification-contract.test.mjs scripts/test/character-adapter-contract.test.mjs",
     "test:scene": "node --test scripts/test/character-scene.test.mjs",
+    "test:model-tools": "node --test scripts/test/actor-model-tools.test.mjs",
     "test:exports": "node scripts/smoke/package-exports.mjs && node scripts/smoke/body-controls.mjs && node scripts/smoke/semantic-pose.mjs && node scripts/smoke/morph-authoring.mjs && node scripts/smoke/mesh-profile.mjs && node scripts/smoke/inherited-starts.mjs && node scripts/smoke/bilateral-channels.mjs && node scripts/smoke/viseme-state.mjs && node scripts/smoke/reference-pose.mjs && node scripts/smoke/clip-interpolation.mjs && node scripts/smoke/playback-contract.mjs && node scripts/smoke/native-playback.mjs && node scripts/smoke/character-playback.mjs && node scripts/smoke/native-track-compatibility.mjs && node scripts/smoke/package-declarations.mjs",
     "test:pack": "node scripts/smoke/package-contents.mjs",
-    "test:package": "npm run check:dist && npm run test:exports && npm run test:controls && npm run test:scene && npm run test:pack && npm run test:annotations",
+    "test:package": "npm run check:dist && npm run test:exports && npm run test:controls && npm run test:scene && npm run test:model-tools && npm run test:pack && npm run test:annotations",
     "check:dist": "node scripts/ci/check-built-package.mjs",
     "check:generated": "node scripts/ci/check-no-tracked-generated.mjs",
     "extract:humanoid-skeleton-template": "node scripts/extract-humanoid-skeleton-template.cjs",
@@ -91,5 +101,9 @@
   "homepage": "https://github.com/meekmachine/embody#readme",
   "author": "Jonathan Sutton Fields",
   "license": "MIT",
-  "packageManager": "npm@10.9.2"
+  "packageManager": "npm@10.9.2",
+  "dependencies": {
+    "@gltf-transform/core": "4.5.1",
+    "meshoptimizer": "1.3.0"
+  }
 }
