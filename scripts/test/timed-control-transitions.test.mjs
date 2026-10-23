@@ -527,14 +527,12 @@ test('editing mixed AU morph strength preserves its running bone transition', as
   } finally { rig.dispose(); }
 });
 
-test('a semantic pose replaces canceled body transition properties', async () => {
+test('a AU pose replaces canceled body transition properties', async () => {
   const rig = await bodyFixture();
   const { host, mesh, left, right } = rig;
   try {
-    const targetPose = { version: 1, controls: [
-      { controlId: 'body.elbowFlex', positive: { intensity: 0.4, balance: 0, morphStrength: 0.5 } },
-    ] };
-    host.applySemanticPose(targetPose);
+    const applyTarget = () => { host.setAUMixWeight(1001, 0.5); host.setAU(1001, 0.4, 0); };
+    applyTarget();
     renderHostFrame(host, 0);
     const expectedLeft = left.quaternion.clone();
     const expectedRight = right.quaternion.clone();
@@ -546,15 +544,15 @@ test('a semantic pose replaces canceled body transition properties', async () =>
     handle.cancel();
     renderHostFrame(host, 0);
     near(mesh.morphTargetInfluences[0], 0, 'body transition releases on cancel');
-    host.applySemanticPose(targetPose);
+    applyTarget();
     renderHostFrame(host, 0);
-    near(mesh.morphTargetInfluences[0], 0.2, 'semantic pose takes over left morph');
-    near(mesh.morphTargetInfluences[1], 0.2, 'semantic pose takes over right morph');
-    nearRotation(left.quaternion, expectedLeft, 'semantic pose reclaims the held left bone');
-    nearRotation(right.quaternion, expectedRight, 'semantic pose applies the right bone normally');
+    near(mesh.morphTargetInfluences[0], 0.2, 'AU pose takes over left morph');
+    near(mesh.morphTargetInfluences[1], 0.2, 'AU pose takes over right morph');
+    nearRotation(left.quaternion, expectedLeft, 'AU pose reclaims the held left bone');
+    nearRotation(right.quaternion, expectedRight, 'AU pose applies the right bone normally');
     renderHostFrame(host, 0.1);
-    near(mesh.morphTargetInfluences[0], 0.2, 'semantic pose survives the next frame');
-    host.resetBodyControls();
+    near(mesh.morphTargetInfluences[0], 0.2, 'AU pose survives the next frame');
+    host.setAU(1001, 0, 0);
     renderHostFrame(host, 0);
     near(mesh.morphTargetInfluences[0], 0, 'body reset releases semantic output');
     near(left.quaternion.x, 0, 'body reset releases the bone');
@@ -576,7 +574,7 @@ test('body reset keeps a canceled zero-target release neutral without clearing f
     renderHostFrame(host, 0);
     near(host.getAU(1001), 0, 'body target is already neutral');
     near(mesh.morphTargetInfluences[0], 0, 'cancel releases the remaining body contribution');
-    host.resetBodyControls();
+    host.setAU(1001, 0, 0);
     renderHostFrame(host, 0);
     near(mesh.morphTargetInfluences[0], 0, 'explicit reset keeps the body morph neutral');
     nearRotation(left.quaternion, new Quaternion(), 'explicit reset keeps the body rotation neutral');
@@ -589,7 +587,7 @@ test('body reset keeps a canceled zero-target release neutral without clearing f
 });
 
 for (const canceled of [false, true]) {
-  test(`an equal-target semantic command replaces a ${canceled ? 'canceled' : 'running'} body transition`, async () => {
+  test(`an equal-target AU command replaces a ${canceled ? 'canceled' : 'running'} body transition`, async () => {
     const rig = await bodyFixture();
     const { host, mesh } = rig;
     try {
@@ -602,12 +600,11 @@ for (const canceled of [false, true]) {
       if (canceled) { handle.cancel(); renderHostFrame(host, 0); }
       near(host.getAU(1001), 0.8, 'canonical body state already equals the new request');
       near(mesh.morphTargetInfluences[0], canceled ? 0 : 0.4, 'cancel releases only the native contribution');
-      host.applySemanticPose({ version: 1, controls: [
-        { controlId: 'body.elbowFlex', positive: { intensity: 0.8, balance: -1, morphStrength: 1 } },
-      ] });
+      for (const name of host.getAUDescriptors().find(row => row.auId === 1001).morphNames) host.releaseMorph(name);
+      host.setAUMixWeight(1001, 1); host.setAU(1001, 0.8, -1);
       renderHostFrame(host, 0);
       await settled(done, true, 'semantic ownership replacement resolves the old handle');
-      near(mesh.morphTargetInfluences[0], 0.8, 'explicit semantic command takes effect despite unchanged canonical values');
+      near(mesh.morphTargetInfluences[0], 0.8, 'explicit AU command takes effect despite unchanged canonical values');
       near(mesh.morphTargetInfluences[1], 0, 'other body side stays neutral');
       near(host.getAU(12), 0.3, 'facial state is not cleared by body replacement');
       renderHostFrame(host, 0.1);
@@ -629,15 +626,14 @@ test('a semantic body command reclaims a canceled direct morph action with the s
     handle.cancel();
     renderHostFrame(host, 0);
     near(mesh.morphTargetInfluences[0], 0, 'canceled direct morph releases');
-    host.applySemanticPose({ version: 1, controls: [
-      { controlId: 'body.elbowFlex', positive: { intensity: 1, balance: -1, morphStrength: 1 } },
-    ] });
+    for (const name of host.getAUDescriptors().find(row => row.auId === 1001).morphNames) host.releaseMorph(name);
+    host.setAUMixWeight(1001, 1); host.setAU(1001, 1, -1);
     renderHostFrame(host, 0);
     await settled(done, true, 'reclaimed direct transition remains settled');
     near(mesh.morphTargetInfluences[0], 1, 'explicit body command reclaims even when packed target remains one');
     near(host.getAU(12), 0.3, 'facial state remains independent');
     renderHostFrame(host, 0.1);
-    near(mesh.morphTargetInfluences[0], 1, 'canceled direct action cannot overwrite semantic command on later frame');
+    near(mesh.morphTargetInfluences[0], 1, 'canceled direct action cannot overwrite AU command on later frame');
     near(mesh.morphTargetInfluences[2], 0.3, 'left facial output remains');
     near(mesh.morphTargetInfluences[3], 0.3, 'right facial output remains');
   } finally { rig.dispose(); }

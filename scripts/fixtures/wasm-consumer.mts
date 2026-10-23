@@ -1,7 +1,9 @@
 // This fixture is copied into an isolated consumer of the packed package.
 // The error assertions below fail if the public loader regresses to `any`.
-import { initEmbodyCore as initFromRoot } from '@lovelace_lol/embody';
+import { initEmbodyCore as initFromRoot, getAUDescriptors as rootAUDescriptors, type AUDescriptor as RootAUDescriptor } from '@lovelace_lol/embody';
 import {
+  getAUDescriptors as wasmAUDescriptors,
+  type AUDescriptor as WasmAUDescriptor,
   getEmbodyCore,
   initEmbodyCore,
   requireInitializedEmbodyCore,
@@ -21,6 +23,8 @@ inspectActorModel('https://example.com/model.glb');
 // @ts-expect-error Actor preparation kinds are an explicit public union.
 prepareActorModel(actorSource, { kind: 'guess-clothes' });
 import {
+  getAUDescriptors as threeAUDescriptors,
+  type AUDescriptor as ThreeAUDescriptor,
   bindModelReferencePose,
   captureModelReferencePose,
   extendModelReferencePose,
@@ -66,6 +70,18 @@ controller.focusRegion(123);
 
 const core: EmbodyCore = await initEmbodyCore();
 const character = new Embody({ profileMode: 'profile', profile: {} });
+const rootAUs: RootAUDescriptor[] = rootAUDescriptors({});
+const wasmAUs: WasmAUDescriptor[] = wasmAUDescriptors({}, { bones: [] });
+const threeAUs: ThreeAUDescriptor[] = threeAUDescriptors({});
+const characterAUs: RootAUDescriptor[] = character.getAUDescriptors();
+const sideSelection: boolean = rootAUs[0].bilateral;
+const actualSides: Array<'left' | 'right' | 'center'> = rootAUs[0].availableSides;
+void [wasmAUs, threeAUs, characterAUs, sideSelection, actualSides];
+// @ts-expect-error Available sides must keep their explicit side vocabulary.
+const invalidSide: 'both' = rootAUs[0].availableSides[0];
+// @ts-expect-error Named semantic pose APIs have been retired.
+character.getSemanticPoseCatalog();
+
 character.onReady({ model: new Object3D() });
 character.start();
 character.stop();

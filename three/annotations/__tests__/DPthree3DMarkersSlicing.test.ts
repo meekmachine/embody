@@ -18,7 +18,10 @@ function fixture() {
   const bone = new THREE.Bone(); bone.name = 'Head'; model.add(bone);
   const markers = new DPthree3DMarkers({
     scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(),
-    domElement: { addEventListener: vi.fn(), removeEventListener: vi.fn() } as unknown as HTMLElement,
+    domElement: {
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      getBoundingClientRect: () => ({ width: 800, height: 600 }),
+    } as unknown as HTMLElement,
     onSelect: vi.fn(),
   });
   active.push(markers);
