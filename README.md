@@ -71,6 +71,8 @@ mesh visibility and material overrides when a host binds or replaces a profile.
 It applies explicit `visible: false` and `visible: true` even without a material
 entry, and restores render order, opacity, transparency, depth flags and blending
 from `material`. Omitted fields leave the model's current values unchanged.
+Replaying identical material values during a mapping edit leaves the material
+version unchanged; render-order-only edits also avoid invalidating material programs.
 Polymer calls this adapter during model binding and profile replacement; hosts
 do not need a separate mesh-visibility replay loop.
 

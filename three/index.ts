@@ -805,13 +805,21 @@ export class ThreeFrameApplier {
   private applyMaterial(mesh: Mesh, config: MaterialConfig) {
     if (typeof config.renderOrder === 'number') mesh.renderOrder = config.renderOrder;
     for (const material of materials((mesh as any).material) as any[]) {
-      if (typeof config.opacity === 'number') material.opacity = config.opacity;
-      if (typeof config.transparent === 'boolean') material.transparent = config.transparent;
-      else if (typeof config.opacity === 'number' && config.opacity < 1) material.transparent = true;
-      if (typeof config.depthWrite === 'boolean') material.depthWrite = config.depthWrite;
-      if (typeof config.depthTest === 'boolean') material.depthTest = config.depthTest;
-      if (config.blending) material.blending = THREE_BLENDING_MODES[config.blending];
-      material.needsUpdate = true;
+      let changed = false;
+      const assign = (key: string, value: unknown) => {
+        if (material[key] === value) return;
+        material[key] = value;
+        changed = true;
+      };
+      if (typeof config.opacity === 'number') assign('opacity', config.opacity);
+      if (typeof config.transparent === 'boolean') assign('transparent', config.transparent);
+      else if (typeof config.opacity === 'number' && config.opacity < 1) assign('transparent', true);
+      if (typeof config.depthWrite === 'boolean') assign('depthWrite', config.depthWrite);
+      if (typeof config.depthTest === 'boolean') assign('depthTest', config.depthTest);
+      if (config.blending) assign('blending', THREE_BLENDING_MODES[config.blending]);
+      // Profile replacement also replays unchanged materials after mapping edits.
+      // Invalidate renderer programs only when an authored material value changes.
+      if (changed) material.needsUpdate = true;
     }
   }
 

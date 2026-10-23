@@ -157,6 +157,23 @@ test('profile mode replaces exact mappings without importing a preset', t => {
   assert.equal(host.getProfile().meshes, undefined);
 });
 
+test('mesh selection replacement preserves unchanged material programs and clears excluded morph output', t => {
+  const configured = { ...structuredClone(profile), meshes: { Face: { material: { opacity: 0.7, transparent: true } } } };
+  const { host, face, value } = fixture(t, { config: { profileMode: 'profile', profile: configured } });
+  const version = face.material.version;
+  host.setAU(200, 1); renderHostFrame(host, 0);
+  near(value(), 1, 'selected face receives the authored AU');
+  host.setProfile({ ...configured, morphToMesh: { face: [] } });
+  renderHostFrame(host, 0);
+  near(value(), 0, 'deselecting the face releases the previous output');
+  assert.equal(face.material.version, version, 'mapping edits do not invalidate unchanged materials');
+  host.setAU(200, 1); renderHostFrame(host, 0);
+  near(value(), 0, 'explicit empty selection stays empty');
+  host.setProfile({ ...configured, meshes: { Face: { material: { opacity: 0.4, transparent: true } } } });
+  assert.equal(face.material.opacity, 0.4);
+  assert.ok(face.material.version > version, 'authored material changes still reach the renderer');
+});
+
 test('preset selection and authored mix defaults survive profile replacement', t => {
   for (const id of ['cc4', 'fish']) assert.equal(supportsRustEmbodyPreset(id), true);
   for (const id of ['default', 'human', 'skeletal', 'custom']) assert.equal(supportsRustEmbodyPreset(id), false);
