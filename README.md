@@ -37,6 +37,15 @@ The Rust core owns:
 - profile-aware screen-space gaze geometry for eye/head AU trajectories
 - renderer-neutral model analysis and packed live frame generation
 
+`resolveMorphMeshSelections(profile, categories, availableNames)` resolves editor
+mesh selections in one Rust request. It returns each requested category's effective
+category, `hasSelection` (including explicit empty arrays), resolved loaded names,
+and unresolved configured names. Request `viseme` for speech routing. Facial
+categories share an authored `face` selection; body and hair stay independent.
+Exact names take precedence over legacy mesh aliases. Consumers save concrete
+resolved names plus unresolved names when editing, so deselecting one mesh does
+not reactivate it through a legacy alias. This query does not change the profile.
+
 The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
 not sample or lerp clips on the hot path.
@@ -62,6 +71,8 @@ mesh visibility and material overrides when a host binds or replaces a profile.
 It applies explicit `visible: false` and `visible: true` even without a material
 entry, and restores render order, opacity, transparency, depth flags and blending
 from `material`. Omitted fields leave the model's current values unchanged.
+Replaying identical material values during a mapping edit leaves the material
+version unchanged; render-order-only edits also avoid invalidating material programs.
 Polymer calls this adapter during model binding and profile replacement; hosts
 do not need a separate mesh-visibility replay loop.
 
