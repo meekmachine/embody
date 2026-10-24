@@ -97,6 +97,44 @@ test('identical nonzero held goals use a microhold despite native Float32 precis
   renderHostFrame(host, 0); near(value(), 0.65, 'microhold preserves the held contribution');
 });
 
+const continuumProfile = (paired = true) => ({
+  ...structuredClone(profile),
+  auToMorphs: { 201: { center: ['Smile'], left: [], right: [] }, 202: { center: ['Other'], left: [], right: [] } },
+  ...(paired ? { continuumPairs: {
+    201: { pairId: 202, isNegative: true, axis: 'yaw', node: 'Head' },
+    202: { pairId: 201, isNegative: false, axis: 'yaw', node: 'Head' },
+  } } : {}),
+});
+const continuumGoal = (negative, positive) => ({
+  201: [{ time: 0, intensity: 0, inherit: true }, { time: 1, intensity: negative }],
+  202: [{ time: 0, intensity: 0, inherit: true }, { time: 1, intensity: positive }],
+});
+
+test('distance timing measures a paired goal crossing neutral along its signed continuum', t => {
+  const { host } = fixture(t, { config: { profileMode: 'profile', profile: continuumProfile() } });
+  host.playSnippet('continuum', continuumGoal(0.3, 0), distanceOptions()); renderHostFrame(host, 0.31);
+  host.playSnippet('continuum', continuumGoal(0, 0.3), distanceOptions());
+  near(host.getAnimationState('continuum').duration, 0.6, 'negative 0.3 to positive 0.3 is 0.6 continuum units');
+  renderHostFrame(host, 0.61);
+  host.playSnippet('continuum', continuumGoal(0, 0.5), distanceOptions());
+  near(host.getAnimationState('continuum').duration, 0.2, 'a one-sided move keeps its AU distance');
+  renderHostFrame(host, 0.21);
+  host.playSnippet('continuum', continuumGoal(0, 0.5), distanceOptions());
+  near(host.getAnimationState('continuum').duration, 1e-6, 'an identical held continuum goal remains zero-distance');
+});
+
+test('distance timing detects a continuum reversal and leaves unpaired AUs on per-AU distance', t => {
+  const paired = fixture(t, { config: { profileMode: 'profile', profile: continuumProfile() } }).host;
+  const options = distanceOptions({ reversalExtraSec: 0.2 });
+  paired.playSnippet('reversal', continuumGoal(0.6, 0), options); renderHostFrame(paired, 0.2);
+  paired.playSnippet('reversal', continuumGoal(0, 0.2), options);
+  near(paired.getAnimationState('reversal').duration, 0.6, 'negative 0.2 to positive 0.2 plus the unfinished reversal');
+  const unpaired = fixture(t, { config: { profileMode: 'profile', profile: continuumProfile(false) } }).host;
+  unpaired.playSnippet('independent', continuumGoal(0.3, 0), distanceOptions()); renderHostFrame(unpaired, 0.31);
+  unpaired.playSnippet('independent', continuumGoal(0, 0.3), distanceOptions());
+  near(unpaired.getAnimationState('independent').duration, 0.3, 'independent AUs keep the largest per-AU distance');
+});
+
 test('distance timing measures only its own additive contribution while another clip shares its output', t => {
   const { host, value } = fixture(t);
   host.registerAnimationClips([morphClip('independent-base', [0.2, 0.2], 2)]);

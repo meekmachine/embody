@@ -74,7 +74,14 @@ continues compiling semantic AUs to every configured bone and morph track.
 Even cleared mappings retain their requested semantic timing without invented
 rig outputs or writes to live AU state.
 
-The remaining distance is the maximum absolute AU difference. The duration is
+The remaining distance is the maximum absolute difference across the goal's
+movements. Each AU is its own movement, except that a goal containing both AUs of
+a profile `continuumPairs` entry (for example head yaw 51/52) is measured as one
+signed continuum, `positive - negative`, which is how composite rotations render
+the pair. Crossing neutral from 0.3 negative to 0.3 positive is therefore 0.6
+units rather than the 0.3 change of either AU alone, so `unitsPerSecond` gives
+the same rendered speed on both sides of neutral. Reversal is likewise judged on
+that signed continuum. Unpaired or one-sided AUs keep per-AU distance. The duration is
 `max(distance / unitsPerSecond, minimumDurationSec)`, plus `reversalExtraSec`
 only when an unfinished predecessor changes direction. A held completed action
 has no reversal penalty. Zero distance uses a `1e-6` second microhold, bypassing

@@ -72,14 +72,48 @@ export function validateDistancePredecessor(curves: Record<string, Point[]>, opt
   }
 }
 
+type AuTravel = { current: number; destination: number; precedingDelta: number };
+type Movement = { delta: number; precedingDelta: number };
+
+/** Each paired AU ID mapped to its profile's [negative, positive] continuum AU IDs. */
+export type ContinuumPairs = ReadonlyMap<string, readonly [negative: string, positive: string]>;
+
+// Composite rotations render a continuum as positive minus negative. When a
+// goal carries both sides, crossing neutral lowers one AU while raising the
+// other; measuring each AU alone would budget half the rendered travel and
+// double its speed. Unpaired or one-sided AUs keep their own scalar distance.
+function continuumMovements(travel: ReadonlyMap<string, AuTravel>, continuumPairs: ContinuumPairs): Movement[] {
+  const movements: Movement[] = [];
+  const measured = new Set<string>();
+  for (const [id, au] of travel) {
+    if (measured.has(id)) continue;
+    const [negativeId, positiveId] = continuumPairs.get(id) ?? [];
+    const paired = negativeId !== undefined && positiveId !== undefined && negativeId !== positiveId &&
+      !measured.has(negativeId) && !measured.has(positiveId);
+    const negative = paired ? travel.get(negativeId) : undefined;
+    const positive = paired ? travel.get(positiveId) : undefined;
+    if (negative && positive) {
+      measured.add(negativeId!).add(positiveId!);
+      movements.push({
+        delta: (positive.destination - negative.destination) - (positive.current - negative.current),
+        precedingDelta: positive.precedingDelta - negative.precedingDelta,
+      });
+    } else {
+      measured.add(id);
+      movements.push({ delta: au.destination - au.current, precedingDelta: au.precedingDelta });
+    }
+  }
+  return movements;
+}
+
 export function prepareDistanceTiming(
   curves: Record<string, Point[]>, options: Options, scale: number, previous?: DistancePredecessor,
-  effectiveMixWeights: Readonly<Record<string, number>> = {},
+  effectiveMixWeights: Readonly<Record<string, number>> = {}, continuumPairs: ContinuumPairs = new Map(),
 ): { durationSec: number; basis: InheritedDistanceBasis } {
   const timing = validateDistanceTiming(curves, options)!;
   validateDistancePredecessor(curves, options, previous, effectiveMixWeights);
   const tracks = new Map<string, NumberKeyframeTrack>();
-  let distance = 0, reversal = false;
+  const travel = new Map<string, AuTravel>();
   for (const [id, points] of Object.entries(curves)) {
     const preceding = previous?.basis?.tracks.get(id);
     // Native interpolation reads the actual action's time. There is no manual
@@ -89,10 +123,14 @@ export function prepareDistanceTiming(
     // identical held goals must remain exactly zero-distance admissions.
     const destination = Math.fround(Math.max(0, Math.min(2, points[1].intensity * scale)));
     if (!finite(current)) fail('the native AU interpolant returned an invalid sample.');
-    distance = Math.max(distance, Math.abs(destination - current));
-    if (preceding && previous && !previous.terminal && previous.action.time < previous.action.getClip().duration &&
-        (preceding.values[1] - preceding.values[0]) * (destination - current) < 0) reversal = true;
+    travel.set(id, { current, destination, precedingDelta: preceding ? preceding.values[1] - preceding.values[0] : 0 });
     tracks.set(id, new NumberKeyframeTrack(`au:${id}`, [0, 1], [current, destination]));
+  }
+  const unfinished = !!previous && !previous.terminal && previous.action.time < previous.action.getClip().duration;
+  let distance = 0, reversal = false;
+  for (const movement of continuumMovements(travel, continuumPairs)) {
+    distance = Math.max(distance, Math.abs(movement.delta));
+    if (unfinished && movement.precedingDelta * movement.delta < 0) reversal = true;
   }
   const durationSec = Math.fround(distance === 0 ? 1e-6 : Math.max(1e-6,
     Math.max(distance / timing.unitsPerSecond, timing.minimumDurationSec ?? 0) + (reversal ? timing.reversalExtraSec ?? 0 : 0)));
