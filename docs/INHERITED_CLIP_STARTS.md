@@ -74,8 +74,11 @@ continues compiling semantic AUs to every configured bone and morph track.
 Even cleared mappings retain their requested semantic timing without invented
 rig outputs or writes to live AU state.
 
-The remaining distance is the maximum absolute difference across the goal's
-movements. Each AU is its own movement, except that a goal containing both AUs of
+The host samples each AU's current contribution and passes the samples,
+destinations and any unfinished predecessor travel to the Rust core
+(`RuntimeCore.measure_au_travel`), which owns continuum pairing. The remaining
+distance is the maximum absolute difference across the goal's movements. Each
+AU is its own movement, except that a goal containing both AUs of
 a profile `continuumPairs` entry (for example head yaw 51/52) is measured as one
 signed continuum, `positive - negative`, which is how composite rotations render
 the pair. Crossing neutral from 0.3 negative to 0.3 positive is therefore 0.6

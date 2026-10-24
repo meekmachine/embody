@@ -552,6 +552,47 @@ impl RuntimeCore {
         }
     }
 
+    /// Measure one distance-timed AU goal. Each index describes one AU's own
+    /// contribution: `current` and `destination` values, and the unfinished
+    /// predecessor's travel in `preceding_delta` (zero when none). Composite
+    /// rotations render a continuum pair as positive - negative, so a goal
+    /// carrying both AUs is one signed movement: crossing neutral from 0.3
+    /// negative to 0.3 positive is 0.6, not either AU's 0.3. Other AUs keep
+    /// their scalar distance. Returns `[largest absolute movement, 1 if any
+    /// movement reverses its preceding travel else 0]`; mismatched lengths
+    /// return a NaN distance for the host to reject.
+    #[wasm_bindgen]
+    pub fn measure_au_travel(&self, ids: &[u32], current: &[f32], destination: &[f32], preceding_delta: &[f32]) -> Box<[f32]> {
+        let count = ids.len();
+        if current.len() != count || destination.len() != count || preceding_delta.len() != count {
+            return Box::new([f32::NAN, 0.0]);
+        }
+        let mut measured = vec![false; count];
+        let (mut distance, mut reversal) = (0.0f32, false);
+        for index in 0..count {
+            if measured[index] { continue; }
+            let pair = self.continuum_pairs.get(&ids[index]).and_then(|&(pair_id, is_negative)| {
+                let partner = ids.iter().position(|id| *id == pair_id).filter(|&partner| partner != index && !measured[partner])?;
+                Some(if is_negative { (index, partner) } else { (partner, index) })
+            });
+            let (delta, preceding) = match pair {
+                Some((negative, positive)) => {
+                    measured[negative] = true;
+                    measured[positive] = true;
+                    ((destination[positive] - destination[negative]) - (current[positive] - current[negative]),
+                     preceding_delta[positive] - preceding_delta[negative])
+                }
+                None => {
+                    measured[index] = true;
+                    (destination[index] - current[index], preceding_delta[index])
+                }
+            };
+            distance = distance.max(delta.abs());
+            if preceding * delta < 0.0 { reversal = true; }
+        }
+        Box::new([distance, if reversal { 1.0 } else { 0.0 }])
+    }
+
     #[wasm_bindgen]
     pub fn get_au(&self, id: u32) -> f32 {
         *self.au_values.get(&id).unwrap_or(&0.0)
@@ -2159,6 +2200,33 @@ mod tests {
         core.clear();
         assert_eq!(core.get_viseme(0), 0.0);
         assert_eq!(core.get_viseme_jaw_scale(0), 1.0);
+    }
+
+    #[test]
+    fn measures_paired_au_travel_along_the_signed_continuum() {
+        let mut core = RuntimeCore::new(0);
+        core.continuum_pairs.insert(51, (52, true));
+        core.continuum_pairs.insert(52, (51, false));
+        let near = |actual: f32, expected: f32| assert!((actual - expected).abs() < 1e-6, "{actual} != {expected}");
+
+        let crossing = core.measure_au_travel(&[51, 52], &[0.3, 0.0], &[0.0, 0.3], &[0.0, 0.0]);
+        near(crossing[0], 0.6);
+        assert_eq!(crossing[1], 0.0);
+        let positive_first = core.measure_au_travel(&[52, 51], &[0.0, 0.3], &[0.3, 0.0], &[0.0, 0.0]);
+        near(positive_first[0], 0.6);
+        near(core.measure_au_travel(&[51, 52], &[0.0, 0.3], &[0.0, 0.5], &[0.0, 0.0])[0], 0.2);
+        assert_eq!(core.measure_au_travel(&[51, 52], &[0.0, 0.65], &[0.0, 0.65], &[0.0, 0.0])[0], 0.0);
+
+        // Travelling negative (51 rising), then requesting positive reverses.
+        let reversed = core.measure_au_travel(&[51, 52], &[0.2, 0.0], &[0.0, 0.2], &[0.6, 0.0]);
+        near(reversed[0], 0.4);
+        assert_eq!(reversed[1], 1.0);
+        // Travelling toward neutral (51 falling) and continuing positive does not.
+        assert_eq!(core.measure_au_travel(&[51, 52], &[0.2, 0.0], &[0.0, 0.2], &[-0.4, 0.0])[1], 0.0);
+
+        // One-sided and unpaired goals keep per-AU distance.
+        near(core.measure_au_travel(&[51, 12], &[0.3, 0.0], &[0.0, 0.5], &[0.0, 0.0])[0], 0.5);
+        assert!(core.measure_au_travel(&[51], &[0.3, 0.0], &[0.0], &[0.0])[0].is_nan());
     }
 
     #[test]

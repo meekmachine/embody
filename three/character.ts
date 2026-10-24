@@ -18,7 +18,7 @@ import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './referenc
 import { ThreeNativePlaybackConnector } from './nativePlayback';
 import { withComponentTracks } from './clipBindings';
 import { prepareDistanceTiming, validateDistancePredecessor, validateDistanceTiming } from './inheritedDistanceTiming';
-import type { ContinuumPairs, DistancePredecessor, DistanceTimingOptions, InheritedDistanceBasis } from './inheritedDistanceTiming';
+import type { DistancePredecessor, DistanceTimingOptions, InheritedDistanceBasis } from './inheritedDistanceTiming';
 export type { DistanceTimingOptions } from './inheritedDistanceTiming';
 import type { ThreeNativePlaybackControl, ThreeNativePlaybackEvent, ThreeNativePlaybackOptions } from './nativePlayback';
 
@@ -118,7 +118,6 @@ export class Embody {
   private playDepth = 0;
   private readonly pendingEvents: ThreeNativePlaybackEvent[] = [];
   private bindingGeneration = 0;
-  private continuumPairCache?: { core: unknown; pairs: ContinuumPairs };
   private disposed = false;
   private rendering = true;
   private timeScale = 1;
@@ -499,21 +498,6 @@ export class Embody {
     validateDistancePredecessor(source.input, options, this.distancePredecessor(source.name), this.distanceMixWeights(source, options));
   }
 
-  private continuumPairs(): ContinuumPairs {
-    // Pairs come from the bound core's profile. Every profile/model change
-    // replaces that core, so its identity scopes this read-only lookup.
-    if (this.continuumPairCache?.core !== this.core) {
-      const pairs = new Map<string, readonly [string, string]>();
-      for (const descriptor of this.getAUDescriptors()) {
-        if (descriptor.negativeAuId != null && descriptor.positiveAuId != null) {
-          pairs.set(String(descriptor.auId), [String(descriptor.negativeAuId), String(descriptor.positiveAuId)]);
-        }
-      }
-      this.continuumPairCache = { core: this.core, pairs };
-    }
-    return this.continuumPairCache.pairs;
-  }
-
   private distanceMixWeights(source: Extract<Source, { kind: 'curves' | 'typed' }>, options: CharacterPlaybackOptions): Record<string, number> {
     // Rust remains authoritative for saved/live morph mixing. Capture only the
     // effective scalar inputs to this admission, never a second live AU state.
@@ -543,8 +527,9 @@ export class Embody {
       this.validateDistanceSource(source, options);
       const timing = source.kind !== 'curves' || options.distanceTiming === undefined ? undefined : prepareDistanceTiming(
         source.input,
-        options, intensity(options), this.distancePredecessor(source.name), this.distanceMixWeights(source, options),
-        this.continuumPairs(),
+        options, intensity(options), this.distancePredecessor(source.name),
+        (ids, current, destination, preceding) => this.core.measure_au_travel(ids, current, destination, preceding),
+        this.distanceMixWeights(source, options),
       );
       const inheritedStarts = new Map<string, number[]>();
       const clip = this.materialize(source, options, inheritedStarts);
