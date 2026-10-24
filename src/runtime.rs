@@ -155,6 +155,10 @@ pub struct RuntimeCore {
     procedural_bone_flags: HashMap<u32, u32>,
     procedural_morph_targets: BTreeSet<(u32, u32)>,
     hair_config: crate::hair_curves::HairPlaybackConfig,
+    hair_head_response: crate::hair_curves::HairHeadResponse,
+    /// For each track of the last compiled hair head response clip, the index
+    /// of its target in `configured_targets` order.
+    hair_head_response_tracks: Vec<Option<usize>>,
 }
 
 #[wasm_bindgen]
@@ -192,6 +196,8 @@ impl RuntimeCore {
             procedural_bone_flags: HashMap::new(),
             procedural_morph_targets: BTreeSet::new(),
             hair_config: crate::hair_curves::HairPlaybackConfig::default(),
+            hair_head_response: crate::hair_curves::HairHeadResponse::default(),
+            hair_head_response_tracks: Vec::new(),
         }
     }
 
@@ -268,6 +274,7 @@ impl RuntimeCore {
             .map_err(|error| JsError::new(&error))?;
         self.reset_procedural_frame_tracking();
         self.hair_config = hair_config;
+        self.reset_hair_head_response();
 
         self.initial_morph_values.clear();
         self.bone_rest_scales.clear();
@@ -639,6 +646,7 @@ impl RuntimeCore {
             .map_err(|error| JsError::new(&error))?;
         let serialized = serialize_runtime_json(&next, "hair config")?;
         self.hair_config = next;
+        self.reset_hair_head_response();
         Ok(serialized)
     }
 
@@ -649,25 +657,61 @@ impl RuntimeCore {
         serialize_runtime_json(&missing, "missing hair morph targets")
     }
 
-    /// The adapter supplies native quaternion samples and scene/reference
-    /// transforms; the profile resolves which tracks represent head motion.
+    /// Profile-resolved bone whose rendered rotation drives the hair head
+    /// response, or `undefined` when the profile maps no humanoid head role.
     #[wasm_bindgen]
-    pub fn resolve_hair_motion_json(&self, tracks_json: &str, additive: bool) -> Result<String, JsError> {
-        let tracks: Vec<crate::hair_curves::NativeQuaternionTrack> = parse_runtime_json(tracks_json, "native quaternion tracks")?;
-        let motion = if let Some(profile) = &self.profile {
-            crate::hair_curves::authored_motion(&self.hair_config, profile, self.model.as_ref(), &tracks, additive)
-                .map_err(|error| JsError::new(&error))?
-        } else { None };
-        serialize_runtime_json(&motion, "authored hair motion")
+    pub fn hair_head_bone_name(&self) -> Option<String> {
+        self.profile.as_ref().and_then(|profile| crate::hair_curves::head_bone_name(profile, self.model.as_ref()))
     }
 
-    /// Compile the configured gravity response directly to concrete morph
-    /// tracks. Three owns interpolation from the captured initial scene pose.
+    /// Compile the held hair head response clip: one zero-duration scalar
+    /// track per configured hair morph on the selected meshes. The adapter
+    /// plays it once as an additive held action and writes the values from
+    /// `step_hair_head_response` into its single keyframes. Rebuilding the
+    /// clip discards the previous response state; it is not added to the clip
+    /// registry because no caller replays it by name.
     #[wasm_bindgen]
-    pub fn build_hair_gravity_clip(&mut self, name: &str, pitch: f32, duration_seconds: f64, options_json: &str) -> Result<String, JsError> {
-        let curves = crate::hair_curves::gravity_pose_curves(&self.hair_config, pitch, duration_seconds)
+    pub fn build_hair_head_response_clip(&mut self, name: &str, options_json: &str) -> Result<String, JsError> {
+        self.reset_hair_head_response();
+        let targets: Vec<String> = crate::hair_curves::configured_targets(&self.hair_config).into_iter().collect();
+        let curves: BTreeMap<String, Vec<RuntimeCurvePoint>> = targets.iter()
+            .map(|target| (target.clone(), vec![RuntimeCurvePoint { time: 0.0, intensity: 0.0, inherit: false }]))
+            .collect();
+        let options: ClipBuildOptions = parse_runtime_json(options_json, "clip options")?;
+        let clip = self.compile_curves(name, curves, &options)?;
+        let names_by_id: HashMap<u32, &str> = self.model.as_ref()
+            .map(|model| model.morph_targets.iter().map(|target| (target.id, target.name.as_str())).collect())
+            .unwrap_or_default();
+        self.hair_head_response_tracks = clip.tracks.iter().map(|track| {
+            let id = track.target.get("morphTargetId").and_then(serde_json::Value::as_u64)?;
+            let name = names_by_id.get(&(id as u32))?;
+            targets.iter().position(|target| target == name)
+        }).collect();
+        serialize_runtime_json(&clip, "hair head response clip")
+    }
+
+    /// Advance the hair head response by one render step and return one weight
+    /// per track of the last response clip, in [0, 2]. `dt_seconds` is the
+    /// mixer-scaled render step; `head_rotation` and `reference_rotation` are
+    /// the head's model-space quaternions `[x, y, z, w]` now and in the
+    /// captured reference pose. Zero `dt_seconds` observes without advancing.
+    #[wasm_bindgen]
+    pub fn step_hair_head_response(&mut self, dt_seconds: f32, head_rotation: &[f32], reference_rotation: &[f32]) -> Result<Box<[f32]>, JsError> {
+        let quaternion = |values: &[f32]| -> Result<[f32; 4], JsError> {
+            values.try_into().map_err(|_| JsError::new("Hair head response quaternions require four values."))
+        };
+        let weights = self.hair_head_response
+            .step(&self.hair_config, dt_seconds, quaternion(head_rotation)?, quaternion(reference_rotation)?)
             .map_err(|error| JsError::new(&error))?;
-        self.build_clip(name, &curves.to_string(), options_json)
+        Ok(self.hair_head_response_tracks.iter()
+            .map(|index| index.and_then(|index| weights.get(index)).map_or(0.0, |(_, weight)| *weight))
+            .collect())
+    }
+
+    /// Forget the observed head pose and spring state; the next step anchors.
+    #[wasm_bindgen]
+    pub fn reset_hair_head_response(&mut self) {
+        self.hair_head_response.reset();
     }
 
     #[wasm_bindgen]
@@ -2044,12 +2088,21 @@ mod tests {
         assert!(!core.has_left_right_bones(10));
         assert_eq!(core.get_missing_hair_morph_targets_json("[]").unwrap(), "[\"custom-tip\"]");
         assert_eq!(core.get_missing_hair_morph_targets_json("[\"custom-tip\"]").unwrap(), "[]");
-        let clip: ClipIR = serde_json::from_str(&core.build_hair_gravity_clip("gravity",0.5,2.0,"{\"meshNames\":[\"Hair\"],\"source\":\"hair\"}").unwrap()).unwrap();
+        let clip: ClipIR = serde_json::from_str(&core.build_hair_head_response_clip("response","{\"meshNames\":[\"Hair\"],\"source\":\"hair\"}").unwrap()).unwrap();
         assert_eq!(clip.tracks.len(), 1);
         assert_eq!(clip.tracks[0].target, serde_json::json!({"kind":"morphTarget","meshId":1,"morphTargetId":2}));
-        assert_eq!(clip.tracks[0].times, vec![0.0, 2.0]);
-        assert!(clip.tracks[0].values.iter().all(|value| (value - 0.8).abs() < 1e-6));
-        assert!(clip.tracks[0].inherit_start);
+        assert_eq!(clip.tracks[0].times, vec![0.0]);
+        assert_eq!(clip.tracks[0].values, vec![0.0]);
+        assert!(!clip.tracks[0].inherit_start);
+        let identity = [0.0, 0.0, 0.0, 1.0];
+        assert_eq!(&*core.step_hair_head_response(1.0 / 60.0, &identity, &identity).unwrap(), &[0.0]);
+        // Head pitch 0.5 rad down drives the configured headDown target 1.6 * 0.5.
+        let down = crate::bones::quat_from_channel(0, 0.5);
+        let weights = core.step_hair_head_response(1.0 / 60.0, &down, &down).unwrap();
+        assert_eq!(&*weights, &[0.0], "pitch is measured against the supplied reference");
+        core.reset_hair_head_response();
+        let weights = core.step_hair_head_response(1.0 / 60.0, &down, &identity).unwrap();
+        assert!((weights[0] - 0.8).abs() < 1e-5, "{weights:?}");
         core.configure_with_profile("{}", "{}").unwrap();
         assert!(crate::hair_curves::configured_targets(&core.hair_config).is_empty());
         assert!(!core.hair_config.enabled);

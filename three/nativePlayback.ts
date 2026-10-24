@@ -105,18 +105,41 @@ export class ThreeNativePlaybackConnector {
   private disposed = false;
   private readonly onError?: (error: Error) => void;
   private readonly onRelease?: (handle: string) => void;
+  private readonly onRenderedFrame?: (mixerDeltaSeconds: number) => void;
 
   constructor(
     private readonly session: NativePlaybackSession,
-    binding: ThreeNativePlaybackBinding & { onError?: (error: Error) => void; onRelease?: (handle: string) => void },
+    binding: ThreeNativePlaybackBinding & {
+      onError?: (error: Error) => void;
+      onRelease?: (handle: string) => void;
+      /**
+       * Observe the rendered pose once per render step, after every mixer has
+       * sampled and native events are flushed. Receives the step in mixer
+       * seconds (render delta times mixer speed). Not called while rendering
+       * is disabled. This borrows the host's render step; it is not a clock.
+       */
+      onRenderedFrame?: (mixerDeltaSeconds: number) => void;
+    },
   ) {
     validateBinding(binding);
     this.binding = { ...binding, mixer: binding.mixer ?? new AnimationMixer(binding.model) };
     this.onError = binding.onError;
     this.onRelease = binding.onRelease;
+    this.onRenderedFrame = binding.onRenderedFrame;
     this.binding.mixer.addEventListener('finished', this.finished);
-    this.rendering = bindPlaybackRendering(binding.model, this.binding.mixer, () => this.flushEvents());
+    this.rendering = bindPlaybackRendering(binding.model, this.binding.mixer, this.afterFrame);
   }
+
+  private readonly afterFrame = (renderDeltaSeconds: number): void => {
+    this.flushEvents();
+    if (this.disposed || !this.onRenderedFrame) return;
+    try { this.onRenderedFrame(renderDeltaSeconds * this.binding.mixer.timeScale); }
+    catch (error) {
+      // A failed observer must not abort the host's render step.
+      const failure = asError(error);
+      queueMicrotask(() => { if (this.onError) this.onError(failure); else throw failure; });
+    }
+  };
 
   /** Prepare bindings first; old actions are released before the new binding is exposed. */
   rebind(modelKey: string, profileKey: string, binding: ThreeNativePlaybackBinding = this.binding): void {
@@ -127,7 +150,7 @@ export class ThreeNativePlaybackConnector {
       this.rendering.dispose();
       this.binding = { ...binding, mixer: binding.mixer ?? new AnimationMixer(binding.model) };
       this.binding.mixer.addEventListener('finished', this.finished);
-      this.rendering = bindPlaybackRendering(binding.model, this.binding.mixer, () => this.flushEvents());
+      this.rendering = bindPlaybackRendering(binding.model, this.binding.mixer, this.afterFrame);
       this.rendering.setEnabled(this.renderingEnabled);
     });
   }
@@ -212,6 +235,28 @@ export class ThreeNativePlaybackConnector {
       throw new Error('This Three version does not support editing native action samples.');
     }
     this.dispatch(this.session.replace_clip(handle, JSON.stringify(ir)), native);
+  }
+
+  /**
+   * Overwrite the single scalar keyframe of every track of a held action in
+   * place. The mixer samples the new values on its next update, with the
+   * action's existing weight, blend mode and fades; nothing is played, seeked
+   * or scheduled. Only zero-duration clips of one-value tracks qualify.
+   */
+  setHeldSamples(handle: string, values: ArrayLike<number>): void {
+    this.beforeOperation();
+    const action = this.resources.get(handle)?.action;
+    if (!action) throw new Error('Unknown, foreign or stale playback handle.');
+    const clip = action.getClip();
+    if (clip.duration !== 0 || values.length !== clip.tracks.length) throw new Error('Held samples require one value per track of a zero-duration clip.');
+    for (const track of clip.tracks) {
+      if (track.times.length !== 1 || track.values.length !== 1) throw new Error('Held samples require one scalar keyframe per track.');
+    }
+    for (let index = 0; index < values.length; index += 1) {
+      const value = values[index];
+      if (!Number.isFinite(value)) throw new Error('Held samples must be finite.');
+      clip.tracks[index].values[0] = value;
+    }
   }
 
   /** Native state for the owning adapter; never exposed through Polymer. */
