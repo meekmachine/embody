@@ -57,6 +57,193 @@ const morphClip = (name, values, duration = 1) => new AnimationClip(name, durati
 const curves = (start, end, duration = 1, inherit = false) => ({
   200: [{ time: 0, intensity: start, inherit }, { time: duration, intensity: end }],
 });
+const distanceGoal = end => curves(0, end, 1, true);
+const distanceOptions = (timing = {}, options = {}) => ({
+  blendMode: 'additive', loopMode: 'once', finalPose: 'hold', fadeInSec: 0, fadeOutSec: 0,
+  ...options, distanceTiming: { unitsPerSecond: 1, ...timing },
+});
+
+test('ordinary inherited AU requests derive remaining distance from the native action without live AU mutation', t => {
+  const { host, value } = fixture(t);
+  assert.equal(host.animationCapabilities.distanceTiming, true);
+  assert.equal(Object.isFrozen(host.animationCapabilities), true);
+  const live = host.getAU(200);
+  host.playSnippet('distance', distanceGoal(1), distanceOptions());
+  renderHostFrame(host, 0.4); near(value(), 0.4, 'native current contribution');
+  host.playSnippet({ name: 'distance', curves: distanceGoal(0.6) }, distanceOptions());
+  near(host.getAnimationState('distance').duration, 0.2, 'only the remaining AU distance determines duration');
+  renderHostFrame(host, 0); near(value(), 0.4, 'inherited first key preserves native contribution');
+  renderHostFrame(host, 0.1); near(value(), 0.5, 'ordinary native linear midpoint');
+  near(host.getAU(200), live, 'measurement never copies playback samples into canonical live AU state');
+});
+
+test('distance timing applies a minimum and adds reversal delay only before native completion', t => {
+  const { host, value } = fixture(t);
+  const options = distanceOptions({ minimumDurationSec: 0.8, reversalExtraSec: 0.2 });
+  host.playSnippet('reversal', distanceGoal(1), options); renderHostFrame(host, 0.4);
+  host.playSnippet('reversal', distanceGoal(0), options);
+  near(host.getAnimationState('reversal').duration, 1, 'unfinished reversal adds 0.2 to the minimum 0.8');
+  renderHostFrame(host, 1.01); near(value(), 0, 'native completion holds the destination');
+  host.playSnippet('reversal', distanceGoal(0.4), options);
+  near(host.getAnimationState('reversal').duration, 0.8, 'a held completed request has no reversal penalty');
+});
+
+test('identical nonzero held goals use a microhold despite native Float32 precision and a minimum duration', t => {
+  const { host, value } = fixture(t);
+  const options = distanceOptions({ minimumDurationSec: 0.8, reversalExtraSec: 0.2 });
+  host.playSnippet('same-held', distanceGoal(0.65), options); renderHostFrame(host, 1);
+  host.playSnippet('same-held', distanceGoal(0.65), options);
+  near(host.getAnimationState('same-held').duration, 1e-6, 'identical Float32 endpoint has exactly zero semantic distance');
+  renderHostFrame(host, 0); near(value(), 0.65, 'microhold preserves the held contribution');
+});
+
+test('distance timing measures only its own additive contribution while another clip shares its output', t => {
+  const { host, value } = fixture(t);
+  host.registerAnimationClips([morphClip('independent-base', [0.2, 0.2], 2)]);
+  const other = host.playAnimation('independent-base', { loop: true });
+  host.playSnippet('own-axis', distanceGoal(0.8), distanceOptions()); renderHostFrame(host, 0.3);
+  near(value(), 0.5, 'independent clip and axis both contribute');
+  const otherId = other.actionId;
+  host.playSnippet('own-axis', distanceGoal(0.4), distanceOptions());
+  near(host.getAnimationState('own-axis').duration, 0.1, 'distance excludes the other clip contribution');
+  renderHostFrame(host, 0); near(value(), 0.5, 'replacement does not inherit the other clip a second time');
+  assert.equal(host.getAnimationState('independent-base').actionId, otherId);
+  renderHostFrame(host, 0.11); near(value(), 0.6, 'independent contribution stays active after axis arrival');
+});
+
+test('custom composite bone and morph mappings keep their Rust outputs when destination strength becomes zero', t => {
+  const rig = model(); rig.head.name = 'SavedSwivel'; rig.face.name = 'SavedSurface';
+  const savedProfile = {
+    boneNodes: { SAVED_SWIVEL: 'SavedSwivel' },
+    auToBones: {
+      901: [{ node: 'SAVED_SWIVEL', channel: 'ry', scale: -1, maxDegrees: 37 }],
+      902: [{ node: 'SAVED_SWIVEL', channel: 'rz', scale: 1, maxDegrees: 23 }],
+    },
+    compositeRotations: [{ node: 'SAVED_SWIVEL',
+      yaw: { aus: [901], axis: 'ry' }, roll: { aus: [902], axis: 'rz' } }],
+    auToMorphs: { 901: { center: ['Smile'] }, 902: { center: ['Other'] } },
+    morphToMesh: { face: ['SavedSurface'] }, auMixDefaults: { 901: 0.7, 902: 0.6 },
+    hairPhysics: { enabled: false },
+  };
+  const { host, head, face } = fixture(t, { rig, config: { profileMode: 'profile', profile: savedProfile } });
+  host.setAU(901, 0.15); renderHostFrame(host, 0);
+  const baseline = { rotation: head.quaternion.clone(), morphs: [...face.morphTargetInfluences], au: host.getAU(901) };
+  const goal = { 901: [{ time: 0, intensity: 0, inherit: true }, { time: 1, intensity: 1 }],
+    902: [{ time: 0, intensity: 0, inherit: true }, { time: 1, intensity: 0.5 }] };
+  const options = distanceOptions({}, { balanceMap: { 901: 0, 902: 0 }, mixWeights: { 901: 0.25, 902: 0.75 } });
+  host.playSnippet('saved-rig', goal, options); renderHostFrame(host, 1.01);
+  assert.ok(head.quaternion.angleTo(baseline.rotation) > 0.1, 'saved custom composite rotations remain active');
+  assert.ok(face.morphTargetInfluences[0] > baseline.morphs[0], 'the same AU also preserves its morph output');
+  assert.ok(face.morphTargetInfluences[1] > baseline.morphs[1], 'the second custom AU retains its own morph');
+  const beforeZero = { rotation: head.quaternion.clone(), morphs: [...face.morphTargetInfluences] };
+  host.playSnippet('saved-rig', goal, { ...options, intensityScale: 0 });
+  near(host.getAnimationState('saved-rig').duration, 1, 'zero strength still travels the remaining semantic distance');
+  renderHostFrame(host, 0);
+  rotationNear(head.quaternion, beforeZero.rotation, 'zero scales only the destination, not the inherited start');
+  near(face.morphTargetInfluences[0], beforeZero.morphs[0], 'mapped morph continuity at zero-strength replacement');
+  renderHostFrame(host, 1.01);
+  rotationNear(head.quaternion, baseline.rotation, 'custom composite contribution releases toward native neutral');
+  baseline.morphs.forEach((amount, index) => near(face.morphTargetInfluences[index], amount, 'mapped morph returns to its independent baseline'));
+  near(host.getAU(901), baseline.au, 'playback never rewrites live AU state');
+  near(host.getProfile().auMixDefaults[901], 0.7, 'explicit clip mixWeights do not rewrite saved morph defaults');
+});
+
+test('cleared AU mappings retain semantic timing without inventing native bone or morph outputs', t => {
+  const { host, value, head } = fixture(t, { config: { profileMode: 'profile', profile: {} } });
+  const rest = head.quaternion.clone();
+  host.playSnippet('unmapped-axis', distanceGoal(0.8), distanceOptions());
+  near(host.getAnimationState('unmapped-axis').duration, 0.8, 'unmapped controls still own their requested native duration');
+  renderHostFrame(host, 0.3);
+  host.playSnippet('unmapped-axis', distanceGoal(0.2), distanceOptions());
+  near(host.getAnimationState('unmapped-axis').duration, 0.1, 'semantic native interpolant survives an empty output clip');
+  renderHostFrame(host, 0.11); near(value(), 0, 'cleared mapping creates no morph output');
+  rotationNear(head.quaternion, rest, 'cleared mapping creates no bone output');
+  near(host.getAU(200), 0, 'semantic timing creates no duplicate live AU owner');
+});
+
+test('distance timing rejects unsupported requests and in-place semantic edits before replacing native work', t => {
+  const { host, value } = fixture(t);
+  const handle = host.playSnippet('validated', distanceGoal(1), distanceOptions()); renderHostFrame(host, 0.25);
+  const before = host.getAnimationState('validated'), catalog = host.getAnimationClips();
+  const invalid = [
+    [distanceGoal(0), distanceOptions({ unitsPerSecond: 0 })],
+    [distanceGoal(0), distanceOptions({ unitsPerSecond: NaN })],
+    [distanceGoal(0), distanceOptions({ unitsPerSecond: Number.MIN_VALUE })],
+    [distanceGoal(0), distanceOptions({ unitsPerSecond: 1e-100 })],
+    [distanceGoal(0), distanceOptions({ minimumDurationSec: 1e100 })],
+    [distanceGoal(0), distanceOptions({ unknown: true })],
+    [distanceGoal(0), distanceOptions({}, { easing: 'easeInOut' })],
+    [distanceGoal(0), distanceOptions({}, { mixerWeight: 0.5 })],
+    [distanceGoal(0), distanceOptions({}, { fadeInSec: 0.1 })],
+    [distanceGoal(0), distanceOptions({}, { speed: 2 })],
+    [curves(0, 0, 1, false), distanceOptions()],
+    [{ '0200': distanceGoal(0)[200] }, distanceOptions()],
+    [{ jaw: distanceGoal(0)[200] }, distanceOptions()],
+    [{ 201: distanceGoal(0)[200] }, distanceOptions()],
+    [distanceGoal(0), distanceOptions({}, { balanceMap: { 200: -1 } })],
+  ];
+  for (const [goal, options] of invalid) {
+    assert.throws(() => host.playSnippet('validated', goal, options), /distanceTiming/);
+    assert.equal(host.getAnimationState('validated').actionId, before.actionId);
+    near(host.getAnimationState('validated').time, before.time, 'rejection neither replaces nor seeks');
+    assert.deepEqual(host.getAnimationClips(), catalog, 'invalid capability requests do not replace the source catalog');
+  }
+  for (const patch of [{ intensityScale: 0 }, { speed: 2 }, { easing: 'easeOut' },
+    { distanceTiming: { unitsPerSecond: 2 } }, { mixWeights: { 200: 0.5 } }]) {
+    assert.throws(() => handle.updateParams(patch), /distanceTiming/);
+    assert.equal(host.getAnimationState('validated').actionId, before.actionId);
+  }
+  assert.throws(() => host.playTypedSnippet({ name: 'typed-distance', channels: [{ target: { type: 'au', id: 200 },
+    keyframes: distanceGoal(1)[200] }] }, distanceOptions()), /ordinary numeric AU curves/);
+  host.playSnippet('unrelated', curves(0, 1), { blendMode: 'additive' });
+  const unrelated = host.getAnimationState('unrelated');
+  assert.throws(() => host.playSnippet('unrelated', distanceGoal(0), distanceOptions()), /predecessor/);
+  assert.equal(host.getAnimationState('unrelated').actionId, unrelated.actionId);
+  renderHostFrame(host, 0.1); assert.ok(value() > 0.25, 'rejected requests leave native playback advancing');
+});
+
+test('prepared admission, pause, seek, replay, stop and binding replacement retain native lifecycle ownership', t => {
+  const { host, value } = fixture(t);
+  host.playSnippet('lifecycle-distance', distanceGoal(1), distanceOptions()); renderHostFrame(host, 0.25);
+  const previousId = host.getAnimationState('lifecycle-distance').actionId;
+  const prepared = host.buildClip('lifecycle-distance', distanceGoal(0.75), distanceOptions());
+  assert.equal(host.getAnimationState('lifecycle-distance').actionId, previousId, 'preparing owns no new native play');
+  assert.throws(() => prepared.updateParams({ speed: 2 }), /distanceTiming/);
+  renderHostFrame(host, 0.25); prepared.play();
+  near(host.getAnimationState('lifecycle-distance').duration, 0.25, 'measurement occurs at actual play, not build');
+  renderHostFrame(host, 0.1); prepared.pause();
+  const paused = host.getAnimationState('lifecycle-distance').time;
+  renderHostFrame(host, 0.2); near(host.getAnimationState('lifecycle-distance').time, paused, 'pause leaves the native clock stationary');
+  host.seekAnimation('lifecycle-distance', 0.05); renderHostFrame(host, 0); near(value(), 0.55, 'ordinary native seek samples the same admitted curve');
+  prepared.play();
+  near(host.getAnimationState('lifecycle-distance').time, 0, 'fresh play does not carry an earlier seek offset');
+  near(host.getAnimationState('lifecycle-distance').duration, 0.2, 'fresh play uses actual sought native contribution');
+  renderHostFrame(host, 0.3); prepared.resume();
+  near(host.getAnimationState('lifecycle-distance').duration, 1e-6, 'held resume remains a valid fresh zero-distance admission');
+  prepared.stop(); prepared.play();
+  near(host.getAnimationState('lifecycle-distance').duration, 0.75, 'stop retires the predecessor instead of retaining a pose ledger');
+  host.bindModel();
+  assert.throws(() => prepared.play(), /obsolete model binding/);
+  host.playSnippet('lifecycle-distance', distanceGoal(0.5), distanceOptions());
+  near(host.getAnimationState('lifecycle-distance').duration, 0.5, 'new binding starts without stale native contribution');
+  host.dispose();
+  assert.throws(() => host.playSnippet('disposed-distance', distanceGoal(0.5), distanceOptions()), /disposed/);
+});
+
+test('live morph-mix changes reject incompatible inheritance while explicit clip overrides remain authoritative', t => {
+  const { host } = fixture(t);
+  host.playSnippet('mix-default', distanceGoal(1), distanceOptions()); renderHostFrame(host, 0.2);
+  const before = host.getAnimationState('mix-default');
+  host.setAUMixWeight(200, 0.4);
+  const catalog = host.getAnimationClips();
+  assert.throws(() => host.playSnippet('mix-default', distanceGoal(0.5), distanceOptions()), /predecessor/);
+  assert.equal(host.getAnimationState('mix-default').actionId, before.actionId);
+  assert.deepEqual(host.getAnimationClips(), catalog, 'incompatible defaults reject before changing the Rust source registry');
+  host.playSnippet('explicit-mix', distanceGoal(1), distanceOptions({}, { mixWeights: { 200: 0.7 } }));
+  renderHostFrame(host, 0.2); host.setAUMixWeight(200, 0.2);
+  host.playSnippet('explicit-mix', distanceGoal(0.5), distanceOptions({}, { mixWeights: { 200: 0.7 } }));
+  near(host.getAnimationState('explicit-mix').duration, 0.3, 'unchanged explicit mix weights preserve their own measurement basis');
+});
 
 test('native registry retains added sources across rebind and rejects invalid replacements atomically', t => {
   const { host, value } = fixture(t);

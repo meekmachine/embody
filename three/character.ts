@@ -17,6 +17,9 @@ import {
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
 import { ThreeNativePlaybackConnector } from './nativePlayback';
 import { withComponentTracks } from './clipBindings';
+import { prepareDistanceTiming, validateDistancePredecessor, validateDistanceTiming } from './inheritedDistanceTiming';
+import type { DistancePredecessor, DistanceTimingOptions, InheritedDistanceBasis } from './inheritedDistanceTiming';
+export type { DistanceTimingOptions } from './inheritedDistanceTiming';
 import type { ThreeNativePlaybackControl, ThreeNativePlaybackEvent, ThreeNativePlaybackOptions } from './nativePlayback';
 
 type JsonObject = Record<string, any>;
@@ -29,7 +32,7 @@ export type RustEmbodyHostConfig = {
   meshes?: Mesh[];
   referencePose?: ThreeModelReferencePose;
 };
-export type CharacterPlaybackOptions = JsonObject;
+export type CharacterPlaybackOptions = JsonObject & { distanceTiming?: DistanceTimingOptions };
 export type CharacterPlaybackEvent = ThreeNativePlaybackEvent & { actionId: string; clipName: string };
 export interface CharacterPlaybackHandle {
   readonly name: string;
@@ -69,6 +72,7 @@ type Playback = {
   connector: ThreeNativePlaybackConnector;
   terminal: boolean;
   inheritedStarts: Map<string, number[]>;
+  distanceBasis?: InheritedDistanceBasis;
   replay(options: CharacterPlaybackOptions): CharacterPlaybackHandle;
   notify(event: CharacterPlaybackEvent): void;
 };
@@ -89,6 +93,8 @@ export function supportsRustEmbodyPreset(value?: string): boolean {
 
 /** Character commands compile in Rust and play exclusively on the native connector. */
 export class Embody {
+  /** Ordinary AU snippet admission capability; not a second playback API. */
+  readonly animationCapabilities = Object.freeze({ distanceTiming: true as const });
   readonly meshes: Mesh[] = [];
   meshByName = new Map<string, Mesh>();
   bones: ThreeModelInspection['bones'] = {};
@@ -479,6 +485,26 @@ export class Embody {
     if (options.easing !== undefined && !['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeInOutCubic'].includes(options.easing)) throw new Error(`Unknown playback easing: ${options.easing}`);
   }
 
+  private distancePredecessor(name: string): DistancePredecessor | undefined {
+    const playback = this.current.get(name);
+    const action = playback?.connector.getAction(playback.id);
+    return playback && action ? { basis: playback.distanceBasis, action, terminal: playback.terminal } : undefined;
+  }
+
+  private validateDistanceSource(source: Source, options: CharacterPlaybackOptions): void {
+    if (options.distanceTiming === undefined) return;
+    if (source.kind !== 'curves') throw new Error('distanceTiming requires ordinary numeric AU curves.');
+    validateDistanceTiming(source.input, options);
+    validateDistancePredecessor(source.input, options, this.distancePredecessor(source.name), this.distanceMixWeights(source, options));
+  }
+
+  private distanceMixWeights(source: Extract<Source, { kind: 'curves' | 'typed' }>, options: CharacterPlaybackOptions): Record<string, number> {
+    // Rust remains authoritative for saved/live morph mixing. Capture only the
+    // effective scalar inputs to this admission, never a second live AU state.
+    return Object.fromEntries(Object.keys(source.input).map(id =>
+      [id, Math.fround(options.mixWeights?.[id] ?? this.core.get_au_mix_weight(Number(id)))]));
+  }
+
   private handle(source: Source, options: CharacterPlaybackOptions, autoPlay: boolean): CharacterPlaybackHandle {
     options = { ...('options' in source ? source.options : {}), ...options };
     const listeners = new Set<(event: CharacterPlaybackEvent) => void>();
@@ -498,8 +524,19 @@ export class Embody {
       if (generation !== this.bindingGeneration) throw new Error('Playback handle belongs to an obsolete model binding.');
       this.validateEasing(options);
       const connector = this.requireConnector();
+      this.validateDistanceSource(source, options);
+      const timing = source.kind !== 'curves' || options.distanceTiming === undefined ? undefined : prepareDistanceTiming(
+        source.input,
+        options, intensity(options), this.distancePredecessor(source.name), this.distanceMixWeights(source, options),
+      );
       const inheritedStarts = new Map<string, number[]>();
       const clip = this.materialize(source, options, inheritedStarts);
+      if (timing) {
+        // The authored goal is nominally one second. Retime only this fresh
+        // native clip at admission; the native action owns all later progress.
+        for (const track of clip.tracks) track.scale(timing.durationSec);
+        clip.duration = timing.durationSec;
+      }
       const hairMotion = this.authoredHeadMotion(clip);
       const previous = this.current.get(source.name);
       const settings = this.nativeOptions(options, clip);
@@ -517,6 +554,7 @@ export class Embody {
       }
       const playback: Playback = {
         id, source, options: { ...options, intensityScale: intensity(options) }, connector, terminal: false, inheritedStarts,
+        distanceBasis: timing?.basis,
         replay: (next) => { options = next; return start(); },
         notify: (event) => {
           if (settled) return;
@@ -554,7 +592,8 @@ export class Embody {
       result.resume = () => {
         ensure();
         if (playback.terminal) {
-          options = { ...playback.options, time: connector.getAction(id)!.time };
+          options = { ...playback.options, time: playback.distanceBasis ? 0 : connector.getAction(id)!.time,
+            ...(playback.distanceBasis ? { offsetSec: 0 } : {}) };
           return start();
         }
         return control({ type: 'resume' });
@@ -580,7 +619,10 @@ export class Embody {
       }
       return result;
     };
-    result.play = () => { if (current) options = { ...current.options }; return start(); };
+    result.play = () => {
+      if (current) options = { ...current.options, ...(current.distanceBasis ? { time: 0, offsetSec: 0 } : {}) };
+      return start();
+    };
     const beforePlay = () => { throw new Error('Play this compiled clip before changing playback.'); };
     // A prepared clip has options but owns no native action to stop or pause.
     result.stop = result.cancel = () => result;
@@ -588,19 +630,21 @@ export class Embody {
     result.updateParams = result.setParams = (patch) => {
       this.assertAlive();
       this.validateEasing(patch);
-      options = { ...options, ...patch };
-      if ('finalPose' in patch && !('clampWhenFinished' in patch)) options.clampWhenFinished = patch.finalPose !== 'release';
-      if ('clampWhenFinished' in patch && !('finalPose' in patch)) options.finalPose = patch.clampWhenFinished === false ? 'release' : 'hold';
-      if ('loop' in patch && !('loopMode' in patch)) options.loopMode = patch.loop ? 'repeat' : 'once';
-      if ('loopMode' in patch && !('repeatCount' in patch)) delete options.repeatCount;
-      if ('weight' in patch || 'intensity' in patch || 'intensityScale' in patch) options.intensityScale = intensity(patch);
-      if ('time' in patch || 'offsetSec' in patch) options.time = patch.time ?? patch.offsetSec;
+      const nextOptions = { ...options, ...patch };
+      if ('finalPose' in patch && !('clampWhenFinished' in patch)) nextOptions.clampWhenFinished = patch.finalPose !== 'release';
+      if ('clampWhenFinished' in patch && !('finalPose' in patch)) nextOptions.finalPose = patch.clampWhenFinished === false ? 'release' : 'hold';
+      if ('loop' in patch && !('loopMode' in patch)) nextOptions.loopMode = patch.loop ? 'repeat' : 'once';
+      if ('loopMode' in patch && !('repeatCount' in patch)) delete nextOptions.repeatCount;
+      if ('weight' in patch || 'intensity' in patch || 'intensityScale' in patch) nextOptions.intensityScale = intensity(patch);
+      if ('time' in patch || 'offsetSec' in patch) nextOptions.time = patch.time ?? patch.offsetSec;
       if ('speed' in patch || 'playbackRate' in patch || 'rate' in patch || 'timeScale' in patch || 'reverse' in patch) {
-        let speed = patch.speed ?? patch.playbackRate ?? patch.rate ?? patch.timeScale ?? options.speed ?? options.playbackRate ?? options.rate ?? options.timeScale ?? 1;
+        let speed = patch.speed ?? patch.playbackRate ?? patch.rate ?? patch.timeScale ?? nextOptions.speed ?? nextOptions.playbackRate ?? nextOptions.rate ?? nextOptions.timeScale ?? 1;
         if ('reverse' in patch) speed = Math.abs(speed) * (patch.reverse ? -1 : 1);
-        options.speed = speed;
-        delete options.reverse;
+        nextOptions.speed = speed;
+        delete nextOptions.reverse;
       }
+      this.validateDistanceSource(source, nextOptions);
+      options = nextOptions;
       return result;
     };
     result.setWeight = result.setIntensity = (value) => result.updateParams({ intensityScale: value });
@@ -615,6 +659,10 @@ export class Embody {
   }
   private updatePlayback(playback: Playback, patch: CharacterPlaybackOptions): void {
     this.validateEasing(patch);
+    if (patch.distanceTiming !== undefined || (playback.distanceBasis &&
+        Object.keys(patch).some(key => !['time', 'offsetSec', 'finalPose', 'clampWhenFinished'].includes(key)))) {
+      throw new Error('distanceTiming playback timing and semantic options require a new ordinary play request.');
+    }
     const connector = playback.connector;
     const action = connector.getAction(playback.id);
     if (connector !== this.connector || !action) throw new Error('Unknown, released or obsolete playback handle.');
@@ -685,9 +733,14 @@ export class Embody {
   private build(source: Source, options: CharacterPlaybackOptions, play: boolean): CharacterPlaybackHandle {
     this.requireModel();
     this.validateEasing(options);
-    this.compile(source, options);
+    this.validateDistanceSource(source, options);
+    // Immediate play validates/measures native distance before materialize()
+    // compiles and registers the source. Prepared authoring still compiles its
+    // nominal source now and resolves timing only when explicitly played.
+    if (!play) this.compile(source, options);
+    const handle = this.handle(source, options, play);
     this.sources.set(source.name, source);
-    return this.handle(source, options, play);
+    return handle;
   }
   buildClip(name: string, curves: JsonObject, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
     if (options.semanticAnimation) throw new Error('Decode legacy named animation tracks to numeric AU curves before building a clip.');
@@ -698,8 +751,14 @@ export class Embody {
     return this.build({ name, kind: 'typed', input: copy(channels), options: copy(options) }, options, false);
   }
   typedSnippetToClip(name: string, channels: any[], options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle { return this.buildTypedClip(name, channels, options); }
+  playSnippet(name: string, curves: JsonObject, options?: CharacterPlaybackOptions): CharacterPlaybackHandle;
+  playSnippet(snippet: { name: string; curves: JsonObject }, options?: CharacterPlaybackOptions): CharacterPlaybackHandle;
   playSnippet(snippet: string | { name: string; curves: JsonObject }, curvesOrOptions: JsonObject = {}, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
-    return typeof snippet === 'string' ? this.buildClip(snippet, curvesOrOptions, options).play() : this.buildClip(snippet.name, snippet.curves, curvesOrOptions).play();
+    const name = typeof snippet === 'string' ? snippet : snippet.name;
+    const curves = typeof snippet === 'string' ? curvesOrOptions : snippet.curves;
+    const playbackOptions = typeof snippet === 'string' ? options : curvesOrOptions;
+    if (playbackOptions.semanticAnimation) throw new Error('Decode legacy named animation tracks to numeric AU curves before building a clip.');
+    return this.build({ name, kind: 'curves', input: copy(curves), options: copy(playbackOptions) }, playbackOptions, true);
   }
   playTypedSnippet(snippet: { name: string; channels: any[] }, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle { return this.buildTypedClip(snippet.name, snippet.channels, options).play(); }
   playClip(value: string | CharacterPlaybackHandle): CharacterPlaybackHandle { return typeof value === 'string' ? this.playAnimation(value) : value.play(); }
@@ -728,7 +787,8 @@ export class Embody {
   resumeAnimation(name: string): void {
     const p = this.current.get(name);
     if (!p) return;
-    if (p.terminal) p.replay({ ...p.options, time: p.connector.getAction(p.id)?.time ?? 0 });
+    if (p.terminal) p.replay({ ...p.options, time: p.distanceBasis ? 0 : p.connector.getAction(p.id)?.time ?? 0,
+      ...(p.distanceBasis ? { offsetSec: 0 } : {}) });
     else p.connector.control(p.id, { type: 'resume' });
   }
   pauseAllAnimations(): void { for (const p of this.playbacks.values()) if (!p.terminal) p.connector.control(p.id, { type: 'pause' }); }
