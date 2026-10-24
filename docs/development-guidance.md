@@ -16,6 +16,37 @@ for CI or package publication. Pass the same restrictions to delegated agents;
 only an explicit user request for the particular check changes this default.
 
 
+## Coding agents: explain the bug before implementing a fix
+
+Before changing code to fix a bug, record a short explanation in the progress
+update and include the confirmed diagnosis in the PR description:
+
+1. State what should happen and what happens instead. Distinguish user reports,
+   source findings, and executed checks; inspecting code is not a reproduction.
+2. Follow the existing input through profile configuration, Rust computation,
+   and the adapter or host output. Cite the relevant files or symbols and inspect
+   the package revision the consumer actually installs.
+3. Identify the code or configuration that explains the difference. Check saved
+   settings and package versions before assuming the algorithm is wrong. If the
+   cause is uncertain, label it as a hypothesis and continue investigating.
+
+Prefer the smallest correction in the component or data responsible. Before
+adding a fallback, bypassing an operation, or duplicating responsibility, explain
+why correcting that existing component or data would not satisfy the supported
+behavior. A working default character does not establish that saved mappings,
+scheduling, or other supported outputs still work.
+
+Add or update a focused regression for CI that would catch the shortcut ignoring
+the contract. Derive expectations from supported behavior and saved settings;
+do not weaken them to match the workaround. Follow the root delivery workflow
+for execution; this guidance adds no local test requirement or approval step.
+
+For example, AU 103 was missing from the [CC4 preset](../assets/presets/cc4.json)
+entry `compositeRotations` → `JAW.pitch.aus`. Adding 103 to that list corrected
+the preset. It did not require a new compiler algorithm or a hardcoded jaw
+rotation in Polymer. Inspect the saved mapping and existing composite rotation
+configuration before changing Rust evaluation or asking a caller to replace it.
+
 ## Make the runtime boundary visible
 
 Trace the affected input through validation, profile/runtime computation, the
