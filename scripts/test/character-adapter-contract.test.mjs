@@ -87,6 +87,76 @@ test('native registry retains added sources across rebind and rejects invalid re
   assert.deepEqual(AnimationClip.toJSON(first), original, 'registration and playback preserve the source');
 });
 
+const additiveHold = (options = {}) => ({ loopMode: 'once', finalPose: 'hold', blendMode: 'additive', ...options });
+const continuumProfile = () => ({
+  ...structuredClone(profile),
+  auToMorphs: { 201: { center: ['Smile'], left: [], right: [] }, 202: { center: ['Other'], left: [], right: [] } },
+  continuumPairs: {
+    201: { pairId: 202, isNegative: true, axis: 'yaw', node: 'Head' },
+    202: { pairId: 201, isNegative: false, axis: 'yaw', node: 'Head' },
+  },
+});
+const continuumGoal = (negative, positive) => ({
+  201: [{ time: 0, intensity: 0, inherit: true }, { time: 1, intensity: negative }],
+  202: [{ time: 0, intensity: 0, inherit: true }, { time: 1, intensity: positive }],
+});
+
+test('semantic slot reads follow native travel, hold, chained inheritance and release', t => {
+  const { host } = fixture(t);
+  host.playSnippet('slot', curves(0, 0.8, 1, true), additiveHold());
+  renderHostFrame(host, 0.5); near(host.readAUContribution('slot')['200'], 0.4, 'read during travel');
+  renderHostFrame(host, 0.6); near(host.readAUContribution('slot')['200'], 0.8, 'read of a held destination');
+  host.playSnippet('slot', curves(0, 0, 1, true), additiveHold());
+  near(host.readAUContribution('slot')['200'], 0.8, 'replacement inherits the semantic start');
+  renderHostFrame(host, 0.5); near(host.readAUContribution('slot')['200'], 0.4, 'chained replacement midpoint');
+  host.stopAnimation('slot');
+  assert.equal(host.readAUContribution('slot'), null, 'a released slot is not readable');
+});
+
+test('re-acquiring an additive slot mid-fade continues from its faded contribution', t => {
+  const { host, value } = fixture(t);
+  const handle = host.playSnippet('fading', curves(0, 1, 1, true), additiveHold({ fadeOutSec: 1 }));
+  renderHostFrame(host, 1.01); near(value(), 1, 'held destination');
+  handle.stop();
+  renderHostFrame(host, 0.5);
+  const faded = value();
+  assert.ok(faded > 0.3 && faded < 0.7, `fade is in progress (${faded})`);
+  near(host.readAUContribution('fading')['200'], faded, 'semantic read reports value x weight');
+  host.playSnippet('fading', curves(0, 0, 1, true), additiveHold());
+  renderHostFrame(host, 0); near(value(), faded, 'replacement starts at the faded pose without a jump');
+});
+
+test('AU state reads sum live controls and AU-curve clips and list baked clips as unreadable', t => {
+  const { host } = fixture(t, { config: { profileMode: 'profile', profile: continuumProfile() } });
+  host.setAU(201, 0.25);
+  host.playSnippet('curve', { 202: [{ time: 0, intensity: 0 }, { time: 1, intensity: 0.5 }] }, additiveHold());
+  host.registerAnimationClips([morphClip('baked', [0.2, 0.2], 2)]);
+  host.playAnimation('baked', { loop: true });
+  renderHostFrame(host, 1.01);
+  const state = host.readAUState();
+  near(state.live['201'], 0.25, 'live control value');
+  near(state.animated['202'], 0.5, 'AU-curve clip contribution');
+  near(state.total['201'], 0.25, 'total includes live state');
+  near(state.total['202'], 0.5, 'total includes clip contributions');
+  assert.deepEqual(state.unreadable, ['baked'], 'baked clips are reported, never estimated');
+});
+
+test('AU goal measurement uses signed continuum distance and unfinished reversal', t => {
+  const { host } = fixture(t, { config: { profileMode: 'profile', profile: continuumProfile() } });
+  host.playSnippet('axis', continuumGoal(0.3, 0), additiveHold()); renderHostFrame(host, 1.01);
+  let goal = host.measureAUGoal('axis', { 201: 0, 202: 0.3 });
+  near(goal.distance, 0.6, 'negative 0.3 to positive 0.3 is 0.6 continuum units');
+  assert.equal(goal.reversal, false, 'a held slot has no unfinished travel');
+  near(host.measureAUGoal('axis', { 201: 0, 202: 0.5 }).distance, 0.8, 'held negative 0.3 to positive 0.5');
+  host.playSnippet('axis', continuumGoal(0.6, 0), additiveHold()); renderHostFrame(host, 0.5);
+  goal = host.measureAUGoal('axis', { 201: 0, 202: 0.2 });
+  near(goal.current['201'], 0.45, 'current contribution mid-travel');
+  near(goal.distance, 0.65, 'negative 0.45 to positive 0.2');
+  assert.equal(goal.reversal, true, 'moving negative, then requesting positive, reverses unfinished travel');
+  near(host.measureAUGoal('missing', { 201: 0.5 }).distance, 0.5, 'a slot that is not playing is at zero');
+  assert.throws(() => host.measureAUGoal('axis', { smile: 1 }), /numeric AU id/);
+});
+
 test('normal same-name replacement inherits the current rendered sample', t => {
   const { host, value } = fixture(t);
   host.playSnippet('inherited', curves(0, 1), { loop: false, blendMode: 'replace' });

@@ -95,7 +95,11 @@ const jawScale: number = runtime.get_viseme_jaw_scale(0);
 const frame: Float32Array = runtime.evaluate_active_morph_frame();
 const clip: string = runtime.build_clip('smile', '{}', '{}');
 const live: string = runtime.build_live_clip('live', 0.2);
-const release: string = runtime.build_live_release_clip('release', live, 0.2);
+runtime.record_semantic_slot('smile', '{}', 1, 'linear', Number.NaN, 1);
+const slot: string = runtime.read_semantic_slot('smile', 0, 1);
+const state: string = runtime.read_semantic_state('[]');
+const goal: string = runtime.measure_au_goal('smile', 0, 1, '{}', false);
+const released: boolean = runtime.release_semantic_slot('smile');
 const removed: boolean = runtime.remove_animation_clip('smile');
 runtime.free();
 

@@ -32,6 +32,33 @@ must retain ClipIR and convert it again at playback; simply updating this packag
 does not repair that host's cached replay path. Resume, seek and loop cycles on
 an existing action retain the same captured start rather than sampling again.
 
+## Additive replacement and weights
+
+`Embody` playback refines the rendered-pose capture for additive requests.
+When a same-name action is replaced, an additive replacement inherits that
+slot's **own** previous contribution rather than the mixed pose, so offsets
+from other additive clips are not counted twice. Normal-blend replacements keep
+the rendered-pose capture above.
+
+Inheritance uses the outgoing action's effective weight. A fading action
+contributes value × weight; the incoming start is that contribution expressed
+at the incoming action's weight (`outgoing weight / incoming mixerWeight`).
+Additive offsets scale toward neutral, and normal samples move toward the
+captured reference. Re-acquiring a slot during a fade therefore continues from
+the faded pose instead of jumping back to the unfaded track value. Live
+controls apply the same rule to each live target's own outgoing action.
+
+## Semantic AU records
+
+For AU-curve sources (`buildClip`/`playSnippet`), Rust also records the clip's
+authored AU keys at admission. An inherited first key resolves to the same-name
+predecessor's semantic value at its native time, scaled by the same weight
+ratio, or zero when there is none. These records are immutable apart from
+strength/easing edits and are evaluated only when a host reads them
+(`readAUContribution`, `readAUState`, `measureAUGoal`; see the README). They do
+not tick, sample frames or drive playback. Viseme and named-morph curves,
+typed channels and native clips have no AU identity to record.
+
 ## Delayed first keys
 
 Timestamps are not rewritten. If the inherited first key is at 0.5 seconds, its
