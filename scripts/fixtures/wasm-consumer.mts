@@ -37,6 +37,8 @@ import {
   type AnnotationCharacterConfig,
   type MarkerStateSnapshot,
   type DPthreeCameraControllerConfig,
+  type DistanceTimingOptions,
+  type CharacterPlaybackOptions,
 } from '@lovelace_lol/embody/three';
 
 const annotationProfile: AnnotationCharacterConfig = { characterId: 'consumer', auPresetType: 'cc4' };
@@ -61,6 +63,17 @@ controller.focusRegion(123);
 
 const core: EmbodyCore = await initEmbodyCore();
 const character = new Embody({ profileMode: 'profile', profile: {} });
+const nativeDistanceTiming: DistanceTimingOptions = { unitsPerSecond: 1, minimumDurationSec: 0.1, reversalExtraSec: 0.2 };
+const numericAUPlayback: CharacterPlaybackOptions = { blendMode: 'additive', distanceTiming: nativeDistanceTiming };
+const distanceSupported: true = character.animationCapabilities.distanceTiming;
+void [numericAUPlayback, distanceSupported];
+// @ts-expect-error Native timing capability is read-only.
+character.animationCapabilities.distanceTiming = false;
+const invalidDistanceTiming: DistanceTimingOptions = {
+  // @ts-expect-error AU speed is numeric native-time units, not a named speed preset.
+  unitsPerSecond: 'slow',
+};
+void invalidDistanceTiming;
 const rootAUs: RootAUDescriptor[] = rootAUDescriptors({});
 const wasmAUs: WasmAUDescriptor[] = wasmAUDescriptors({}, { bones: [] });
 const threeAUs: ThreeAUDescriptor[] = threeAUDescriptors({});

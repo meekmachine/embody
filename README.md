@@ -543,6 +543,40 @@ Reset an authored control by setting its mapped AU values to zero. Hosts select
 which mapped AU IDs to reset; unrelated face state and saved mix strengths remain
 under their existing owners.
 
+For an ordinary two-key inherited AU goal, `playSnippet` also accepts typed
+`DistanceTimingOptions` through `distanceTiming`:
+
+```ts
+host.playSnippet('head-follow', {
+  901: [{ time: 0, intensity: 0, inherit: true }, { time: 1, intensity: 0.65 }],
+}, {
+  blendMode: 'additive', loopMode: 'once', finalPose: 'hold',
+  distanceTiming: { unitsPerSecond: 1, minimumDurationSec: 0, reversalExtraSec: 0.1 },
+});
+```
+
+The destination is authored at nominal one second. At each actual play, the
+host samples the same-name predecessor's AU measurement tracks using Three's
+native interpolant and native action time. The largest remaining AU delta sets
+the new duration; the native clip then plays normally. A minimum duration and
+extra duration for an unfinished reversal default to zero. Identical goals use
+a microhold. `intensityScale`, including zero, scales the destination without
+rescaling the inherited start. Rust still resolves every saved bone and morph
+output, balance and mix weight. These are semantic AU units per native playback
+second, not joint degrees or the combined pose from other animations.
+
+`host.animationCapabilities.distanceTiming === true` advertises this admission
+capability; callers must reject unsupported hosts instead of silently treating
+AU/s as a playback-rate multiplier. Initial support requires numeric AU curves
+with exactly those two key times, linear additive once playback, stable AU keys
+and compilation bindings, unit native speed/weight, and no fades or offsets.
+Nonlinear easing, native FBX/bone/morph clips and typed-channel inputs reject
+this option; their ordinary playback remains available without it. Change
+timing, strength or semantic options through a new ordinary play request.
+See [inherited clip starts](docs/INHERITED_CLIP_STARTS.md#distance-based-au-admission)
+for lifecycle, precision and failure rules. Polymer/application integration and
+published package adoption remain downstream work.
+
 Named semantic pose/animation APIs and profile `bodyControls` are retired.
 Persisted named records must be decoded at the storage boundary to numeric AU
 values/curves, using their original profile mappings. `LEGACY_BODY_CONTROL_AUS`
