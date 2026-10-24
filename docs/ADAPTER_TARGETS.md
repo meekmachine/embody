@@ -7,7 +7,12 @@ Embody's renderer-neutral runtime is Rust/Wasm. A renderer adapter may only:
    `serializeAnimationClips`);
 3. apply packed Rust **live** frame writes to engine objects;
 4. schedule ClipIR on the host animation mixer (playback/lerp/blend);
-5. perform engine-owned resource operations such as loading and disposal.
+5. perform engine-owned resource operations such as loading and disposal;
+6. observe the rendered pose once per host render step, after the mixer has
+   sampled, and pass primitive data to Rust (the Three character host does this
+   for the [hair head response](../README.md#hair-motion)). Observation borrows
+   the host's render step; an adapter must not start its own loop, interval or
+   animation frame request for it.
 
 An adapter must not resolve profiles, classify mesh categories, or maintain a
 second copy of AU/viseme runtime state. Clip time evaluation, blending, and

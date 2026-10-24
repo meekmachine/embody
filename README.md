@@ -20,10 +20,11 @@ wasm/                Generated-Wasm JS loader + ABI constants
 index.ts             Package re-exports only
 ```
 
-There is no parallel TypeScript hair/physics/runtime core. Hair idle, impulse,
-gravity curves and the spring solver live in `src/hair_curves.rs` /
+There is no parallel TypeScript hair/physics/runtime core. Hair idle, impulse
+and gravity curves and the head response spring live in `src/hair_curves.rs` /
 `src/hair.rs` and are exported through Wasm. Hosts schedule the resulting
-ClipIR on their mixer; they must not reimplement hair sampling in TS.
+ClipIR on their mixer; they must not reimplement hair sampling in TS. See
+[Hair motion](#hair-motion) for how the character host drives them.
 
 The Rust core owns:
 
@@ -160,6 +161,49 @@ function update(dtSeconds: number) {
 
 Application-facing JavaScript APIs belong in the host package. Polymer owns
 the CLJS character host used by LoomLarge and calls the Wasm exports directly.
+
+### Hair motion
+
+When the profile enables `hairPhysics` and the bound model has `hair`/`eyebrow`
+category meshes, the Three character host (`createRustEmbodyHost`) plays two
+hair-owned additive actions on the native mixer:
+
+- `__embody_hair_idle`, a looping idle/wind clip compiled by
+  `build_hair_idle_curves` when `idleSwayAmount` or `windStrength` is positive;
+- `__embody_hair_head_response`, a held zero-duration clip with one scalar
+  track per configured hair morph (`RuntimeCore.build_hair_head_response_clip`).
+
+Hair responds to the head's **rendered** motion, not to clip requests. After
+the render integration (`renderScenePlayback`/`createScenePlaybackFrame`) has
+advanced every mixer, the native connector calls the character once for that
+render step. The character reads the model-space rotation of the profile's
+humanoid `head` role bone (`RuntimeCore.hair_head_bone_name`), including any
+parent neck/spine rotation, and passes it with the captured reference rotation
+to `RuntimeCore.step_hair_head_response(mixerDeltaSeconds, head, reference)`.
+Rust advances a damped spring per axis (yaw, pitch) using the configured
+`stiffness`, `damping`, `inertia`, `gravity`, `responseScale` and `direction`,
+adds the `headUp`/`headDown` gravity weights for the current pitch, and returns
+one weight in `[0, 2]` per response track. The character writes those weights
+into the held action's single keyframes; the mixer samples them on its next
+update, so hair trails the observed head pose by one render step. Head motion
+from snippets, baked clips, tracking or direct bone writes is handled the same
+way. Repeated retargets that leave the head where it is produce no response.
+
+Playing, replaying or retargeting a clip performs no hair work. There is no hair
+timer, interval or animation frame request: the response runs only when the
+host renders. `Embody.stop()` suspends it with the rest of playback; a mixer
+speed of zero observes without advancing; a step longer than 0.1 s (for example
+after a suspended tab) re-anchors the spring at the observed pose instead of
+integrating a jump. Changing the hair configuration, rebinding the model or
+changing the profile rebuilds both hair actions and resets the spring; disposal
+removes the render-step hook with the connector. A profile without a humanoid
+`head` role plays no response action.
+
+Hair actions are owned by the character, not by callers. `stopAllAnimations`,
+`crossfadeTo`, `pauseAllAnimations` and `resumeAllAnimations` leave them
+running; live setter targets are likewise excluded from Stop All and crossfade.
+`playHairImpulse(horizontal, vertical)` remains an explicit request for a
+one-shot impulse clip and is never triggered by clip admission.
 
 ### Direct viseme snapshots
 
