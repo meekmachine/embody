@@ -2,7 +2,7 @@ import {
   AdditiveAnimationBlendMode, AnimationClip, AnimationUtils, LoopOnce, LoopPingPong,
   NormalAnimationBlendMode, PropertyBinding, Quaternion, Euler, InterpolateDiscrete, InterpolateLinear,
 } from 'three';
-import type { KeyframeTrack, Mesh, Object3D } from 'three';
+import type { AnimationAction, KeyframeTrack, Mesh, Object3D } from 'three';
 import type { AUDescriptor } from '@lovelace_lol/embody/wasm';
 import { initEmbodyCore, requireInitializedEmbodyCore, DEFAULT_HAIR_COLOR_APPEARANCE } from '@lovelace_lol/embody/wasm';
 import type { RuntimeCore } from '@lovelace_lol/embody/wasm';
@@ -323,6 +323,18 @@ export class Embody {
     }
   }
 
+  private ownContributionValues(track: KeyframeTrack, index: number, outgoing?: AnimationAction, boundName = track.name): number[] | undefined {
+    const rest = this.restValues(track);
+    const candidates = outgoing?.getClip().tracks;
+    const oldTrack = candidates?.[index]?.name === boundName ? candidates[index] : candidates?.find((candidate) => candidate.name === boundName);
+    if (!oldTrack || !outgoing) return rest;
+    const sample = Array.from((oldTrack as NativeTrack).createInterpolant().evaluate(outgoing.time));
+    if (outgoing.blendMode !== AdditiveAnimationBlendMode || !rest) return sample;
+    return track.ValueTypeName === 'quaternion'
+      ? new Quaternion().fromArray(rest).multiply(new Quaternion().fromArray(sample)).toArray()
+      : sample.map((value, axis) => value + rest[axis]);
+  }
+
   private materialize(source: Source, options: CharacterPlaybackOptions, inheritedStarts = new Map<string, number[]>()): AnimationClip {
     if (!this.inspection) throw new Error('Character has no model inspection.');
     const nativeSource = source.kind === 'native';
@@ -343,17 +355,7 @@ export class Embody {
         if (!previous && options.blendMode === 'additive') {
           // Additive inheritance belongs to this request's contribution, not
           // the full mixed pose containing baked clips and other controls.
-          const rest = this.restValues(track);
-          const candidates = outgoing?.getClip().tracks;
-          const oldTrack = candidates?.[index]?.name === track.name ? candidates[index] : candidates?.find((candidate) => candidate.name === track.name);
-          if (oldTrack && outgoing) {
-            previous = Array.from((oldTrack as NativeTrack).createInterpolant().evaluate(outgoing.time));
-            if (outgoing.blendMode === AdditiveAnimationBlendMode && rest) {
-              previous = track.ValueTypeName === 'quaternion'
-                ? new Quaternion().fromArray(rest).multiply(new Quaternion().fromArray(previous)).toArray()
-                : previous.map((value, axis) => value + rest[axis]);
-            }
-          } else if (rest) previous = rest;
+          previous = this.ownContributionValues(track, index, outgoing);
         }
         if (previous) track.values.set(previous, 0);
         inheritedStarts.set(startKey, previous ?? Array.from(track.values.subarray(0, track.getValueSize())));
@@ -539,7 +541,7 @@ export class Embody {
         for (const track of clip.tracks) track.scale(timing.durationSec);
         clip.duration = timing.durationSec;
       }
-      const hairMotion = this.authoredHeadMotion(clip);
+      const hairMotion = this.authoredHeadMotion(clip, inheritedStarts);
       const previous = this.current.get(source.name);
       const settings = this.nativeOptions(options, clip);
       if (previous && connector.getAction(previous.id)) settings.replace = previous.id;
@@ -617,7 +619,7 @@ export class Embody {
       }
       if (hairMotion && connector.getAction(id)) {
         this.playHairImpulse(hairMotion.horizontal, hairMotion.vertical);
-        this.setHairGravity(hairMotion.pitch, clip.duration);
+        if (hairMotion.affectsPitch) this.setHairGravity(hairMotion.pitch, clip.duration);
       }
       return result;
     };
@@ -984,12 +986,15 @@ export class Embody {
     if (state.position) mesh.position.set(state.position.x, state.position.y, state.position.z);
     if (state.color) this.applier.applyHairAppearance([mesh], state.color);
   }
-  private authoredHeadMotion(clip: AnimationClip): { horizontal: number; vertical: number; pitch: number } | undefined {
+  private authoredHeadMotion(clip: AnimationClip, inheritedStarts: ReadonlyMap<string, number[]>): { horizontal: number; vertical: number; pitch: number; affectsPitch: boolean } | undefined {
     if (!this.hairConfig.enabled || clip.name.startsWith('__embody_hair') || !this.hairObjects.size) return undefined;
     // Serialize native bindings and sample storage only. The core resolves the
     // character's head role and compiles its configured hair response.
     const tracks: Array<{ boneName: string; current: number[]; reference: number[]; samples: number[][] }> = [];
-    for (const track of clip.tracks) {
+    const additive = clip.blendMode === AdditiveAnimationBlendMode;
+    const predecessor = this.current.get(clip.name);
+    const outgoing = predecessor?.connector.getAction(predecessor.id);
+    for (const [index, track] of clip.tracks.entries()) {
       if (track.ValueTypeName !== 'quaternion') continue;
       const parsed = PropertyBinding.parseTrackName(track.name);
       let object = PropertyBinding.findNode(this.requireModel(), parsed.nodeName) as Object3D | undefined;
@@ -1007,9 +1012,16 @@ export class Embody {
         const offset = index * stride + (cubic ? 4 : 0);
         samples.push(Array.from(track.values.subarray(offset, offset + 4)));
       }
-      tracks.push({ boneName: object.name, current: object.quaternion.toArray(), reference, samples });
+      // A partial additive head clip owns only its own contribution. Comparing
+      // it with the mixed head pose would make a yaw update appear to move pitch.
+      // Native imported names remain authored here, while outgoing mixer tracks
+      // use UUID bindings. Compare the resolved destination in both cases.
+      const current = additive
+        ? inheritedStarts.get(`${index}:${track.name}`) ?? this.ownContributionValues(track, index, outgoing, `${object.uuid}.${parsed.propertyName}`) ?? reference
+        : object.quaternion.toArray();
+      tracks.push({ boneName: object.name, current, reference, samples });
     }
-    return parse(this.core.resolve_hair_motion_json(json(tracks), clip.blendMode === AdditiveAnimationBlendMode)) ?? undefined;
+    return parse(this.core.resolve_hair_motion_json(json(tracks), additive)) ?? undefined;
   }
   private setHairGravity(pitch: number, durationSeconds: number): void {
     const clip = parse<ClipIR>(this.core.build_hair_gravity_clip('__embody_hair_gravity', pitch, durationSeconds, json({ meshNames: [...this.hairObjects.keys()], source: 'hair' })));

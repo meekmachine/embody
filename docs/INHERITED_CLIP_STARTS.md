@@ -55,6 +55,30 @@ only the first generated sample does not recompute intermediate dependencies.
 The distance-timing capability below deliberately accepts only two-key numeric
 AU goals; it does not claim general inherited semantic-curve parity.
 
+## Hair response during head retargeting
+
+Head movement can replace a hair impulse repeatedly while mouse or face tracking
+changes its destination. Rust marks the first key of every impulse channel as
+inherited, including channels whose new authored starting amount is zero. The
+native adapter captures only the outgoing impulse's own contribution before
+replacement. Idle sway and gravity remain separate additive actions; replacing
+the impulse neither restarts them nor copies them into the new impulse. Later
+oscillation/decay keys remain authored by Rust, and each impulse ends at zero
+before release.
+
+For additive head clips, the adapter supplies the outgoing same-name native
+contribution as the response baseline, reusing the captured inherited start when
+available. A held pitch from another action must not become a false vertical
+impulse when yaw changes. Fixed-first clips still measure their authored jump
+against their own previous contribution. No aggregate head-pose cache or frame
+sampler is introduced.
+
+Rust's hair-motion result includes `affectsPitch`. The adapter replaces gravity
+only for pitch-bearing motion; yaw and roll leave a separate held pitch response
+running. A pitched inherited start returning to zero still updates gravity to
+neutral. Separate independently authored pitch-bearing actions are not combined
+into an aggregate gravity solver by this contract.
+
 ## Distance-based AU admission
 
 `Embody.animationCapabilities` is a frozen read-only capability object containing

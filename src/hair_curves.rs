@@ -168,7 +168,13 @@ pub(crate) struct NativeQuaternionTrack {
     pub samples: Vec<[f32; 4]>,
 }
 #[derive(Serialize, Debug)]
-pub(crate) struct HairMotion { pub horizontal: f32, pub vertical: f32, pub pitch: f32 }
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HairMotion {
+    pub horizontal: f32,
+    pub vertical: f32,
+    pub pitch: f32,
+    pub affects_pitch: bool,
+}
 
 fn inverse(q: [f32; 4]) -> [f32; 4] { [-q[0], -q[1], -q[2], q[3]] }
 fn yaw_pitch(q: [f32; 4]) -> (f32, f32) {
@@ -196,6 +202,7 @@ pub(crate) fn authored_motion(
     });
     let head_name=resolved_head.or(configured_head);
     let (mut yaw, mut pitch, mut target_pitch) = (0.0_f32, 0.0_f32, 0.0_f32);
+    let mut affects_pitch = false;
     for track in tracks.iter().filter(|track| head_name.as_deref()==Some(track.bone_name.as_str())) {
         if std::iter::once(&track.current).chain(std::iter::once(&track.reference)).chain(&track.samples)
             .any(|q| q.iter().any(|value| !value.is_finite()) || q.iter().map(|v| v * v).sum::<f32>() <= f32::EPSILON) {
@@ -203,9 +210,15 @@ pub(crate) fn authored_motion(
         }
         let current = crate::bones::normalize_quat(track.current);
         let reference = crate::bones::normalize_quat(track.reference);
+        let reference_inverse = inverse(reference);
+        affects_pitch |= yaw_pitch(crate::bones::multiply_quat(reference_inverse, current)).1.abs() > 1e-5;
         for (index, sample) in track.samples.iter().enumerate() {
             let sample = if additive { crate::bones::multiply_quat(reference, *sample) } else { crate::bones::normalize_quat(*sample) };
-            if index + 1 == track.samples.len() { target_pitch = yaw_pitch(crate::bones::multiply_quat(inverse(reference), sample)).1; }
+            let sample_pitch = yaw_pitch(crate::bones::multiply_quat(reference_inverse, sample)).1;
+            // Include an inherited pitched start even when the goal is neutral.
+            // Yaw/roll-only contributions must not replace pitch-owned gravity.
+            affects_pitch |= sample_pitch.abs() > 1e-5;
+            if index + 1 == track.samples.len() { target_pitch = sample_pitch; }
             let delta = yaw_pitch(crate::bones::multiply_quat(inverse(current), sample));
             if delta.0.abs() > yaw.abs() { yaw = delta.0; }
             if delta.1.abs() > pitch.abs() { pitch = delta.1; }
@@ -216,6 +229,7 @@ pub(crate) fn authored_motion(
         horizontal: yaw * config.inertia * config.response_scale * config.direction.yaw_sign,
         vertical: pitch * config.gravity * 0.25 * config.response_scale * config.direction.pitch_sign,
         pitch: target_pitch * config.direction.pitch_sign,
+        affects_pitch,
     };
     if [motion.horizontal, motion.vertical, motion.pitch].iter().any(|value| !value.is_finite()) {
         return Err("Configured hair response exceeds finite motion limits.".into());
@@ -246,7 +260,11 @@ pub(crate) fn gravity_pose_curves(config: &HairPlaybackConfig, pitch: f32, durat
 struct CurvePoint {
     time: f32,
     intensity: f32,
+    #[serde(skip_serializing_if = "is_false")]
+    inherit: bool,
 }
+
+fn is_false(value: &bool) -> bool { !*value }
 
 fn push_point(
     curves: &mut std::collections::BTreeMap<String, Vec<CurvePoint>>,
@@ -261,7 +279,7 @@ fn push_point(
     curves
         .entry(key.clone())
         .or_default()
-        .push(CurvePoint { time, intensity });
+        .push(CurvePoint { time, intensity, inherit: false });
 }
 
 pub fn build_idle_wind_curves(config: &HairCurveConfig, duration_sec: f32) -> Value {
@@ -371,6 +389,11 @@ pub fn build_impulse_curves(
     }
 
     for points in curves.values_mut() {
+        // Same-name native replacement starts from this impulse's outgoing
+        // contribution, without inheriting independent hair idle or gravity.
+        if let Some(first) = points.first_mut() {
+            first.inherit = true;
+        }
         if let Some(last) = points.last_mut() {
             last.intensity = 0.0;
         }
@@ -398,14 +421,17 @@ pub fn build_gravity_curves(config: &HairCurveConfig) -> Value {
                 CurvePoint {
                     time: 0.0,
                     intensity: up,
+                    inherit: false,
                 },
                 CurvePoint {
                     time: 0.5,
                     intensity: 0.0,
+                    inherit: false,
                 },
                 CurvePoint {
                     time: 1.0,
                     intensity: down,
+                    inherit: false,
                 },
             ],
         );
@@ -497,13 +523,69 @@ mod tests {
         let track = NativeQuaternionTrack { bone_name:"CustomHead".into(), current:[0.0,0.0,0.0,1.0], reference:[0.0,0.0,0.0,1.0], samples:vec![sample] };
         let motion = authored_motion(&config, &profile, None, &[track], false).unwrap().unwrap();
         assert!((motion.horizontal + 3.0).abs() < 1e-5);
+        assert!(!motion.affects_pitch);
+        assert_eq!(serde_json::to_value(&motion).unwrap()["affectsPitch"], false);
         let reference = crate::bones::quat_from_channel(0, 0.3);
         let track = NativeQuaternionTrack { bone_name:"CustomHead".into(), current:reference, reference, samples:vec![crate::bones::quat_from_channel(0, 0.2)] };
         let motion = authored_motion(&config, &profile, None, &[track], true).unwrap().unwrap();
         assert!((motion.vertical - 0.6).abs() < 1e-5);
         assert!((motion.pitch - 0.2).abs() < 1e-5);
+        assert!(motion.affects_pitch);
         let unrelated = NativeQuaternionTrack { bone_name:"Hand".into(), current:reference, reference, samples:vec![sample] };
         assert!(authored_motion(&config, &profile, None, &[unrelated], false).unwrap().is_none());
+    }
+
+    #[test]
+    fn yaw_and_roll_contributions_do_not_claim_pitch_gravity() {
+        let profile = serde_json::from_value(json!({
+            "boneNodes":{"head":"CustomHead"}, "humanoidCharacterization":{"schemaVersion":1,"standard":"VRMC_vrm-1.0","roles":{"head":{"nodeKey":"head"}}}
+        })).unwrap();
+        let config = normalize_config(&HairPlaybackConfig::default(), &json!({"enabled":true,"inertia":1,"gravity":1})).unwrap();
+        let reference = crate::bones::quat_from_channel(0, 0.3);
+        for additive in [false, true] {
+            let yaw_start = crate::bones::quat_from_channel(1, 0.1);
+            let yaw_goal = crate::bones::quat_from_channel(1, 0.5);
+            let samples = if additive { vec![yaw_start, yaw_goal] }
+                else { vec![crate::bones::multiply_quat(reference, yaw_start), crate::bones::multiply_quat(reference, yaw_goal)] };
+            let track = NativeQuaternionTrack { bone_name:"CustomHead".into(),
+                current:crate::bones::multiply_quat(reference, yaw_start), reference, samples };
+            let motion = authored_motion(&config, &profile, None, &[track], additive).unwrap().unwrap();
+            assert!((motion.horizontal - 0.4).abs() < 1e-5);
+            assert!(!motion.affects_pitch);
+            assert!(motion.pitch.abs() < 1e-5);
+
+            let roll_start = crate::bones::quat_from_channel(2, 0.1);
+            let roll_goal = crate::bones::quat_from_channel(2, 0.5);
+            let samples = if additive { vec![roll_start, roll_goal] }
+                else { vec![crate::bones::multiply_quat(reference, roll_start), crate::bones::multiply_quat(reference, roll_goal)] };
+            let track = NativeQuaternionTrack { bone_name:"CustomHead".into(),
+                current:crate::bones::multiply_quat(reference, roll_start), reference, samples };
+            assert!(authored_motion(&config, &profile, None, &[track], additive).unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn pitch_return_to_neutral_claims_gravity_and_fixed_one_key_pitch_still_causes_a_response() {
+        let profile = serde_json::from_value(json!({
+            "boneNodes":{"head":"CustomHead"}, "humanoidCharacterization":{"schemaVersion":1,"standard":"VRMC_vrm-1.0","roles":{"head":{"nodeKey":"head"}}}
+        })).unwrap();
+        let config = normalize_config(&HairPlaybackConfig::default(), &json!({"enabled":true,"inertia":1,"gravity":4})).unwrap();
+        let reference = crate::bones::quat_from_channel(1, 0.2);
+        let pitched = crate::bones::quat_from_channel(0, 0.4);
+        let track = NativeQuaternionTrack { bone_name:"CustomHead".into(),
+            current:crate::bones::multiply_quat(reference, pitched), reference,
+            samples:vec![pitched, [0.0, 0.0, 0.0, 1.0]] };
+        let motion = authored_motion(&config, &profile, None, &[track], true).unwrap().unwrap();
+        assert!(motion.affects_pitch);
+        assert!(motion.pitch.abs() < 1e-5);
+        assert!((motion.vertical + 0.4).abs() < 1e-5);
+
+        let fixed = crate::bones::quat_from_channel(0, 0.25);
+        let track = NativeQuaternionTrack { bone_name:"CustomHead".into(), current:reference, reference, samples:vec![fixed] };
+        let motion = authored_motion(&config, &profile, None, &[track], true).unwrap().unwrap();
+        assert!(motion.affects_pitch);
+        assert!((motion.pitch - 0.25).abs() < 1e-5);
+        assert!((motion.vertical - 0.25).abs() < 1e-5);
     }
 
     #[test]
@@ -533,6 +615,51 @@ mod tests {
         let curves = build_impulse_curves(&test_config(), 0.75, 1.0, 0.0);
         let left = curves["L"].as_array().unwrap();
         assert_eq!(left[left.len() - 1]["intensity"], 0.0);
+    }
+
+    #[test]
+    fn impulse_replacement_inherits_only_its_first_key_and_retains_authored_decay() {
+        let mut config = test_config();
+        config.stiffness = 2.5;
+        config.damping = 0.25;
+        let curves = build_impulse_curves(&config, 1.0, 1.0, 0.5);
+        let object = curves.as_object().unwrap();
+        assert_eq!(object.len(), 5);
+        for points in object.values() {
+            let points = points.as_array().unwrap();
+            assert_eq!(points.len(), 31);
+            assert_eq!(points[0]["time"], 0.0);
+            assert_eq!(points[0]["inherit"], true);
+            assert!(points[1..].iter().all(|point| point.get("inherit").is_none()));
+            assert_eq!(points.last().unwrap()["time"], 1.0);
+            assert_eq!(points.last().unwrap()["intensity"], 0.0);
+        }
+        // The nominal first peak remains authored data; the native mixer alone
+        // replaces it at admission. Later oscillation and decay are unchanged.
+        assert_eq!(curves["L"][0]["intensity"], 1.0);
+        assert_eq!(curves["F"][0]["intensity"], 0.5);
+        let first_swing = 0.5_f64 * (-1.0_f64 / 3.0).exp();
+        let opposite_swing = 0.5_f64 * (-2.0_f64 / 3.0).exp();
+        assert!((curves["L"][10]["intensity"].as_f64().unwrap() - first_swing).abs() < 1e-6);
+        assert!((curves["F"][10]["intensity"].as_f64().unwrap() - first_swing * 0.5).abs() < 1e-6);
+        assert!((curves["R"][20]["intensity"].as_f64().unwrap() - opposite_swing).abs() < 1e-6);
+        assert!((curves["FR"][20]["intensity"].as_f64().unwrap() - opposite_swing * 0.7).abs() < 1e-6);
+        assert_eq!(curves["L"][20]["intensity"], 0.0);
+        assert_eq!(curves["F"][20]["intensity"], 0.0);
+    }
+
+    #[test]
+    fn idle_and_gravity_curve_serialization_remain_plain_authored_samples() {
+        let config = test_config();
+        for curves in [build_idle_wind_curves(&config, 1.0), build_gravity_curves(&config)] {
+            for points in curves.as_object().unwrap().values() {
+                for point in points.as_array().unwrap() {
+                    assert_eq!(point.as_object().unwrap().len(), 2);
+                    assert!(point.get("inherit").is_none());
+                }
+            }
+        }
+        assert_eq!(build_gravity_curves(&config)["Up"][0], json!({"time":0.0,"intensity":1.0}));
     }
 
     #[test]

@@ -453,6 +453,119 @@ for (const preset of ['cc4', 'fish']) {
   });
 }
 
+function trackingHairFixture(t) {
+  const rig = model(0, 0);
+  const names = ['SwayLeft', 'SwayRight', 'SwayFront', 'FluffRight', 'FluffBottom', 'HeadUp', 'HeadDown'];
+  const hair = mesh('TrackingHair', names); rig.root.add(hair);
+  const savedProfile = {
+    boneNodes: { SAVED_HEAD: 'Head' },
+    humanoidCharacterization: { schemaVersion: 1, standard: 'VRMC_vrm-1.0', roles: { head: { nodeKey: 'SAVED_HEAD' } } },
+    auToBones: {
+      901: [{ node: 'SAVED_HEAD', channel: 'ry', scale: 1, maxDegrees: 30 }],
+      902: [{ node: 'SAVED_HEAD', channel: 'rx', scale: 1, maxDegrees: -30 }],
+    },
+    compositeRotations: [{ node: 'SAVED_HEAD', yaw: { aus: [901], axis: 'ry' }, pitch: { aus: [902], axis: 'rx' } }],
+    meshes: { TrackingHair: { category: 'hair' } },
+    hairPhysics: { enabled: true, inertia: 1, gravity: 1, responseScale: 1,
+      idleSwayAmount: 0.2, idleClipDuration: 2, impulseClipDuration: 0.75, stiffness: 4.25, damping: 0.8,
+      morphTargets: { swayLeft: 'SwayLeft', swayRight: 'SwayRight', swayFront: 'SwayFront',
+        fluffRight: 'FluffRight', fluffBottom: 'FluffBottom', headUp: { HeadUp: 1 }, headDown: { HeadDown: 1 } } },
+  };
+  const f = fixture(t, { rig, config: { profileMode: 'profile', profile: savedProfile } });
+  return { ...f, hair, amount: name => hair.morphTargetInfluences[names.indexOf(name)],
+    follow(axis, destination) {
+      return f.host.playSnippet(`follow-${axis}`, {
+        [axis === 'yaw' ? 901 : 902]: [{ time: 0, intensity: 0, inherit: true }, { time: 1, intensity: destination }],
+      }, distanceOptions());
+    } };
+}
+
+test('repeated inherited head updates preserve the current hair impulse without copying idle sway', t => {
+  const { host, head, hair, follow } = trackingHairFixture(t);
+  follow('yaw', 0.8); renderHostFrame(host, 0.08);
+  assert.ok(hair.morphTargetInfluences.some(value => value > 0.01), 'head movement has an active hair response');
+  assert.ok(host.getAnimationState('__embody_hair_impulse').actionId, 'head movement admitted an impulse');
+  const idleId = host.getAnimationState('__embody_hair_idle').actionId;
+  for (const destination of [0.2, 1, 0, 0.7, 0.1]) {
+    const before = [...hair.morphTargetInfluences], headBefore = head.quaternion.clone();
+    const previous = host.getAnimationState('__embody_hair_impulse');
+    const idleTime = host.getAnimationState('__embody_hair_idle').time;
+    follow('yaw', destination);
+    assert.notEqual(host.getAnimationState('__embody_hair_impulse').actionId, previous.actionId);
+    renderHostFrame(host, 0);
+    before.forEach((value, index) => near(hair.morphTargetInfluences[index], value,
+      'replacement inherits only the previous impulse, with no snap or duplicate idle contribution'));
+    rotationNear(head.quaternion, headBefore, 'head inheritance remains intact');
+    assert.equal(host.getAnimationState('__embody_hair_idle').actionId, idleId);
+    near(host.getAnimationState('__embody_hair_idle').time, idleTime, 'head updates do not restart idle sway');
+    renderHostFrame(host, 1 / 30);
+  }
+  renderHostFrame(host, 1);
+  const idleOnly = [...hair.morphTargetInfluences];
+  host.stopAnimation('__embody_hair_impulse'); renderHostFrame(host, 0);
+  idleOnly.forEach((value, index) => near(hair.morphTargetInfluences[index], value,
+    'the impulse releases at zero without removing idle sway'));
+});
+
+test('yaw replacements preserve held pitch gravity and returning pitch to neutral inherits that gravity', t => {
+  const { host, amount, follow } = trackingHairFixture(t);
+  host.setHairPhysicsConfig({ idleSwayAmount: 0 });
+  follow('pitch', 0.8); renderHostFrame(host, 0.9);
+  assert.ok(amount('HeadUp') > 0.1, 'pitched head establishes a held gravity response');
+  const pitchId = host.getAnimationState('follow-pitch').actionId;
+  const gravity = host.getAnimationState('__embody_hair_gravity');
+  const tiltedHair = amount('HeadUp');
+  for (const destination of [0.6, 0.2, 1]) {
+    follow('yaw', destination);
+    assert.equal(host.getAnimationState('__embody_hair_gravity').actionId, gravity.actionId,
+      'yaw does not replace the pitch gravity action');
+    assert.equal(host.getAnimationState('follow-pitch').actionId, pitchId);
+    renderHostFrame(host, 0);
+    near(amount('HeadUp'), tiltedHair, 'held gravity remains at the tilted head pose');
+    renderHostFrame(host, 1 / 30);
+    near(amount('SwayFront'), 0, 'held pitch is not mistaken for a new vertical head impulse');
+  }
+  follow('pitch', 0);
+  assert.notEqual(host.getAnimationState('__embody_hair_gravity').actionId, gravity.actionId,
+    'the pitched inherited first key still permits a gravity return to neutral');
+  renderHostFrame(host, 0); near(amount('HeadUp'), tiltedHair, 'gravity replacement inherits its current contribution');
+  renderHostFrame(host, 0.9);
+  near(amount('HeadUp'), 0, 'gravity reaches neutral after pitch returns');
+  near(amount('HeadDown'), 0, 'return to neutral invents no opposite gravity pose');
+});
+
+test('fixed-first additive head clips still trigger their own hair response', t => {
+  const { host, amount } = trackingHairFixture(t);
+  host.setHairPhysicsConfig({ idleSwayAmount: 0 });
+  host.playSnippet('fixed-head', { 901: [{ time: 0, intensity: 0.5 }, { time: 1, intensity: 0.5 }] },
+    { blendMode: 'additive', loopMode: 'once', finalPose: 'hold' });
+  renderHostFrame(host, 0.03);
+  assert.ok(amount('SwayLeft') > 0, 'a fixed authored start is measured against its own previous contribution');
+});
+
+test('replaying a held native head pose matches its authored name to the existing UUID contribution', t => {
+  const { host, hair } = trackingHairFixture(t);
+  host.setHairPhysicsConfig({ idleSwayAmount: 0 });
+  const turn = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), 0.3).toArray();
+  const clip = new AnimationClip('fixed-native-head', 0.1, [
+    new QuaternionKeyframeTrack('Head.quaternion', [0, 0.1], [...turn, ...turn]),
+  ]);
+  host.registerAnimationClips([clip]);
+  const options = { blendMode: 'additive', loopMode: 'once', finalPose: 'hold' };
+  host.playAnimation(clip.name, options); renderHostFrame(host, 0.15);
+  const impulse = host.getAnimationState('__embody_hair_impulse');
+  assert.ok(impulse.actionId, 'the initial fixed head pose admitted a hair impulse');
+  assert.ok(hair.morphTargetInfluences.some(value => value > 0), 'the initial impulse is still contributing');
+  const before = [...hair.morphTargetInfluences];
+  host.playAnimation(clip.name, options);
+  assert.equal(host.getAnimationState('__embody_hair_impulse').actionId, impulse.actionId,
+    'an unchanged native contribution does not restart its hair response');
+  near(host.getAnimationState('__embody_hair_impulse').time, impulse.time, 'existing impulse keeps its native playhead');
+  renderHostFrame(host, 0);
+  before.forEach((value, index) => near(hair.morphTargetInfluences[index], value, 'replay preserves hair contribution'));
+  assert.equal(clip.tracks[0].name, 'Head.quaternion', 'normalization does not edit the saved native clip');
+});
+
 test('optional registration preserves active native, snippet, and configured hair actions', t => {
   const rig = model();
   const hair = mesh('Hair', ['Sway_Custom', 'L_Hair_Right', 'L_Hair_Front']);

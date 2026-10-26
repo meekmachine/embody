@@ -25,6 +25,11 @@ gravity curves and the spring solver live in `src/hair_curves.rs` /
 `src/hair.rs` and are exported through Wasm. Hosts schedule the resulting
 ClipIR on their mixer; they must not reimplement hair sampling in TS.
 
+Head-driven hair impulses inherit their own outgoing native contribution when
+replaced, preserving independent idle sway and gravity. Head response uses the
+same request's contribution rather than the mixed head pose; yaw-only updates
+leave held pitch gravity running. See [hair retargeting](docs/INHERITED_CLIP_STARTS.md#hair-response-during-head-retargeting).
+
 The Rust core owns:
 
 - preset and profile parsing, typed merge rules, validation, and corrections
