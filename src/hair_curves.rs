@@ -187,13 +187,16 @@ pub(crate) fn authored_motion(
     model: Option<&crate::profile::ModelData>, tracks: &[NativeQuaternionTrack], additive: bool,
 ) -> Result<Option<HairMotion>, String> {
     if !config.enabled { return Ok(None); }
-    let catalog = crate::body_controls::resolve(profile, model);
-    let head_names: std::collections::BTreeSet<_> = catalog.as_array().into_iter().flatten()
-        .filter(|control| control["roles"].as_array().is_some_and(|roles| roles.iter().any(|role| role == "head")))
-        .flat_map(|control| control["boneBindings"].as_array().into_iter().flatten())
-        .filter_map(|binding| binding["boneName"].as_str()).collect();
+    let configured_head = profile.humanoid_characterization.as_ref().and_then(|mapping|mapping.roles.get("head"))
+        .map(|role|crate::profile_resolution::configured_bone_name(profile,&role.node_key));
+    let resolved_head = model.and_then(|model| {
+        let resolver=crate::profile::NameResolver::new(profile,model);
+        profile.humanoid_characterization.as_ref().and_then(|mapping|mapping.roles.get("head"))
+            .and_then(|role|resolver.resolve_bone(model,profile,&role.node_key)).map(|bone|bone.name.clone())
+    });
+    let head_name=resolved_head.or(configured_head);
     let (mut yaw, mut pitch, mut target_pitch) = (0.0_f32, 0.0_f32, 0.0_f32);
-    for track in tracks.iter().filter(|track| head_names.contains(track.bone_name.as_str())) {
+    for track in tracks.iter().filter(|track| head_name.as_deref()==Some(track.bone_name.as_str())) {
         if std::iter::once(&track.current).chain(std::iter::once(&track.reference)).chain(&track.samples)
             .any(|q| q.iter().any(|value| !value.is_finite()) || q.iter().map(|v| v * v).sum::<f32>() <= f32::EPSILON) {
             return Err("Hair motion requires finite nonzero quaternions.".into());
@@ -486,7 +489,7 @@ mod tests {
     #[test]
     fn authored_response_uses_profile_head_roles_and_native_reference_transforms() {
         let profile = serde_json::from_value(json!({
-            "bodyControls":{"look":{"label":"Look","auId":1,"roles":["head"]}},
+            "boneNodes":{"head":"CustomHead"}, "humanoidCharacterization":{"schemaVersion":1,"standard":"VRMC_vrm-1.0","roles":{"head":{"nodeKey":"head"}}},
             "auToBones":{"1":[{"node":"CustomHead","channel":"ry","scale":1}]}
         })).unwrap();
         let config = normalize_config(&HairPlaybackConfig::default(), &json!({"enabled":true,"inertia":2,"gravity":4,"responseScale":3,"direction":{"yawSign":-1,"pitchSign":1}})).unwrap();

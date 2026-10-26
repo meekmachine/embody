@@ -890,7 +890,7 @@ export class SkeletonOverlay {
     const hit = hits[0];
     if (!hit) return null;
 
-    const axis = hit.object.userData.axis;
+    const axis: unknown = hit.object.userData.axis;
     if (axis !== 'pitch' && axis !== 'yaw' && axis !== 'roll') {
       return null;
     }
@@ -1016,25 +1016,27 @@ export function collectSkeletonBones(root: THREE.Object3D): THREE.Bone[] {
  * and walking up to the top-level scene child.
  */
 export function findModelRoot(scene: THREE.Scene): THREE.Object3D | null {
-  let taggedModelRoot: THREE.Object3D | null = null;
-  let firstBone: THREE.Object3D | null = null;
-  let firstSkinned: THREE.Object3D | null = null;
+  const roots: {
+    tagged?: THREE.Object3D;
+    bone?: THREE.Object3D;
+    skinned?: THREE.Object3D;
+  } = {};
 
   scene.traverse((obj) => {
-    if (!taggedModelRoot && (obj.userData?.embodyCharacterModel === true || obj.userData?.loomlargeCharacterModel === true)) {
-      taggedModelRoot = obj;
+    if (!roots.tagged && (obj.userData?.embodyCharacterModel === true || obj.userData?.loomlargeCharacterModel === true)) {
+      roots.tagged = obj;
     }
-    if (!firstBone && (obj as THREE.Bone).isBone) {
-      firstBone = obj;
+    if (!roots.bone && (obj as THREE.Bone).isBone) {
+      roots.bone = obj;
     }
-    if (!firstSkinned && (obj as THREE.SkinnedMesh).isSkinnedMesh) {
-      firstSkinned = obj;
+    if (!roots.skinned && (obj as THREE.SkinnedMesh).isSkinnedMesh) {
+      roots.skinned = obj;
     }
   });
 
-  if (taggedModelRoot) return taggedModelRoot;
+  if (roots.tagged) return roots.tagged;
 
-  const anchor = firstBone ?? firstSkinned;
+  const anchor = roots.bone ?? roots.skinned;
   if (!anchor) return null;
 
   // Walk up to find the direct child of the scene

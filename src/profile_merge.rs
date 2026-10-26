@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 use serde::Deserialize;
 
 use crate::profile::{
-    deserialize_json, AnnotationRegionData, AuInfoData, AuMorphEntry, BoneBindingData, BodyControlData,
+    deserialize_json, AnnotationRegionData, AuInfoData, AuMorphEntry, BoneBindingData,
     CompositeRotationData, ContinuumPairData, HairDirectionData,
     HumanoidCharacterizationData,
     HairMorphTargetData, HairMorphTargetValueData, HairMorphTargetsData, HairPhysicsData,
@@ -57,20 +57,6 @@ pub(crate) struct ProfilePatch {
     #[serde(deserialize_with = "optional_nullable")]
     hair_physics: Option<Option<HairPhysicsPatch>>,
     humanoid_characterization: Option<HumanoidCharacterizationData>,
-    body_controls: Option<BTreeMap<String, Option<BodyControlPatch>>>,
-}
-
-#[derive(Deserialize, Debug, Default)]
-#[serde(rename_all = "camelCase", default)]
-struct BodyControlPatch {
-    label: Option<String>,
-    section: Option<String>,
-    au_id: Option<u32>,
-    #[serde(deserialize_with = "optional_nullable")]
-    negative_au_id: Option<Option<u32>>,
-    bilateral: Option<bool>,
-    roles: Option<Vec<String>>,
-    order: Option<i32>,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -170,62 +156,22 @@ pub(crate) fn extend_preset_with_profile(
         && is_cc4_base;
     if legacy_cc4 {
         extension.humanoid_characterization = base.humanoid_characterization.clone();
-        // Keep the old control on its original physical bone while adopting
-        // the preset's completed anatomical role map.
-        for (control_id, old_control) in &legacy.body_controls {
-            let Some(current_control) = base.body_controls.get(control_id) else { continue };
-            if let Some(Some(control)) = extension.body_controls.as_mut()
-                .and_then(|controls| controls.get_mut(control_id)) {
-                if control.roles.as_ref() == Some(&old_control.roles) {
-                    control.roles = Some(current_control.roles.clone());
-                }
+        // Preserve literal AU targets while upgrading the old anatomical role map.
+        for (role, mapping) in legacy.humanoid_characterization.as_ref().into_iter().flat_map(|mapping| &mapping.roles) {
+            let old_node = &mapping.node_key;
+            if crate::profile_resolution::node_key(base, role) == old_node { continue; }
+            for bindings in extension.au_to_bones.as_mut().into_iter().flat_map(|bindings| bindings.values_mut()).flatten() {
+                for binding in bindings { if binding.node == *role { binding.node = old_node.clone(); } }
             }
-            let action_ids = std::iter::once(old_control.au_id).chain(old_control.negative_au_id)
-                .map(|id| id.to_string()).collect::<Vec<_>>();
-            for role in &old_control.roles {
-                let old_node = crate::body_controls::node_key(legacy, role);
-                if old_node == crate::body_controls::node_key(base, role) { continue; }
-                if let Some(bindings) = extension.au_to_bones.as_mut() {
-                    for au in &action_ids {
-                        for binding in bindings.get_mut(au).into_iter().flatten().flatten() {
-                            if binding.node == *role { binding.node = old_node.to_string(); }
-                        }
-                    }
-                }
-                if let Some(composites) = extension.composite_rotations.as_mut() {
-                    for composite in composites {
-                        if composite.node == *role { composite.node = old_node.to_string(); }
-                    }
-                }
-                if let Some(pairs) = extension.continuum_pairs.as_mut() {
-                    for au in &action_ids {
-                        if let Some(Some(pair)) = pairs.get_mut(au) {
-                            if pair.node.as_deref() == Some(role.as_str()) {
-                                pair.node = Some(old_node.to_string());
-                            }
-                        }
-                    }
-                }
+            for composite in extension.composite_rotations.as_mut().into_iter().flatten() {
+                if composite.node == *role { composite.node = old_node.clone(); }
+            }
+            for pair in extension.continuum_pairs.as_mut().into_iter().flat_map(|pairs| pairs.values_mut()).flatten() {
+                if pair.node.as_deref() == Some(role.as_str()) { pair.node = Some(old_node.clone()); }
             }
         }
     }
     let mut merged = base.clone();
-    if let Some(controls) = extension.body_controls {
-        for (id, control) in controls {
-            if let Some(control) = control {
-                let value = merged.body_controls.entry(id).or_insert_with(BodyControlData::default);
-                if let Some(label) = control.label { value.label = label; }
-                if let Some(section) = control.section { value.section = section; }
-                if let Some(au_id) = control.au_id { value.au_id = au_id; }
-                if let Some(negative) = control.negative_au_id { value.negative_au_id = negative; }
-                if let Some(bilateral) = control.bilateral { value.bilateral = bilateral; }
-                if let Some(roles) = control.roles { value.roles = roles; }
-                if let Some(order) = control.order { value.order = order; }
-            } else {
-                merged.body_controls.remove(&id);
-            }
-        }
-    }
     replace_option(&mut merged.name, extension.name);
     replace_option(&mut merged.animal_type, extension.animal_type);
     replace_option(&mut merged.emoji, extension.emoji);
@@ -261,24 +207,31 @@ pub(crate) fn extend_preset_with_profile(
         let empty_override = composites.is_empty();
         let legacy_actions = legacy.au_to_bones.keys().filter_map(|id| id.parse::<u32>().ok())
             .collect::<HashSet<_>>();
-        let legacy_body_nodes = legacy.body_controls.values().flat_map(|control| &control.roles)
-            .map(|role| crate::body_controls::node_key(legacy, role))
-            .collect::<HashSet<_>>();
+        // The old snapshot has AU bindings but no AU classification metadata.
+        // Use the inherited preset's AU metadata to distinguish its body nodes
+        // from facial-only rotation snapshots without consulting named controls.
+        let legacy_body_nodes = legacy.au_to_bones.iter().filter(|(id,_)| {
+            id.parse::<u32>().ok().is_some_and(|au|
+                crate::profile::is_body_action(legacy, au)
+                    || crate::profile::is_body_action(base, au))
+        }).flat_map(|(_,bindings)| bindings).map(|binding| crate::profile_resolution::node_key(legacy, &binding.node)).collect::<HashSet<_>>();
         let legacy_facial_nodes = legacy.composite_rotations.iter()
-            .map(|composite| crate::body_controls::node_key(legacy, &composite.node))
+            .map(|composite| crate::profile_resolution::node_key(legacy, &composite.node))
             .filter(|node| !legacy_body_nodes.contains(node)).collect::<HashSet<_>>();
         // Older saved CC4 profiles contain a snapshot of facial composites.
         // Keep untouched default body nodes while honoring explicit per-node
         // overrides. General facial composite replacement remains unchanged.
         for composite in base.composite_rotations.iter().filter(|_| !empty_override) {
-            let node = crate::body_controls::node_key(base, &composite.node);
+            let node = crate::profile_resolution::node_key(base, &composite.node);
             if is_cc4_base && legacy_facial_nodes.contains(node) { continue; }
-            let is_body = merged.body_controls.values().any(|control|
-                control.roles.iter().any(|role| crate::body_controls::configured_bone_name(&merged, role)
-                    == crate::body_controls::configured_bone_name(&merged, &composite.node)));
+            let is_body = merged.au_to_bones.iter().any(|(id,bindings)| {
+                id.parse::<u32>().ok().is_some_and(|au| crate::profile::is_body_action(&merged, au))
+                    && bindings.iter().any(|binding| crate::profile_resolution::configured_bone_name(&merged, &binding.node)
+                        == crate::profile_resolution::configured_bone_name(&merged, &composite.node))
+            });
             let overridden = composites.iter_mut().find(|candidate|
-                crate::body_controls::configured_bone_name(&merged, &candidate.node)
-                    == crate::body_controls::configured_bone_name(&merged, &composite.node));
+                crate::profile_resolution::configured_bone_name(&merged, &candidate.node)
+                    == crate::profile_resolution::configured_bone_name(&merged, &composite.node));
             if !is_body { continue; }
             if let Some(candidate) = overridden {
                 if legacy_cc4 {
@@ -630,6 +583,43 @@ mod tests {
         assert_eq!(merged["auToMorphs"]["2"]["center"][0], "B2");
         assert_eq!(merged["auToMorphs"]["3"]["center"][0], "C");
         assert_eq!(merged["visemeKeys"], json!(["Ooh"]));
+    }
+
+    #[test]
+    fn custom_au_classification_preserves_mapped_rotations_and_explicit_overrides() {
+        for metadata in ["auInfo", "actionInfo"] {
+            for category in ["faceArea", "facePart"] {
+                let mut base = json!({
+                    "auToBones": {"7001": [{
+                        "node": "CustomArm", "channel": "rx", "scale": 1,
+                        "maxDegrees": 60
+                    }]},
+                    "compositeRotations": [{
+                        "node": "CustomArm", "pitch": {"aus": [7001], "axis": "rx"}
+                    }]
+                });
+                base[metadata] = json!({"7001": {"name": "Character-specific arm motion"}});
+                base[metadata]["7001"][category] = json!("Body");
+                let merged = merge(base.clone(), json!({"compositeRotations": [{
+                    "node": "AuthoredHead", "yaw": {"aus": [9002], "axis": "ry"}
+                }]}));
+                let mut core = crate::runtime::RuntimeCore::new(0);
+                core.configure_with_profile(&merged.to_string(),
+                    r#"{"bones":[{"id":17,"name":"CustomArm"}]}"#).unwrap();
+                core.set_au(7001, 0.5, 0.0);
+                let frame = core.evaluate_active_bone_frame();
+                assert!(!frame.is_empty(), "{metadata}/{category} loses its mapped AU");
+                assert_eq!(frame[0], 17.0);
+                assert!(frame[4] > 0.1, "the inherited AU must rotate its mapped bone");
+
+                let authored = merge(base.clone(), json!({"compositeRotations": [{
+                    "node": "CustomArm", "pitch": {"aus": [7002], "axis": "rx"}
+                }]}));
+                assert_eq!(authored["compositeRotations"][0]["pitch"]["aus"], json!([7002]));
+                let disabled = merge(base, json!({"compositeRotations": []}));
+                assert_eq!(disabled["compositeRotations"], json!([]));
+            }
+        }
     }
 
     #[test]
