@@ -2390,6 +2390,19 @@ fn execute(request: Request) -> Result<Value, String> {
             let id = value_field(&payload, "auId")?.as_u64().unwrap_or(0) as u32;
             Ok(au_bone_state(&profile, id))
         }
+        "bone.getAUBindingStates" => {
+            let profile = profile_field(&payload)?;
+            let ids: Vec<u32> = serde_json::from_value(value_field(&payload, "auIds")?.clone())
+                .map_err(|error| format!("Invalid AU ids: {error}"))?;
+            let mut states = Map::new();
+            for id in ids {
+                let key = id.to_string();
+                if !states.contains_key(&key) {
+                    states.insert(key, au_bone_state(&profile, id));
+                }
+            }
+            Ok(Value::Object(states))
+        }
         "bone.inferEyeScope" => {
             let profile = profile_field(&payload)?;
             let binding = value_field(&payload, "binding")?;
@@ -2711,6 +2724,46 @@ mod tests {
             assert_eq!(empty["visemeSlots"], json!([]));
             assert_eq!(empty["visemeBindingTargets"], json!([]));
             assert!(empty.get("canonicalSlotIndices").is_none());
+        }
+    }
+
+    #[test]
+    fn batched_au_bone_states_match_individual_queries_and_explicit_clears() {
+        let mut profile = json!({
+            "bonePrefix": "Rig_", "boneNodes": {"CUSTOM_JAW": "ArtistJaw"},
+            "auToBones": {
+                "9001": [{"node":"CUSTOM_JAW","channel":"rz","scale":-1,"maxDegrees":17}],
+                "9002": [{"node":"CUSTOM_JAW","channel":"rz","scale":1,"maxDegrees":31}]
+            },
+            "compositeRotations": [{"node":"CUSTOM_JAW","roll":{"negative":9001,"positive":9002,"axis":"rz"}}],
+            "continuumPairs": {
+                "9001":{"pairId":9002,"isNegative":true,"axis":"roll","node":"CUSTOM_JAW"},
+                "9002":{"pairId":9001,"isNegative":false,"axis":"roll","node":"CUSTOM_JAW"}
+            }
+        });
+        let batch = request("bone.getAUBindingStates", json!({"profile":profile,"auIds":[9001,9002,9001,9999]}));
+        assert_eq!(batch.as_object().unwrap().len(), 3);
+        for id in [9001, 9002, 9999] {
+            assert_eq!(batch[id.to_string()], request("bone.getAUBindingState", json!({"profile":profile,"auId":id})));
+        }
+        assert_eq!(batch["9001"]["boneName"], "Rig_ArtistJaw");
+        assert_eq!(batch["9001"]["maxDegrees"], 17.0);
+        assert_eq!(batch["9001"]["oppositeAuId"], 9002);
+        assert_eq!(batch["9002"]["direction"], "positive");
+        assert_eq!(batch["9999"]["hasBinding"], false);
+        profile["auToBones"]["9001"] = json!([]);
+        let cleared = request("bone.getAUBindingStates", json!({"profile":profile,"auIds":[9001,9002]}));
+        assert_eq!(cleared["9001"]["hasBinding"], false);
+        assert_eq!(cleared["9002"]["hasBinding"], true);
+        assert_eq!(request("bone.getAUBindingStates", json!({"profile":{},"auIds":[]})), json!({}));
+    }
+
+    #[test]
+    fn batched_au_bone_states_reject_invalid_ids() {
+        for ids in [json!(null), json!("12"), json!([-1]), json!([1.5]), json!([4294967296_u64])] {
+            assert!(execute(Request { op: "bone.getAUBindingStates".into(),
+                payload: json!({"profile":{},"auIds":ids}),
+            }).is_err());
         }
     }
 

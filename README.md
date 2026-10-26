@@ -46,6 +46,17 @@ Exact names take precedence over legacy mesh aliases. Consumers save concrete
 resolved names plus unresolved names when editing, so deselecting one mesh does
 not reactivate it through a legacy alias. This query does not change the profile.
 
+`getAUBoneBindingStates(profile, auIds)` resolves a panel's AU bone links in one
+Rust request and returns an object keyed by AU ID. It uses the existing
+`getAUBoneBindingState` semantics, including custom bone names, axis/range,
+continuum opposites and explicitly cleared bindings. Its profile input contains
+only `auToBones`, `boneNodes`, `bonePrefix`, `boneSuffix`, `suffixPattern`,
+`compositeRotations`, `continuumPairs` and `humanoidCharacterization`.
+The adapter omits unrelated morph/mesh configuration, authored vertices and saved
+clips before serialization. Mesh selection edits do not invalidate these bone
+links; hosts can cache by those bone inputs and the requested AU IDs. This is a
+read-only authoring query, with no rig replacement or playback effects.
+
 The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
 not sample or lerp clips on the hot path.
