@@ -29,7 +29,59 @@ export type RustEmbodyHostConfig = {
   meshes?: Mesh[];
   referencePose?: ThreeModelReferencePose;
 };
-export type CharacterPlaybackOptions = JsonObject;
+export type CharacterPlaybackLoopMode = 'once' | 'repeat' | 'pingpong' | 'pingPong';
+export type CharacterPlaybackBlendMode = NonNullable<ThreeNativePlaybackOptions['blendMode']> | 'replace';
+export type CharacterPlaybackEasing = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' | 'easeInOutCubic';
+
+/** Compilation inputs owned by Rust; native playback owns timing and blending. */
+export interface CharacterClipCompileOptions {
+  /** Semantic sample strength; the character API clamps it to [0, 2]. */
+  intensityScale?: number;
+  balance?: number;
+  balanceMap?: Record<string, number>;
+  mixWeights?: Record<number, number>;
+  meshNames?: string[];
+  /** `visemeSnippet` interprets numeric curve keys as viseme slots. */
+  snippetCategory?: string;
+  /** Catalogue metadata, for example `snippet` or `hair`. */
+  source?: string;
+  autoVisemeJaw?: boolean;
+  jawScale?: number;
+}
+
+export interface CharacterPlaybackOptions extends CharacterClipCompileOptions {
+  /** Semantic strength aliases; precedence: intensityScale, intensity, weight. */
+  intensity?: number;
+  weight?: number;
+  /** Native mixer contribution, independent of semantic sample strength. */
+  mixerWeight?: number;
+  /** Speed aliases in precedence order: speed, playbackRate, rate, timeScale. */
+  speed?: number;
+  playbackRate?: number;
+  rate?: number;
+  timeScale?: number;
+  reverse?: boolean;
+  /** Initial position in seconds; time takes precedence over offsetSec. */
+  time?: number;
+  offsetSec?: number;
+  loopMode?: CharacterPlaybackLoopMode;
+  loop?: boolean;
+  /** Positive repeat count; null means unbounded. */
+  repeatCount?: number | null;
+  /** `replace` is the character API compatibility alias for native `normal`. */
+  blendMode?: CharacterPlaybackBlendMode;
+  finalPose?: ThreeNativePlaybackOptions['finalPose'];
+  clampWhenFinished?: boolean;
+  easing?: CharacterPlaybackEasing;
+  additiveReferenceTimeSec?: number;
+  fadeInSec?: number;
+  fadeOutSec?: number;
+  /** Seconds; fallback when fadeInSec is omitted. */
+  crossfadeDuration?: number;
+  /** Named semantic animation input is retired; decode to numeric AU curves first. */
+  semanticAnimation?: false;
+}
+
 export type CharacterPlaybackEvent = ThreeNativePlaybackEvent & { actionId: string; clipName: string };
 export interface CharacterPlaybackHandle {
   readonly name: string;
@@ -629,7 +681,8 @@ export class Embody {
       connector.replaceClip(playback.id, clip);
       if ('blendMode' in patch) connector.control(playback.id, { type: 'setBlendMode', blendMode: clip.blendMode === AdditiveAnimationBlendMode ? 'additive' : 'normal' });
     }
-    if ('mixerWeight' in patch) connector.control(playback.id, { type: 'setWeight', weight: patch.mixerWeight });
+    // Preserve native validation for explicit undefined from JavaScript/JSON callers.
+    if ('mixerWeight' in patch) connector.control(playback.id, { type: 'setWeight', weight: patch.mixerWeight! });
     if ('speed' in patch || 'playbackRate' in patch || 'rate' in patch || 'timeScale' in patch || 'reverse' in patch) {
       let speed = patch.speed ?? patch.playbackRate ?? patch.rate ?? patch.timeScale ?? action.timeScale;
       if ('reverse' in patch) speed = Math.abs(speed) * (patch.reverse ? -1 : 1);
@@ -639,7 +692,7 @@ export class Embody {
     }
     if ('time' in patch || 'offsetSec' in patch) {
       options.time = patch.time ?? patch.offsetSec;
-      connector.control(playback.id, { type: 'seek', seconds: options.time });
+      connector.control(playback.id, { type: 'seek', seconds: options.time! });
     }
     if ('loopMode' in patch || 'loop' in patch || 'repeatCount' in patch) {
       if (playback.terminal) {
@@ -698,6 +751,8 @@ export class Embody {
     return this.build({ name, kind: 'typed', input: copy(channels), options: copy(options) }, options, false);
   }
   typedSnippetToClip(name: string, channels: any[], options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle { return this.buildTypedClip(name, channels, options); }
+  playSnippet(name: string, curves?: JsonObject, options?: CharacterPlaybackOptions): CharacterPlaybackHandle;
+  playSnippet(snippet: { name: string; curves: JsonObject }, options?: CharacterPlaybackOptions): CharacterPlaybackHandle;
   playSnippet(snippet: string | { name: string; curves: JsonObject }, curvesOrOptions: JsonObject = {}, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
     return typeof snippet === 'string' ? this.buildClip(snippet, curvesOrOptions, options).play() : this.buildClip(snippet.name, snippet.curves, curvesOrOptions).play();
   }
@@ -737,11 +792,11 @@ export class Embody {
   setAnimationSpeed(name: string, value: number): void { this.updateClipParams(name, { speed: value }); }
   setAnimationIntensity(name: string, value: number): void { this.updateClipParams(name, { intensityScale: value }); }
   setAnimationLoop(name: string, value: boolean): void { this.updateClipParams(name, { loopMode: value ? 'repeat' : 'once' }); }
-  setAnimationLoopMode(name: string, value: string): void { this.updateClipParams(name, { loopMode: value }); }
+  setAnimationLoopMode(name: string, value: CharacterPlaybackLoopMode): void { this.updateClipParams(name, { loopMode: value }); }
   setAnimationRepeatCount(name: string, value: number | null): void { this.updateClipParams(name, { loopMode: 'repeat', repeatCount: value }); }
   setAnimationReverse(name: string, value: boolean): void { this.updateClipParams(name, { reverse: value }); }
-  setAnimationBlendMode(name: string, value: string): void { this.updateClipParams(name, { blendMode: value }); }
-  setAnimationEasing(name: string, value: string): void { this.validateEasing({ easing: value }); this.updateClipParams(name, { easing: value }); }
+  setAnimationBlendMode(name: string, value: CharacterPlaybackBlendMode): void { this.updateClipParams(name, { blendMode: value }); }
+  setAnimationEasing(name: string, value: CharacterPlaybackEasing): void { this.validateEasing({ easing: value }); this.updateClipParams(name, { easing: value }); }
   seekAnimation(name: string, value: number): void { this.updateClipParams(name, { time: value }); }
   setAnimationTime(name: string, value: number): void { this.seekAnimation(name, value); }
   setSnippetTime(name: string, value: number): void { this.seekAnimation(name, value); }

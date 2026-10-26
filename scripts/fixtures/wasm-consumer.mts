@@ -236,3 +236,52 @@ createDefaultCharacterSceneAsync(container, { lighting: { exposure: 'bright' } }
 pendingScene.renderer.render(readyScene.scene, readyScene.camera);
 // @ts-expect-error The renderer remains concrete, not an any-typed capability bag.
 readyScene.renderer.nonexistentMethod();
+
+// Character options must remain typed through the packed root and Three exports.
+import type { CharacterPlaybackOptions as RootPlaybackOptions } from '@lovelace_lol/embody';
+import type { CharacterPlaybackOptions, CharacterClipCompileOptions } from '@lovelace_lol/embody/three';
+declare const character: Embody;
+const clipOptions: CharacterClipCompileOptions = {
+  balance: 0.2, balanceMap: { '12': -1 }, mixWeights: { 12: 0.5 },
+  meshNames: ['Face'], snippetCategory: 'visemeSnippet', source: 'speech',
+  autoVisemeJaw: false, jawScale: 0.7,
+};
+const playbackOptions: CharacterPlaybackOptions = {
+  ...clipOptions, intensityScale: 0.8, intensity: 0.8, weight: 0.8, mixerWeight: 0.5,
+  speed: 1, playbackRate: 1, rate: 1, timeScale: 1, reverse: false,
+  time: 0.2, offsetSec: 0.2, loopMode: 'pingpong', loop: true, repeatCount: null,
+  blendMode: 'replace', finalPose: 'hold', clampWhenFinished: true, easing: 'easeInOutCubic',
+  additiveReferenceTimeSec: 0, fadeInSec: 0.1, fadeOutSec: 0.1, crossfadeDuration: 0.2,
+  semanticAnimation: false,
+};
+const rootPlaybackOptions: RootPlaybackOptions = playbackOptions;
+const characterPlayback = character.playAnimation('smile', rootPlaybackOptions);
+characterPlayback.updateParams({ loopMode: 'pingPong', blendMode: 'normal', speed: 0.5 });
+characterPlayback.setParams({ intensityScale: 1, blendMode: 'additive', finalPose: 'release' });
+character.updateClipParams('smile', { easing: 'linear', repeatCount: 2 });
+character.setAnimationLoopMode('smile', 'once');
+character.setAnimationBlendMode('smile', 'replace');
+character.setAnimationEasing('smile', 'easeIn');
+character.playSnippet('smile', { '12': [{ time: 0, intensity: 1 }] }, playbackOptions);
+character.playSnippet({ name: 'smile', curves: {} }, playbackOptions);
+character.buildTypedClip('smile', [], clipOptions);
+// @ts-expect-error Unknown options must not silently pass through the character API.
+character.playAnimation('smile', { speeed: 2 });
+// @ts-expect-error Numeric playback fields do not accept text.
+characterPlayback.setParams({ speed: 'fast' });
+// @ts-expect-error The object snippet overload must check its options too.
+character.playSnippet({ name: 'smile', curves: {} }, { fadeInSeconds: 1 });
+// @ts-expect-error Loop modes are a closed set, including the two ping-pong aliases.
+character.setAnimationLoopMode('smile', 'forever');
+// @ts-expect-error Blend modes are normal/replace or additive.
+character.setAnimationBlendMode('smile', 'multiply');
+// @ts-expect-error Easing must be one of the supported native materialization curves.
+character.setAnimationEasing('smile', 'bounce');
+// @ts-expect-error Final-pose values match the native connector contract.
+character.updateClipParams('smile', { finalPose: 'freeze' });
+// @ts-expect-error Compilation controls retain boolean types.
+character.buildClip('smile', {}, { autoVisemeJaw: 'false' });
+// @ts-expect-error Per-AU compilation strengths must be numeric.
+character.buildTypedClip('smile', [], { mixWeights: { 12: 'strong' } });
+// @ts-expect-error Legacy semantic animations must be decoded at the storage boundary.
+character.buildClip('legacy', {}, { semanticAnimation: true });

@@ -549,3 +549,26 @@ values/curves, using their original profile mappings. `LEGACY_BODY_CONTROL_AUS`
 is a deprecated reader-only historical identity snapshot for old CC4 records;
 it is never consulted for current controls, actuation or profile compilation.
 Unknown legacy names must be reported rather than silently omitted.
+
+### Character playback option types
+
+`CharacterPlaybackOptions` and `CharacterClipCompileOptions` are exported from
+both the package root and `/three`. Character playback, snippet builders,
+`updateClipParams`, and handle `updateParams`/`setParams` use explicit options;
+misspelled fields in option object literals and unsupported loop, blend, or
+easing names are type errors.
+Rust still owns compilation and the native connector owns playback.
+
+Semantic strength uses `intensityScale`, then `intensity`, then the legacy
+`weight` alias (clamped to 0–2). `mixerWeight` separately controls the native
+mixer contribution. Speed aliases retain their precedence: `speed`,
+`playbackRate`, `rate`, `timeScale`. Positions and fades use seconds; live
+`transitionAU` and `transitionViseme` continue to take milliseconds.
+`pingpong`/`pingPong` and `replace`/`normal` remain supported aliases.
+
+Updating an existing handle retains its current behavior: supported timing and
+strength controls update the native action, while other options are retained
+for replay. Prepared handles use updated options on first play. Types do not
+introduce runtime validation for JSON or JavaScript callers; native validation
+and existing defaults still apply. Named semantic animation input remains
+retired and must be decoded to numeric AU curves before compilation.
