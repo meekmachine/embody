@@ -124,11 +124,16 @@ HTML overlays align with the canvas rectangle inside its container, update on
 resize/rebind, and restore borrowed parent positioning when the final view is
 disposed. These coordinates assume axis-aligned CSS boxes without transforms.
 
-AU morph anchors currently sample native deformed vertices during marker
-preparation, then follow the selected object's transform. They do not yet
-resample morph weights or skinning on subsequent frames. Animated surface
-tracking requires cached vertex candidates and per-frame pose observations;
-ordinary object-transform tracking does not provide that behavior.
+AU morph anchors follow morph and skeletal animation on each annotation update.
+Rust selects and caches affected vertices and their influence weights during
+marker preparation, using mesh-space geometry so rotating a character cannot
+change the selected semantic band. The adapter evaluates those vertices in the
+current native pose and supplies packed world-space positions; Rust updates the
+existing anchors without restarting reveal or rebuilding marker resources.
+Explicit point and whole-model anchors retain their existing behavior. Model or
+region changes invalidate the plans, and stale or invalid pose observations are
+ignored. Geometry is immutable within a plan: after replacing topology or morph
+attributes, rebind the model or reload regions to select vertices again.
 
 This is a breaking replacement of the DPthree exports. Use
 `ThreeAnnotationController.create(options)` or `ThreeAnnotations.create(options)`
@@ -147,10 +152,12 @@ support through the scene's rendering controller.
 Runtime preview region IDs retain the `runtime:annotation:` namespace.
 
 When the annotation controller owns the renderer loop, it advances registered
-native character mixers before observing annotation transforms and drawing the
+native character mixers before observing annotation poses and drawing the
 scene. The first frame establishes the timer origin; skipped asynchronous draws
 do not accumulate playback time. External render loops use the existing
-`createScenePlaybackFrame` integration to advance character playback.
+`createScenePlaybackFrame` integration to advance character playback, then call
+`annotations.update()` before drawing. No per-frame application-side anchor
+logic or agency registration is required.
 
 ```ts
 import { ThreeAnnotations } from '@lovelace_lol/embody/three';

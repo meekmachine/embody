@@ -18,6 +18,7 @@ pub struct Marker {
     pub length: f32,
     pub track: Option<u32>,
     pub local: Point,
+    pub animated_anchor: Option<Point>,
     pub ready: bool,
     pub project: bool,
     pub label_aspect: f32,
@@ -354,6 +355,7 @@ impl Marker {
             length,
             track,
             local,
+            animated_anchor: None,
             ready: !project,
             project,
             label_aspect: 3.,
@@ -431,7 +433,10 @@ impl Marker {
         json!({"id":self.id,"name":self.region["name"],"label":label,"title":title,"htmlText":html_text,"style":self.style,"radius":super::geometry::number(&self.style,"markerRadius",0.008)*model.bounds.size()[1]/1.8,"arrowLength":0.02*model.bounds.size()[1]/1.8,"arrowRadius":0.008*model.bounds.size()[1]/1.8})
     }
     pub fn observe_anchor(&mut self, model: &Model) {
-        if let Some(o) = self.track.and_then(|id| model.object(id)) {
+        if let Some(position) = self.animated_anchor {
+            // Pose observations already include the object's world transform.
+            self.start = position;
+        } else if let Some(o) = self.track.and_then(|id| model.object(id)) {
             self.start = transform(&o.matrix, self.local)
         }
     }
@@ -662,13 +667,14 @@ pub fn morph_candidates(base: &[f32], morphs: &[f32], relative: bool) -> Vec<f32
         .flat_map(|(i, m)| [i as f32, *m])
         .collect()
 }
-pub fn morph_center(region: &Value, candidates: &[f32]) -> Option<Point> {
+pub(super) fn morph_sample_indices(region: &Value, candidates: &[f32]) -> Vec<usize> {
     let values = candidates
         .chunks_exact(4)
-        .filter(|p| p.iter().all(|n| n.is_finite()) && p[3] > 0.)
+        .enumerate()
+        .filter(|(_, p)| p.iter().all(|n| n.is_finite()) && p[3] > 0.)
         .collect::<Vec<_>>();
     if values.is_empty() {
-        return None;
+        return Vec::new();
     }
     let text = search_text(region);
     let band = if has(&text, "brow|forehead|frontalis") {
@@ -691,26 +697,30 @@ pub fn morph_center(region: &Value, candidates: &[f32]) -> Option<Point> {
     };
     let mut selected = Vec::new();
     if let Some((low, high)) = band {
-        let mut y = values.iter().map(|p| p[1]).collect::<Vec<_>>();
+        let mut y = values.iter().map(|(_, p)| p[1]).collect::<Vec<_>>();
         y.sort_by(f32::total_cmp);
         let lo = y[((y.len() - 1) as f32 * low) as usize];
         let hi = y[((y.len() - 1) as f32 * high) as usize];
         selected = values
             .iter()
             .copied()
-            .filter(|p| p[1] >= lo - 1e-5 && p[1] <= hi + 1e-5)
+            .filter(|(_, p)| p[1] >= lo - 1e-5 && p[1] <= hi + 1e-5)
             .collect();
     }
     if selected.len() < 2 {
-        let max = values.iter().map(|p| p[3]).fold(0., f32::max);
+        let max = values.iter().map(|(_, p)| p[3]).fold(0., f32::max);
         selected = values
             .into_iter()
-            .filter(|p| p[3] >= (max * 0.18).max(1e-5))
+            .filter(|(_, p)| p[3] >= (max * 0.18).max(1e-5))
             .collect()
     }
+    selected.into_iter().map(|(index, _)| index).collect()
+}
+pub fn morph_center(region: &Value, candidates: &[f32]) -> Option<Point> {
     let mut sum = [0.; 3];
     let mut weight = 0.;
-    for p in selected {
+    for index in morph_sample_indices(region, candidates) {
+        let p = &candidates[index * 4..index * 4 + 4];
         for i in 0..3 {
             sum[i] += p[i] * p[3]
         }
