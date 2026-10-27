@@ -55,7 +55,7 @@ export function resolveMorphPreviewMeshes(
   morphName: string,
   meshNames?: string[],
 ): THREE.Mesh[] {
-  const nameFilter = meshNames?.length ? new Set(meshNames) : null;
+  const nameFilter = meshNames ? new Set(meshNames) : null;
   const meshes: THREE.Mesh[] = [];
 
   root.traverse((obj) => {
@@ -125,6 +125,7 @@ export function buildMorphVertexPreviewRenderData(
   morphName: string,
   cache: Map<string, MorphVertexPreviewSample>,
   options: MorphVertexPreviewOptions = {},
+  previous: MorphVertexPreviewRenderData | null = null,
 ): MorphVertexPreviewRenderData | null {
   const threshold = options.threshold ?? DEFAULT_THRESHOLD;
   const maxPoints = options.maxPoints ?? DEFAULT_MAX_POINTS;
@@ -145,8 +146,10 @@ export function buildMorphVertexPreviewRenderData(
 
   if (pointCount === 0) return null;
 
-  const positions = new Float32Array(pointCount * 3);
-  const colors = new Float32Array(pointCount * 3);
+  const positions = previous?.positions.length === pointCount * 3
+    ? previous.positions : new Float32Array(pointCount * 3);
+  const colors = previous?.colors.length === pointCount * 3
+    ? previous.colors : new Float32Array(pointCount * 3);
   const vertex = new THREE.Vector3();
   let cursor = 0;
 
@@ -213,6 +216,7 @@ export class MorphVertexPreview {
   private readonly cache = new Map<string, MorphVertexPreviewSample>();
   private points: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> | null = null;
   private active: { morphName: string; meshNames?: string[] } | null = null;
+  private renderData: MorphVertexPreviewRenderData | null = null;
   private disposed = false;
   private unbindRender: (() => void) | null = null;
 
@@ -227,6 +231,12 @@ export class MorphVertexPreview {
       this.hide();
       return;
     }
+    if (this.active?.morphName !== morphName
+      || this.active?.meshNames?.length !== meshNames?.length
+      || meshNames?.some((name, index) => name !== this.active?.meshNames?.[index])) {
+      this.cache.clear();
+      this.renderData = null;
+    }
     this.active = { morphName, meshNames: meshNames?.slice() };
     this.unbindRender ??= bindPreviewRender(this.scene, () => this.update());
     this.update();
@@ -234,6 +244,8 @@ export class MorphVertexPreview {
 
   hide(): void {
     this.active = null;
+    this.cache.clear();
+    this.renderData = null;
     this.unbindRender?.();
     this.unbindRender = null;
     if (this.points) this.points.visible = false;
@@ -274,31 +286,35 @@ export class MorphVertexPreview {
     if (this.disposed || !this.active) return;
     const { morphName, meshNames } = this.active;
     const meshes = resolveMorphPreviewMeshes(this.scene, morphName, meshNames);
-    const data = buildMorphVertexPreviewRenderData(meshes, morphName, this.cache, this.options);
+    const data = buildMorphVertexPreviewRenderData(meshes, morphName, this.cache, this.options, this.renderData);
+    this.renderData = data;
     if (!data) {
       if (this.points) this.points.visible = false;
       return;
     }
     const points = this.points ?? this.createPoints();
-    this.updateAttribute(points.geometry, 'position', data.positions, data.pointCount);
-    this.updateAttribute(points.geometry, 'color', data.colors, data.pointCount);
+    this.updateGeometry(points.geometry, data);
     points.geometry.computeBoundingSphere();
     points.material.size = data.pointCount > 6000 ? 0.009 : 0.012;
     points.visible = true;
   }
 
-  private updateAttribute(
+  private updateGeometry(
     geometry: THREE.BufferGeometry,
-    name: string,
-    values: Float32Array,
-    pointCount: number,
+    data: MorphVertexPreviewRenderData,
   ): void {
-    const attribute = geometry.getAttribute(name) as THREE.BufferAttribute | undefined;
-    if (!attribute || attribute.count !== pointCount) {
-      geometry.setAttribute(name, new THREE.BufferAttribute(values, 3));
+    const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+    const color = geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+    if (!position || !color || position.count !== data.pointCount || color.count !== data.pointCount) {
+      // Let Three release the old GPU attributes before replacing their handles.
+      if (position || color) geometry.dispose();
+      geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
+      geometry.setAttribute('color', new THREE.BufferAttribute(data.colors, 3));
       return;
     }
-    attribute.array.set(values);
-    attribute.needsUpdate = true;
+    if (position.array !== data.positions) position.array.set(data.positions);
+    if (color.array !== data.colors) color.array.set(data.colors);
+    position.needsUpdate = true;
+    color.needsUpdate = true;
   }
 }

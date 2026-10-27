@@ -20,17 +20,24 @@ export function withComponentTracks(clip: AnimationClip): AnimationClip {
     if (!Number.isInteger(width) || width < 1 || (euler && width !== 3)) throw new Error(`Invalid component track ${JSON.stringify(track.name)}.`);
     expanded = true;
     return Array.from({ length: width }, (_, component) => {
-      const scalar = track.clone();
-      scalar.name = `${track.name}[${euler ? ['x', 'y', 'z'][component] : component}]`;
-      // Keep tangent/value/tangent storage and the native interpolation factory.
-      scalar.values = track.values.slice(0, track.times.length * parts);
-      for (let sample = 0; sample < scalar.values.length; sample += 1) scalar.values[sample] = track.values[sample * width + component];
+      // Cloning the packed track first copies every morph's samples once per
+      // component. Allocate only this component, including cubic tangents.
+      const values = track.values.slice(0, track.times.length * parts);
+      for (let sample = 0; sample < values.length; sample += 1) values[sample] = track.values[sample * width + component];
+      const Track = track.constructor as typeof KeyframeTrack;
+      const scalar = new Track(`${track.name}[${euler ? ['x', 'y', 'z'][component] : component}]`, track.times.slice(), values);
+      // Match Three's clone contract: preserve the native interpolation factory.
+      (scalar as KeyframeTrack & { createInterpolant: unknown }).createInterpolant =
+        (track as KeyframeTrack & { createInterpolant: unknown }).createInterpolant;
       return scalar;
     });
   });
   if (!expanded) return clip;
-  const indexed = clip.clone();
-  indexed.tracks = tracks;
+  // The component tracks are already prepared; clip.clone() would clone the
+  // original packed buffers again only to discard those cloned tracks.
+  const Clip = clip.constructor as typeof AnimationClip;
+  const indexed = new Clip(clip.name, clip.duration, tracks, clip.blendMode);
+  indexed.userData = JSON.parse(JSON.stringify(clip.userData));
   return indexed;
 }
 

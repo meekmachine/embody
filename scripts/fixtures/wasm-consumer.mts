@@ -15,6 +15,8 @@ import { Object3D, type WebGLRenderer } from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 import {
   getAUDescriptors as threeAUDescriptors,
+  getAUBoneBindingStates,
+  type AUBoneBindingState,
   type AUDescriptor as ThreeAUDescriptor,
   bindModelReferencePose,
   captureModelReferencePose,
@@ -42,6 +44,12 @@ import {
   type ThreeAnnotationControllerConfig,
   type ThreeAnnotationControls,
 } from '@lovelace_lol/embody/three';
+
+const boneStates: Record<number, AUBoneBindingState> = getAUBoneBindingStates({}, [12, 26] as const);
+const mappedBone: string | null = boneStates[12].boneName;
+void mappedBone;
+// @ts-expect-error Bone queries require numeric AU ids.
+getAUBoneBindingStates({}, ['12']);
 
 const annotationProfile: AnnotationCharacterConfig = { characterId: 'consumer', auPresetType: 'cc4' };
 const resolvedAnnotationProfile = await resolveAnnotationCharacterConfig(annotationProfile);

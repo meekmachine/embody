@@ -38,10 +38,20 @@ try {
   assert.equal(unconfigured.visible, false, 'omitted meshes retain their model state');
   assert.equal(unnamed.visible, true);
 
+  const materialVersions = [body, secondBody].map(part => part.material.version);
+  applier.applyMeshMaterialConfigs(model, structuredClone(profile.meshes));
+  assert.deepEqual([body, secondBody].map(part => part.material.version), materialVersions,
+    'replaying unchanged materials does not invalidate renderer programs after a mapping edit');
+  applier.setMeshMaterialConfig(model, 'Body', { renderOrder: 2 });
+  assert.equal(body.renderOrder, 2);
+  assert.deepEqual([body, secondBody].map(part => part.material.version), materialVersions,
+    'render-order-only edits do not invalidate material programs');
+
   applier.applyMeshMaterialConfigs(model, { Body: { visible: true, material: { renderOrder: -2, opacity: 0.7, transparent: true, depthWrite: true, depthTest: true, blending: 'Normal' } } });
   assert.equal(body.visible, true, 'replacing a profile can restore visible=true');
   assert.deepEqual(applier.getMeshMaterialConfig(model, 'Body'), { renderOrder: -2, opacity: 0.7, transparent: true, depthWrite: true, depthTest: true, blending: 'Normal' });
   assert.equal(body.material.blending, NormalBlending);
+  assert.ok(body.material.version > materialVersions[0], 'changed material settings still invalidate the renderer');
   assert.equal(occlusion.visible, false, 'an omitted visibility field does not force a mesh visible');
   applier.applyMeshMaterialConfigs(model, { EyeOcclusion: { material: { opacity: 0.2 } } });
   assert.equal(occlusion.visible, false, 'material-only entries preserve visibility');

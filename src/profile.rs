@@ -1404,7 +1404,7 @@ fn mesh_names_for_visemes(profile: &ProfileData) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn viseme_mesh_category(profile: &ProfileData) -> String {
+pub(crate) fn viseme_mesh_category(profile: &ProfileData) -> String {
     if profile.morph_to_mesh.contains_key("face") {
         return "face".to_string();
     }

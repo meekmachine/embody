@@ -129,6 +129,11 @@ const snapshot = (clip) => clip.tracks.map((track) => ({ name: track.name, times
     renderHostFrame(character, 0);
     near(face.morphTargetInfluences[0], 0.1);
     near(face.morphTargetInfluences[1], 0.2);
+    character.setProfile({ morphToMesh: { face: [] } });
+    character.playAnimation(clip.name, { loopMode: 'repeat' });
+    renderHostFrame(character, 0.5);
+    near(face.morphTargetInfluences[0], 0.325);
+    near(face.morphTargetInfluences[1], 0.3125);
     assert.deepEqual(snapshot(clip), original);
   } finally { character.dispose(); }
 }

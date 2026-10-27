@@ -38,6 +38,26 @@ The Rust core owns:
 - profile-aware screen-space gaze geometry for eye/head AU trajectories
 - renderer-neutral model analysis and packed live frame generation
 
+`resolveMorphMeshSelections(profile, categories, availableNames)` resolves editor
+mesh selections in one Rust request. It returns each requested category's effective
+category, `hasSelection` (including explicit empty arrays), resolved loaded names,
+and unresolved configured names. Request `viseme` for speech routing. Facial
+categories share an authored `face` selection; body and hair stay independent.
+Exact names take precedence over legacy mesh aliases. Consumers save concrete
+resolved names plus unresolved names when editing, so deselecting one mesh does
+not reactivate it through a legacy alias. This query does not change the profile.
+
+`getAUBoneBindingStates(profile, auIds)` resolves a panel's AU bone links in one
+Rust request and returns an object keyed by AU ID. It uses the existing
+`getAUBoneBindingState` semantics, including custom bone names, axis/range,
+continuum opposites and explicitly cleared bindings. Its profile input contains
+only `auToBones`, `boneNodes`, `bonePrefix`, `boneSuffix`, `suffixPattern`,
+`compositeRotations`, `continuumPairs` and `humanoidCharacterization`.
+The adapter omits unrelated morph/mesh configuration, authored vertices and saved
+clips before serialization. Mesh selection edits do not invalidate these bone
+links; hosts can cache by those bone inputs and the requested AU IDs. This is a
+read-only authoring query, with no rig replacement or playback effects.
+
 The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
 not sample or lerp clips on the hot path.
@@ -63,8 +83,17 @@ mesh visibility and material overrides when a host binds or replaces a profile.
 It applies explicit `visible: false` and `visible: true` even without a material
 entry, and restores render order, opacity, transparency, depth flags and blending
 from `material`. Omitted fields leave the model's current values unchanged.
+Replaying identical material values during a mapping edit leaves the material
+version unchanged; render-order-only edits also avoid invalidating material programs.
 Polymer calls this adapter during model binding and profile replacement; hosts
 do not need a separate mesh-visibility replay loop.
+
+`MorphVertexPreview` owns the editor's affected-vertex overlay and updates from
+the existing Three scene render callback. It reuses position/color frame arrays,
+retains samples only for the active hover, and releases old GPU attributes before
+replacing differently sized geometry. Hiding or changing the hover clears its
+sample cache; an explicitly empty mesh selection produces no preview. Applications
+forward hover/show/hide events and dispose the overlay when its scene is released.
 
 ### Annotation runtime
 
