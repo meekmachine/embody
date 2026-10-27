@@ -1,21 +1,29 @@
 // This fixture is copied into an isolated consumer of the packed package.
 // The error assertions below fail if the public loader regresses to `any`.
-import { initEmbodyCore as initFromRoot } from '@lovelace_lol/embody';
+import { initEmbodyCore as initFromRoot, getAUDescriptors as rootAUDescriptors, LEGACY_BODY_CONTROL_AUS, type AUDescriptor as RootAUDescriptor } from '@lovelace_lol/embody';
 import {
+  getAUDescriptors as wasmAUDescriptors,
+  type AUDescriptor as WasmAUDescriptor,
   getEmbodyCore,
   initEmbodyCore,
   requireInitializedEmbodyCore,
   type EmbodyCore,
   type RuntimeCore,
+  type NativePlaybackSession,
 } from '@lovelace_lol/embody/wasm';
 import { Object3D, type WebGLRenderer } from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 import {
+  getAUDescriptors as threeAUDescriptors,
+  type AUDescriptor as ThreeAUDescriptor,
   bindModelReferencePose,
   captureModelReferencePose,
   extendModelReferencePose,
   createDefaultCharacterScene,
   createDefaultCharacterSceneAsync,
+  createCharacterHost,
+  type CharacterHost,
+  type CharacterHostOptions,
   type DefaultCharacterScene,
   type DefaultCharacterSceneAsyncOptions,
   type ReadyDefaultCharacterScene,
@@ -23,19 +31,24 @@ import {
   type CharacterSceneRenderer,
   type CharacterSceneRendererPreference,
   type ThreeModelReferencePose,
-  DPthree,
-  DPthreeCameraController,
+  Embody,
+  ThreeNativePlaybackConnector,
+  ThreeAnnotations,
+  ThreeAnnotationController,
   resolveAnnotationCharacterConfig,
   createRuntimeAnnotationPreviewLifecycle,
   type AnnotationCharacterConfig,
   type MarkerStateSnapshot,
-  type DPthreeCameraControllerConfig,
+  type ThreeAnnotationControllerConfig,
+  type ThreeAnnotationControls,
 } from '@lovelace_lol/embody/three';
 
 const annotationProfile: AnnotationCharacterConfig = { characterId: 'consumer', auPresetType: 'cc4' };
 const resolvedAnnotationProfile = await resolveAnnotationCharacterConfig(annotationProfile);
-declare const cameraOptions: DPthreeCameraControllerConfig;
-const controller = new DPthreeCameraController(cameraOptions);
+declare const cameraOptions: ThreeAnnotationControllerConfig;
+const controller = await ThreeAnnotationController.create(cameraOptions);
+const annotationControls: ThreeAnnotationControls = controller.controls;
+annotationControls.enabled = true;
 declare const renderModel: import('three').Object3D;
 const modelReady: Promise<void> = controller.prepareModelForRender(renderModel, { signal: new AbortController().signal });
 void modelReady;
@@ -48,11 +61,37 @@ controller.subscribeMarkerState((state: MarkerStateSnapshot) => { const visible:
 const preview = createRuntimeAnnotationPreviewLifecycle({ getAutoClearMs: () => undefined });
 preview.start(); preview.dispose();
 // @ts-expect-error Annotation constructors retain required Three scene inputs.
-new DPthree({});
+new ThreeAnnotations({});
 // @ts-expect-error Camera methods retain public region-name types.
 controller.focusRegion(123);
 
 const core: EmbodyCore = await initEmbodyCore();
+const character = new Embody({ profileMode: 'profile', profile: {} });
+const rootAUs: RootAUDescriptor[] = rootAUDescriptors({});
+const wasmAUs: WasmAUDescriptor[] = wasmAUDescriptors({}, { bones: [] });
+const threeAUs: ThreeAUDescriptor[] = threeAUDescriptors({});
+const characterAUs: RootAUDescriptor[] = character.getAUDescriptors();
+const legacyPositiveAU: number = LEGACY_BODY_CONTROL_AUS['body.elbowFlex'].positiveAuId;
+// @ts-expect-error Historical decoder identities are immutable.
+LEGACY_BODY_CONTROL_AUS['body.elbowFlex'].positiveAuId = 42;
+const sideSelection: boolean = rootAUs[0].bilateral;
+const actualSides: Array<'left' | 'right' | 'center'> = rootAUs[0].availableSides;
+void [wasmAUs, threeAUs, characterAUs, sideSelection, actualSides];
+// @ts-expect-error Available sides must keep their explicit side vocabulary.
+const invalidSide: 'both' = rootAUs[0].availableSides[0];
+// @ts-expect-error Named semantic pose APIs have been retired.
+character.getSemanticPoseCatalog();
+
+character.onReady({ model: new Object3D() });
+character.start();
+character.stop();
+// @ts-expect-error Public character controls cannot drive an animation clock.
+character.update(0.016);
+character.dispose();
+declare const connector: ThreeNativePlaybackConnector;
+connector.control('opaque', { type: 'setWeight', weight: 0.5 });
+// @ts-expect-error Native weight is a number, not semantic intensity metadata.
+connector.control('opaque', { type: 'setWeight', weight: 'strong' });
 const runtime: RuntimeCore = new core.RuntimeCore(15);
 runtime.configure_with_preset('cc4', '{}', '{}');
 runtime.set_au(12, 0.5, 0);
@@ -64,8 +103,34 @@ const viseme: number = runtime.get_viseme(0);
 const jawScale: number = runtime.get_viseme_jaw_scale(0);
 const frame: Float32Array = runtime.evaluate_active_morph_frame();
 const clip: string = runtime.build_clip('smile', '{}', '{}');
+const live: string = runtime.build_live_clip('live', 0.2);
+const release: string = runtime.build_live_release_clip('release', live, 0.2);
 const removed: boolean = runtime.remove_animation_clip('smile');
 runtime.free();
+
+// Lifecycle signatures come only from generated wasm-bindgen declarations.
+const playback: NativePlaybackSession = new core.NativePlaybackSession();
+const bindingBatch: string = playback.rebind('model', 'profile');
+const playBatch: string = playback.play(clip, '{}');
+const controlBatch: string = playback.control('opaque-handle', '{"type":"pause"}');
+const editBatch: string = playback.replace_clip('opaque-handle', clip);
+const eventBatch: string = playback.notify('{"type":"completed","handle":"opaque-handle"}');
+const disposalBatch: string = playback.dispose();
+playback.free();
+// @ts-expect-error Playback takes serialized ClipIR, not a renderer object.
+playback.play({}, '{}');
+// @ts-expect-error Native controls require both handle and serialized request.
+playback.control('opaque-handle');
+// @ts-expect-error Handle identity is an opaque string.
+playback.control(1, '{"type":"stop"}');
+// @ts-expect-error Native callbacks are serialized events, not a frame delta.
+playback.notify(0.016);
+// @ts-expect-error This protocol has no frame update or elapsed-time API.
+playback.update(0.016);
+// @ts-expect-error The semantic compiler no longer has a compatibility clock.
+runtime.update(0.016);
+// @ts-expect-error Returned command batches retain their generated string type.
+const wrongPlaybackBatch: number = playback.dispose();
 
 const result: Float32Array = core.solve_bilateral_values(1, 0);
 const presets: string[] = core.list_presets();
@@ -134,6 +199,23 @@ extendModelReferencePose(model);
 
 // Scene readiness is additive and cannot accidentally widen to an `any` renderer.
 declare const container: HTMLElement;
+// The current scene owner exposes the renamed annotation controller to consumers.
+declare const hostOptions: CharacterHostOptions;
+const pendingHost: Promise<CharacterHost> = createCharacterHost({
+  ...hostOptions,
+  camera: { transitionDuration: 250 },
+  onCharacterReady: ({ cameraController, engine }) => {
+    const annotations: ThreeAnnotationController | null = cameraController;
+    const mappedActions: RootAUDescriptor[] = engine.getAUDescriptors();
+    annotations?.setMarkersVisible(true);
+    // @ts-expect-error Host callbacks must not erase the annotation API's types.
+    cameraController?.focusRegion(123);
+    void mappedActions;
+  },
+});
+const loadedHost = await pendingHost;
+const hostAnnotations: ThreeAnnotationController | null = loadedHost.cameraController;
+void [legacyPositiveAU, hostAnnotations];
 const sceneOptions: DefaultCharacterSceneAsyncOptions = {
   type: 'studio', renderer: 'webgpu', signal: new AbortController().signal, lighting: { envMapEnabled: true },
   onDeviceLost: (error: Error) => { console.error(error.message); },
@@ -154,7 +236,7 @@ if (readyScene.backend === 'webgpu') {
 } else {
   const glRenderer: WebGLRenderer = readyScene.renderer;
 }
-new DPthreeCameraController({
+new ThreeAnnotationController({
   ...cameraOptions, renderer,
   renderFrame: async (activeRenderer, scene, camera) => { activeRenderer.render(scene, camera); },
   resizeRenderer: (activeRenderer, width, height) => { activeRenderer.setSize(width, height); },
@@ -180,3 +262,17 @@ createDefaultCharacterSceneAsync(container, { lighting: { exposure: 'bright' } }
 pendingScene.renderer.render(readyScene.scene, readyScene.camera);
 // @ts-expect-error The renderer remains concrete, not an any-typed capability bag.
 readyScene.renderer.nonexistentMethod();
+
+// The renamed runtime is typed directly from the generated Rust exports.
+const annotationRuntime = new core.AnnotationRuntime('{}');
+const annotationSnapshot: string = annotationRuntime.snapshot();
+const annotationCamera: Float32Array = annotationRuntime.camera_frame(0, new Float32Array(10));
+const annotationIds: Uint32Array = annotationRuntime.tracked_objects();
+// @ts-expect-error Annotation time is milliseconds as a number.
+annotationRuntime.command('visibility', '{}', '0');
+// @ts-expect-error Packed transforms use generated float-array types.
+annotationRuntime.observe_transforms([1, 2, 3]);
+annotationRuntime.dispose(); annotationRuntime.free();
+const lifecycle = new core.AnnotationLifecycle('preview', 1200);
+const deadline: number | undefined = lifecycle.deadline();
+lifecycle.free();

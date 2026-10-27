@@ -5,7 +5,7 @@
 //! rotation axes, bone translations, jaw binding, and rest transforms. Hosts
 //! only pass data in; no mapping resolution happens in JavaScript.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use regex_lite::Regex;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -449,20 +449,15 @@ pub struct HairMorphTargetValueData {
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct HairMorphTargetsData {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub sway_left: Option<HairMorphTargetData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub sway_right: Option<HairMorphTargetData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub sway_front: Option<HairMorphTargetData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub fluff_right: Option<HairMorphTargetData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub fluff_bottom: Option<HairMorphTargetData>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub head_up: HashMap<String, HairMorphTargetValueData>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub head_down: HashMap<String, HairMorphTargetValueData>,
+    #[serde(deserialize_with = "null_default")]
+    pub head_up: HashMap<String, Option<HairMorphTargetValueData>>,
+    #[serde(deserialize_with = "null_default")]
+    pub head_down: HashMap<String, Option<HairMorphTargetValueData>>,
     #[serde(flatten)]
     pub extensions: Map<String, Value>,
 }
@@ -578,11 +573,10 @@ pub struct ProfileData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hair_physics: Option<HairPhysicsData>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub gaze_calibration: Option<GazeCalibrationData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub humanoid_characterization: Option<HumanoidCharacterizationData>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty", deserialize_with = "null_default")]
-    pub body_controls: BTreeMap<String, BodyControlData>,
+    /// Discard old UI catalog metadata on read; it is not an active profile contract.
+    #[serde(rename = "bodyControls", default, skip_serializing)]
+    pub legacy_body_controls: Option<Value>,
     // Typed legacy fish fields retained until that preset schema is normalized.
     #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub action_info: HashMap<String, AuInfoData>,
@@ -594,29 +588,9 @@ pub struct ProfileData {
     pub extensions: Map<String, Value>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, Default)]
-#[serde(rename_all = "camelCase", default)]
-pub struct GazeOpticalCalibrationData {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub optical_axis: Option<ProfileVec3Data>,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, Default)]
-#[serde(rename_all = "camelCase", default)]
-pub struct GazeCalibrationData {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_units_per_meter: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub head: Option<GazeOpticalCalibrationData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub left_eye: Option<GazeOpticalCalibrationData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub right_eye: Option<GazeOpticalCalibrationData>,
-}
-
 /// A VRM humanoid role resolves through an existing profile node key. This
 /// keeps current AU-to-bone bindings on their established evaluation path.
-#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct HumanoidRoleData {
     pub node_key: String,
@@ -631,7 +605,7 @@ pub struct HumanoidRoleData {
     pub extensions: Map<String, Value>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct HumanoidCharacterizationData {
     pub schema_version: u32,
@@ -641,21 +615,6 @@ pub struct HumanoidCharacterizationData {
     pub roles: BTreeMap<String, HumanoidRoleData>,
     #[serde(flatten)]
     pub extensions: Map<String, Value>,
-}
-
-/// Semantic body controls reuse numeric actions and the same bone/morph
-/// evaluator as FACS. VRM identifies the anatomy, not the action vocabulary.
-#[derive(Deserialize, Serialize, Debug, Clone, Default)]
-#[serde(rename_all = "camelCase", default)]
-pub struct BodyControlData {
-    pub label: String,
-    pub section: String,
-    pub au_id: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub negative_au_id: Option<u32>,
-    pub bilateral: bool,
-    pub roles: Vec<String>,
-    pub order: i32,
 }
 
 impl ProfileData {
@@ -782,17 +741,6 @@ pub struct CompiledTables {
     pub viseme_slot_ids: Vec<String>,
 }
 
-impl CompiledTables {
-    #[cfg(test)]
-    pub fn has_runtime_bindings(&self) -> bool {
-        !self.au_morph_bindings.is_empty()
-            || !self.viseme_morph_bindings.is_empty()
-            || !self.composite_axes.is_empty()
-            || !self.translations.is_empty()
-            || !self.jaw_binding.is_empty()
-    }
-}
-
 struct VisemeSlot {
     id: String,
     default_jaw_amount: Option<f64>,
@@ -825,7 +773,6 @@ pub struct ResolvedProfileView {
     pub continuum_pairs: HashMap<String, Option<ContinuumPairData>>,
     pub hair_physics: Option<HairPhysicsData>,
     pub humanoid_characterization: Option<HumanoidCharacterizationData>,
-    pub body_controls: BTreeMap<String, BodyControlData>,
 }
 
 pub fn resolve_profile_view(profile: &ProfileData) -> ResolvedProfileView {
@@ -863,7 +810,6 @@ pub fn resolve_profile_view(profile: &ProfileData) -> ResolvedProfileView {
         continuum_pairs: profile.continuum_pairs.clone(),
         hair_physics: profile.hair_physics.clone(),
         humanoid_characterization: profile.humanoid_characterization.clone(),
-        body_controls: profile.body_controls.clone(),
     }
 }
 
@@ -921,7 +867,7 @@ fn compile_au_morph_bindings(
         // Body's morph strength remains meaningful when its bone actuator is
         // absent or deliberately cleared. Keep legacy non-Body morph-only AU
         // behavior, while compiling the same weighting rule for live controls
-        // and snippet tracks, including shared head/eye/jaw actions.
+        // and snippet tracks. Actual head/eye/jaw bone mappings use this same evaluator.
         if has_morphs && (has_bones || is_body_action(profile, au_id)) {
             tables.mixed_aus.push(au_id);
         }
@@ -952,10 +898,9 @@ fn compile_viseme_morph_bindings(
     slots: &[VisemeSlot],
     tables: &mut CompiledTables,
 ) {
-    let mesh_names = mesh_names_for_visemes(profile);
     for (index, slot) in slots.iter().enumerate() {
         for (morph, weight) in viseme_binding_targets(profile, slot, index) {
-            for (mesh_id, morph_target_id) in resolver.resolve_morph(&morph, &mesh_names) {
+            for (mesh_id, morph_target_id) in resolver.resolve_viseme_morph(profile, &morph) {
                 tables.viseme_morph_bindings.extend_from_slice(&[
                     index as f32,
                     mesh_id as f32,
@@ -1375,7 +1320,9 @@ fn viseme_binding_targets(
 
     if let Some(binding) = binding {
         if let Some(targets) = &binding.targets {
-            let bound: Vec<(MorphRef, f64)> = targets
+            // An authored target list owns the slot, including an empty list
+            // that deliberately clears a legacy/preset morph assignment.
+            return targets
                 .iter()
                 .filter_map(|target| {
                     let morph = target.morph.clone()?;
@@ -1390,15 +1337,13 @@ fn viseme_binding_targets(
                     Some((morph, weight))
                 })
                 .collect();
-            if !bound.is_empty() {
-                return bound;
-            }
         }
 
         if let Some(morph) = &binding.morph {
-            if !matches!(morph, MorphRef::Name(name) if name.is_empty()) {
-                return vec![(morph.clone(), 1.0)];
+            if matches!(morph, MorphRef::Name(name) if name.is_empty()) {
+                return Vec::new();
             }
+            return vec![(morph.clone(), 1.0)];
         }
     }
 
@@ -1411,9 +1356,9 @@ fn viseme_binding_targets(
     Vec::new()
 }
 
-fn is_body_action(profile: &ProfileData, au_id: u32) -> bool {
-    profile.body_controls.values().any(|control|
-        control.au_id == au_id || control.negative_au_id == Some(au_id))
+pub(crate) fn is_body_action(profile: &ProfileData, au_id: u32) -> bool {
+    profile.au_info.get(&au_id.to_string()).or_else(|| profile.action_info.get(&au_id.to_string()))
+        .is_some_and(|info| info.face_area.as_deref() == Some("Body") || info.face_part.as_deref() == Some("Body"))
 }
 
 fn mesh_category_for_au(profile: &ProfileData, au_id: u32) -> &str {
@@ -1421,8 +1366,19 @@ fn mesh_category_for_au(profile: &ProfileData, au_id: u32) -> &str {
         .au_info
         .get(&au_id.to_string())
         .and_then(|info| info.face_part.as_ref());
-    face_part.and_then(|part| profile.au_face_part_to_mesh_category.get(part))
-        .map(String::as_str).unwrap_or("face")
+    let category = face_part.and_then(|part| profile.au_face_part_to_mesh_category.get(part))
+        .map(String::as_str).unwrap_or("face");
+    effective_mesh_category(profile, category)
+}
+
+/// The face selection owns every facial morph, including eyes and tongue.
+/// Body and hair morph controls keep their separate mesh assignments.
+pub(crate) fn effective_mesh_category<'a>(profile: &ProfileData, category: &'a str) -> &'a str {
+    if profile.morph_to_mesh.contains_key("face") && !matches!(category, "body" | "hair") {
+        "face"
+    } else {
+        category
+    }
 }
 
 pub(crate) fn mesh_names_for_au(profile: &ProfileData, au_id: u32) -> Vec<String> {
@@ -1449,6 +1405,9 @@ fn mesh_names_for_visemes(profile: &ProfileData) -> Vec<String> {
 }
 
 fn viseme_mesh_category(profile: &ProfileData) -> String {
+    if profile.morph_to_mesh.contains_key("face") {
+        return "face".to_string();
+    }
     profile.viseme_mesh_category.clone().unwrap_or_else(|| {
         if profile.morph_to_mesh.contains_key("viseme") {
             "viseme".to_string()
@@ -1525,17 +1484,16 @@ impl NameResolver {
         }
     }
 
-    pub(crate) fn resolve_morph(&self, morph: &MorphRef, mesh_names: &[String]) -> Vec<(u32, u32)> {
-        self.resolve_morph_with_fallback(morph, mesh_names, true)
+    fn resolve_viseme_morph(&self, profile: &ProfileData, morph: &MorphRef) -> Vec<(u32, u32)> {
+        let strict_selection = profile.viseme_mesh_category.is_some()
+            || profile.morph_to_mesh.contains_key(&viseme_mesh_category(profile));
+        self.resolve_morph_with_fallback(morph, &mesh_names_for_visemes(profile), !strict_selection)
     }
 
     pub(crate) fn resolve_au_morph(&self, profile: &ProfileData, au_id: u32, morph: &MorphRef) -> Vec<(u32, u32)> {
-        // Body authoring exposes an explicit category mesh selection. An empty
-        // selection means no outputs, and a target absent from selected meshes
-        // must not silently actuate a similarly named target on another mesh.
-        // Legacy omitted categories and non-Body/viseme mappings keep fallback.
-        let strict_selection = is_body_action(profile, au_id)
-            && profile.morph_to_mesh.contains_key(mesh_category_for_au(profile, au_id));
+        // The selected face meshes override separate facial routes. A missing
+        // selected morph never falls back to an unselected mesh.
+        let strict_selection = profile.morph_to_mesh.contains_key(mesh_category_for_au(profile, au_id));
         self.resolve_morph_with_fallback(morph, &mesh_names_for_au(profile, au_id), !strict_selection)
     }
 
@@ -1559,10 +1517,9 @@ impl NameResolver {
             }
         }
 
-        // Authored profiles can predate GLTFLoader's primitive suffixes or omit
-        // morphToMesh entirely. Preserve the exact profile while resolving its
-        // morph against model content rather than making the host fall back to a
-        // different preset. Configured/family matches always take precedence.
+        // Legacy profiles can omit mesh routing. Only those unspecified routes
+        // may discover targets by content; an explicit selection never expands
+        // to unrelated meshes, even when none of its targets can be resolved.
         if allow_fallback && result.is_empty() {
             for mesh_name in &self.mesh_names {
                 if candidate_names.contains(mesh_name) {
@@ -1586,16 +1543,7 @@ impl NameResolver {
     }
 
     fn resolve_mesh_names(&self, configured_names: &[String]) -> Vec<String> {
-        let mut resolved = Vec::new();
-        for actual_name in &self.mesh_names {
-            if configured_names
-                .iter()
-                .any(|configured| mesh_names_are_variants(configured, actual_name))
-            {
-                resolved.push(actual_name.clone());
-            }
-        }
-        resolved
+        resolve_mesh_selection(configured_names, &self.mesh_names).resolved_names
     }
 
     fn resolve_morph_by_name<'a>(
@@ -1627,10 +1575,10 @@ impl NameResolver {
                 mapping.standard == "VRMC_vrm-1.0" && !mapping.roles.contains_key(node_key)) {
             return None;
         }
-        if let Some(exact) = crate::body_controls::exact_bone_name(profile, node_key) {
+        if let Some(exact) = crate::profile_resolution::exact_bone_name(profile, node_key) {
             return model.bones.iter().find(|bone| bone.name == exact);
         }
-        let node_key = crate::body_controls::node_key(profile, node_key);
+        let node_key = crate::profile_resolution::node_key(profile, node_key);
         let configured = profile
             .bone_nodes
             .get(node_key)
@@ -1655,6 +1603,34 @@ impl NameResolver {
             .find(|bone| bone.name == full)
             .or_else(|| model.bones.iter().find(|bone| bone.name == configured))
             .or_else(|| model.bones.iter().find(|bone| bone.name == node_key))
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeshSelection {
+    pub resolved_names: Vec<String>,
+    pub unresolved_names: Vec<String>,
+}
+
+/// Authoring controls and runtime compilation must agree about legacy aliases.
+/// Unresolved names remain available to an editor without becoming runtime targets.
+pub(crate) fn resolve_mesh_selection(
+    configured_names: &[String],
+    available_names: &[String],
+) -> MeshSelection {
+    let exact_names: HashSet<&str> = available_names.iter().map(String::as_str).collect();
+    let matches = |configured: &String, actual: &String| {
+        configured == actual
+            || (!exact_names.contains(configured.as_str()) && mesh_names_are_variants(configured, actual))
+    };
+    MeshSelection {
+        resolved_names: available_names.iter()
+            .filter(|actual| configured_names.iter().any(|configured| matches(configured, actual)))
+            .cloned().collect(),
+        unresolved_names: configured_names.iter()
+            .filter(|configured| !available_names.iter().any(|actual| matches(configured, actual)))
+            .cloned().collect(),
     }
 }
 
@@ -1703,7 +1679,7 @@ mod tests {
                 "26": [{ "node": "JAW", "channel": "rz", "scale": 1, "maxDegrees": 30 }]
             },
             "boneNodes": { "HEAD": "Head", "JAW": "Jaw" },
-            "morphToMesh": { "face": ["FaceMesh"], "viseme": ["VisemeMesh"] },
+            "morphToMesh": { "face": ["FaceMesh", "VisemeMesh"], "viseme": ["VisemeMesh"] },
             "auMixDefaults": { "12": 0.5 },
             "compositeRotations": [
                 { "node": "HEAD", "yaw": { "aus": [12], "axis": "ry" }, "pitch": null, "roll": null }
@@ -1849,13 +1825,43 @@ mod tests {
             view["visemeBindingTargets"][0],
             serde_json::json!([{ "morph": "Aah", "weight": 0.75 }])
         );
-        assert_eq!(view["visemeMeshCategory"], "viseme");
-        assert_eq!(view["visemeMeshNames"], serde_json::json!(["MouthMesh"]));
-        assert_eq!(view["auMeshNames"]["1"], serde_json::json!(["EyeMesh"]));
+        assert_eq!(view["visemeMeshCategory"], "face");
+        assert_eq!(view["visemeMeshNames"], serde_json::json!(["FaceMesh"]));
+        assert_eq!(view["auMeshNames"]["1"], serde_json::json!(["FaceMesh"]));
         assert_eq!(view["auMeshNames"]["12"], serde_json::json!(["FaceMesh"]));
         assert_eq!(view["meshes"]["EyeMesh"]["category"], "eye");
         assert_eq!(view["meshes"]["EyeMesh"]["material"]["renderOrder"], -10);
         assert_eq!(view["mappingSections"][0]["meshCategory"], "eye");
+    }
+
+    #[test]
+    fn explicit_empty_viseme_targets_do_not_restore_legacy_morphs() {
+        let model: ModelData = serde_json::from_value(serde_json::json!({
+            "meshes": [{"id": 1, "name": "Mouth", "morphTargetIds": [10]}],
+            "morphTargets": [{"id": 10, "meshId": 1, "name": "LegacyMouth"}]
+        })).unwrap();
+        let mut profile: ProfileData = serde_json::from_value(serde_json::json!({
+            "visemeSlots": [{"id": "open"}],
+            "visemeKeys": ["LegacyMouth"],
+            "morphToMesh": {"face": ["Mouth"]}
+        })).unwrap();
+        assert_eq!(compile_tables(&profile, &model).viseme_morph_bindings.len(), 4);
+
+        for binding in [
+            serde_json::json!({"targets": []}),
+            serde_json::json!({"targets": [], "morph": "LegacyMouth"}),
+            serde_json::json!({"morph": ""}),
+        ] {
+            profile.viseme_bindings.insert("open".into(), serde_json::from_value(binding).unwrap());
+            assert!(resolve_profile_view(&profile).viseme_binding_targets[0].is_empty());
+            assert!(compile_tables(&profile, &model).viseme_morph_bindings.is_empty());
+        }
+
+        // Editing only jaw metadata does not author a morph override.
+        profile.viseme_bindings.insert("open".into(), serde_json::from_value(
+            serde_json::json!({"jawAmount": 0.5})
+        ).unwrap());
+        assert_eq!(compile_tables(&profile, &model).viseme_morph_bindings.len(), 4);
     }
 
     #[test]
@@ -1884,7 +1890,7 @@ mod tests {
     }
 
     #[test]
-    fn resolves_gltf_primitive_mesh_variants_before_content_fallback() {
+    fn resolves_gltf_primitive_mesh_variants_when_no_exact_mesh_exists() {
         let profile: ProfileData = serde_json::from_str(
             r#"{
                 "auToMorphs": { "12": { "left": [], "right": [], "center": ["Smile"] } },
@@ -1915,10 +1921,77 @@ mod tests {
     }
 
     #[test]
+    fn selecting_an_exact_mesh_does_not_also_select_its_numbered_siblings() {
+        let profile: ProfileData = serde_json::from_value(serde_json::json!({
+            "auToMorphs": {"12": {"center": ["Smile"]}},
+            "morphToMesh": {"face": ["Skin"]}
+        })).unwrap();
+        let model: ModelData = serde_json::from_value(serde_json::json!({
+            "meshes": [
+                {"id": 1, "name": "Skin", "morphTargetIds": [10]},
+                {"id": 2, "name": "Skin_1", "morphTargetIds": [20]}
+            ],
+            "morphTargets": [
+                {"id": 10, "meshId": 1, "name": "Smile"},
+                {"id": 20, "meshId": 2, "name": "Smile"}
+            ]
+        })).unwrap();
+        let tables = compile_tables(&profile, &model);
+        assert_eq!(tables.au_morph_bindings.len(), 5);
+        assert_eq!(&tables.au_morph_bindings[2..4], &[1.0, 10.0]);
+    }
+
+    #[test]
+    fn legacy_categories_without_a_face_selection_keep_their_own_meshes() {
+        let model: ModelData = serde_json::from_value(serde_json::json!({
+            "meshes": [
+                {"id": 1, "name": "Skin", "morphTargetIds": [10]},
+                {"id": 2, "name": "Eyes", "morphTargetIds": [20]},
+                {"id": 3, "name": "NoMatchingMorph", "morphTargetIds": []}
+            ],
+            "morphTargets": [
+                {"id": 10, "meshId": 1, "name": "Shape"},
+                {"id": 20, "meshId": 2, "name": "Shape"}
+            ]
+        })).unwrap();
+        for selection in [vec![], vec!["MissingMesh"], vec!["NoMatchingMorph"], vec!["Eyes"]] {
+            let profile: ProfileData = serde_json::from_value(serde_json::json!({
+                "auToMorphs": {"61": {"center": ["Shape"]}},
+                "auInfo": {"61": {"facePart": "Eye"}},
+                "auFacePartToMeshCategory": {"Eye": "eye"},
+                "visemeKeys": ["Shape"],
+                "visemeMeshCategory": "mouth",
+                "morphToMesh": {"eye": selection, "mouth": selection}
+            })).unwrap();
+            let tables = compile_tables(&profile, &model);
+            if selection == vec!["Eyes"] {
+                assert_eq!(tables.au_morph_bindings.len(), 5);
+                assert_eq!(&tables.au_morph_bindings[2..4], &[2.0, 20.0]);
+                assert_eq!(tables.viseme_morph_bindings.len(), 4);
+                assert_eq!(&tables.viseme_morph_bindings[1..3], &[2.0, 20.0]);
+            } else {
+                assert!(tables.au_morph_bindings.is_empty(), "{selection:?}");
+                assert!(tables.viseme_morph_bindings.is_empty(), "{selection:?}");
+            }
+        }
+        // An empty face selection overrides even an existing speech assignment.
+        for routing in [
+            serde_json::json!({"morphToMesh": {"face": []}}),
+            serde_json::json!({"morphToMesh": {"face": [], "viseme": ["Skin"]}}),
+            serde_json::json!({"morphToMesh": {}, "visemeMeshCategory": "missing"}),
+        ] {
+            let mut profile: ProfileData = serde_json::from_value(routing).unwrap();
+            profile.viseme_keys = vec![MorphRef::Name("Shape".into())];
+            assert!(compile_tables(&profile, &model).viseme_morph_bindings.is_empty());
+        }
+    }
+
+    #[test]
     fn resolves_morph_by_content_when_profile_has_no_mesh_mapping() {
         let profile: ProfileData = serde_json::from_str(
             r#"{
-                "auToMorphs": { "12": { "left": [], "right": [], "center": ["Smile"] } }
+                "auToMorphs": { "12": { "left": [], "right": [], "center": ["Smile"] } },
+                "visemeKeys": ["Smile"]
             }"#,
         )
         .unwrap();
@@ -1934,5 +2007,6 @@ mod tests {
         assert_eq!(tables.au_morph_bindings.len(), 5);
         assert_eq!(tables.au_morph_bindings[2], 4.0);
         assert_eq!(tables.au_morph_bindings[3], 9.0);
+        assert_eq!(tables.viseme_morph_bindings, vec![0.0, 4.0, 9.0, 1.0]);
     }
 }

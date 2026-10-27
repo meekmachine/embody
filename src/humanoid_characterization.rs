@@ -173,17 +173,17 @@ pub fn set_role_binding(profile: &mut ProfileData, role: &str, bone_name: Option
     if bone_specification(role).is_none() { return Err(format!("Unknown VRM humanoid role \"{role}\".")); }
     if bone_name.is_some_and(|name| name.trim().is_empty()) { return Err("boneName must be a nonempty bone name or null.".into()); }
     let old_key = profile.humanoid_characterization.as_ref().and_then(|mapping| mapping.roles.get(role)).map(|binding| binding.node_key.clone());
-    let old_name = old_key.as_ref().map(|key| crate::body_controls::configured_bone_name(profile, key));
+    let old_name = old_key.as_ref().map(|key| crate::profile_resolution::configured_bone_name(profile, key));
     if let Some(name) = bone_name {
         if profile.humanoid_characterization.as_ref().is_some_and(|mapping| mapping.roles.iter().any(|(other, binding)|
-            other != role && (crate::body_controls::configured_bone_name(profile, &binding.node_key) == name
+            other != role && (crate::profile_resolution::configured_bone_name(profile, &binding.node_key) == name
                 || profile.bone_nodes.get(&binding.node_key).is_some_and(|configured| configured == name)))) {
             return Err(format!("Bone \"{name}\" is already assigned to another humanoid role."));
         }
     }
     if let Some(old_name) = old_name {
         let aliases: std::collections::HashSet<String> = profile.bone_nodes.iter()
-            .filter(|(key, _)| crate::body_controls::configured_bone_name(profile, key) == old_name)
+            .filter(|(key, _)| crate::profile_resolution::configured_bone_name(profile, key) == old_name)
             .flat_map(|(key, value)| [key.clone(), value.clone()]).collect();
         let matches = |node: &str| node == role || node == old_name || aliases.contains(node);
         for binding in profile.au_to_bones.values_mut().flatten() {
@@ -272,7 +272,7 @@ fn validate_metadata(
             role.clone(),
             ResolvedHumanoidRole {
                 node_key: node_key.to_string(),
-                bone_name: crate::body_controls::configured_bone_name(profile, role),
+                bone_name: crate::profile_resolution::configured_bone_name(profile, role),
                 source: binding.source.clone(),
                 confidence: binding.confidence,
             },

@@ -1,0 +1,9 @@
+{
+  "defaultAxisToChannel": {
+    "pitch": "rx",
+    "yaw": "ry",
+    "roll": "rz"
+  },
+  "defaultBoneMaxDegrees": 60,
+  "jointControlSection": "Joint Controls"
+}

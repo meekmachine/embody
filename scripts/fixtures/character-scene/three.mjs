@@ -32,6 +32,8 @@ export class WebGLRenderer {
     this.sizes = [];
     this.disposeCount = 0;
     this.compileCount = 0;
+    this.renderCount = 0;
+    this.loopCallbacks = [];
     if (control.failure.missingCompileAsync) this.compileAsync = undefined;
     control.renderers.push(this);
     control.rendererAcquired?.(this);
@@ -48,6 +50,8 @@ export class WebGLRenderer {
     if (control.failure.compile) throw control.failure.compile;
     return control.prepare?.(scene, camera) ?? Promise.resolve(scene);
   }
+  render(scene, camera) { this.renderCount++; this.renderedScene = scene; this.renderedCamera = camera; }
+  setAnimationLoop(callback) { this.loopCallbacks.push(callback); }
   dispose() {
     this.disposeCount++;
     if (control.failure.dispose) throw control.failure.dispose;

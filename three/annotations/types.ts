@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { CharacterSceneRenderer } from '../scene';
+import type { CharacterSceneRenderer, CharacterSceneRenderingController } from '../scene';
 
 export type LineStyle = 'solid' | 'dashed' | 'dotted';
 export type LineCurve = 'straight' | 'bezier' | 'arc';
@@ -156,9 +156,8 @@ export interface AnnotationCharacterConfig extends BoneResolutionProfile {
 export type CharacterConfig = AnnotationCharacterConfig;
 export interface CharacterRegistry { characters: AnnotationCharacterConfig[]; defaultCharacter?: string; }
 export type AUPresetType = string;
-export type DPthreeRegion = AnnotationAnchoredRegion;
-export type DPthreeCharacterConfig = AnnotationCharacterConfig;
-export type DPthreeRegistry = CharacterRegistry;
+export type AnnotationRegion = AnnotationAnchoredRegion;
+export type AnnotationRegistry = CharacterRegistry;
 
 /**
  * Camera state for save/restore
@@ -169,21 +168,23 @@ export interface CameraState {
 }
 
 /**
- * Configuration for DPthreeCameraController
+ * Configuration for ThreeAnnotationController
  */
-export interface DPthreeCameraControllerConfig {
+export interface ThreeAnnotationControllerConfig {
   /** Optional selection override; otherwise selecting a region focuses the camera. */
   onRegionSelect?: (name: string) => void;
   /** Optional host profile intake; defaults to Embody preset resolution. */
   resolveCharacterConfig?: (config: AnnotationCharacterConfig) => AnnotationCharacterConfig | Promise<AnnotationCharacterConfig>;
   /** The Three.js camera to control */
   camera: THREE.PerspectiveCamera;
-  /** DOM element for OrbitControls (usually the canvas or its container) */
+  /** DOM element for Rust camera gestures (usually the canvas or its container) */
   domElement: HTMLElement;
   /** The Three.js scene */
   scene: THREE.Scene;
   /** The Three.js renderer - if provided, camera controller manages the render loop */
   renderer?: CharacterSceneRenderer;
+  /** Owns live backend replacement; pass the matching scene/camera and stable container. */
+  rendering?: CharacterSceneRenderingController;
   /**
    * Optional render callback used when the controller owns the render loop.
    * Allows overlay passes to render after the main character scene. Pending
@@ -206,7 +207,7 @@ export interface DPthreeCameraControllerConfig {
     height: number,
   ) => void;
 
-  // OrbitControls settings
+  // Rust camera gesture settings
   /** Enable damping/inertia. Default: true */
   enableDamping?: boolean;
   /** Damping factor. Default: 0.05 */
@@ -254,5 +255,5 @@ export type RegionChangeCallback = (regionName: string) => void;
  */
 export type CharacterChangeCallback = (config: CharacterConfig) => void;
 
-export type DPthreeRegionChangeCallback = RegionChangeCallback;
-export type DPthreeCharacterChangeCallback = CharacterChangeCallback;
+export type AnnotationRegionChangeCallback = RegionChangeCallback;
+export type AnnotationCharacterChangeCallback = CharacterChangeCallback;

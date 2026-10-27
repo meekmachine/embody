@@ -147,11 +147,8 @@ try {
   mixer.update(0.5);
   near(mesh.morphTargetInfluences[0], 0, 'zero-scaled curve releases inherited pose');
   zeroPlaying.stop();
-  assert.throws(
-    () => core.build_clip('zero-authored', JSON.stringify({ 200: curve(0, false) }), '{"intensityScale":0}'),
-    /No runtime tracks could be resolved/,
-    'non-inherited zero-scale tracks remain omitted',
-  );
+  const zeroAuthored = JSON.parse(core.build_clip('zero-authored', JSON.stringify({ 200: curve(0, false) }), '{"intensityScale":0}'));
+  assert.deepEqual(zeroAuthored.tracks[0].values, [0, 0], 'zero intensity retains native bindings for live edits');
 
   // Concrete transform tracks use the rendered local transform, not the rest
   // transform saved by model inspection. Test quaternion interpolation too.

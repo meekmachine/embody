@@ -23,3 +23,11 @@ conversion and the portable GLB contract. Three inspects explicit references or
 skin bind inverses, parses FBX, releases parser resources and materializes native
 clips. Playback/blending remain host-owned. No Three sampling loop or alternative
 JavaScript retargeting core is introduced. See [the supported contract](ANIMATION_REFERENCE_POSES.md#mixamo-fbx-and-vrm-animation-body-interchange).
+
+Annotation adapters additionally capture raw pointer/wheel input, inspect native
+bounds/vertex attributes and execute Rust-planned native raycasts. Rust's
+`AnnotationRuntime` owns camera integration, regions, target selection, marker
+placement/state and packed layout. `AnnotationLifecycle` owns deadlines; a browser
+timer only wakes it to emit effects. The adapter keeps native object handles and
+promise/callback resources, never an independent annotation state machine. See
+[the annotation contract](../README.md#annotation-runtime).

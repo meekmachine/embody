@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { CharacterSceneRenderer } from '../scene';
+import { prepareModelSkinning } from '../modelSkinning';
 
 function captureRenderTarget(renderer: CharacterSceneRenderer): () => void {
   const face = renderer.getActiveCubeFace();
@@ -70,7 +71,10 @@ export function compileModelForRender(
   }
   // Only the caller-owned model is retained across asynchronous compilation.
   // Controller markers may still be replaced/disposed while this is pending.
-  return withPreparedModel(scene, model, () => renderer.compileAsync(model, camera, scene));
+  return withPreparedModel(scene, model, () => {
+    prepareModelSkinning(model);
+    return renderer.compileAsync(model, camera, scene);
+  });
 }
 
 /** One complete scene draw initializes native geometry/textures and real shadow variants. */
