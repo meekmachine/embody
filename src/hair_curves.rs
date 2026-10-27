@@ -73,9 +73,13 @@ fn default_damping() -> f32 {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HairPlaybackConfig {
     #[serde(default)] pub enabled: bool,
+    /// Angular-velocity force gain (local radians/second, unit-mass spring).
     #[serde(default)] pub inertia: f32,
+    /// Dimensionless pitch/gravity gain; mapped pitch settles through the spring.
     #[serde(default)] pub gravity: f32,
+    /// Final additive response strength, including ambient and gravity outputs.
     #[serde(default = "default_one")] pub response_scale: f32,
+    /// Seconds for legacy authored curve helpers; continuous response has no clip cycle.
     #[serde(default = "minimum_idle_duration")] pub idle_clip_duration: f32,
     #[serde(default = "minimum_impulse_duration")] pub impulse_clip_duration: f32,
     #[serde(default)] pub direction: HairDirection,
@@ -157,6 +161,88 @@ pub(crate) fn configured_targets(config: &HairPlaybackConfig) -> std::collection
         .into_iter().filter_map(|name| name.as_ref()).filter(|name| !name.is_empty()).cloned().collect();
     for group in [&morph.head_up, &morph.head_down].into_iter().flatten() { names.extend(group.keys().filter(|name| !name.is_empty()).cloned()); }
     names
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct HairHeadPose {
+    pub bone_name: String,
+    pub current: [f32; 4],
+    pub reference: [f32; 4],
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HairHeadBinding {
+    pub bone_id: u32,
+    pub bone_name: String,
+    pub reference: [f32; 4],
+}
+
+fn checked_quaternion(q: [f32; 4]) -> Result<[f32; 4], String> {
+    let length_squared = q.iter().map(|value| f64::from(*value).powi(2)).sum::<f64>();
+    if q.iter().any(|value| !value.is_finite()) || length_squared <= 1e-24 {
+        return Err("Hair response requires finite nonzero local quaternions.".into());
+    }
+    let length = length_squared.sqrt();
+    Ok(q.map(|value| (f64::from(value) / length) as f32))
+}
+
+/// A missing or unresolved head role leaves ambient hair available. Never
+/// substitute a preset bone name for a profile with no head characterization.
+pub(crate) fn head_binding(
+    profile: &crate::profile::ProfileData, model: &crate::profile::ModelData,
+) -> Result<Option<HairHeadBinding>, String> {
+    let Some(role) = profile.humanoid_characterization.as_ref().and_then(|mapping| mapping.roles.get("head")) else { return Ok(None); };
+    let resolver = crate::profile::NameResolver::new(profile, model);
+    let Some(bone) = resolver.resolve_bone(model, profile, &role.node_key) else { return Ok(None); };
+    let reference = bone.rest_transform.as_ref().and_then(|transform| transform.rotation.as_ref())
+        .map(|q| [q.x, q.y, q.z, q.w]).unwrap_or([0.0, 0.0, 0.0, 1.0]);
+    Ok(Some(HairHeadBinding { bone_id: bone.id, bone_name: bone.name.clone(), reference: checked_quaternion(reference)? }))
+}
+
+pub(crate) fn head_pose_angles(binding: &HairHeadBinding, pose: &HairHeadPose) -> Result<[f32; 2], String> {
+    if pose.bone_name != binding.bone_name {
+        return Err("Hair response pose must name the configured head bone.".into());
+    }
+    let current = checked_quaternion(pose.current)?;
+    let reference = checked_quaternion(pose.reference)?;
+    let reference_dot = reference.iter().zip(binding.reference).map(|(a, b)| a * b).sum::<f32>().abs();
+    if reference_dot < 1.0 - 1e-5 {
+        return Err("Hair response reference must match the captured local head binding.".into());
+    }
+    let (yaw, pitch) = yaw_pitch(crate::bones::multiply_quat(inverse(reference), current));
+    Ok([yaw, pitch])
+}
+
+/// All named targets are present, including zero releases. Contributions that
+/// share a configured name are accumulated before concrete model resolution.
+pub(crate) fn response_morph_values(
+    config: &HairPlaybackConfig, offsets: [f32; 3],
+) -> std::collections::BTreeMap<String, f64> {
+    let mut values = configured_targets(config).into_iter().map(|name| (name, 0.0)).collect::<std::collections::BTreeMap<_, _>>();
+    if !config.enabled { return values; }
+    let [x, z, gravity_pitch] = offsets.map(f64::from);
+    let scale = f64::from(config.response_scale);
+    let morph = &config.curves.morph_targets;
+    let left = x.max(0.0);
+    let right = (-x).max(0.0);
+    for (name, amount) in [
+        (&morph.sway_left, left), (&morph.sway_right, right),
+        (&morph.sway_front, z.max(0.0)), (&morph.fluff_right, right * 0.7),
+        (&morph.fluff_bottom, (x.abs() + z.abs()) * 0.25),
+    ] {
+        if let Some(value) = name.as_ref().and_then(|name| values.get_mut(name)) { *value += amount * scale; }
+    }
+    for (group, pitch) in [(&morph.head_up, (-gravity_pitch).max(0.0)), (&morph.head_down, gravity_pitch.max(0.0))] {
+        if let Some(group) = group {
+            for (name, amount) in group {
+                if let Some(value) = values.get_mut(name) { *value += f64::from(*amount).min(2.0) * pitch * scale; }
+            }
+        }
+    }
+    for value in values.values_mut() { *value = (*value).clamp(0.0, 2.0); }
+    values
 }
 
 #[derive(Deserialize)]
@@ -510,6 +596,61 @@ mod tests {
         assert_eq!(patch.idle_clip_duration, 3.0);
         assert!(normalize_config(&custom, &json!({"idleClipDuration":-1})).is_err());
         assert!(normalize_config(&custom, &json!({"morphTargets":{"headUp":{"bad":1e100}}})).is_err());
+    }
+
+    #[test]
+    fn continuous_head_binding_uses_profile_role_and_captured_local_reference() {
+        let profile = serde_json::from_value(json!({
+            "boneNodes":{"head":"CustomHead"}, "humanoidCharacterization":{"schemaVersion":1,"standard":"VRMC_vrm-1.0","roles":{"head":{"nodeKey":"head"}}}
+        })).unwrap();
+        let reference = crate::bones::quat_from_channel(2, 0.3);
+        let model = serde_json::from_value(json!({"bones":[{"id":41,"name":"CustomHead","restTransform":{"rotation":{
+            "x":reference[0],"y":reference[1],"z":reference[2],"w":reference[3]
+        }}}]})).unwrap();
+        let binding = head_binding(&profile, &model).unwrap().unwrap();
+        assert_eq!(binding.bone_id, 41);
+        assert_eq!(binding.bone_name, "CustomHead");
+        let delta = crate::bones::multiply_quat(crate::bones::quat_from_channel(1, 0.4), crate::bones::quat_from_channel(0, 0.2));
+        let current = crate::bones::multiply_quat(reference, delta).map(|value| -value * 3.0);
+        let pose = HairHeadPose { bone_name:"CustomHead".into(), current, reference };
+        let angles = head_pose_angles(&binding, &pose).unwrap();
+        assert!((angles[0] - 0.4).abs() < 1e-5);
+        assert!((angles[1] - 0.2).abs() < 1e-5);
+        let unrelated = HairHeadPose { bone_name:"Hand".into(), ..pose };
+        assert!(head_pose_angles(&binding, &unrelated).is_err());
+        let invalid = HairHeadPose { bone_name:"CustomHead".into(), current:[0.0;4], reference };
+        assert!(head_pose_angles(&binding, &invalid).is_err());
+        let wrong_reference = HairHeadPose { bone_name:"CustomHead".into(), current:reference, reference:[0.0,0.0,0.0,1.0] };
+        assert!(head_pose_angles(&binding, &wrong_reference).is_err());
+        let unmapped = serde_json::from_value(json!({})).unwrap();
+        assert!(head_binding(&unmapped, &model).unwrap().is_none());
+        let missing_bone = serde_json::from_value(json!({"bones":[{"id":42,"name":"Head"}]})).unwrap();
+        assert!(head_binding(&profile, &missing_bone).unwrap().is_none());
+    }
+
+    #[test]
+    fn continuous_morph_outputs_sum_shared_names_and_always_release_zero_channels() {
+        let mut config = normalize_config(&HairPlaybackConfig::default(), &json!({
+            "enabled":true,"responseScale":1,"morphTargets":{"swayLeft":"shared","swayRight":"right","swayFront":"front", "fluffBottom":"shared",
+                "headDown":{"shared":1.6},"headUp":{"up":1}}
+        })).unwrap();
+        let values = response_morph_values(&config, [0.2, 0.1, 0.25]);
+        assert_eq!(values.len(), 4);
+        assert!((values["shared"] - 0.675).abs() < 1e-6);
+        assert!((values["front"] - 0.1).abs() < 1e-6);
+        assert_eq!(values["right"], 0.0);
+        assert_eq!(values["up"], 0.0);
+        let neutral = response_morph_values(&config, [0.0;3]);
+        assert_eq!(neutral.keys().collect::<Vec<_>>(), values.keys().collect::<Vec<_>>());
+        assert!(neutral.values().all(|value| *value == 0.0));
+        config.response_scale = 0.0;
+        assert!(response_morph_values(&config, [1.0;3]).values().all(|value| *value == 0.0));
+        config.response_scale = f32::MAX;
+        assert!(response_morph_values(&config, [1.0;3]).values().all(|value| value.is_finite() && *value <= 2.0));
+        config.enabled = false;
+        assert!(response_morph_values(&config, [1.0;3]).values().all(|value| *value == 0.0));
+        let cleared = normalize_config(&config, &json!({"morphTargets":{}})).unwrap();
+        assert!(response_morph_values(&cleared, [1.0;3]).is_empty());
     }
 
     #[test]

@@ -13,6 +13,16 @@ An adapter must not resolve profiles, classify mesh categories, or maintain a
 second copy of AU/viseme runtime state. Clip time evaluation, blending, and
 lerping belong to the host mixer — not Rust.
 
-The current Three.js adapter is in `three/`. Polymer owns the application host
-API (including `AnimationMixer` scheduling) and calls the Wasm module
-directly; LoomLarge does not import Embody internals.
+Continuous hair is a Rust simulation, not clip interpolation. After native
+mixers sample, an adapter may pass the resolved head bone's actual local
+quaternion, its captured reference, and renderer elapsed seconds to
+`RuntimeCore.build_hair_response_clip`. Rust resolves the head role and owns all
+position, velocity, gravity and ambient phase. The adapter caches only native
+bindings and stages the returned zero-neutral morph offsets on one persistent
+additive action. That action applies them during the next ordinary mixer sample;
+there is no second mixer pass, render loop or direct post-mixer morph write.
+See the [hair response contract](INHERITED_CLIP_STARTS.md#hair-response-during-head-retargeting).
+
+The current Three.js adapter is in `three/`. Polymer owns agency scheduling and
+uses Embody's character/native playback adapter for renderer resources.
+LoomLarge supplies scene inputs and saved configuration through Polymer.

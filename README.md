@@ -20,15 +20,13 @@ wasm/                Generated-Wasm JS loader + ABI constants
 index.ts             Package re-exports only
 ```
 
-There is no parallel TypeScript hair/physics/runtime core. Hair idle, impulse,
-gravity curves and the spring solver live in `src/hair_curves.rs` /
-`src/hair.rs` and are exported through Wasm. Hosts schedule the resulting
-ClipIR on their mixer; they must not reimplement hair sampling in TS.
-
-Head-driven hair impulses inherit their own outgoing native contribution when
-replaced, preserving independent idle sway and gravity. Head response uses the
-same request's contribution rather than the mixed head pose; yaw-only updates
-leave held pitch gravity running. See [hair retargeting](docs/INHERITED_CLIP_STARTS.md#hair-response-during-head-retargeting).
+There is no parallel TypeScript hair/physics/runtime core. Each `RuntimeCore`
+owns continuous hair position, velocity, gravity response and ambient phase in
+`src/hair.rs`. The Three adapter passes the actual blended local head quaternion
+and elapsed time from the existing native renderer, then stages Rust's additive
+morph output on one persistent native action for the next frame. Retargeting a
+head animation does not restart hair motion. Legacy authored curve helpers remain
+in `src/hair_curves.rs`. See the [hair response contract](docs/INHERITED_CLIP_STARTS.md#hair-response-during-head-retargeting).
 
 The Rust core owns:
 

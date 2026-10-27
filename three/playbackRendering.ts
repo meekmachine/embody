@@ -1,18 +1,19 @@
 import { Timer } from 'three';
 import type { AnimationMixer, Object3D } from 'three';
 
-type Binding = { mixer: AnimationMixer; enabled: boolean; afterFrame: () => void };
+type Binding = { mixer: AnimationMixer; enabled: boolean; disposed: boolean; afterFrame: () => void; afterSample?: (deltaSeconds: number) => void };
 const bindings = new WeakMap<Object3D, Set<Binding>>();
 
 /** Register native playback with the existing scene renderer; never starts a loop. */
-export function bindPlaybackRendering(model: Object3D, mixer: AnimationMixer, afterFrame: () => void) {
-  const binding: Binding = { mixer, enabled: true, afterFrame };
+export function bindPlaybackRendering(model: Object3D, mixer: AnimationMixer, afterFrame: () => void, afterSample?: (deltaSeconds: number) => void) {
+  const binding: Binding = { mixer, enabled: true, disposed: false, afterFrame, afterSample };
   const entries = bindings.get(model) ?? new Set<Binding>();
   entries.add(binding);
   bindings.set(model, entries);
   return {
     setEnabled(enabled: boolean) { binding.enabled = enabled; },
     dispose() {
+      binding.disposed = true;
       entries.delete(binding);
       if (!entries.size) bindings.delete(model);
     },
@@ -28,10 +29,22 @@ export function renderScenePlayback(scene: Object3D, timer: Timer): void {
       if (binding.enabled) { active.push(binding); mixers.add(binding.mixer); }
     }
   });
-  for (const mixer of mixers) mixer.update(timer.getDelta());
+  const deltaSeconds = timer.getDelta();
+  const elapsed = new Map<AnimationMixer, number>();
+  for (const mixer of mixers) {
+    // Physics advances forward even when a native animation plays backward;
+    // its actual reversed pose determines the direction of the hair response.
+    elapsed.set(mixer, Math.abs(deltaSeconds * mixer.timeScale));
+    mixer.update(deltaSeconds);
+  }
+  // Observe the actual blended pose only after all native sampling. Response
+  // samples are staged for the next native frame, without a second mixer pass.
+  for (const binding of active) if (binding.enabled && !binding.disposed) {
+    binding.afterSample?.(elapsed.get(binding.mixer)!);
+  }
   // Native finished callbacks run inside mixer iteration. Resource release and
   // observers must wait until every mixer has finished sampling this frame.
-  for (const binding of active) binding.afterFrame();
+  for (const binding of active) if (binding.enabled && !binding.disposed) binding.afterFrame();
 }
 
 /** Frame hook for an existing Three/R3F renderer. Does not create a render loop. */

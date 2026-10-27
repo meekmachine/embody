@@ -57,27 +57,68 @@ AU goals; it does not claim general inherited semantic-curve parity.
 
 ## Hair response during head retargeting
 
-Head movement can replace a hair impulse repeatedly while mouse or face tracking
-changes its destination. Rust marks the first key of every impulse channel as
-inherited, including channels whose new authored starting amount is zero. The
-native adapter captures only the outgoing impulse's own contribution before
-replacement. Idle sway and gravity remain separate additive actions; replacing
-the impulse neither restarts them nor copies them into the new impulse. Later
-oscillation/decay keys remain authored by Rust, and each impulse ends at zero
-before release.
+An inherited first key preserves position, but it cannot carry outgoing spring
+velocity into a newly authored impulse. Automatic head response therefore uses
+one continuous Rust simulation per `RuntimeCore`. Retargeting, starting, seeking
+or fading AU, live-control and imported native head animations does not create
+idle, impulse or gravity response clips.
 
-For additive head clips, the adapter supplies the outgoing same-name native
-contribution as the response baseline, reusing the captured inherited start when
-available. A held pitch from another action must not become a false vertical
-impulse when yaw changes. Fixed-first clips still measure their authored jump
-against their own previous contribution. No aggregate head-pose cache or frame
-sampler is introduced.
+Rust resolves the profile's characterized `head` role and captured local
+reference through `get_hair_head_binding_json()`. After all native mixers sample,
+the Three adapter supplies `{ boneName, current: [x,y,z,w], reference: [x,y,z,w] }`
+and the renderer's elapsed seconds to
+`build_hair_response_clip(name, headQuaternionJSON, dtSeconds, optionsJSON)`.
+A missing head role supplies JSON `null`; configured idle sway and wind still
+run. There is no hardcoded head-bone fallback. The response measures local yaw
+and pitch relative to the captured reference; it does not model parent/world
+motion, roll inertia, hair strands or collisions.
 
-Rust's hair-motion result includes `affectsPitch`. The adapter replaces gravity
-only for pitch-bearing motion; yaw and roll leave a separate held pitch response
-running. A pitched inherited start returning to zero still updates gravity to
-neutral. Separate independently authored pitch-bearing actions are not combined
-into an aggregate gravity solver by this contract.
+Synchronous binding/configuration creates output with a null head and zero
+delta. The first fully mixed renderer observation primes head history, so
+restoring held live controls during rebinding is not mistaken for new motion.
+
+The simulation retains sway position/velocity, smoothed gravity pitch/velocity,
+previous observed head angles and ambient phase. Inertia uses observed angular
+velocity; stiffness and damping control a unit-mass spring. Saved direction
+signs, gravity, idle sway, wind and response scale feed this same state. Stable
+implicit steps are at most 1/120 second. Gaps over 250 ms re-prime head history,
+suppress unobserved head inertia, and settle existing momentum for at most
+250 ms. A zero delta does not advance dynamics or consume an already primed
+head observation. Global mixer speed scales elapsed time; reverse playback uses
+its elapsed magnitude and the actual reversed pose, while zero speed freezes it.
+
+Output is constant two-key ClipIR at times `[0, 1]`, containing additive morph
+offsets with zero as neutral, including zero-valued mapped channels. It never
+registers animation sources or changes live AU/viseme/morph controls. The Three
+adapter edits samples on one looping native `__embody_hair_response` action;
+its identity and native playback progress survive head retargets and numerical
+tuning. The next ordinary native frame applies those samples: this intentionally
+adds one frame of response latency. There is no extra mixer update, independent
+clock or direct post-mixer morph overwrite.
+
+`pauseAllAnimations()` freezes the response; pausing only a head request lets
+hair continue settling. Rust retains physical pause intent even when output
+mappings are empty or physics is disabled. Resume re-primes head observation
+while preserving momentum and ambient phase. Mapping edits still reconcile and
+release native bindings while paused and preserve pause on a replacement action. `stopAllAnimations()`
+stops authored animation while physical hair keeps settling, like retained live
+controls. `stop()` suspends the renderer binding. Numerical configuration edits
+preserve dynamics and ambient phase. Disablement releases output and clears
+state; re-enable primes the current head without an initial velocity spike.
+Hair-object registration, profile/model rebinding and disposal reset/release the
+corresponding simulation and native resources.
+
+`playHairImpulse(horizontal, vertical)` now injects bounded finite velocity into
+that same Rust state. It returns `undefined`; there is no independent impulse
+handle to pause or replace. Invalid pairs reject before mutation. The public
+legacy `build_hair_idle_curves`, `build_hair_impulse_curves` and gravity builders
+remain available for deliberately authored clips. `idleClipDuration` and
+`impulseClipDuration` apply only to those helpers, not automatic physics.
+
+Rust and native-adapter regression source covers continuity, actual pose input,
+configuration and lifecycle behavior for CI. Product acceptance still requires
+the matching compiled Embody package adopted through Polymer and LoomLarge;
+source changes alone do not update an installed host.
 
 ## Distance-based AU admission
 
