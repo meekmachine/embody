@@ -26,3 +26,11 @@ See the [hair response contract](INHERITED_CLIP_STARTS.md#hair-response-during-h
 The current Three.js adapter is in `three/`. Polymer owns agency scheduling and
 uses Embody's character/native playback adapter for renderer resources.
 LoomLarge supplies scene inputs and saved configuration through Polymer.
+
+Annotation adapters additionally capture raw pointer/wheel input, inspect native
+bounds/vertex attributes and execute Rust-planned native raycasts. Rust's
+`AnnotationRuntime` owns camera integration, regions, target selection, marker
+placement/state and packed layout. `AnnotationLifecycle` owns deadlines; a browser
+timer only wakes it to emit effects. The adapter keeps native object handles and
+promise/callback resources, never an independent annotation state machine. See
+[the annotation contract](../README.md#annotation-runtime).
