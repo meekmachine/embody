@@ -240,7 +240,6 @@ readyScene.renderer.nonexistentMethod();
 // Character options must remain typed through the packed root and Three exports.
 import type { CharacterPlaybackOptions as RootPlaybackOptions } from '@lovelace_lol/embody';
 import type { CharacterPlaybackOptions, CharacterClipCompileOptions } from '@lovelace_lol/embody/three';
-declare const character: Embody;
 const clipOptions: CharacterClipCompileOptions = {
   balance: 0.2, balanceMap: { '12': -1 }, mixWeights: { 12: 0.5 },
   meshNames: ['Face'], snippetCategory: 'visemeSnippet', source: 'speech',
