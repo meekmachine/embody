@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   AnimationClip, Bone, BufferGeometry, Group, Mesh, MeshBasicMaterial,
-  NumberKeyframeTrack, Quaternion, QuaternionKeyframeTrack, Vector3, VectorKeyframeTrack,
+  InterpolateDiscrete, NumberKeyframeTrack, Quaternion, QuaternionKeyframeTrack, Vector3, VectorKeyframeTrack,
 } from 'three';
 import {
   captureModelReferencePose, createRustEmbodyHostUnbound, getPreset,
-  resolveRegionCameraAngle, supportsRustEmbodyPreset,
+  resolveRegionCameraAngle, serializeAnimationClips, supportsRustEmbodyPreset, ThreeModelInspector,
 } from '@lovelace_lol/embody/three';
 import { initEmbodyCore } from '@lovelace_lol/embody/wasm';
 import { renderHostFrame } from './helpers/render-playback.mjs';
@@ -85,6 +85,90 @@ test('native registry retains added sources across rebind and rejects invalid re
   assert.deepEqual(host.getAnimationClips(), []);
   assert.throws(() => host.playAnimation('added'), /Unknown animation clip/);
   assert.deepEqual(AnimationClip.toJSON(first), original, 'registration and playback preserve the source');
+});
+
+test('packed morph registration and profile replacement allocate only component-sized sample buffers', t => {
+  const widths = [];
+  class ObservedTrack extends NumberKeyframeTrack {
+    constructor(name, times, values, interpolation) {
+      super(name, times, values, interpolation);
+      widths.push(values.length);
+    }
+  }
+  const root = new Group();
+  const face = mesh('Face', Array.from({ length: 24 }, (_, index) => `Morph${index}`));
+  root.add(face);
+  const { host } = fixture(t, { rig: { root, face } });
+  const times = [0, 0.25, 0.75, 1];
+  const values = times.flatMap((_, sample) => face.morphTargetInfluences.map((_, index) => (sample + index + 1) / 100));
+  const clip = new AnimationClip('packed', 1, [
+    new ObservedTrack('Face.morphTargetInfluences', times, values, InterpolateDiscrete),
+  ]);
+  const original = AnimationClip.toJSON(clip);
+  for (const operation of [
+    () => host.registerAnimationClips([clip]),
+    () => host.setProfile({ ...profile, morphToMesh: { face: [] } }),
+  ]) {
+    widths.length = 0;
+    operation();
+    assert.ok(widths.length >= face.morphTargetInfluences.length, 'packed components were materialized');
+    assert.ok(widths.every(length => length === times.length), 'conversion never clones the full packed values per morph');
+    host.playAnimation('packed', { loopMode: 'repeat' });
+    renderHostFrame(host, 0.5);
+    near(face.morphTargetInfluences[0], 0.02, 'step sample survives conversion and replacement');
+    near(face.morphTargetInfluences[23], 0.25, 'last packed component keeps its own sample');
+  }
+  assert.deepEqual(AnimationClip.toJSON(clip), original, 'packed sources remain unchanged');
+});
+
+test('catalog serialization indexes morphs once and shares destination searches only within that call', t => {
+  const { root, face, head } = fixture(t);
+  const inspector = new ThreeModelInspector();
+  const inspection = inspector.inspectModel(root);
+  const morphBindings = inspection.morphBindings;
+  let bindingPasses = 0;
+  inspection.morphBindings = new class extends Map {
+    *[Symbol.iterator]() { bindingPasses += 1; yield* super[Symbol.iterator](); }
+  }(morphBindings);
+  const searches = [];
+  const findObject = root.getObjectByProperty;
+  root.getObjectByProperty = function (property, value) {
+    searches.push(value);
+    return findObject.call(this, property, value);
+  };
+  const clips = ['one', 'two', 'three'].map(name => new AnimationClip(name, 1, [
+    new NumberKeyframeTrack('Face.morphTargetInfluences[Smile]', [0, 1], [0.1, 0.7], InterpolateDiscrete),
+    new NumberKeyframeTrack('Face.morphTargetInfluences[1]', [0, 1], [0.2, 0.8]),
+    new QuaternionKeyframeTrack('Head.quaternion', [0, 1], [0, 0, 0, 1, 0, 0, 0, 1]),
+    new VectorKeyframeTrack('Face.position', [0, 1], [0, 0, 0, 1, 2, 3]),
+    new NumberKeyframeTrack('Face.visible', [0, 1], [1, 0]),
+    new NumberKeyframeTrack('Missing.morphTargetInfluences[0]', [0, 1], [0, 1]),
+  ]));
+  const original = clips.map(clip => AnimationClip.toJSON(clip));
+  const serialized = serializeAnimationClips(root, clips, inspection);
+  assert.equal(bindingPasses, 1, 'morph inventory is indexed once for the entire catalog');
+  assert.equal(searches.length, clips[0].tracks.length, 'each repeated track destination is resolved once, including missing nodes');
+  const morphId = index => [...morphBindings].find(([, binding]) => binding.mesh === face && binding.index === index)[0];
+  const meshId = [...inspection.meshBindings].find(([, mesh]) => mesh === face)[0];
+  const boneId = [...inspection.boneBindings].find(([, bone]) => bone === head)[0];
+  const objectId = [...inspection.objectBindings].find(([, object]) => object === face)[0];
+  for (const clip of serialized) {
+    assert.deepEqual(clip.tracks.map(track => track.target), [
+      { kind: 'morphTarget', meshId, morphTargetId: morphId(0) },
+      { kind: 'morphTarget', meshId, morphTargetId: morphId(1) },
+      { kind: 'boneTransform', boneId, property: 'rotation' },
+      { kind: 'objectTransform', objectId, property: 'position' },
+      { kind: 'meshVisibility', meshId },
+    ]);
+    assert.equal(clip.tracks[0].interpolation, 'step');
+    near(clip.tracks[0].values[1], 0.7, 'serialized sample');
+  }
+  assert.deepEqual(clips.map(clip => AnimationClip.toJSON(clip)), original);
+  face.name = 'RetiredFace';
+  const secondInspection = inspector.inspectModel(root);
+  const reserialized = serializeAnimationClips(root, clips, secondInspection);
+  assert.ok(reserialized.every(clip => clip.tracks.length === 1 && clip.tracks[0].target.boneId === boneId),
+    'a subsequent call resolves renamed model nodes instead of retaining old destinations');
 });
 
 test('normal same-name replacement inherits the current rendered sample', t => {

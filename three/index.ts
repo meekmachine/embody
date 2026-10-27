@@ -438,6 +438,15 @@ export function serializeAnimationClips(
   const meshIds = new Map(Array.from(inspection.meshBindings, ([id, mesh]) => [mesh, id]));
   const boneIds = new Map<object, number>(Array.from(inspection.boneBindings, ([id, bone]) => [bone, id]));
   const objectIds = new Map<object, number>(Array.from(inspection.objectBindings, ([id, object]) => [object, id]));
+  const morphIds = new Map<Mesh, Map<number, number>>();
+  for (const [id, { mesh, index }] of inspection.morphBindings) {
+    let indices = morphIds.get(mesh);
+    if (!indices) { indices = new Map(); morphIds.set(mesh, indices); }
+    if (!indices.has(index)) indices.set(index, id);
+  }
+  // A catalog commonly repeats the same destinations in many clips. Resolve
+  // each track name once per call; nothing survives a model/profile rebind.
+  const destinations = new Map<string, ReturnType<typeof findTrackTarget>>();
   return clips.map((clip) => {
     const tracks: ClipIRTrack[] = [];
     const channelKinds = new Map<string, number>();
@@ -449,7 +458,11 @@ export function serializeAnimationClips(
       return id;
     };
     withComponentTracks(clip).tracks.forEach((track, index) => {
-      const found = findTrackTarget(model, track);
+      let found = destinations.get(track.name);
+      if (found === undefined) {
+        found = findTrackTarget(model, track);
+        destinations.set(track.name, found);
+      }
       if (!found?.object) return;
       const { parsed, object } = found;
       let target: ClipIRTrack['target'] | null = null;
@@ -462,8 +475,8 @@ export function serializeAnimationClips(
           : Number.isFinite(Number(requested))
             ? Number(requested)
             : mesh.morphTargetDictionary?.[String(requested)];
-        const binding = Array.from(inspection.morphBindings).find(([, entry]) => entry.mesh === mesh && entry.index === indexValue);
-        if (binding) target = { kind: 'morphTarget', meshId: meshIds.get(mesh), morphTargetId: binding[0] };
+        const morphTargetId = morphIds.get(mesh)?.get(indexValue);
+        if (morphTargetId !== undefined) target = { kind: 'morphTarget', meshId: meshIds.get(mesh), morphTargetId };
       } else if (property === 'visible' && (object as any).isMesh) {
         target = { kind: 'meshVisibility', meshId: meshIds.get(object as Mesh) };
       } else {
@@ -496,7 +509,7 @@ export function serializeAnimationClips(
         createInterpolant: { isInterpolantFactoryMethodGLTFCubicSpline?: boolean };
       }).createInterpolant.isInterpolantFactoryMethodGLTFCubicSpline;
       const size = track.getValueSize() / (cubic ? 3 : 1);
-      if (!Array.from(track.values).every(Number.isFinite)) {
+      if (!track.values.every(Number.isFinite)) {
         throw new Error(`Animation track ${JSON.stringify(track.name)} contains non-finite samples.`);
       }
       const values = cubic
