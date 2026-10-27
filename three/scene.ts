@@ -124,6 +124,8 @@ export interface CharacterSceneRenderingController {
   subscribe(listener: (snapshot: CharacterSceneRenderingSnapshot) => void): () => void;
   /** Borrow for capture/readback; release in finally. Unavailable during switching/loss. */
   acquireRenderer(): CharacterSceneRendererLease;
+  /** Wait for queued scene work, then atomically borrow the active renderer. Release in finally. */
+  acquireRendererAsync(): Promise<CharacterSceneRendererLease>;
   /** Drain borrowed work, then synchronously detach/free caller-owned resources, even after loss/disposal. */
   releaseSceneResources(release: () => void): Promise<void>;
 }
@@ -689,6 +691,21 @@ export function createDefaultCharacterSceneRuntime(
           if (released) return; released = true;
           if (--leaseCount === 0) { leasesReleased?.(); leasesReleased = null; leaseBarrier = null; }
         } };
+      },
+      acquireRendererAsync: async () => {
+        for (;;) {
+          if (disposed) throw renderingAborted();
+          const settling = pending;
+          if (settling) {
+            // A failed replacement can retain a healthy renderer. Recheck the
+            // current owner after settlement rather than failing its borrower.
+            await settling.catch(() => undefined);
+            continue;
+          }
+          // No await separates this availability check from incrementing the
+          // lease count; later scenery work must drain this borrower first.
+          return rendering.acquireRenderer();
+        }
       },
       releaseSceneResources: (release) => {
         // Disposal already owns the drain. A later caller can free its resources

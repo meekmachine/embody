@@ -31,6 +31,7 @@ function fixture(settled: () => Promise<unknown> | null = () => null) {
     getSettings: () => snapshot.settings, getSnapshot: () => snapshot,
     setSettings: async () => snapshot, subscribe: () => () => {},
     acquireRenderer: () => ({ renderer: first.renderer, release() {} }),
+    acquireRendererAsync: async () => ({ renderer: first.renderer, release() {} }),
     releaseSceneResources: async release => { release(); },
   };
   const owner = registerSceneRendering(rendering, scene, camera, settled, reportFailure);

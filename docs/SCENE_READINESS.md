@@ -107,6 +107,20 @@ cannot overwrite the new background. Await disposal before releasing externally
 owned scene resources. Disposing an Embody-owned default scene also cancels its
 scenery owner. An authorized loader must honor cancellation or eventually settle.
 
+Character preparation acquires its renderer through
+`rendering.acquireRendererAsync()`. Admission waits queued scenery cleanup or
+renderer replacement, then holds a lease before its promise resolves. A scenery
+download completing during a character change therefore queues behind an
+already admitted character or completes before its admission; it does not turn
+ordinary resource contention into a failed character load. Cancellation after
+admission releases that lease before the candidate model is retired. The
+synchronous `acquireRenderer()` remains available for immediate capture and
+continues to reject while scene resource work is queued. Async admission rejects
+when the owner is disposed or its active renderer is lost, while a failed switch
+that retained a healthy renderer still permits borrowing it. Callers release
+either kind of lease in `finally`; they must not request async admission while
+holding a lease that queued scene work is waiting to drain.
+
 ```ts
 import { createSceneSceneryRenderer } from '@lovelace_lol/embody/three';
 
