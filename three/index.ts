@@ -475,6 +475,7 @@ export function serializeAnimationClips(
           : Number.isFinite(Number(requested))
             ? Number(requested)
             : mesh.morphTargetDictionary?.[String(requested)];
+        if (indexValue === undefined) return;
         const morphTargetId = morphIds.get(mesh)?.get(indexValue);
         if (morphTargetId !== undefined) target = { kind: 'morphTarget', meshId: meshIds.get(mesh), morphTargetId };
       } else if (property === 'visible' && (object as any).isMesh) {

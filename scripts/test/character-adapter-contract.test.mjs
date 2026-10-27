@@ -143,6 +143,8 @@ test('catalog serialization indexes morphs once and shares destination searches 
     new VectorKeyframeTrack('Face.position', [0, 1], [0, 0, 0, 1, 2, 3]),
     new NumberKeyframeTrack('Face.visible', [0, 1], [1, 0]),
     new NumberKeyframeTrack('Missing.morphTargetInfluences[0]', [0, 1], [0, 1]),
+    new NumberKeyframeTrack('Face.morphTargetInfluences[MissingMorph]', [0, 1], [0, 1]),
+    new NumberKeyframeTrack('Face.morphTargetInfluences[999]', [0, 1], [0, 1]),
   ]));
   const original = clips.map(clip => AnimationClip.toJSON(clip));
   const serialized = serializeAnimationClips(root, clips, inspection);
@@ -159,7 +161,7 @@ test('catalog serialization indexes morphs once and shares destination searches 
       { kind: 'boneTransform', boneId, property: 'rotation' },
       { kind: 'objectTransform', objectId, property: 'position' },
       { kind: 'meshVisibility', meshId },
-    ]);
+    ], 'unresolved nodes, morph names and indices are omitted without changing valid destinations');
     assert.equal(clip.tracks[0].interpolation, 'step');
     near(clip.tracks[0].values[1], 0.7, 'serialized sample');
   }
