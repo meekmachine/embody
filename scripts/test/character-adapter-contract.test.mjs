@@ -572,8 +572,12 @@ function trackingHairFixture(t, { hairConfig = {}, headRole = true, hairInitial 
     meshes: { TrackingHair: { category: 'hair' } },
     hairPhysics: { enabled: true, inertia: 1, gravity: 1, responseScale: 1,
       idleSwayAmount: 0.2, idleClipDuration: 2, impulseClipDuration: 0.75, stiffness: 4.25, damping: 0.8,
-      morphTargets: { swayLeft: 'SwayLeft', swayRight: 'SwayRight', swayFront: 'SwayFront',
-        fluffRight: 'FluffRight', fluffBottom: 'FluffBottom', headUp: { HeadUp: 1 }, headDown: { HeadDown: 1 } }, ...hairConfig },
+      // Saved profiles retain authored target metadata; the runtime config API
+      // separately normalizes these records to names and numeric weights.
+      morphTargets: { swayLeft: { key: 'SwayLeft', axis: 'yaw' }, swayRight: { key: 'SwayRight', axis: 'yaw' },
+        swayFront: { key: 'SwayFront', axis: 'pitch' }, fluffRight: { key: 'FluffRight', axis: 'yaw' },
+        fluffBottom: { key: 'FluffBottom', axis: 'pitch' },
+        headUp: { HeadUp: { value: 1, axis: 'pitch' } }, headDown: { HeadDown: { value: 1, axis: 'pitch' } } }, ...hairConfig },
   };
   if (!headRole) delete savedProfile.humanoidCharacterization;
   const f = fixture(t, { rig, config: { profileMode: 'profile', profile: savedProfile } });
