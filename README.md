@@ -36,6 +36,7 @@ The Rust core owns:
 - annotation camera/marker math and humanoid template fitting
 - profile-aware screen-space gaze geometry for eye/head AU trajectories
 - renderer-neutral model analysis and packed live frame generation
+- transient mesh highlight selection, styling, transitions, and versioned preview snapshots
 
 The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
@@ -552,12 +553,56 @@ Unknown legacy names must be reported rather than silently omitted.
 
 ### Mesh highlight previews
 
-`character.highlightMesh(name, color?, intensity?)` delegates to
-`ThreeFrameApplier.highlightMesh`. It temporarily applies an emissive fill where
-supported and a darker wireframe in the same color family. The wireframe shares
-the source geometry, morph weights, and skeleton so it follows mesh deformation.
-Passing `null` or selecting another mesh restores original materials and removes
-obsolete overlays. Hidden source meshes remain hidden. Temporary materials are
-isolated from other meshes sharing the original material; geometry and skeletons
-remain owned by the source model. Character disposal clears these resources;
-direct applier consumers should call `clearMeshHighlights()` on disposal.
+Rust owns transient mesh highlight state and its renderer-neutral output in
+`src/highlighting.rs`, exposed through `RuntimeCore`. This preview is independent
+of AU/morph/bone actuation, clip playback, and persisted profile data. Rust resolves
+mesh names (including duplicate names) against the configured model, chooses the
+default gold color and intensity, computes darker edges in linear color space,
+and advances a 400 ms eased transition. Interrupted fades resume from the current
+strength; changing targets removes the old preview immediately. Clearing or an
+unknown name fades out the current selection. Repeated identical requests do not
+restart a fade. Model reconfiguration clears transient highlights.
+
+| Core operation | Contract |
+| --- | --- |
+| `request_mesh_highlight(name?, color?, intensity?)` | Request a mesh name or omit it to clear. Optional color is packed 24-bit sRGB; intensity is clamped to 0–1, with nonfinite values using the default. |
+| `evaluate_mesh_highlight_frame()` | Return the current complete JSON snapshot without advancing time. |
+| `advance_mesh_highlight(delta_seconds)` | Advance preview time using the host render clock and return the snapshot. Negative/nonfinite deltas do not advance time. |
+
+Snapshot version 1 contains `highlights`, an array of writes with `meshId`,
+`fillColor`, `fillIntensity`, `edgeColor`, `edgeMode: "triangles"`, and `edgeOpacity`.
+Colors are linear RGB triplets, strength/opacity are in 0–1, and IDs refer to the
+configured model descriptor. The fill is an emissive surface preview and the
+edges show triangle topology. An omitted mesh ID means restore its original
+appearance and release its preview resources. `{ "version": 1, "highlights": [] }`
+clears every preview. The TypeScript contract is exported from
+`@lovelace_lol/embody/wasm` without importing a renderer.
+
+Another renderer configures the same `RuntimeCore` from its own model descriptor,
+keeps a map of mesh IDs to native surfaces, sends requests, and applies snapshots
+from its existing render tick. It does not traverse by name, derive edge colors,
+or reproduce the easing curve. For example, after configuring `core`:
+
+```ts
+core.request_mesh_highlight('Face');
+// Apply the initial snapshot immediately to remove obsolete selections.
+applyNativePreview(JSON.parse(core.evaluate_mesh_highlight_frame()));
+// Inside the host's existing render tick (seconds, independent of clip speed):
+applyNativePreview(JSON.parse(core.advance_mesh_highlight(deltaSeconds)));
+```
+
+`applyNativePreview` is the renderer's effect boundary: resolve `meshId`, apply
+emission and triangle edges from the supplied values, and remove omitted previews.
+The host must advance the core once per frame, even with no playing clips. Pausing
+its render clock pauses preview progression; no additional animation loop exists.
+
+For Three, `character.highlightMesh(name, color?, intensity?)` sends the core
+request; the existing scene playback binding supplies elapsed seconds and calls
+`ThreeFrameApplier.applyMeshHighlightFrame`. The applier only binds mesh IDs and
+manages native materials/overlays, deformation, picking exclusion and disposal.
+It does not choose colors, resolve names, or sample fades. Temporary materials
+are isolated from shared source materials; geometry and skeletons remain owned
+by the source model. Native overlays follow source geometry, morph weights and
+skeletons. Character rebind/disposal removes them. Direct applier consumers must
+call `clearMeshHighlights()` on disposal. Other renderers implement their own
+snapshot application; this change does not supply a second native renderer.

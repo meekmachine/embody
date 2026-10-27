@@ -155,6 +155,7 @@ pub struct RuntimeCore {
     procedural_bone_flags: HashMap<u32, u32>,
     procedural_morph_targets: BTreeSet<(u32, u32)>,
     hair_config: crate::hair_curves::HairPlaybackConfig,
+    mesh_highlight: crate::highlighting::MeshHighlightState,
 }
 
 #[wasm_bindgen]
@@ -192,6 +193,7 @@ impl RuntimeCore {
             procedural_bone_flags: HashMap::new(),
             procedural_morph_targets: BTreeSet::new(),
             hair_config: crate::hair_curves::HairPlaybackConfig::default(),
+            mesh_highlight: crate::highlighting::MeshHighlightState::default(),
         }
     }
 
@@ -275,6 +277,7 @@ impl RuntimeCore {
         self.object_rest_rotations.clear();
         self.object_rest_scales.clear();
         self.mesh_visibility.clear();
+        self.mesh_highlight = crate::highlighting::MeshHighlightState::default();
         for morph in &model.morph_targets {
             self.initial_morph_values.insert(
                 (morph.mesh_id, morph.id),
@@ -1350,6 +1353,25 @@ impl RuntimeCore {
             out.push(flags as f32);
         }
         (out.into_boxed_slice(), active_flags)
+    }
+
+    /// Transient preview request. Names resolve against the configured model in Rust.
+    #[wasm_bindgen]
+    pub fn request_mesh_highlight(&mut self, name: Option<String>, color: Option<u32>, intensity: Option<f32>) {
+        self.mesh_highlight.request(self.model.as_ref(), name.as_deref(), color, intensity);
+    }
+
+    /// Host supplies elapsed seconds from its existing render clock, independent of clip speed.
+    #[wasm_bindgen]
+    pub fn advance_mesh_highlight(&mut self, delta_seconds: f64) -> Result<String, JsError> {
+        self.mesh_highlight.advance(delta_seconds);
+        self.evaluate_mesh_highlight_frame()
+    }
+
+    /// Complete versioned snapshot; omitted IDs must have previous preview resources removed.
+    #[wasm_bindgen]
+    pub fn evaluate_mesh_highlight_frame(&self) -> Result<String, JsError> {
+        serialize_runtime_json(&self.mesh_highlight.frame(), "mesh highlight frame")
     }
 
     /// Scene extras for live state. Clip-driven scale/visibility/object writes
@@ -3609,4 +3631,21 @@ mod tests {
         rows.sort_by_key(|row| (row.0, row.1));
         rows
     }
+    #[test]
+    fn mesh_highlight_is_transient_and_model_reconfiguration_resets_it() {
+        let model = r#"{"meshes":[{"id":42,"name":"Face"}]}"#;
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile("{}", model).unwrap();
+        core.request_mesh_highlight(Some("Face".into()), None, None);
+        let frame: serde_json::Value = serde_json::from_str(&core.advance_mesh_highlight(0.4).unwrap()).unwrap();
+        assert_eq!(frame["version"], 1);
+        assert_eq!(frame["highlights"][0]["meshId"], 42);
+        // Core actuation and persisted profiles don't absorb the editor preview.
+        assert!(core.evaluate_morph_frame_delta().is_empty());
+        assert!(core.evaluate_bone_frame_delta().is_empty());
+        core.configure_with_profile("{}", model).unwrap();
+        let frame: serde_json::Value = serde_json::from_str(&core.evaluate_mesh_highlight_frame().unwrap()).unwrap();
+        assert!(frame["highlights"].as_array().unwrap().is_empty());
+    }
+
 }

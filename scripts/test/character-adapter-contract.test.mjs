@@ -355,3 +355,35 @@ test('explicit release and crossfade retire completed poses without implicit tra
   }
   renderHostFrame(host, 0.2); near(value(), 0.2, 'rapid same-name replacements release every previous action');
 });
+
+test('highlight intent uses Rust snapshots on the existing render clock and clears native resources on rebind/dispose', () => {
+  const model = new Group();
+  const face = mesh('Face');
+  model.add(face);
+  const original = face.material;
+  const host = createRustEmbodyHostUnbound({ profileMode: 'profile', profile: {} });
+  try {
+    host.onReady({ model });
+    host.highlightMesh('Face');
+    const overlay = face.children.find(child => child.isMesh);
+    assert.ok(overlay);
+    near(overlay.material.opacity, 0, 'initial frame does not jump to full strength');
+    renderHostFrame(host, 0.2);
+    near(overlay.material.opacity, 0.175, 'render clock advances the Rust fade without clips');
+    host.highlightMesh(null);
+    renderHostFrame(host, 0.2);
+    near(overlay.material.opacity, 0.0875, 'interrupted fade starts from current strength');
+    renderHostFrame(host, 0.2);
+    assert.equal(face.children.length, 0);
+    assert.equal(face.material, original);
+    host.highlightMesh('Face');
+    host.bindModel();
+    assert.equal(face.children.length, 0, 'rebind clears renderer resources and Rust state');
+    host.highlightMesh('Face');
+  } finally {
+    host.dispose();
+    assert.equal(face.children.length, 0, 'disposal releases preview resources');
+    assert.equal(face.material, original);
+    face.geometry.dispose(); original.dispose();
+  }
+});

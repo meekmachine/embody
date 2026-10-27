@@ -1,7 +1,24 @@
 import assert from 'node:assert/strict';
 import { Bone, BoxGeometry, Color, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, MultiplyBlending, NormalBlending, Skeleton, SkinnedMesh } from 'three';
-import { ThreeFrameApplier } from '@lovelace_lol/embody/three';
+import { ThreeFrameApplier, ThreeModelInspector } from '@lovelace_lol/embody/three';
 
+import { initEmbodyCore } from '@lovelace_lol/embody/wasm';
+const wasm = await initEmbodyCore();
+function preview(root, applier) {
+  const inspection = new ThreeModelInspector().inspectModel(root);
+  applier.setBindings(inspection);
+  const core = new wasm.RuntimeCore(0);
+  core.configure_with_profile('{}', JSON.stringify(inspection.descriptor));
+  return {
+    request(name, color, intensity) {
+      core.request_mesh_highlight(name ?? undefined, color, intensity);
+      const frame = JSON.parse(core.advance_mesh_highlight(0.4));
+      applier.applyMeshHighlightFrame(frame);
+      return frame;
+    },
+    free() { core.free(); },
+  };
+}
 const applier = new ThreeFrameApplier();
 const model = new Group();
 const mesh = (name, visible = true) => {
@@ -64,26 +81,35 @@ console.log('Saved mesh visibility and material profile smoke passed');
   first.name = 'First'; second.name = 'Second';
   root.add(first, second);
   const frame = new ThreeFrameApplier();
-  frame.highlightMesh(root, 'First', 0xd4a040, 0.35);
+  const state = preview(root, frame);
+  const snapshot = state.request('First', 0xd4a040, 0.35);
   const overlay = first.children[0];
   assert.equal(overlay.material.wireframe, true);
   assert.equal(overlay.geometry, first.geometry);
   assert.equal(overlay.material.depthWrite, false);
-  assert.equal(overlay.material.opacity, 0.35);
+  assert.equal(overlay.material.opacity, snapshot.highlights[0].edgeOpacity);
   assert.ok(overlay.material.color.r < new Color(0xd4a040).r);
+  assert.deepEqual(overlay.material.color.toArray(), snapshot.highlights[0].edgeColor);
+  const nativeOnly = structuredClone(snapshot);
+  nativeOnly.highlights[0].edgeColor = [0.1, 0.2, 0.3];
+  nativeOnly.highlights[0].edgeOpacity = 0.8;
+  frame.applyMeshHighlightFrame(nativeOnly);
+  assert.deepEqual(overlay.material.color.toArray(), [0.1, 0.2, 0.3], 'adapter applies supplied colors without policy');
+  assert.equal(overlay.material.opacity, 0.8);
   assert.notEqual(first.material, shared);
   assert.equal(second.material, shared);
-  frame.highlightMesh(root, 'First', 0xd4a040, 0.1);
+  const faded = state.request('First', 0xd4a040, 0.1);
   assert.equal(first.children[0], overlay, 'fades reuse the same overlay');
-  assert.equal(overlay.material.opacity, 0.1);
+  assert.equal(overlay.material.opacity, faded.highlights[0].edgeOpacity);
   frame.setMeshMaterialConfig(root, 'First', { opacity: 0.4 });
-  frame.highlightMesh(root, 'Second');
+  state.request('Second');
   assert.equal(first.children.length, 0);
   assert.equal(first.material, shared);
   assert.equal(first.material.opacity, 0.4, 'material edits survive highlight cleanup');
   frame.clearMeshHighlights();
   assert.equal(second.children.length, 0);
   assert.equal(second.material, shared);
+  state.free();
   first.geometry.dispose(); shared.dispose();
 }
 
@@ -97,7 +123,8 @@ console.log('Saved mesh visibility and material profile smoke passed');
   const bone = new Bone(); face.add(bone); face.bind(new Skeleton([bone]));
   root.add(face);
   const frame = new ThreeFrameApplier();
-  frame.highlightMesh(root, 'Face', 0xd4a040, 0.35);
+  const state = preview(root, frame);
+  state.request('Face', 0xd4a040, 0.35);
   const overlay = face.children.find(child => child.isMesh);
   assert.equal(overlay.skeleton, face.skeleton);
   assert.equal(overlay.geometry, geometry);
@@ -105,10 +132,11 @@ console.log('Saved mesh visibility and material profile smoke passed');
   overlay.onBeforeRender();
   assert.equal(overlay.morphTargetInfluences, face.morphTargetInfluences);
   assert.equal(face.material.emissive.getHex(), 0xd4a040);
-  frame.highlightMesh(root, null);
+  state.request(null);
   assert.equal(face.material, original);
   assert.equal(original.emissive.getHex(), 0x112233);
   assert.equal(original.emissiveIntensity, 0.2);
   assert.equal(face.children.length, 1, 'clearing keeps the source skeleton');
+  state.free();
   geometry.dispose(); original.dispose(); face.skeleton.dispose();
 }

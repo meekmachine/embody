@@ -1,3 +1,4 @@
+import type { MeshHighlightFrame } from '../wasm/highlighting';
 import {
   AdditiveBlending,
   AnimationClip,
@@ -546,6 +547,7 @@ export class ThreeFrameApplier {
   private highlighted = new Map<Mesh, { original: Material | Material[]; overlay: Mesh }>();
 
   setBindings(inspection: ThreeModelInspection) {
+    this.clearMeshHighlights();
     this.meshes = new Map(inspection.meshBindings);
     this.morphs = new Map(inspection.morphBindings);
     this.bones = new Map(inspection.boneBindings);
@@ -633,16 +635,17 @@ export class ThreeFrameApplier {
     this.visitMesh(root, name, (mesh) => { mesh.visible = visible; });
   }
 
-  /** Emissive fill plus darker triangle edges, sharing the source mesh's deformation. */
-  highlightMesh(root: Object3D, name: string | null, color = 0x00ffff, intensity = 0.5) {
-    const selected = new Set<Mesh>();
-    root.traverse((object: any) => {
-      if (object.isMesh && !highlightOverlays.has(object) && name !== null && object.name === name) selected.add(object);
-    });
+  /** Apply a complete Rust snapshot. Only native resources and ID bindings live here. */
+  applyMeshHighlightFrame(frame: MeshHighlightFrame): void {
+    if (frame.version !== 1) throw new Error(`Unsupported mesh highlight frame version: ${frame.version}`);
+    const selected = new Set(frame.highlights.map(write => this.meshes.get(write.meshId)));
     for (const mesh of this.highlighted.keys()) {
       if (!selected.has(mesh)) this.clearMeshHighlight(mesh);
     }
-    for (const mesh of selected) {
+    for (const write of frame.highlights) {
+      if (write.edgeMode !== 'triangles') throw new Error(`Unsupported highlight edge mode: ${write.edgeMode}`);
+      const mesh = this.meshes.get(write.meshId);
+      if (!mesh) continue;
       let state = this.highlighted.get(mesh);
       if (!state) {
         const original = mesh.material;
@@ -667,7 +670,7 @@ export class ThreeFrameApplier {
         overlay.visible = true;
         overlay.castShadow = overlay.receiveShadow = false;
         overlay.raycast = () => {};
-        overlay.material = new MeshBasicMaterial({ wireframe: true, transparent: true, depthWrite: false, toneMapped: false });
+        overlay.material = new MeshBasicMaterial({ wireframe: write.edgeMode === 'triangles', transparent: true, depthWrite: false, toneMapped: false });
         overlay.onBeforeRender = () => {
           overlay.geometry = mesh.geometry;
           overlay.morphTargetInfluences = mesh.morphTargetInfluences;
@@ -679,12 +682,12 @@ export class ThreeFrameApplier {
       }
       for (const material of materials(mesh.material) as any[]) {
         if (!material.emissive) continue;
-        material.emissive.setHex(color);
-        material.emissiveIntensity = intensity;
+        material.emissive.setRGB(...write.fillColor);
+        material.emissiveIntensity = write.fillIntensity;
       }
       const edges = state.overlay.material as MeshBasicMaterial;
-      edges.color.setHex(color).multiplyScalar(0.65);
-      edges.opacity = Math.min(1, Math.max(0, intensity));
+      edges.color.setRGB(...write.edgeColor);
+      edges.opacity = write.edgeOpacity;
       edges.side = materials(mesh.material)[0]?.side ?? edges.side;
       state.overlay.renderOrder = mesh.renderOrder + 1;
     }

@@ -92,3 +92,5 @@ async function load(): Promise<EmbodyCore> {
 }
 export { getAUDescriptors, LEGACY_BODY_CONTROL_AUS } from './auDescriptors';
 export type { AUDescriptor } from './auDescriptors';
+
+export type { MeshHighlightFrame, MeshHighlightWrite } from './highlighting';
