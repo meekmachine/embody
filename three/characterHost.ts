@@ -11,8 +11,8 @@ import { normalizeRenderableCharacterMorphAttributes, assertRenderableCharacterM
 import { validateMappings } from './authoring';
 import { createDefaultCharacterSceneAsync } from './scene';
 import type { CharacterSceneBackend, CharacterSceneConfiguration, CharacterSceneRenderer, CharacterSceneRenderingController, DefaultCharacterSceneAsyncOptions, ReadyDefaultCharacterScene } from './scene';
-import { DPthreeCameraController } from './annotations/DPthreeCameraController';
-import type { AnnotationCharacterConfig, DPthreeCameraControllerConfig } from './annotations/types';
+import { ThreeAnnotationController } from './annotations/ThreeAnnotationController';
+import type { AnnotationCharacterConfig, ThreeAnnotationControllerConfig } from './annotations/types';
 import type { Profile } from './authoringTypes';
 
 export interface CharacterHostCharacterOptions extends CharacterModelTransform {
@@ -41,7 +41,7 @@ export type CharacterHostPreparation = CharacterModelLoadResult & {
 export type CharacterHostReady = CharacterHostPreparation & {
   scene: Scene;
   camera: Camera;
-  cameraController: DPthreeCameraController | null;
+  cameraController: ThreeAnnotationController | null;
   rendering: CharacterSceneRenderingController | null;
 };
 export interface CharacterHostOptions {
@@ -59,7 +59,7 @@ export interface CharacterHostOptions {
   onCharacterReady?: (context: CharacterHostReady) => void | Promise<void>;
   /** Default true for compatibility. Editors can retain clips in a lazy catalog. */
   registerEmbeddedAnimations?: boolean;
-  camera?: Omit<Partial<DPthreeCameraControllerConfig>, 'scene' | 'camera' | 'renderer' | 'rendering' | 'domElement'>;
+  camera?: Omit<Partial<ThreeAnnotationControllerConfig>, 'scene' | 'camera' | 'renderer' | 'rendering' | 'domElement'>;
   autoStart?: boolean;
   renderLoop?: boolean;
   autoFrame?: boolean;
@@ -71,7 +71,7 @@ export interface CharacterHost extends CharacterModelLoadResult {
   readonly backend: CharacterSceneBackend | null;
   readonly rendering: CharacterSceneRenderingController | null;
   camera: Camera;
-  cameraController: DPthreeCameraController | null;
+  cameraController: ThreeAnnotationController | null;
   lighting: ReadyDefaultCharacterScene['lighting'] | null;
   ownsScene: boolean;
   container: HTMLElement;
@@ -87,7 +87,7 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
   let loaded: CharacterModelLoadResult | undefined;
   let state: ReadyDefaultCharacterScene | CharacterHostExternalScene | undefined;
   let engine: Embody | undefined;
-  let controller: DPthreeCameraController | undefined;
+  let controller: ThreeAnnotationController | undefined;
   let host: CharacterHost | undefined;
   let disposed = false;
   let disposal: Promise<void> | undefined;
@@ -238,7 +238,7 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
     }
     if (options.renderLoop ?? !options.external) {
       if (!(state.camera instanceof PerspectiveCamera)) throw new Error('Character host rendering requires a PerspectiveCamera');
-      controller = new DPthreeCameraController({ ...options.camera,
+      controller = new ThreeAnnotationController({ ...options.camera,
         scene: state.scene, camera: state.camera, domElement: state.renderer.domElement,
         ...(state.rendering ? { rendering: state.rendering } : { renderer: state.renderer }),
         showDOMControls: options.camera?.showDOMControls ?? false,
