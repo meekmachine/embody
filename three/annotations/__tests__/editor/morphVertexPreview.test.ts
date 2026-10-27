@@ -56,6 +56,7 @@ describe('morphVertexPreview', () => {
     root.add(targetMesh, otherMesh);
 
     expect(resolveMorphPreviewMeshes(root, 'Smile').map((mesh) => mesh.name)).toEqual(['FaceMesh']);
+    expect(resolveMorphPreviewMeshes(root, 'Smile', [])).toEqual([]);
     expect(resolveMorphPreviewMeshes(root, 'Smile', ['OtherMesh'])).toEqual([]);
   });
 
@@ -68,6 +69,70 @@ describe('morphVertexPreview', () => {
     expect(data?.pointCount).toBe(1);
     expect(Array.from(data?.positions ?? [])).toEqual([2, 2.5, 3]);
     expect(data?.meshCount).toBe(1);
+  });
+
+  it('reuses frame arrays while updating the current morphed positions', () => {
+    const mesh = createPreviewMesh();
+    const cache = new Map();
+    const first = buildMorphVertexPreviewRenderData([mesh], 'Smile', cache, { threshold: 0.1 })!;
+    mesh.morphTargetInfluences![0] = 0.5;
+    const next = buildMorphVertexPreviewRenderData([mesh], 'Smile', cache, { threshold: 0.1 }, first)!;
+    expect(next.positions).toBe(first.positions);
+    expect(next.colors).toBe(first.colors);
+    expect(Array.from(next.positions)).toEqual([2, 2.25, 3]);
+    mesh.geometry.dispose();
+    (mesh.material as THREE.Material).dispose();
+  });
+
+  it('releases old GPU attributes before replacing differently sized samples', () => {
+    const scene = new THREE.Scene();
+    const mesh = createPreviewMesh();
+    scene.add(mesh);
+    const preview = new MorphVertexPreview(scene, { threshold: 0.1 });
+    preview.show('Smile');
+    const points = scene.getObjectByName('MorphVertexPreviewPoints') as THREE.Points<THREE.BufferGeometry>;
+    const position = points.geometry.getAttribute('position');
+    const color = points.geometry.getAttribute('color');
+    const onDispose = vi.fn(() => {
+      expect(points.geometry.getAttribute('position')).toBe(position);
+      expect(points.geometry.getAttribute('color')).toBe(color);
+    });
+    points.geometry.addEventListener('dispose', onDispose);
+    preview.hide();
+    mesh.geometry.morphAttributes.position[0].setY(2, 0.5);
+    preview.show('Smile');
+    expect(onDispose).toHaveBeenCalledOnce();
+    expect(points.geometry.getAttribute('position').count).toBe(2);
+    expect(points.geometry.getAttribute('position')).not.toBe(position);
+    points.geometry.removeEventListener('dispose', onDispose);
+    preview.dispose();
+    mesh.geometry.dispose();
+    (mesh.material as THREE.Material).dispose();
+  });
+
+  it('resamples a previous morph after another hover or a hidden preview', () => {
+    const scene = new THREE.Scene();
+    const mesh = createPreviewMesh();
+    mesh.morphTargetDictionary!.Frown = 1;
+    mesh.geometry.morphAttributes.position.push(mesh.geometry.morphAttributes.position[0].clone());
+    mesh.morphTargetInfluences!.push(0);
+    scene.add(mesh);
+    const preview = new MorphVertexPreview(scene, { threshold: 0.1 });
+    const samples = mesh.geometry.morphAttributes.position[0];
+    preview.show('Smile');
+    const points = scene.getObjectByName('MorphVertexPreviewPoints') as THREE.Points<THREE.BufferGeometry>;
+    expect(points.geometry.getAttribute('position').getX(0)).toBe(2);
+    preview.show('Frown');
+    samples.setY(1, 0); samples.setY(2, 0.5);
+    preview.show('Smile');
+    expect(points.geometry.getAttribute('position').getX(0)).toBe(3);
+    preview.hide();
+    samples.setY(1, 0.5); samples.setY(2, 0);
+    preview.show('Smile');
+    expect(points.geometry.getAttribute('position').getX(0)).toBe(2);
+    preview.dispose();
+    mesh.geometry.dispose();
+    (mesh.material as THREE.Material).dispose();
   });
 
   it('updates the owned overlay in the existing scene render callback and releases it on close', () => {

@@ -87,6 +87,13 @@ version unchanged; render-order-only edits also avoid invalidating material prog
 Polymer calls this adapter during model binding and profile replacement; hosts
 do not need a separate mesh-visibility replay loop.
 
+`MorphVertexPreview` owns the editor's affected-vertex overlay and updates from
+the existing Three scene render callback. It reuses position/color frame arrays,
+retains samples only for the active hover, and releases old GPU attributes before
+replacing differently sized geometry. Hiding or changing the hover clears its
+sample cache; an explicitly empty mesh selection produces no preview. Applications
+forward hover/show/hide events and dispose the overlay when its scene is released.
+
 ### Annotation runtime
 
 `DPthreeCameraController` and the `DPthree` convenience facade from
