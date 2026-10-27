@@ -77,7 +77,7 @@ export async function analyzeModel(options: {
   return JSON.parse(requireInitializedEmbodyCore().analyze_model_descriptor(json(inspection.descriptor), json(serializeAnimationClips(model, animations, inspection)), options.preset ? json(options.preset) : '', json({ suggestCorrections: Boolean(options.suggestCorrections) })));
 }
 type ValidationMesh = { name?: string; morphTargetDictionary?: Record<string, number>; geometry?: { morphTargetDictionary?: Record<string, number> } };
-export function validateMappings(meshes: unknown[], skeleton: unknown, profile: Types.Profile, options: Record<string, unknown> = {}): Types.ValidationResult {
+export function validateMappings(meshes: unknown[], skeleton: unknown, profile: Partial<Types.Profile>, options: Record<string, unknown> = {}): Types.ValidationResult {
   let nextMorphId = 1;
   const morphTargets: Array<{ id: number; meshId: number; name: string; hostIndex: number }> = [];
   const descriptorMeshes = (meshes ?? []).map((value, index) => {
