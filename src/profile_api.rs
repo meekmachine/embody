@@ -71,7 +71,6 @@ const PROFILE_OVERRIDE_KEYS: &[&str] = &[
     "disabledRegions",
     "hairPhysics",
     "humanoidCharacterization",
-    "bodyControls",
 ];
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -448,11 +447,11 @@ fn fuzzy_name_match(object_name: &str, target_name: &str, pattern: Option<&str>)
 }
 
 fn matches_node(profile: &ProfileData, bone_name: &str, node_key: &str) -> bool {
-    if let Some(exact) = crate::body_controls::exact_bone_name(profile, node_key) {
+    if let Some(exact) = crate::profile_resolution::exact_bone_name(profile, node_key) {
         return bone_name == exact;
     }
-    let expected = crate::body_controls::configured_bone_name(profile, node_key);
-    let node_key = crate::body_controls::node_key(profile, node_key);
+    let expected = crate::profile_resolution::configured_bone_name(profile, node_key);
+    let node_key = crate::profile_resolution::node_key(profile, node_key);
     let base = profile.bone_nodes.get(node_key).map(String::as_str).unwrap_or(node_key);
     fuzzy_name_match(bone_name, &expected, profile.suffix_pattern.as_deref())
         || fuzzy_name_match(bone_name, base, profile.suffix_pattern.as_deref())
@@ -462,12 +461,12 @@ fn same_bone(profile: &ProfileData, left: &str, right: &str) -> bool {
     if left == right {
         return true;
     }
-    let left_name = crate::body_controls::configured_bone_name(profile, left);
-    let right_name = crate::body_controls::configured_bone_name(profile, right);
+    let left_name = crate::profile_resolution::configured_bone_name(profile, left);
+    let right_name = crate::profile_resolution::configured_bone_name(profile, right);
     // Profiles can mix role/key aliases and literal targets. A literal exact
     // selection must also match without adding the profile's prefix/suffix.
     let is_literal = |node: &str| {
-        crate::body_controls::node_key(profile, node) == node
+        crate::profile_resolution::node_key(profile, node) == node
             && !profile.bone_nodes.contains_key(node)
     };
     left_name == right_name
@@ -512,8 +511,8 @@ fn ensure_node(profile: &mut ProfileData, bone_name: &str) -> String {
 }
 
 fn resolve_bone_name(profile: &ProfileData, node: &str) -> Option<String> {
-    profile.bone_nodes.get(crate::body_controls::node_key(profile, node))?;
-    Some(crate::body_controls::configured_bone_name(profile, node))
+    profile.bone_nodes.get(crate::profile_resolution::node_key(profile, node))?;
+    Some(crate::profile_resolution::configured_bone_name(profile, node))
 }
 
 fn axis_config<'a>(
@@ -1988,9 +1987,7 @@ fn extract_profile_overrides(config: &Value) -> Value {
         }
         match (nested.get(*key), top.get(*key)) {
             (Some(base), Some(value)) => {
-                let merged = if *key == "bodyControls" {
-                    merge_json(base, value)
-                } else if base.is_object() && value.is_object() {
+                let merged = if base.is_object() && value.is_object() {
                     let mut object = base.as_object().cloned().unwrap_or_default();
                     object.extend(value.as_object().cloned().unwrap_or_default());
                     Value::Object(object)
@@ -2031,8 +2028,7 @@ fn extend_profile_config(config: Value) -> Result<Value, String> {
     let overrides = extract_profile_overrides(&config);
     let patch = parse_profile_patch(&overrides.to_string())?;
     let merged = extend_preset_with_profile(base, patch);
-    let body_controls = serde_json::to_value(&merged.body_controls)
-        .map_err(|error| error.to_string())?;
+
     let mut merged_value = serde_json::to_value(merged).map_err(|error| error.to_string())?;
     let disabled = overrides
         .get("disabledRegions")
@@ -2094,18 +2090,8 @@ fn extend_profile_config(config: Value) -> Result<Value, String> {
         }
     }
     let mut expanded = merge_json(&config, &merged_value);
-    // Config metadata is preserved above, but this catalog is already fully
-    // resolved. A recursive merge would resurrect removed control tombstones,
-    // especially when all controls were removed and serialization omitted it.
-    expanded["bodyControls"] = body_controls;
-    // Keep authored deletion markers in override metadata so expanding a saved
-    // configuration again cannot restore the deleted preset controls/fields.
-    if let Some(controls) = overrides.get("bodyControls") {
-        if !expanded.get("profile").is_some_and(Value::is_object) {
-            expanded["profile"] = json!({});
-        }
-        expanded["profile"]["bodyControls"] = controls.clone();
-    }
+    if let Some(object)=expanded.as_object_mut() {object.remove("bodyControls");}
+    if let Some(object)=expanded.get_mut("profile").and_then(Value::as_object_mut) {object.remove("bodyControls");}
     Ok(expanded)
 }
 
@@ -2204,11 +2190,11 @@ fn profile_view(profile: &ProfileData, op: &str, payload: &Value) -> Result<Valu
             crate::humanoid_characterization::resolve(profile),
         )
         .map_err(|error| error.to_string())?),
-        "profile.getBodyControls" => {
+        "profile.getAUDescriptors" => {
             let model = payload.get("model").filter(|value| !value.is_null())
                 .map(|value| serde_json::from_value(value.clone()))
                 .transpose().map_err(|error| format!("Invalid model descriptor: {error}"))?;
-            Ok(crate::body_controls::resolve(profile, model.as_ref()))
+            Ok(crate::au_descriptors::resolve(profile, model.as_ref()))
         },
         _ => Err(format!("Unknown profile query \"{op}\"")),
     }
@@ -2714,65 +2700,13 @@ mod tests {
     }
 
     #[test]
-    fn expanded_body_catalog_removals_reach_queries_and_runtime() {
-        let base = request("preset.get", json!({"id":"cc4"}));
-        let count = base["bodyControls"].as_object().unwrap().len();
-        let remove_all: serde_json::Map<String, Value> = base["bodyControls"].as_object().unwrap().keys()
-            .map(|key| (key.clone(), Value::Null)).collect();
-        let cases = [
-            json!({"bodyControls": {"body.kneeBend": null}}),
-            json!({"profile": {"bodyControls": {"body.kneeBend": null}}}),
-            json!({"bodyControls": remove_all}),
-            json!({"profile": {"bodyControls": remove_all}}),
-        ];
-        for (index, mut config) in cases.into_iter().enumerate() {
-            config["auPresetType"] = json!("cc4");
-            config["assetUrl"] = json!("character.glb");
-            let expanded = request("profile.extendConfig", json!({"config": config}));
-            assert_eq!(expanded["assetUrl"], "character.glb");
-            assert!(expanded["bodyControls"].get("body.kneeBend").is_none());
-            let controls = request("profile.getBodyControls", json!({"profile": expanded}));
-            assert_eq!(controls.as_array().unwrap().len(), if index < 2 { count - 1 } else { 0 });
-            if index >= 2 {
-                assert_eq!(expanded["bodyControls"], json!({}));
-            }
-            let saved: Value = serde_json::from_str(&expanded.to_string()).unwrap();
-            let reexpanded = request("profile.extendConfig", json!({"config": saved}));
-            assert_eq!(reexpanded["bodyControls"], expanded["bodyControls"]);
-            let mut core = crate::runtime::RuntimeCore::new(0);
-            core.configure_with_profile(&expanded.to_string(),
-                r#"{"bones":[{"id":1,"name":"CC_Base_L_Forearm"}]}"#).unwrap();
-            core.set_au(1001, 0.5, 0.0);
-            assert!(!core.evaluate_bone_frame_delta().is_empty(),
-                "catalog removal must leave explicit numeric action bindings intact");
-        }
-    }
-
-    #[test]
-    fn expanded_body_catalog_merges_nested_sparse_metadata_per_field() {
-        let expanded = request("profile.extendConfig", json!({"config": {
-            "auPresetType": "cc4",
-            "profile": {"bodyControls": {
-                "body.elbowFlex": {"label": "My biceps", "order": 20},
-                "body.kneeBend": null
-            }},
-            "bodyControls": {
-                "body.elbowFlex": {"order": 4},
-                "body.torsoTwist": {"negativeAuId": null}
-            }
-        }}));
-        let controls = request("profile.getBodyControls", json!({"profile": expanded}));
-        let elbow = controls.as_array().unwrap().iter()
-            .find(|control| control["id"] == "body.elbowFlex").unwrap();
-        assert_eq!(elbow["label"], "My biceps");
-        assert_eq!(elbow["order"], 4);
-        assert_eq!(elbow["auId"], 1001);
-        assert_eq!(elbow["bilateral"], true);
-        assert_eq!(elbow["roles"], json!(["leftLowerArm", "rightLowerArm"]));
-        assert!(expanded["bodyControls"].get("body.kneeBend").is_none());
-        assert!(expanded["bodyControls"]["body.torsoTwist"].get("negativeAuId").is_none());
-        let reexpanded = request("profile.extendConfig", json!({"config": expanded}));
-        assert_eq!(reexpanded["bodyControls"], expanded["bodyControls"]);
+    fn legacy_named_catalog_is_discarded_without_losing_authored_au_bindings() {
+        let expanded=request("profile.extendConfig",json!({"config":{"auPresetType":"cc4","bodyControls":{"old":{"auId":1001}},"profile":{"bodyControls":{"old":{"auId":1001}}}}}));
+        assert!(expanded.get("bodyControls").is_none());
+        assert!(expanded["profile"].get("bodyControls").is_none());
+        let descriptors=request("profile.getAUDescriptors",json!({"profile":expanded}));
+        assert!(descriptors.as_array().unwrap().iter().any(|entry|entry["auId"]==1001));
+        assert!(expanded["auToBones"]["1001"].is_array());
     }
 
     #[test]
@@ -2786,7 +2720,7 @@ mod tests {
             assert_eq!(expanded["compositeRotations"], json!([]));
             let edited = request("bone.classifyJointControl", json!({"profile": expanded, "auId": 1001}));
             assert_eq!(edited["compositeRotations"], json!([]));
-            let controls = request("profile.getBodyControls", json!({"profile": edited}));
+            let controls = request("profile.getAUDescriptors", json!({"profile": edited}));
             assert!(controls.as_array().unwrap().iter().all(|control| control["hasBones"] == false));
             let mut core = crate::runtime::RuntimeCore::new(0);
             core.configure_with_profile(&edited.to_string(),

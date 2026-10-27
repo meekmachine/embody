@@ -1,7 +1,9 @@
 // This fixture is copied into an isolated consumer of the packed package.
 // The error assertions below fail if the public loader regresses to `any`.
-import { initEmbodyCore as initFromRoot } from '@lovelace_lol/embody';
+import { initEmbodyCore as initFromRoot, getAUDescriptors as rootAUDescriptors, LEGACY_BODY_CONTROL_AUS, type AUDescriptor as RootAUDescriptor } from '@lovelace_lol/embody';
 import {
+  getAUDescriptors as wasmAUDescriptors,
+  type AUDescriptor as WasmAUDescriptor,
   getEmbodyCore,
   initEmbodyCore,
   requireInitializedEmbodyCore,
@@ -12,11 +14,16 @@ import {
 import { Object3D, type WebGLRenderer } from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 import {
+  getAUDescriptors as threeAUDescriptors,
+  type AUDescriptor as ThreeAUDescriptor,
   bindModelReferencePose,
   captureModelReferencePose,
   extendModelReferencePose,
   createDefaultCharacterScene,
   createDefaultCharacterSceneAsync,
+  createCharacterHost,
+  type CharacterHost,
+  type CharacterHostOptions,
   type DefaultCharacterScene,
   type DefaultCharacterSceneAsyncOptions,
   type ReadyDefaultCharacterScene,
@@ -60,6 +67,21 @@ controller.focusRegion(123);
 
 const core: EmbodyCore = await initEmbodyCore();
 const character = new Embody({ profileMode: 'profile', profile: {} });
+const rootAUs: RootAUDescriptor[] = rootAUDescriptors({});
+const wasmAUs: WasmAUDescriptor[] = wasmAUDescriptors({}, { bones: [] });
+const threeAUs: ThreeAUDescriptor[] = threeAUDescriptors({});
+const characterAUs: RootAUDescriptor[] = character.getAUDescriptors();
+const legacyPositiveAU: number = LEGACY_BODY_CONTROL_AUS['body.elbowFlex'].positiveAuId;
+// @ts-expect-error Historical decoder identities are immutable.
+LEGACY_BODY_CONTROL_AUS['body.elbowFlex'].positiveAuId = 42;
+const sideSelection: boolean = rootAUs[0].bilateral;
+const actualSides: Array<'left' | 'right' | 'center'> = rootAUs[0].availableSides;
+void [wasmAUs, threeAUs, characterAUs, sideSelection, actualSides];
+// @ts-expect-error Available sides must keep their explicit side vocabulary.
+const invalidSide: 'both' = rootAUs[0].availableSides[0];
+// @ts-expect-error Named semantic pose APIs have been retired.
+character.getSemanticPoseCatalog();
+
 character.onReady({ model: new Object3D() });
 character.start();
 character.stop();
@@ -177,6 +199,23 @@ extendModelReferencePose(model);
 
 // Scene readiness is additive and cannot accidentally widen to an `any` renderer.
 declare const container: HTMLElement;
+// The current scene owner exposes the renamed annotation controller to consumers.
+declare const hostOptions: CharacterHostOptions;
+const pendingHost: Promise<CharacterHost> = createCharacterHost({
+  ...hostOptions,
+  camera: { transitionDuration: 250 },
+  onCharacterReady: ({ cameraController, engine }) => {
+    const annotations: ThreeAnnotationController | null = cameraController;
+    const mappedActions: RootAUDescriptor[] = engine.getAUDescriptors();
+    annotations?.setMarkersVisible(true);
+    // @ts-expect-error Host callbacks must not erase the annotation API's types.
+    cameraController?.focusRegion(123);
+    void mappedActions;
+  },
+});
+const loadedHost = await pendingHost;
+const hostAnnotations: ThreeAnnotationController | null = loadedHost.cameraController;
+void [legacyPositiveAU, hostAnnotations];
 const sceneOptions: DefaultCharacterSceneAsyncOptions = {
   type: 'studio', renderer: 'webgpu', signal: new AbortController().signal, lighting: { envMapEnabled: true },
   onDeviceLost: (error: Error) => { console.error(error.message); },

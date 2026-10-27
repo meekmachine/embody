@@ -99,112 +99,44 @@ fn uniqueness_checks_aliases_after_model_resolution_and_positive_scales() {
 }
 
 #[test]
-fn every_catalog_control_moves_its_authored_bones_with_signed_and_bilateral_outputs() {
-    let profile=cc4();let model=cc4_model();
-    let descriptors=crate::body_controls::resolve(&profile,Some(&model));
-    assert_eq!(descriptors.as_array().unwrap().len(),58);
-    assert!(descriptors.as_array().unwrap().iter().all(|entry|entry["hasBones"]==true));
-    let covered: std::collections::BTreeSet<_>=profile.body_controls.values().flat_map(|control|control.roles.iter()).collect();
-    assert_eq!(covered.len(),55);
+fn every_authored_body_au_moves_its_bound_bones_and_preserves_bilateral_selection() {
+    let profile=cc4();let model=cc4_model();let resolver=crate::profile::NameResolver::new(&profile,&model);
     let mut core=compiled(&profile,&model);
-    for (id,control) in &profile.body_controls {
-        core.clear();core.set_au(control.au_id,0.5,0.0);
-        let positive=core.evaluate_active_bone_frame();
-        assert!(!positive.is_empty(),"{id} produces no movement");
-        for role in &control.roles {
-            let name=crate::body_controls::configured_bone_name(&profile,role);
-            let bone=model.bones.iter().find(|bone|bone.name==name).unwrap();
-            assert!(positive.chunks_exact(9).any(|row|row[0]==bone.id as f32 && row[4..7].iter().any(|v|v.abs()>0.001)),"{id} doesn't actuate {role}");
+    for (id,bindings) in profile.au_to_bones.iter().filter(|(id,_)|id.parse::<u32>().is_ok_and(|id|id>=1000)) {
+        let id=id.parse().unwrap();core.clear();core.set_au(id,0.5,0.0);
+        let frame=core.evaluate_active_bone_frame();assert!(!frame.is_empty(),"AU{id}");
+        for binding in bindings {
+            let bone=resolver.resolve_bone(&model,&profile,&binding.node).unwrap();
+            assert!(frame.chunks_exact(9).any(|row|row[0]==bone.id as f32&&row[4..7].iter().any(|value|value.abs()>0.001)),"AU{id} {}",binding.node);
         }
-        if let Some(negative)=control.negative_au_id {
-            core.clear();core.set_continuum(negative,control.au_id,-0.5,0.0);
-            let negative=core.evaluate_active_bone_frame();
-            assert_eq!(positive.len(),negative.len(),"{id}");
-            for (pos,neg) in positive.chunks_exact(9).zip(negative.chunks_exact(9)) {
-                assert_eq!(pos[0],neg[0]);
-                assert!(pos[4..7].iter().zip(&neg[4..7]).all(|(a,b)|(a+b).abs()<0.0001),"{id} endpoints must be opposite rotations");
-            }
-        }
-        if control.bilateral {
-            for (balance,side) in [(-1.0,"left"),(1.0,"right")] {
-                core.clear();core.set_au(control.au_id,0.5,balance);
-                let rows=core.evaluate_active_bone_frame();
-                for role in &control.roles {
-                    let name=crate::body_controls::configured_bone_name(&profile,role);
-                    let bone=model.bones.iter().find(|bone|bone.name==name).unwrap();
-                    let moved=rows.chunks_exact(9).any(|row|row[0]==bone.id as f32 && row[4..7].iter().any(|v|v.abs()>0.001));
-                    assert_eq!(moved,role.starts_with(side),"{id}: balance {balance} role {role}");
-                }
+        for (balance,selected) in [(-1.0,"left"),(1.0,"right")] {
+            core.clear();core.set_au(id,0.5,balance);let frame=core.evaluate_active_bone_frame();
+            for binding in bindings.iter().filter(|binding|binding.side.is_some()) {
+                let bone=resolver.resolve_bone(&model,&profile,&binding.node).unwrap();
+                let moved=frame.chunks_exact(9).any(|row|row[0]==bone.id as f32&&row[4..7].iter().any(|value|value.abs()>0.001));
+                assert_eq!(moved,binding.side.as_deref()==Some(selected),"AU{id} {balance}");
             }
         }
     }
 }
 
 #[test]
-fn torso_catalog_actions_write_only_waist_and_spine_bones() {
-    let profile = cc4();
-    let model = cc4_model();
-    // These are the authored upper-body branch, below Hip and separate from
-    // Pelvis/Thigh. Do not derive the expected targets from the preset bindings.
-    let torso_bones: std::collections::BTreeSet<_> = model.bones.iter()
-        .filter(|bone| matches!(bone.name.as_str(),
-            "CC_Base_Waist" | "CC_Base_Spine01" | "CC_Base_Spine02"))
-        .map(|bone| bone.id)
-        .collect();
-    assert_eq!(torso_bones.len(), 3);
-    let controls: Vec<_> = profile.body_controls.iter()
-        .filter(|(_, control)| control.section == "Torso")
-        .collect();
-    assert!(!controls.is_empty());
-    let mut core = compiled(&profile, &model);
-    for (id, control) in controls {
-        for action in std::iter::once(control.au_id).chain(control.negative_au_id) {
-            core.clear();
-            core.set_au(action, 0.5, 0.0);
-            let frame = core.evaluate_active_bone_frame();
-            assert!(!frame.is_empty(), "{id} action {action} must move the torso");
-            for row in frame.chunks_exact(9) {
-                let bone_id = row[0] as u32;
-                let bone = model.bones.iter().find(|bone| bone.id == bone_id).unwrap();
-                assert!(torso_bones.contains(&bone_id),
-                    "{id} action {action} moves {} outside the torso branch", bone.name);
-            }
+fn torso_and_whole_body_aus_keep_authored_branches() {
+    let profile=cc4();let model=cc4_model();let mut core=compiled(&profile,&model);
+    for id in [1003,1004,1016,1017,1018,1019,1020,1021,1022,1023,1024,1025,1026,1027] {
+        core.clear();core.set_au(id,0.5,0.0);let frame=core.evaluate_active_bone_frame();assert!(!frame.is_empty());
+        for row in frame.chunks_exact(9) {
+            let bone=model.bones.iter().find(|bone|bone.id==row[0] as u32).unwrap();
+            assert!(matches!(bone.name.as_str(),"CC_Base_Waist"|"CC_Base_Spine01"|"CC_Base_Spine02"));
         }
     }
-}
-
-#[test]
-fn whole_body_hip_controls_keep_their_existing_actions_and_root_motion() {
-    let profile = cc4();
-    let model = cc4_model();
-    let hip = model.bones.iter().find(|bone| bone.name == "CC_Base_Hip").unwrap();
-    let descriptors = crate::body_controls::resolve(&profile, Some(&model));
-    let mut core = compiled(&profile, &model);
-    for (id, negative, positive) in [
-        ("body.hipsBend", 1010, 1011),
-        ("body.hipsTwist", 1012, 1013),
-        ("body.hipsSideBend", 1014, 1015),
-    ] {
-        let control = descriptors.as_array().unwrap().iter()
-            .find(|control| control["id"] == id).unwrap();
-        assert_eq!(control["section"], "Whole body");
-        assert!(control["label"].as_str().unwrap().starts_with("Whole body "));
-        assert_eq!(control["auIds"], json!([positive, negative]));
-        for action in [negative, positive] {
-            core.clear();
-            core.set_au(action, 0.5, 0.0);
-            let frame = core.evaluate_active_bone_frame();
-            assert_eq!(frame.len(), 9, "{id} action {action} retains one hip output");
-            assert_eq!(frame[0], hip.id as f32);
-            assert!(frame[4..7].iter().any(|value| value.abs() > 0.001));
-        }
-    }
+    for id in 1010..=1015 {core.clear();core.set_au(id,0.5,0.0);let frame=core.evaluate_active_bone_frame();assert_eq!(frame.len(),9);assert_eq!(model.bones.iter().find(|bone|bone.id==frame[0] as u32).unwrap().name,"CC_Base_Hip");}
 }
 
 #[test]
 fn new_finger_motion_can_mix_bone_skin_and_clothing_targets() {
     let mut profile=cc4();let mut model=cc4_model();
-    let action=profile.body_controls["body.indexDistalCurl"].au_id;
+    let action=1073;
     profile.au_to_morphs.insert(action.to_string(),Some(serde_json::from_value(json!({"left":["FingerFlex","SleeveFlex"],"right":[]})).unwrap()));
     profile.morph_to_mesh.insert("body".into(),vec!["Skin".into(),"Glove".into()]);
     profile.au_mix_defaults.insert(action.to_string(),0.25);
@@ -224,8 +156,8 @@ fn legacy_saved_profile_upgrades_all_roles_and_missing_axes_without_overriding_c
     assert_eq!(merged.humanoid_characterization.as_ref().unwrap().roles.len(),55);
     assert!(humanoid::validate(&merged,&cc4_model()).valid);
     let mut core=compiled(&merged,&cc4_model());
-    for id in ["body.indexDistalCurl","body.forearmTwist","body.chestBend","body.toeBend","body.torsoTwist"] {
-        core.clear();core.set_au(merged.body_controls[id].au_id,0.5,0.0);
+    for id in [1073,1049,1023,1065,1004] {
+        core.clear();core.set_au(id,0.5,0.0);
         assert!(!core.evaluate_active_bone_frame().is_empty(),"saved profile loses {id}");
     }
     assert_eq!(merged.au_to_bones["1004"][0].node,"SPINE_01");

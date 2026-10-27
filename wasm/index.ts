@@ -90,3 +90,5 @@ async function load(): Promise<EmbodyCore> {
   loaded = core;
   return core;
 }
+export { getAUDescriptors, LEGACY_BODY_CONTROL_AUS } from './auDescriptors';
+export type { AUDescriptor } from './auDescriptors';

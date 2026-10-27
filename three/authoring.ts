@@ -9,7 +9,7 @@ export * from './authoringTypes';
 export { resolveBoneNames, fuzzyNameMatch } from './annotations/adapter';
 export {
   DEFAULT_AXIS_TO_CHANNEL, DEFAULT_BONE_MAX_DEGREES, JOINT_CONTROL_SECTION,
-  VISEME_KEYS, HAIR_COLOR_PRESETS, DEFAULT_HAIR_COLOR_APPEARANCE,
+  VISEME_KEYS, HAIR_COLOR_PRESETS, DEFAULT_HAIR_COLOR_APPEARANCE, getAUDescriptors, LEGACY_BODY_CONTROL_AUS,
   HUMANOID_SKELETON_TEMPLATES, CC4_HUMANOID_SKELETON_TEMPLATE,
 } from '@lovelace_lol/embody/wasm';
 
@@ -61,9 +61,7 @@ export const resolveContinuumDisplayLabel = (profile: Pick<Types.Profile, 'conti
 function inspectModel(model: Object3D, meshes?: Mesh[], profile?: Types.Profile) {
   return new ThreeModelInspector().inspectModel(model, { meshes, profile });
 }
-export function getBodyControls(profile: Types.Profile, model?: Object3D): Types.BodyControlDescriptor[] {
-  return request('profile.getBodyControls', { profile, ...(model ? { model: inspectModel(model, undefined, profile).descriptor } : {}) });
-}
+
 export function extractModelData(model: Object3D, meshes?: Mesh[], animations: AnimationClip[] = []): Types.ModelData {
   const inspection = inspectModel(model, meshes);
   return JSON.parse(requireInitializedEmbodyCore().extract_model_data_json(json(inspection.descriptor), json(serializeAnimationClips(model, animations, inspection))));
@@ -79,7 +77,7 @@ export async function analyzeModel(options: {
   return JSON.parse(requireInitializedEmbodyCore().analyze_model_descriptor(json(inspection.descriptor), json(serializeAnimationClips(model, animations, inspection)), options.preset ? json(options.preset) : '', json({ suggestCorrections: Boolean(options.suggestCorrections) })));
 }
 type ValidationMesh = { name?: string; morphTargetDictionary?: Record<string, number>; geometry?: { morphTargetDictionary?: Record<string, number> } };
-export function validateMappings(meshes: unknown[], skeleton: unknown, profile: Types.Profile, options: Record<string, unknown> = {}): Types.ValidationResult {
+export function validateMappings(meshes: unknown[], skeleton: unknown, profile: Partial<Types.Profile>, options: Record<string, unknown> = {}): Types.ValidationResult {
   let nextMorphId = 1;
   const morphTargets: Array<{ id: number; meshId: number; name: string; hostIndex: number }> = [];
   const descriptorMeshes = (meshes ?? []).map((value, index) => {
@@ -114,3 +112,5 @@ export function computeHumanoidSkeletonTemplateRestBounds(template: Types.Humano
 export function extractHumanoidSkeletonTemplateFromModel(model: Object3D, options: { id: string; sourceCharacterId: string; sourceAsset?: string; sourceSkinName?: string }): Types.HumanoidSkeletonTemplate {
   return JSON.parse(requireInitializedEmbodyCore().extract_humanoid_skeleton_template_json(json(inspectModel(model).descriptor), json(options)));
 }
+
+export type { AUDescriptor } from '@lovelace_lol/embody/wasm';

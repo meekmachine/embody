@@ -107,6 +107,9 @@ new three.ThreeFrameApplier().addMorphTarget(morphRoot, {
 
 const checks = [
   ['root ESM Three adapter', typeof root.ThreeModelInspector === 'function'],
+  ['AU descriptors share all public entry points', typeof root.getAUDescriptors === 'function' && root.getAUDescriptors === wasm.getAUDescriptors && three.getAUDescriptors === wasm.getAUDescriptors],
+  ['historical AU decoder shares all public entry points', typeof root.LEGACY_BODY_CONTROL_AUS === 'object' && root.LEGACY_BODY_CONTROL_AUS !== null && root.LEGACY_BODY_CONTROL_AUS === wasm.LEGACY_BODY_CONTROL_AUS && three.LEGACY_BODY_CONTROL_AUS === wasm.LEGACY_BODY_CONTROL_AUS],
+  ['retired named catalog is absent', !('getBodyControls' in root) && !('getBodyControls' in three)],
   ['root and Wasm exports share one loader', root.initEmbodyCore === wasm.initEmbodyCore && root.requireInitializedEmbodyCore() === core],
   ['synchronous Three authoring uses public Wasm initialization', synchronousPreset.meshes.CC_Base_Eye.category === 'eye' && synchronousVisemes.visemeSlots.length === 0],
   ['synchronous Three unbound character uses public Wasm initialization', unboundProfileMode === 'profile'],

@@ -365,7 +365,7 @@ step/linear clip conversion, and remaining import work.
 
 `humanoid.getSpecification` exposes all 55 VRM 1.0 anatomical roles and their
 parent/required rules. CC4 maps all 55 to distinct authored bones and supplies
-58 body controls for fingers, wrists, shoulders, feet, whole body motion, the
+authored AU mappings for fingers, wrists, shoulders, feet, whole body motion, the
 spine, head, eyes and jaw. `profile.setHumanoidRoleBinding` edits or clears a role and
 retargets its existing actuators. The runtime keeps the same bone/morph evaluator;
 other rigs must author their own calibrated axes/ranges and optional muscle
@@ -596,42 +596,39 @@ the package; CI checks and publishes that same build.
 
 MIT. See [LICENSE](LICENSE) and [AUTHORS.md](AUTHORS.md).
 
-### Semantic poses and generated motion
+### AU controls and authored animation
 
-`RuntimeCore.get_semantic_pose_catalog_json()` returns the configured profile's
-motion identifiers, direction labels, VRM roles, resolved bone/morph names and
-per-direction model support and available sides. VRM names anatomy; profile motion IDs name authored
-actions. Hosts should send only supported directions to generation prompts,
-along with their bounds: intensity and morph strength `0..1`, bilateral balance
-`-1` character-left, `0` both, `1` character-right. Amounts are normalized authored
-motion, not radians or world-space rotation.
+Character controls come from the character's saved `auInfo`/`actionInfo`,
+`auToBones`, `auToMorphs`, `compositeRotations` and `continuumPairs`. There is
+no named body-control catalog or fixed control count. `engine.getAUDescriptors()`
+and initialized `getAUDescriptors(profile, modelDescriptor?)` return per-AU
+metadata and resolved output support, including labels, signed pair IDs,
+bilateral sides, saved morph strength and resolved bone/morph names.
 
-`capture_semantic_pose_json()` returns `{version:1,controls:[{controlId,positive,
-negative?}]}`. Each direction stores intensity, balance and morphStrength
-independently, preserving opposed action values. These are manual runtime
-controls; capturing an arbitrary mixer/baked pose would require pose inference.
-`validate_semantic_pose_json()` fills omitted settings without mutation.
-`apply_semantic_pose_json()` validates the complete input before replacing Body
-actions, preserving unrelated facial state. Either direction may be omitted;
-a control requires at least one. Known missing outputs remain portable to partial
-rigs; unknown IDs, duplicate actions and invalid bounds fail. Applying a semantic pose releases prior direct overrides on its exact mapped
-mesh/target IDs, preserving unrelated facial overrides and same-named targets on
-unmapped meshes.
+Use `setAU`/`transitionAU`, `setContinuum`, `getAUBalance` and
+`setAUMixWeight` for live controls. `buildClip`/`playSnippet` compile numeric
+AU curves through the same saved bone/morph evaluator; `balanceMap` and
+`mixWeights` are per-AU compilation options. Compilation preserves live state.
+Native playback owns interpolation, pause, resume, cancellation and blending.
+Reset an authored control by setting its mapped AU values to zero. Hosts select
+which mapped AU IDs to reset; unrelated face state and saved mix strengths remain
+under their existing owners.
 
-`build_semantic_clip(name, animationJson, optionsJson)` compiles
-`{version:1,durationSeconds,tracks:[{controlId,direction,balance?,morphStrength?,
-keyframes:[{time,intensity}]}]}` through the same AU/bone/morph evaluator.
-Direction is `positive` or `negative`; time is seconds. Unsupported directions,
-unknown controls, duplicate actions and non-increasing/out-of-range keys fail.
-`options.faceCurves` accepts additional non-Body AU curves so face and body compile
-together, including overlapping mapped bones. Compilation preserves live state;
-per-track morph strength changes only the compiled output. The host mixer owns
-playback and interpolation, as with existing snippets.
+Named semantic pose/animation APIs and profile `bodyControls` are retired.
+Persisted named records must be decoded at the storage boundary to numeric AU
+values/curves, using their original profile mappings. `LEGACY_BODY_CONTROL_AUS`
+is a deprecated reader-only historical identity snapshot for old CC4 records;
+it is never consulted for current controls, actuation or profile compilation.
+Unknown legacy names must be reported rather than silently omitted.
 
-Catalog `availableSides` identifies actual mapped left/right/center outputs.
-Generated animations reject a negative balance without a left output or positive
-balance without a right output; balance zero may drive the remaining side of a
-partial rig. Stored static poses retain their portability across missing outputs.
-`evaluate_semantic_body_bone_frame()` returns exact Body-owned properties including
-neutral values, allowing an explicit semantic pose/reset to replace old raw bone
-edits without touching unrelated properties.
+### Character-derived studio background
+
+The Three `createCharacterHost` paints its container with soft gradients sampled
+from the selected model's material and texture colors. The studio uses the
+original visible ink strengths (24/12%, 22/10%, 18%) over a gunmetal base.
+Embody owns palette extraction and updates after successful character replacement;
+late extraction cannot repaint a newer selection or a disposed host. Disposal
+restores the container's original inline background. Explicit saved backgrounds,
+including `null` transparency, non-studio scene types and external scenes retain
+their authored appearance. Polymer forwards the host; applications do not sample
+textures or construct a second scene background.

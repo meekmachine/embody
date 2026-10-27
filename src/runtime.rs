@@ -155,8 +155,6 @@ pub struct RuntimeCore {
     procedural_bone_flags: HashMap<u32, u32>,
     procedural_morph_targets: BTreeSet<(u32, u32)>,
     hair_config: crate::hair_curves::HairPlaybackConfig,
-    body_controls_json: String,
-    body_control_au_ids: BTreeSet<u32>,
 }
 
 #[wasm_bindgen]
@@ -194,8 +192,6 @@ impl RuntimeCore {
             procedural_bone_flags: HashMap::new(),
             procedural_morph_targets: BTreeSet::new(),
             hair_config: crate::hair_curves::HairPlaybackConfig::default(),
-            body_controls_json: "[]".into(),
-            body_control_au_ids: BTreeSet::new(),
         }
     }
 
@@ -272,10 +268,7 @@ impl RuntimeCore {
             .map_err(|error| JsError::new(&error))?;
         self.reset_procedural_frame_tracking();
         self.hair_config = hair_config;
-        self.body_controls_json = crate::body_controls::resolve(&profile, Some(&model)).to_string();
-        self.body_control_au_ids = profile.body_controls.values()
-            .flat_map(|control| std::iter::once(control.au_id).chain(control.negative_au_id))
-            .collect();
+
         self.initial_morph_values.clear();
         self.bone_rest_scales.clear();
         self.object_rest_positions.clear();
@@ -684,141 +677,10 @@ impl RuntimeCore {
             && bindings.iter().any(|binding| binding.side.as_deref() == Some("right"))
     }
 
-    /// Profile-derived motions and resolved model support for prompt/pose editors.
+    /// Observed AU metadata and resolved outputs. AU mappings remain the source of truth.
     #[wasm_bindgen]
-    pub fn get_semantic_pose_catalog_json(&self) -> String {
-        self.profile.as_ref().map(|profile| crate::semantic_pose::catalog(profile,self.model.as_ref()).to_string()).unwrap_or_else(||"[]".into())
-    }
-
-    /// Full Body property writes, including neutral reference values. Hosts use
-    /// this once when an explicit pose replaces direct legacy bone edits.
-    #[wasm_bindgen]
-    pub fn evaluate_semantic_body_bone_frame(&self)->Box<[f32]>{
-        let (Some(profile),Some(model))=(&self.profile,&self.model) else{return Vec::new().into_boxed_slice();};
-        let resolver=crate::profile::NameResolver::new(profile,model);
-        let mut properties:HashMap<u32,u32>=HashMap::new();
-        for id in &self.body_control_au_ids {
-            for binding in profile.au_to_bones.get(&id.to_string()).into_iter().flatten(){
-                if let Some(bone)=resolver.resolve_bone(model,profile,&binding.node){
-                    let flag=match binding.channel.as_str(){"rx"|"ry"|"rz"=>FLAG_HAS_ROTATION,"tx"|"ty"|"tz"=>FLAG_HAS_POSITION,_=>0};
-                    *properties.entry(bone.id).or_default()|=flag;
-                }
-            }
-        }
-        let mut result=Vec::new();
-        for row in self.evaluate_bone_frame_delta().chunks_exact(9){
-            let flags=(row[8] as u32)&properties.get(&(row[0] as u32)).copied().unwrap_or(0);
-            if flags!=0{result.extend_from_slice(&row[..8]);result.push(flags as f32);}
-        }
-        result.into_boxed_slice()
-    }
-
-    /// Captures manual semantic state; does not infer actions from a mixer pose.
-    #[wasm_bindgen]
-    pub fn capture_semantic_pose_json(&self) -> String {
-        use crate::semantic_pose::{Pose,PoseControl,Channel};
-        let controls=self.profile.as_ref().map(|profile| profile.body_controls.iter().map(|(id,control)| {
-            let capture=|au| Channel{intensity:self.get_au(au),balance:self.get_au_balance(au),
-                morph_strength:Some(*self.mix_weights.get(&au).unwrap_or(&1.0))};
-            PoseControl{control_id:id.clone(),positive:Some(capture(control.au_id)),
-                negative:control.negative_au_id.filter(|au|*au!=control.au_id).map(capture)}
-        }).collect()).unwrap_or_default();
-        serde_json::to_string(&Pose{version:1,controls}).unwrap()
-    }
-
-    /// Validate and fill optional settings without changing runtime or renderer state.
-    #[wasm_bindgen]
-    pub fn validate_semantic_pose_json(&self, json:&str) -> Result<String,JsError> {
-        let mut pose:crate::semantic_pose::Pose=deserialize_json(json,"Invalid semantic pose")
-            .map_err(|error|JsError::new(&error))?;
-        let profile=self.profile.as_ref().ok_or_else(||JsError::new("Runtime is not configured"))?;
-        let actions=crate::semantic_pose::validate_pose(profile,&pose).map_err(|error|JsError::new(&error))?;
-        for row in &mut pose.controls {
-            let control=&profile.body_controls[&row.control_id];
-            if row.positive.is_some() {row.positive=Some(actions[&control.au_id].clone());}
-            if row.negative.is_some() { row.negative=Some(actions[&control.negative_au_id.unwrap()].clone()); }
-        }
-        serialize_runtime_json(&pose,"semantic pose")
-    }
-
-    /// Validate every channel before replacing Body state. Other FACS state remains.
-    #[wasm_bindgen]
-    pub fn apply_semantic_pose_json(&mut self, json:&str) -> Result<(),JsError> {
-        let pose:crate::semantic_pose::Pose=deserialize_json(json,"Invalid semantic pose")
-            .map_err(|error|JsError::new(&error))?;
-        let profile=self.profile.as_ref().ok_or_else(||JsError::new("Runtime is not configured"))?;
-        let actions=crate::semantic_pose::validate_pose(profile,&pose).map_err(|error|JsError::new(&error))?;
-        let defaults:Vec<_>=self.body_control_au_ids.iter().map(|id|(*id,profile.au_mix_defaults.get(&id.to_string()).copied().unwrap_or(1.) as f32)).collect();
-        // A legacy/raw pose may have left direct overrides on these destinations.
-        // Release exact resolved IDs only after the entire new pose validates.
-        let managed_targets:HashSet<_>=self.au_bindings.iter()
-            .filter(|binding|self.body_control_au_ids.contains(&binding.au_id))
-            .map(|binding|(binding.mesh_id,binding.morph_target_id)).collect();
-        self.direct_morph_values.retain(|target,_|!managed_targets.contains(target));
-        self.reset_body_controls();
-        for (id,weight) in defaults {self.mix_weights.insert(id,weight);}
-        for (id,value) in actions { self.set_au(id,value.intensity,value.balance);self.set_au_mix_weight(id,value.morph_strength.unwrap()); }
-        Ok(())
-    }
-
-    /// Compile semantic motions and optional facial curves together without changing live state.
-    #[wasm_bindgen]
-    pub fn build_semantic_clip(&mut self,name:&str,json:&str,options_json:&str)->Result<String,JsError>{
-        let clip=self.compile_semantic_animation(name,json,options_json)?;
-        let result=serialize_runtime_json(&clip,"semantic clip")?;
-        self.animation.insert_clip(clip,"snippet").map_err(|error|JsError::new(&error))?;
-        Ok(result)
-    }
-
-    /// Compile and validate without registering a clip or changing live controls.
-    #[wasm_bindgen]
-    pub fn validate_semantic_animation_json(&self,json:&str,options_json:&str)->Result<(),JsError>{
-        self.compile_semantic_animation("semantic-validation",json,options_json).map(|_|())
-    }
-
-    fn compile_semantic_animation(&self,name:&str,json:&str,options_json:&str)->Result<ClipIR,JsError>{
-        let animation:crate::semantic_pose::Animation=deserialize_json(json,"Invalid semantic animation")
-            .map_err(|error|JsError::new(&error))?;
-        let profile=self.profile.as_ref().ok_or_else(||JsError::new("Runtime is not configured"))?;
-        let tracks=crate::semantic_pose::validate_animation(profile,self.model.as_ref(),&animation)
-            .map_err(|error|JsError::new(&error))?;
-        let mut options:ClipBuildOptions=parse_runtime_json(options_json,"semantic clip options")?;
-        let mut curves=std::mem::take(&mut options.face_curves);
-        for (key,points) in &curves {
-            let id=key.parse::<u32>().map_err(|_|JsError::new("Facial curves must use numeric AU IDs"))?;
-            if self.body_control_au_ids.contains(&id) {return Err(JsError::new("Body actions must use semantic tracks"));}
-            if !profile.au_info.contains_key(key) && !profile.au_to_morphs.contains_key(key) && !profile.au_to_bones.contains_key(key) {return Err(JsError::new("Unknown facial action"));}
-            if points.is_empty()||points.iter().any(|p|!p.time.is_finite()||p.time<0.||p.time>animation.duration_seconds||!p.intensity.is_finite()||p.intensity<0.||p.intensity>1.)||points.windows(2).any(|p|p[0].time>=p[1].time) {return Err(JsError::new("Invalid facial curve"));}
-        }
-        options.snippet_category=None;
-        for (id,value,points) in tracks {
-            options.balance_map.insert(id.to_string(),value.balance);
-            options.mix_weights.insert(id,value.morph_strength.unwrap());
-            curves.insert(id.to_string(),points.into_iter().map(|p|RuntimeCurvePoint{time:p.time,intensity:p.intensity as f64,inherit:false}).collect());
-        }
-        let mut clip=self.compile_curves(name,curves,&options)?;
-        clip.tracks=crate::snippet_compile::merge_semantic_morph_tracks(clip.tracks).map_err(|error|JsError::new(&error))?;
-        clip.duration_seconds=animation.duration_seconds;
-        Ok(clip)
-    }
-
-    /// Resolved Body descriptors for the configured profile/model. Model
-    /// inspection and descriptor resolution are cached until reconfiguration.
-    #[wasm_bindgen]
-    pub fn get_body_controls_json(&self) -> String {
-        self.body_controls_json.clone()
-    }
-
-    /// Clear each unique configured Body action and bilateral balance together.
-    /// Shared facial aliases are Body actions too. Preserve other actions,
-    /// visemes, direct morph overrides, and authored/current morph mix weights.
-    #[wasm_bindgen]
-    pub fn reset_body_controls(&mut self) {
-        for id in self.body_control_au_ids.iter().copied().collect::<Vec<_>>() { self.touch_au(id); }
-        for id in &self.body_control_au_ids {
-            self.au_values.remove(id);
-            self.au_balances.remove(id);
-        }
+    pub fn get_au_descriptors_json(&self) -> String {
+        self.profile.as_ref().map(|profile| crate::au_descriptors::resolve(profile,self.model.as_ref()).to_string()).unwrap_or_else(|| "[]".into())
     }
 
     /// Forget ownership when renderer bindings are discarded. Before replacing
@@ -2907,26 +2769,28 @@ mod tests {
     }
 
     #[test]
-    fn configured_body_descriptors_match_authoring_resolution_and_refresh_on_configure() {
+    fn configured_au_descriptors_match_authoring_resolution_and_refresh_on_configure() {
         let mut core = RuntimeCore::new(0);
-        assert_eq!(core.get_body_controls_json(), "[]");
+        assert_eq!(core.get_au_descriptors_json(), "[]");
         let model = r#"{"bones":[{"id":1,"name":"CC_Base_L_Forearm"}]}"#;
         core.configure_with_preset("cc4", "{}", model).unwrap();
-        let expected = crate::body_controls::resolve(core.profile.as_ref().unwrap(), core.model.as_ref());
-        assert_eq!(serde_json::from_str::<serde_json::Value>(&core.get_body_controls_json()).unwrap(), expected);
-        assert_eq!(expected.as_array().unwrap().len(), 58);
-        let elbow = expected.as_array().unwrap().iter().find(|control| control["id"] == "body.elbowFlex").unwrap();
+        let expected = crate::au_descriptors::resolve(core.profile.as_ref().unwrap(), core.model.as_ref());
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&core.get_au_descriptors_json()).unwrap(), expected);
+        let profile=core.profile.as_ref().unwrap();
+        let ids:BTreeSet<_>=profile.au_info.keys().chain(profile.au_to_bones.keys()).chain(profile.au_to_morphs.keys()).collect();
+        assert_eq!(expected.as_array().unwrap().len(),ids.len());
+        let elbow = expected.as_array().unwrap().iter().find(|control| control["auId"] == 1001).unwrap();
         assert_eq!(elbow["hasBones"], true);
         assert_eq!(elbow["hasMorphs"], false);
         core.configure_with_preset("cc4", "{}", "{}").unwrap();
-        assert!(serde_json::from_str::<serde_json::Value>(&core.get_body_controls_json()).unwrap()
+        assert!(serde_json::from_str::<serde_json::Value>(&core.get_au_descriptors_json()).unwrap()
             .as_array().unwrap().iter().all(|control| control["available"] == false));
         core.configure_with_profile("{}", model).unwrap();
-        assert_eq!(core.get_body_controls_json(), "[]");
+        assert_eq!(core.get_au_descriptors_json(), "[]");
     }
 
     #[test]
-    fn body_reset_uses_unique_configured_actions_preserves_face_and_mix_and_releases_frame() {
+    fn explicit_au_reset_preserves_unrelated_face_and_mix_and_releases_frame() {
         let mut core = RuntimeCore::new(0);
         core.configure_with_preset("cc4", "{}", r#"{"bones":[{"id":1,"name":"CC_Base_L_Forearm"}]}"#).unwrap();
         core.set_au(1001, 0.8, -1.0);
@@ -2936,7 +2800,7 @@ mod tests {
         core.set_au_mix_weight(1001, 0.25);
         core.direct_morph_values.insert((10, 9), 0.8);
         assert!(!core.evaluate_procedural_bone_frame().is_empty());
-        core.reset_body_controls();
+        for id in [1001,1003,1004,51] {core.set_au(id,0.0,0.0);}
         for id in [1001, 1003, 1004, 51] {
             assert_eq!(core.get_au(id), 0.0);
             assert_eq!(core.get_au_balance(id), 0.0);
@@ -2947,14 +2811,9 @@ mod tests {
         assert_eq!(core.direct_morph_values.get(&(10, 9)), Some(&0.8));
         assert_eq!(core.evaluate_procedural_bone_frame()[8], 2.0);
         assert!(core.evaluate_procedural_bone_frame().is_empty());
-        // Replacing the catalog makes the prior default actions unrelated.
-        core.configure_with_profile(r#"{"bodyControls":{"custom":{"label":"Custom","auId":12},"alias":{"label":"Alias","auId":12,"negativeAuId":12}}}"#, "{}").unwrap();
-        assert_eq!(core.body_control_au_ids.len(), 1);
-        core.set_au(1001, 0.6, 0.5);
-        core.reset_body_controls();
-        assert_eq!(core.get_au(12), 0.0);
-        assert_eq!(core.get_au(1001), 0.6);
-        assert_eq!(core.get_au_balance(1001), 0.5);
+        // Read-only legacy metadata cannot claim unrelated AU reset ownership.
+        core.configure_with_profile(r#"{"bodyControls":{"custom":{"label":"Custom","auId":12}}}"#, "{}").unwrap();
+        core.set_au(12,0.4,0.0);assert_eq!(core.get_au(12),0.4);assert_eq!(core.get_au_descriptors_json(),"[]");
     }
 
     #[test]
