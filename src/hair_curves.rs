@@ -1,7 +1,6 @@
-//! Hair idle/impulse/gravity curve generation for AnimationMixer clips.
-//!
-//! Hosts only schedule the resulting curves on Three.js (or another mixer);
-//! all sampling math lives here.
+//! Hair configuration, head-role geometry and continuous morph mapping.
+//! Dynamics live in `hair.rs`; authored idle/impulse/gravity curve helpers
+//! remain available separately for explicit native animation clips.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -215,8 +214,29 @@ pub(crate) fn head_pose_angles(binding: &HairHeadBinding, pose: &HairHeadPose) -
     Ok([yaw, pitch])
 }
 
-/// All named targets are present, including zero releases. Contributions that
-/// share a configured name are accumulated before concrete model resolution.
+const DIRECTION_TRANSITION_WIDTH: f64 = 0.04;
+
+// Match the authored positive direction outside a small neutral band. At zero
+// both value and slope are zero, so switching directional morphs has no cusp.
+fn positive_direction(value: f64) -> f64 {
+    if value <= 0.0 { return 0.0; }
+    if value >= DIRECTION_TRANSITION_WIDTH { return value; }
+    let normalized = value / DIRECTION_TRANSITION_WIDTH;
+    value * normalized * (2.0 - normalized)
+}
+
+/// Preserve ordinary mapped amounts through 1.5, then approach the existing
+/// maximum of 2 continuously with matching slope. Apply once, after aliases
+/// and strength have accumulated onto each concrete native morph channel.
+pub(crate) fn limit_response_morph(value: f64) -> f64 {
+    const KNEE: f64 = 1.5;
+    const SPAN: f64 = 0.5;
+    if value <= KNEE { return value.max(0.0); }
+    KNEE - SPAN * (-((value - KNEE) / SPAN)).exp_m1()
+}
+
+/// All named contributions are present, including zero releases. Contributions
+/// accumulate before model resolution and the final concrete-channel soft limit.
 pub(crate) fn response_morph_values(
     config: &HairPlaybackConfig, offsets: [f32; 3],
 ) -> std::collections::BTreeMap<String, f64> {
@@ -225,23 +245,24 @@ pub(crate) fn response_morph_values(
     let [x, z, gravity_pitch] = offsets.map(f64::from);
     let scale = f64::from(config.response_scale);
     let morph = &config.curves.morph_targets;
-    let left = x.max(0.0);
-    let right = (-x).max(0.0);
+    let left = positive_direction(x);
+    let right = positive_direction(-x);
+    let front = positive_direction(z);
+    let back = positive_direction(-z);
     for (name, amount) in [
         (&morph.sway_left, left), (&morph.sway_right, right),
-        (&morph.sway_front, z.max(0.0)), (&morph.fluff_right, right * 0.7),
-        (&morph.fluff_bottom, (x.abs() + z.abs()) * 0.25),
+        (&morph.sway_front, front), (&morph.fluff_right, right * 0.7),
+        (&morph.fluff_bottom, (left + right + front + back) * 0.25),
     ] {
         if let Some(value) = name.as_ref().and_then(|name| values.get_mut(name)) { *value += amount * scale; }
     }
-    for (group, pitch) in [(&morph.head_up, (-gravity_pitch).max(0.0)), (&morph.head_down, gravity_pitch.max(0.0))] {
+    for (group, pitch) in [(&morph.head_up, positive_direction(-gravity_pitch)), (&morph.head_down, positive_direction(gravity_pitch))] {
         if let Some(group) = group {
             for (name, amount) in group {
                 if let Some(value) = values.get_mut(name) { *value += f64::from(*amount).min(2.0) * pitch * scale; }
             }
         }
     }
-    for value in values.values_mut() { *value = (*value).clamp(0.0, 2.0); }
     values
 }
 
@@ -646,11 +667,33 @@ mod tests {
         config.response_scale = 0.0;
         assert!(response_morph_values(&config, [1.0;3]).values().all(|value| *value == 0.0));
         config.response_scale = f32::MAX;
-        assert!(response_morph_values(&config, [1.0;3]).values().all(|value| value.is_finite() && *value <= 2.0));
+        assert!(response_morph_values(&config, [1.0;3]).values().all(|value| value.is_finite() && limit_response_morph(*value) <= 2.0));
         config.enabled = false;
         assert!(response_morph_values(&config, [1.0;3]).values().all(|value| *value == 0.0));
         let cleared = normalize_config(&config, &json!({"morphTargets":{}})).unwrap();
         assert!(response_morph_values(&cleared, [1.0;3]).is_empty());
+    }
+
+    #[test]
+    fn directional_zero_crossings_and_final_limit_have_continuous_slopes() {
+        let epsilon = 1e-6;
+        assert_eq!(positive_direction(-epsilon), 0.0);
+        assert_eq!(positive_direction(0.0), 0.0);
+        assert!(positive_direction(epsilon) / epsilon < 1e-4);
+        let width = DIRECTION_TRANSITION_WIDTH;
+        let slope_before = (positive_direction(width) - positive_direction(width - epsilon)) / epsilon;
+        let slope_after = (positive_direction(width + epsilon) - positive_direction(width)) / epsilon;
+        assert!((slope_before - slope_after).abs() < 1e-3);
+        assert_eq!(limit_response_morph(1.0), 1.0);
+        let knee_slope = (limit_response_morph(1.5 + epsilon) - limit_response_morph(1.5)) / epsilon;
+        assert!((knee_slope - 1.0).abs() < 1e-4);
+        let mut previous = 0.0;
+        for amount in [0.1,1.0,1.5,1.6,2.0,3.0,5.0] {
+            let output = limit_response_morph(amount);
+            assert!(output > previous && output < 2.0);
+            previous = output;
+        }
+        assert_eq!(limit_response_morph(f64::MAX), 2.0);
     }
 
     #[test]

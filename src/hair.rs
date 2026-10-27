@@ -123,10 +123,33 @@ pub(crate) struct HairResponse {
     gravity_velocity: f32,
     time: f64,
     previous_head: Option<[f32; 2]>,
+    head_drive: [f64; 2],
 }
 
 const RESPONSE_MAX_ELAPSED: f64 = 0.25;
 const RESPONSE_SUBSTEP: f64 = 1.0 / 120.0;
+const HEAD_DRIVE_RESPONSE_SECONDS: f64 = 0.035;
+const RESPONSE_POSITION_SAFETY_LIMIT: f64 = 1e6;
+
+fn response_step_count(elapsed: f64) -> u32 {
+    // Timer roundoff near an integral tick must not change numerical damping
+    // by selecting an extra substep on alternating nominally equal frames.
+    (elapsed / RESPONSE_SUBSTEP - 1e-9).ceil().max(1.0) as u32
+}
+
+// A renderer sample describes average angular velocity over its frame. Carry
+// its response between frames and integrate the exponential mean over each
+// physics step, so force does not jump with framewise velocity estimates.
+fn smooth_head_drive(current: &mut f64, observed: f64, dt: f64) -> f64 {
+    let elapsed = dt / HEAD_DRIVE_RESPONSE_SECONDS;
+    let blend = -(-elapsed).exp_m1();
+    let average_blend = if elapsed < 1e-3 {
+        elapsed * (0.5 - elapsed * (1.0 / 6.0 - elapsed * (1.0 / 24.0 - elapsed / 120.0)))
+    } else { 1.0 - blend / elapsed };
+    let average = *current + (observed - *current) * average_blend;
+    *current += (observed - *current) * blend;
+    average
+}
 
 // Implicit spring integration remains stable for finite, nonnegative profile
 // stiffness/damping, including very large values. Dynamics use unit mass;
@@ -139,12 +162,19 @@ fn response_spring_step(
         + dt * (stiffness * (target - f64::from(*position)) + force))
         / (1.0 + damping * dt + stiffness * dt * dt);
     *velocity = next_velocity.clamp(-f64::from(MAX_VELOCITY), f64::from(MAX_VELOCITY)) as f32;
-    *position = (f64::from(*position) + f64::from(*velocity) * dt).clamp(-1.0, 1.0) as f32;
+    let next_position = f64::from(*position) + f64::from(*velocity) * dt;
+    // Normal spring travel is unrestricted. Only pathological inputs reach
+    // this finite safety guard; output limiting belongs after morph mapping.
+    *position = next_position.clamp(-RESPONSE_POSITION_SAFETY_LIMIT, RESPONSE_POSITION_SAFETY_LIMIT) as f32;
+    if next_position.abs() > RESPONSE_POSITION_SAFETY_LIMIT && next_position.signum() == f64::from(*velocity).signum() {
+        *velocity = 0.0;
+    }
 }
 
 impl HairResponse {
     pub(crate) fn reprime_head(&mut self) {
         self.previous_head = None;
+        self.head_drive = [0.0; 2];
     }
 
     pub(crate) fn add_impulse(&mut self, horizontal: f32, vertical: f32) -> Result<(), String> {
@@ -190,17 +220,20 @@ impl HairResponse {
         // Re-prime the head, retain momentum, and settle at most 250 ms; never
         // turn that unobserved interval into a fresh angular-velocity impulse.
         self.previous_head = head;
+        if dt_seconds > RESPONSE_MAX_ELAPSED { self.head_drive = [0.0; 2]; }
         let elapsed = dt_seconds.min(RESPONSE_MAX_ELAPSED);
-        let steps = (elapsed / RESPONSE_SUBSTEP).ceil().max(1.0) as u32;
+        let steps = response_step_count(elapsed);
         let dt = elapsed / f64::from(steps);
         let curves = &config.curves;
         let stiffness = f64::from(curves.stiffness);
         let damping = f64::from(curves.damping);
         let pitch = f64::from(head.map_or(0.0, |pose| pose[1])) * f64::from(config.direction.pitch_sign);
-        let inertia_x = -yaw_velocity * f64::from(config.inertia) * f64::from(config.direction.yaw_sign) * 2.0;
-        let inertia_z = -pitch_velocity * f64::from(config.inertia) * f64::from(config.direction.pitch_sign) * 2.0;
         for _ in 0..steps {
             self.time += dt;
+            let drive_x = smooth_head_drive(&mut self.head_drive[0], yaw_velocity, dt);
+            let drive_z = smooth_head_drive(&mut self.head_drive[1], pitch_velocity, dt);
+            let inertia_x = -drive_x * f64::from(config.inertia) * f64::from(config.direction.yaw_sign) * 2.0;
+            let inertia_z = -drive_z * f64::from(config.inertia) * f64::from(config.direction.pitch_sign) * 2.0;
             let idle = (self.time * f64::from(curves.idle_sway_speed) * std::f64::consts::TAU).sin()
                 * f64::from(curves.idle_sway_amount);
             let wind_phase = self.time * f64::from(curves.wind_frequency) * std::f64::consts::TAU;
@@ -457,7 +490,7 @@ mod tests {
         config.curves.damping = f32::MAX;
         response.advance(&config, Some([1.0, 1.0]), f64::MIN_POSITIVE).unwrap();
         response.advance(&config, Some([-1.0, -1.0]), 0.1).unwrap();
-        assert!(response.offsets().iter().all(|value| value.is_finite() && value.abs() <= 1.0));
+        assert!(response.offsets().iter().all(|value| value.is_finite() && f64::from(value.abs()) <= RESPONSE_POSITION_SAFETY_LIMIT));
         assert!(response.state.to_values().iter().all(|value| value.is_finite()));
     }
 
@@ -547,6 +580,89 @@ mod tests {
         }
         assert!(steady.state.x < 0.0 && steady.state.z > 0.0);
         assert_ne!(steady.state, turbulent.state);
+    }
+
+    #[test]
+    fn head_drive_step_has_time_based_mean_and_small_deltas_never_reverse_force() {
+        let partitions = [vec![1.0 / 30.0; 3], vec![1.0 / 60.0; 6], vec![1.0 / 120.0; 12], vec![0.007,0.021,0.012,0.031,0.029]];
+        let expected_drive = 4.0 * (1.0 - (-0.1 / HEAD_DRIVE_RESPONSE_SECONDS).exp());
+        let expected_impulse = 4.0 * (0.1 - HEAD_DRIVE_RESPONSE_SECONDS * (1.0 - (-0.1 / HEAD_DRIVE_RESPONSE_SECONDS).exp()));
+        for partition in partitions {
+            let mut drive = 0.0;
+            let mut impulse = 0.0;
+            for dt in partition { impulse += smooth_head_drive(&mut drive, 4.0, dt) * dt; }
+            assert!((drive - expected_drive).abs() < 1e-12);
+            assert!((impulse - expected_impulse).abs() < 1e-12);
+        }
+        for dt in [f64::MIN_POSITIVE, 1e-20, 1e-12, 1e-6] {
+            let mut drive = 0.0;
+            let mean = smooth_head_drive(&mut drive, 1.0, dt);
+            assert!(mean > 0.0 && mean <= drive && drive <= 1.0);
+            assert!((mean / (dt / HEAD_DRIVE_RESPONSE_SECONDS) - 0.5).abs() < 1e-4);
+        }
+        let config = continuous_config();
+        let mut response = HairResponse::default();
+        response.advance(&config, Some([0.0,0.0]), 0.0).unwrap();
+        response.advance(&config, Some([0.2,0.0]), 1.0 / 60.0).unwrap();
+        assert!(response.state.vx < 0.0 && response.state.vx.abs() < 0.1);
+        assert!(response.head_drive[0] > 0.0 && response.head_drive[0] < 12.0);
+        // Assess small repeated input separately from the still-decaying force
+        // of the initial large step; its residual is legitimate momentum.
+        for _ in 0..60 { response.advance(&config, Some([0.2,0.0]), 1.0 / 60.0).unwrap(); }
+        for frame in 0..120 {
+            let before = response.state.vx;
+            response.advance(&config, Some([if frame % 2 == 0 { 0.21 } else { 0.19 },0.0]), 1.0 / 60.0).unwrap();
+            assert!((response.state.vx - before).abs() < 0.1);
+        }
+    }
+
+    #[test]
+    fn spring_crosses_former_position_wall_and_reverses_without_a_pinned_interval() {
+        let mut config = continuous_config();
+        config.curves.stiffness = 0.0;
+        config.curves.damping = 0.0;
+        let mut response = HairResponse::default();
+        response.add_impulse(4.0,0.0).unwrap();
+        for _ in 0..60 { response.advance(&config, None, 1.0 / 120.0).unwrap(); }
+        assert!((response.state.x - 2.0).abs() < 1e-5);
+        assert_eq!(response.state.vx, 4.0);
+        let before = response.state.x;
+        let displayed = crate::hair_curves::limit_response_morph(f64::from(before));
+        response.add_impulse(-8.0,0.0).unwrap();
+        response.advance(&config, None, 1.0 / 120.0).unwrap();
+        assert!(response.state.x < before);
+        assert!(crate::hair_curves::limit_response_morph(f64::from(response.state.x)) < displayed);
+    }
+
+    #[test]
+    fn continuous_motion_agrees_across_regular_and_irregular_renderer_deltas() {
+        for ticks in [1_u32,2,4,30] {
+            for noise in [-1e-12,0.0,1e-12] {
+                assert_eq!(response_step_count(RESPONSE_SUBSTEP * (f64::from(ticks) + noise)), ticks);
+            }
+        }
+        fn trajectory(partition: &[f64]) -> HairResponse {
+            let mut config = continuous_config();
+            config.curves.stiffness = 7.5;
+            config.curves.damping = 0.18;
+            config.inertia = 3.5;
+            let mut response = HairResponse::default();
+            response.advance(&config, Some([0.0,0.0]), 0.0).unwrap();
+            let mut time = 0.0_f64;
+            for &dt in partition {
+                time += dt;
+                let yaw = if time <= 0.5 { 0.8 * time } else { 0.4 - 0.8 * (time - 0.5) };
+                response.advance(&config, Some([yaw as f32,0.0]), dt).unwrap();
+            }
+            response
+        }
+        let reference = trajectory(&vec![1.0 / 120.0; 120]);
+        for partition in [vec![1.0 / 30.0;30], vec![1.0 / 60.0;60], [0.011,0.019,0.007,0.013].repeat(20)] {
+            let candidate = trajectory(&partition);
+            assert!((candidate.state.x - reference.state.x).abs() < 0.02);
+            assert!((candidate.state.vx - reference.state.vx).abs() < 0.05);
+            assert!((candidate.head_drive[0] - reference.head_drive[0]).abs() < 1e-5);
+        }
     }
 
     #[test]

@@ -25,7 +25,9 @@ owns continuous hair position, velocity, gravity response and ambient phase in
 `src/hair.rs`. The Three adapter passes the actual blended local head quaternion
 and elapsed time from the existing native renderer, then stages Rust's additive
 morph output on one persistent native action for the next frame. Retargeting a
-head animation does not restart hair motion. Legacy authored curve helpers remain
+head animation does not restart hair motion. A 35 ms head-drive response and
+smooth directional/output limits reduce abrupt force and morph transitions
+without discarding spring momentum. Legacy authored curve helpers remain
 in `src/hair_curves.rs`. See the [hair response contract](docs/INHERITED_CLIP_STARTS.md#hair-response-during-head-retargeting).
 
 The Rust core owns:

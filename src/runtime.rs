@@ -777,11 +777,11 @@ impl RuntimeCore {
         for (name, value) in values {
             let targets = self.resolve_morph_targets(&name, None, &mesh_names_json).into_iter().collect::<BTreeSet<_>>();
             for target in targets {
-                *concrete.entry(target).or_default() += (value * scale).clamp(0.0, 2.0);
+                *concrete.entry(target).or_default() += value * scale;
             }
         }
         let tracks = concrete.into_iter().enumerate().map(|(index, ((mesh_id, morph_target_id), value))| {
-            let value = value.clamp(0.0, 2.0);
+            let value = crate::hair_curves::limit_response_morph(value);
             scalar_track(index as u32 + 1, serde_json::json!({"kind":"morphTarget","meshId":mesh_id,"morphTargetId":morph_target_id}),
                 &[RuntimeCurvePoint { time: 0.0, intensity: value, inherit: false },
                   RuntimeCurvePoint { time: 1.0, intensity: value, inherit: false }], 1.0)
@@ -2187,6 +2187,7 @@ mod tests {
         let mut core = RuntimeCore::new(1);
         let profile = serde_json::json!({
             "boneNodes":{"head":"CustomHead"},"humanoidCharacterization":{"schemaVersion":1,"standard":"VRMC_vrm-1.0","roles":{"head":{"nodeKey":"head"}}},
+            "visemeSlots":[{"id":"speech-a"}],
             "hairPhysics":{"enabled":true,"inertia":1,"gravity":1,"idleSwayAmount":0,"stiffness":15,"damping":8,
                 "morphTargets":{"swayLeft":{"key":"L"},"swayRight":{"key":"R"},"swayFront":{"key":"F"},"fluffBottom":{"key":"L"},"headDown":{"D":{"value":1}}}}
         });
@@ -2235,6 +2236,25 @@ mod tests {
         assert_eq!(core.viseme_values, vec![0.6]);
         assert_eq!(core.direct_morph_values, direct_morphs);
         assert_eq!(core.get_animation_clips().unwrap(), catalog);
+    }
+
+    #[test]
+    fn continuous_hair_limits_the_shared_native_morph_once_and_reverses_without_a_flat_clip() {
+        let mut core = continuous_hair_core();
+        core.set_hair_config_json("{\"stiffness\":0,\"damping\":0,\"inertia\":0,\"gravity\":0,\"responseScale\":1}").unwrap();
+        core.add_hair_response_impulse(8.0,0.0).unwrap();
+        let clip = response_clip(&mut core, "null", 0.25);
+        let shared = clip.tracks.iter().filter(|track| track.target["morphTargetId"] == 1).collect::<Vec<_>>();
+        assert_eq!(shared.len(), 1);
+        // Sway L plus fluff L contribute 2 + .5. One knee on their sum
+        // differs from separately limiting each source and adding afterward.
+        let expected = 2.0 - 0.5 * (-2.0_f64).exp();
+        assert!((shared[0].values[0] - expected).abs() < 1e-5);
+        assert!(shared[0].values[0] < 2.0);
+        core.add_hair_response_impulse(-10.0,0.0).unwrap();
+        let reversing = response_clip(&mut core, "null", 1.0 / 60.0);
+        let output = reversing.tracks.iter().find(|track| track.target["morphTargetId"] == 1).unwrap();
+        assert!(output.values[0] < shared[0].values[0]);
     }
 
     #[test]

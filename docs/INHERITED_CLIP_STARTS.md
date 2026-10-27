@@ -78,14 +78,34 @@ delta. The first fully mixed renderer observation primes head history, so
 restoring held live controls during rebinding is not mistaken for new motion.
 
 The simulation retains sway position/velocity, smoothed gravity pitch/velocity,
-previous observed head angles and ambient phase. Inertia uses observed angular
-velocity; stiffness and damping control a unit-mass spring. Saved direction
+previous observed head angles, a head-drive response and ambient phase. Observed
+angular velocity passes through a 35 ms exponential response in Rust; its mean
+over each physics step drives inertia, so framewise velocity changes do not
+replace the force abruptly. This uses the same renderer delta and adds no clock.
+Stiffness and damping control a unit-mass spring. Saved direction
 signs, gravity, idle sway, wind and response scale feed this same state. Stable
 implicit steps are at most 1/120 second. Gaps over 250 ms re-prime head history,
 suppress unobserved head inertia, and settle existing momentum for at most
 250 ms. A zero delta does not advance dynamics or consume an already primed
 head observation. Global mixer speed scales elapsed time; reverse playback uses
 its elapsed magnitude and the actual reversed pose, while zero speed freezes it.
+
+Ordinary spring displacement can travel past one; a hard wall there would store
+outward velocity while pinning position, then release it abruptly on reversal.
+A distant finite safety bound remains for extreme configurations. Directional
+morphs ease through a 0.04 neutral band with continuous value and slope, matching
+their previous linear response outside that band. After names/aliases and
+strength accumulate onto each concrete target, output remains linear through
+1.5 and approaches the existing maximum of 2 with a matching-slope exponential
+knee. This avoids a flat hard-clipped peak during ordinary motion and keeps
+zero-valued releases exact. No morph filter or physics state is added in Three.
+
+For automatic physics, `stiffness` is the spring coefficient and `damping` is
+linear drag. Their numeric values and preset defaults are retained; the legacy
+authored-curve helpers use these same fields to choose oscillation frequency and
+decay instead. Continuous physics does not promise the same motion as those
+curves. Creators can tune drag independently; critical damping of this unit-mass
+spring is `2 * sqrt(stiffness)` (about 5.48 for CC4's stiffness 7.5).
 
 Output is constant two-key ClipIR at times `[0, 1]`, containing additive morph
 offsets with zero as neutral, including zero-valued mapped channels. It never
@@ -99,8 +119,9 @@ clock or direct post-mixer morph overwrite.
 `pauseAllAnimations()` freezes the response; pausing only a head request lets
 hair continue settling. Rust retains physical pause intent even when output
 mappings are empty or physics is disabled. Resume re-primes head observation
-while preserving momentum and ambient phase. Mapping edits still reconcile and
-release native bindings while paused and preserve pause on a replacement action. `stopAllAnimations()`
+and clears its head-drive history while preserving spring momentum and ambient
+phase. Mapping edits reconcile and release native bindings while paused;
+replacement actions retain pause. `stopAllAnimations()`
 stops authored animation while physical hair keeps settling, like retained live
 controls. `stop()` suspends the renderer binding. Numerical configuration edits
 preserve dynamics and ambient phase. Disablement releases output and clears
@@ -116,8 +137,10 @@ remain available for deliberately authored clips. `idleClipDuration` and
 `impulseClipDuration` apply only to those helpers, not automatic physics.
 
 Rust and native-adapter regression source covers continuity, actual pose input,
-configuration and lifecycle behavior for CI. Product acceptance still requires
-the matching compiled Embody package adopted through Polymer and LoomLarge;
+configuration and lifecycle behavior for CI, including actual CC4 tuning,
+abrupt/alternating head input, saturation reversals and different frame cadences.
+Product acceptance still requires the matching compiled Embody package adopted
+through Polymer and LoomLarge;
 source changes alone do not update an installed host.
 
 ## Distance-based AU admission

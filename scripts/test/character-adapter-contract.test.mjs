@@ -500,6 +500,116 @@ function noAutomaticHairClips(host) {
   }
 }
 
+function cc4HairFixture(t) {
+  // Keep the embedded preset's actual dynamics, direction and ambient tuning.
+  // Only its model-specific morph names are supplied by this small test rig.
+  const { morphTargets, ...hairConfig } = structuredClone(getPreset('cc4').hairPhysics);
+  return trackingHairFixture(t, { hairConfig });
+}
+
+function fastHairTurn(f, destination, duration, native = false) {
+  if (!native) {
+    return f.host.playSnippet('cc4-fast-yaw', {
+      901: [{ time: 0, intensity: 0, inherit: true }, { time: duration, intensity: destination }],
+    }, { blendMode: 'additive', loopMode: 'once', finalPose: 'hold', fadeInSec: 0, fadeOutSec: 0 });
+  }
+  const end = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), destination * Math.PI / 6);
+  const clip = new AnimationClip('cc4-fast-yaw', duration, [new QuaternionKeyframeTrack(
+    'Head.quaternion', [0, duration], [...f.head.quaternion.toArray(), ...end.toArray()],
+  )]);
+  f.host.registerAnimationClips([clip]);
+  return f.host.playAnimation(clip.name, { loopMode: 'once', finalPose: 'hold', fadeInSec: 0, fadeOutSec: 0 });
+}
+
+test('embedded CC4 tuning keeps fast AU and native turn/return output continuous at irregular cadence', t => {
+  const saved = cc4HairFixture(t), native = cc4HairFixture(t);
+  const ids = [saved, native].map(responseId), cadenceTicks = [1, 3, 2, 4];
+  const scale = getPreset('cc4').hairPhysics.responseScale;
+  // Rust caps spring velocity at 10; the C1 direction mapping has maximum
+  // slope 4/3, and the concrete output knee never increases that slope.
+  const maximumMorphSpeed = 10 * scale * 4 / 3;
+  let previous = hairValues(saved), largest = 0;
+  for (const destination of [0.9, 0, 0.9, 0, 0.7, 0]) {
+    fastHairTurn(saved, destination, 0.1); fastHairTurn(native, destination, 0.1, true);
+    let ticks = 0, frame = 0;
+    while (ticks < 30) {
+      const step = Math.min(cadenceTicks[frame++ % cadenceTicks.length], 30 - ticks), dt = step / 120;
+      ticks += step;
+      for (const f of [saved, native]) {
+        renderHostFrame(f.host, dt);
+        // Observe the newly staged response through its next native sample;
+        // this zero-delta sample does not advance the Rust simulation.
+        renderHostFrame(f.host, 0);
+      }
+      rotationNear(native.head.quaternion, saved.head.quaternion, 'both admissions produce the same actual head trajectory');
+      const current = hairValues(saved);
+      sameHair(hairValues(native), current, 'hair responds to actual mixed pose rather than the admission API');
+      current.forEach((value, index) => {
+        assert.ok(Number.isFinite(value) && value >= 0 && value <= 2, 'native CC4 response remains finite and bounded');
+        assert.ok(Math.abs(value - previous[index]) <= maximumMorphSpeed * dt + 2e-5,
+          'morph changes respect the continuous spring and mapping slope bound');
+      });
+      largest = Math.max(largest, ...current); previous = current;
+      [saved, native].forEach((f, index) => assert.equal(responseId(f), ids[index], 'retargeting never restarts the response action'));
+    }
+  }
+  assert.ok(largest > 0.05, 'the real preset exercises an observable response');
+  noAutomaticHairClips(saved.host); noAutomaticHairClips(native.host);
+
+  const strong = cc4HairFixture(t), strongId = responseId(strong), values = [];
+  strong.host.playHairImpulse(4, 0);
+  for (let frame = 0; frame < 60; frame++) {
+    renderHostFrame(strong.host, 1 / 120); renderHostFrame(strong.host, 0);
+    values.push(strong.amount('SwayLeft'));
+    assert.equal(responseId(strong), strongId);
+  }
+  assert.ok(values.some(value => value > 1.5), 'moderate finite input reaches the soft output knee with actual CC4 gains');
+  assert.ok(values.every(value => Number.isFinite(value) && value >= 0 && value < 2),
+    'this finite input approaches the limit without clipping onto an exact 2 plateau');
+  assert.ok(new Set(values.filter(value => value > 1.5)).size > 5, 'output keeps changing above the knee');
+});
+
+test('CC4 response agrees at matched times across 30, 60, 120 Hz and irregular renderer cadence', t => {
+  const cadences = [[4], [2], [1], [1, 3, 2, 4]];
+  const fixtures = cadences.map(() => cc4HairFixture(t)), ids = fixtures.map(responseId);
+  let largest = 0;
+  for (let quarter = 0; quarter < 12; quarter++) {
+    if (quarter % 2 === 0) fixtures.forEach(f => fastHairTurn(f, quarter % 4 === 0 ? 0.9 : 0, 0.25));
+    fixtures.forEach((f, index) => {
+      let ticks = 0, frame = 0;
+      while (ticks < 30) {
+        const step = Math.min(cadences[index][frame++ % cadences[index].length], 30 - ticks);
+        renderHostFrame(f.host, step / 120); ticks += step;
+      }
+      renderHostFrame(f.host, 0);
+      assert.equal(responseId(f), ids[index]);
+    });
+    const reference = hairValues(fixtures[2]);
+    largest = Math.max(largest, ...reference);
+    fixtures.forEach(f => hairValues(f).forEach((value, index) => {
+      // Common command/turn boundaries and observations use 1/120-second
+      // ticks. Allow 0.25% of the output range for native Float32 samples and
+      // implicit integration partitions, not a whole-frame phase offset.
+      assert.ok(Math.abs(value - reference[index]) < 0.005, 'matched-time response is independent of renderer cadence');
+    }));
+  }
+  assert.ok(largest > 0.05, 'cadence comparison includes moving and settling hair');
+});
+
+test('tiny opposite-direction responses approach neutral with zero slope', t => {
+  const options = { hairConfig: { idleSwayAmount: 0, windStrength: 0, gravity: 0,
+    stiffness: 0, damping: 0, inertia: 0, responseScale: 1 } };
+  const full = trackingHairFixture(t, options), half = trackingHairFixture(t, options), opposite = trackingHairFixture(t, options);
+  full.host.playHairImpulse(0.01, 0); half.host.playHairImpulse(0.005, 0); opposite.host.playHairImpulse(-0.01, 0);
+  for (const f of [full, half, opposite]) { advanceHair(f, 6, 1 / 120); renderHostFrame(f.host, 0); }
+  const amount = full.amount('SwayLeft'), smaller = half.amount('SwayLeft');
+  assert.ok(amount > 0 && amount < 0.00002, 'the fixture stays inside the documented 0.04 neutral transition band');
+  assert.ok(smaller > amount * 0.2 && smaller < amount * 0.3,
+    'halving tiny displacement gives approximately quarter output, rather than the old linear cusp');
+  assert.ok(Math.abs(opposite.amount('SwayRight') - amount) < amount * 1e-4, 'directional neutral shaping is symmetric');
+  assert.equal(full.amount('SwayRight'), 0); assert.equal(opposite.amount('SwayLeft'), 0);
+});
+
 test('continuous hair stages native output for the next sample and explicit impulses preserve one owner', t => {
   const options = { hairConfig: { idleSwayAmount: 0, windStrength: 0, gravity: 0 } };
   const f = trackingHairFixture(t, options), based = trackingHairFixture(t, { ...options, hairInitial: 0.2 });
