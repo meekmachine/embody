@@ -59,6 +59,77 @@ switch during loading/preparation, and disposing while a renderer operation is
 pending. CI owns execution of the host lifecycle, morph-layout and scene-setting
 regressions; these checks are not evidence of completed browser acceptance.
 
+## Scenery layouts and background ownership
+
+`createSceneSceneryRenderer({ scene, rendering, loadAsset, onError })` attaches
+scenery to an existing scene. `loadAsset(assetId, signal)` returns
+`{ bytes: ArrayBuffer, contentType: string }` through the application's authorized
+asset path. Storage, catalog identities, persisted layouts and selection precedence
+remain application concerns. Polymer may reexport this Three adapter; applications
+do not need direct GLTF loaders, texture loaders or a second render loop.
+
+`update(layout)` accepts `SceneSceneryLayout | null`. A layout contains `skybox`
+and `instances`. Each instance has a unique `instanceId`, an `assetId` and finite
+world `position: { x, y, z }` in the scene's native units (Y up in default scenes).
+A placement wrapper preserves the GLB's authored transforms. Two instances of one
+asset remain independent. Editing a retained placement's position does not reload
+it. Changing its asset or removing it cancels its download/parse completion and
+retires only that placement. Models must be self-contained GLB 2.0 with content
+type `model/gltf-binary`; parsing refuses external texture/geometry URLs.
+Embedded animation clips are not played automatically.
+
+The optional background contains `kind: 'skybox' | 'backdrop' | 'color'`,
+`assetId: string | null`, six-digit `color: '#rrggbb'`, finite nonnegative
+`intensity`, and finite `rotation` in Y-axis degrees. Skybox images use
+equirectangular mapping; backdrops use screen-space mapping. PNG, JPEG and WebP
+images load through the same asset callback. A missing image asset creates a
+gradient using the saved color. A solid color requires `assetId: null`.
+All layout fields validate and copy before any selection changes. Runtime load
+errors reach `onError`; a failed image replacement keeps the previous committed
+background, and the same update can retry it. Superseded work never attaches.
+
+Each scene permits one live scenery controller. Default scene constructors and
+`setSceneSettings` keep the character's inherited background separate from the
+scenery override. Character replacement can update that base under an active
+skybox; clearing scenery restores the latest base, including its intensity and
+rotation. Applications must not mutate `scene.background` while scenery owns it.
+Scenery leaves the character, camera, native render loop, lighting/environment
+and unrelated scene objects intact.
+
+Pass the existing scene's `rendering` controller so model attachment, background
+swaps and resource retirement use `releaseSceneResources` to drain compilation,
+captures and native frames. Omit it only when the external scene owner guarantees
+there is no borrowed asynchronous rendering work. `dispose()` cancels loads,
+releases logical background ownership immediately and returns the same promise
+until pending noninterruptible parses/decodes and resource cleanup settle. A new
+controller may acquire the scene while that cleanup drains; the retired owner
+cannot overwrite the new background. Await disposal before releasing externally
+owned scene resources. Disposing an Embody-owned default scene also cancels its
+scenery owner. An authorized loader must honor cancellation or eventually settle.
+
+```ts
+import { createSceneSceneryRenderer } from '@lovelace_lol/embody/three';
+
+const scenery = createSceneSceneryRenderer({
+  scene: host.scene,
+  rendering: host.rendering,
+  loadAsset: loadAuthorizedSceneryBytes,
+  onError: showSceneryError,
+});
+scenery.update({
+  skybox: { kind: 'skybox', assetId: 'garden-sky', color: '#668cae', intensity: 1, rotation: 90 },
+  instances: [{ instanceId: 'tree-left', assetId: 'tree', position: { x: -2, y: 0, z: 4 } }],
+});
+// Later: await scenery.dispose(), then release an externally owned scene.
+```
+
+CI regression source covers invalid/duplicate placements, independent instances,
+late loader/parse/decode results, latest-base restoration, overlapping controller
+cleanup and renderer-drained disposal. These adapter cases do not establish
+browser acceptance or saved selection behavior in the application.
+
+## Renderer selection
+
 The Three adapter owns renderer acquisition, switching, lighting/environment,
 canvas binding and backend recovery. Hosts persist settings and display the
 controller snapshot. Character loading and animation scheduling stay with their

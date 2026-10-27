@@ -78,6 +78,17 @@ construction. Annotation adapters capture DOM input, observe native geometry,
 apply Rust camera/marker frames, render labels and release native resources.
 Camera integration, region selection and marker state belong to Rust.
 
+`createSceneSceneryRenderer` from `@lovelace_lol/embody/three` applies resolved
+scenery layouts to the existing scene: self-contained GLB placements with independent
+world XYZ positions, equirectangular skyboxes, image backdrops and solid colors.
+Applications supply an abortable authorized byte loader and retain saved layouts,
+asset catalogs and Persona/Character/Interaction selection policy. The adapter
+owns model/texture loading, stale-result cancellation and renderer-drained cleanup;
+it preserves the character, lights and existing render loop. Character scene
+settings remain the inherited background beneath scenery, so clearing an override
+restores the latest character configuration. See the
+[scenery contract](docs/SCENE_READINESS.md#scenery-layouts-and-background-ownership).
+
 `ThreeFrameApplier.applyMeshMaterialConfigs(model, profile.meshes)` replays named
 mesh visibility and material overrides when a host binds or replaces a profile.
 It applies explicit `visible: false` and `visible: true` even without a material
