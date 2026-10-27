@@ -244,6 +244,42 @@ test('the synchronous API still immediately returns an attached, unprepared WebG
   assertReleased(host, callbacks);
 });
 
+for (const synchronous of [false, true]) {
+  test(`${synchronous ? 'synchronous' : 'async'} scene applies each character configuration without carrying previous settings`, async (t) => {
+    const callbacks = resizeEvents(t), host = container();
+    const handle = synchronous ? createDefaultCharacterScene(host, { type: 'void' })
+      : await createWebGLSceneAsync(host, { type: 'void' });
+    handle.setSceneSettings({ type: 'showcase', cameraFov: 60, shadows: false, shadowPlane: false,
+      background: '#123456', lighting: { exposure: 1.7 } });
+    assert.equal(handle.scene.background.getHex(), 0x123456);
+    assert.equal(handle.camera.fov, 60);
+    assert.equal(handle.lighting.getSettings().exposure, 1.7);
+    assert.equal(handle.renderer.shadowMap.enabled, false);
+    assert.equal(handle.sceneType, 'showcase');
+    handle.setSceneSettings({});
+    assert.equal(handle.scene.background, null);
+    assert.equal(handle.camera.fov, 45);
+    assert.equal(handle.lighting.getSettings().exposure, 1.08);
+    assert.equal(handle.renderer.shadowMap.enabled, true);
+    assert.equal(handle.shadowPlane.visible, true, 'a later character can acquire the initially absent shadow plane');
+    assert.equal(handle.sceneType, 'studio');
+    await handle.dispose();
+    assertReleased(host, callbacks);
+  });
+}
+
+test('character shadow settings survive a renderer backend replacement', async (t) => {
+  webgpuAvailable(t);
+  const host = container();
+  const runtime = createDefaultCharacterSceneRuntime(host, { renderer: 'webgl' });
+  await runtime.ready;
+  runtime.setSceneSettings({ shadows: false, lighting: { exposure: 1.4 } });
+  await runtime.rendering.setSettings({ preference: 'webgpu' });
+  assert.equal(runtime.renderer.shadowMap.enabled, false);
+  assert.equal(runtime.renderer.toneMappingExposure, 1.4);
+  await runtime.dispose();
+});
+
 function webgpuAvailable(t, gpu = {}) {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { gpu } });
