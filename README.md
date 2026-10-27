@@ -632,3 +632,15 @@ values/curves, using their original profile mappings. `LEGACY_BODY_CONTROL_AUS`
 is a deprecated reader-only historical identity snapshot for old CC4 records;
 it is never consulted for current controls, actuation or profile compilation.
 Unknown legacy names must be reported rather than silently omitted.
+
+### Character-derived studio background
+
+The Three `createCharacterHost` paints its container with soft gradients sampled
+from the selected model's material and texture colors. The studio uses the
+original visible ink strengths (24/12%, 22/10%, 18%) over a gunmetal base.
+Embody owns palette extraction and updates after successful character replacement;
+late extraction cannot repaint a newer selection or a disposed host. Disposal
+restores the container's original inline background. Explicit saved backgrounds,
+including `null` transparency, non-studio scene types and external scenes retain
+their authored appearance. Polymer forwards the host; applications do not sample
+textures or construct a second scene background.
