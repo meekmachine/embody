@@ -29,7 +29,7 @@ export const resolveMorphMeshSelections = (
   categories: string[], availableNames: string[],
 ): Record<string, Types.MorphMeshSelection> => request('profile.resolveMorphMeshSelections', { profile, categories, availableNames });
 export const getHumanoidSpecification = (): Types.HumanoidSpecification => request('humanoid.getSpecification');
-export const setAUMorphTargets = (profile: Types.Profile, auId: number, side: 'left' | 'right' | 'center', targets: Types.MorphTargetRef[]): Types.Profile => request('profile.setAUMorphTargets', { profile, auId, side, targets });
+export const setAUMorphTargets = (profile: Types.ProfileInput, auId: number, side: 'left' | 'right' | 'center', targets: Types.MorphTargetRef[]): Partial<Types.Profile> & Pick<Types.Profile, 'auToMorphs'> => request('profile.setAUMorphTargets', { profile, auId, side, targets });
 export const setHumanoidRoleBinding = (profile: Types.ProfileInput, role: Types.VRMHumanoidRole, boneName: string | null): Partial<Types.Profile> => request('profile.setHumanoidRoleBinding', { profile, role, boneName });
 export const resolveHumanoidCharacterization = (profile: Partial<Types.Profile>): Types.HumanoidCharacterizationResolution => request('profile.resolveHumanoidCharacterization', { profile });
 
@@ -38,19 +38,19 @@ export const isMixedAU = (profile: Partial<Types.Profile>, auId: number): boolea
 export const resolveVisemeProfile = (profile: Partial<Types.Profile>): Types.ResolvedVisemeProfile => request('profile.resolveVisemes', { profile });
 
 export const isMaxDegreesOnlyAxisBindingUpdate = (update: Types.BoneAxisBindingUpdate): boolean => request('bone.isMaxDegreesOnlyUpdate', { update });
-export const findNodeKeyForBone = (boneName: string, profile: Types.Profile | null): string | null => profile ? request('bone.findNodeKey', { profile, boneName }) : null;
+export const findNodeKeyForBone = (boneName: string, profile: Partial<Types.Profile> | null): string | null => profile ? request('bone.findNodeKey', { profile, boneName }) : null;
 export const ensureBoneNodeKey = (profile: Types.Profile, boneName: string): { nodeKey: string; boneNodes: Record<string, string> } => request('bone.ensureNodeKey', { profile, boneName });
-export const ensureBilateralBoneNodeKeys = (profile: Types.Profile, leftBoneName: string, rightBoneName: string): Types.Profile => request('bone.ensureBilateralNodeKeys', { profile, leftBoneName, rightBoneName });
+export const ensureBilateralBoneNodeKeys = (profile: Types.ProfileInput, leftBoneName: string, rightBoneName: string): Partial<Types.Profile> => request('bone.ensureBilateralNodeKeys', { profile, leftBoneName, rightBoneName });
 export const resolveBoneNameForNodeKey = (profile: Types.Profile, nodeKey: string): string | null => request('bone.resolveBoneName', { profile, nodeKey });
 export const stripConfiguredBoneAffixes = (profile: Pick<Types.Profile, 'bonePrefix' | 'boneSuffix'> | null | undefined, boneName: string): string => request('bone.stripAffixes', { profile: profile ?? {}, boneName });
 export const inferChiralBoneNamePair = (boneNames: string[], selectedBoneName: string): Types.ChiralBoneNamePair | null => request('bone.inferChiralPair', { boneNames, selectedBoneName });
 export const formatAxisLabel = (axis: Types.BoneAxisKey): string => request('bone.formatAxisLabel', { axis });
 export const formatAxisDirectionLabel = (axis: Types.BoneAxisKey, direction: Types.BoneAxisDirection): string => request('bone.formatDirectionLabel', { axis, direction });
 export const getAxisFromChannel = (channel?: string): Types.BoneAxisKey | null => channel ? request('bone.getAxisFromChannel', { channel }) : null;
-export const getBoneAxisBindingState = (profile: Types.Profile, boneName: string, axis: Types.BoneAxisKey): Types.BoneAxisBindingState | null => request('bone.getAxisState', { profile, boneName, axis });
+export const getBoneAxisBindingState = (profile: Partial<Types.Profile>, boneName: string, axis: Types.BoneAxisKey): Types.BoneAxisBindingState | null => request('bone.getAxisState', { profile, boneName, axis });
 export const resolveBoneAxisChannel = (profile: Types.Profile, boneName: string, axis: Types.BoneAxisKey): Types.RotationChannel => request('bone.resolveAxisChannel', { profile, boneName, axis });
-export const getBilateralAxisBindingState = (profile: Types.Profile, boneName: string, axis: Types.BoneAxisKey): Types.BilateralAxisBindingState | null => request('bone.getBilateralAxisState', { profile, boneName, axis });
-export const getAUBoneBindingState = (profile: Types.Profile, auId: number): Types.AUBoneBindingState => request('bone.getAUBindingState', { profile, auId });
+export const getBilateralAxisBindingState = (profile: Partial<Types.Profile>, boneName: string, axis: Types.BoneAxisKey): Types.BilateralAxisBindingState | null => request('bone.getBilateralAxisState', { profile, boneName, axis });
+export const getAUBoneBindingState = (profile: Partial<Types.Profile>, auId: number): Types.AUBoneBindingState => request('bone.getAUBindingState', { profile, auId });
 /** Resolve a panel's bone links without repeatedly serializing its full character. */
 export const getAUBoneBindingStates = (
   profile: Partial<Pick<Types.Profile, 'auToBones' | 'boneNodes' | 'bonePrefix' | 'boneSuffix' | 'suffixPattern' | 'compositeRotations' | 'continuumPairs' | 'humanoidCharacterization'>>,
@@ -66,12 +66,12 @@ export const getAUBoneBindingStates = (
 });
 export const inferEyeControlScope = (profile: Pick<Types.Profile, 'auToBones'>, binding: Pick<Types.BoneAxisBindingState, 'nodeKey' | 'negativeAuId' | 'positiveAuId'>): Types.BoneControlScope | null => request('bone.inferEyeScope', { profile, binding });
 export const inferEyeControlFamily = (binding: Pick<Types.BoneAxisBindingState, 'nodeKey' | 'axis'>): Types.BoneControlFamily | null => request('bone.inferEyeFamily', { binding });
-export const applyBoneAxisBindingUpdate = (profile: Types.Profile, boneName: string, axis: Types.BoneAxisKey, update: Types.BoneAxisBindingUpdate): Types.Profile => request('bone.applyAxisUpdate', { profile, boneName, axis, update });
-export const applyBilateralAxisBindingUpdate = (profile: Types.Profile, boneName: string, axis: Types.BoneAxisKey, scope: Types.BilateralBoneAxisScope, update: Types.BoneAxisBindingUpdate): Types.Profile => request('bone.applyBilateralAxisUpdate', { profile, boneName, axis, scope, update });
+export const applyBoneAxisBindingUpdate = (profile: Types.ProfileInput, boneName: string, axis: Types.BoneAxisKey, update: Types.BoneAxisBindingUpdate): Partial<Types.Profile> => request('bone.applyAxisUpdate', { profile, boneName, axis, update });
+export const applyBilateralAxisBindingUpdate = (profile: Types.ProfileInput, boneName: string, axis: Types.BoneAxisKey, scope: Types.BilateralBoneAxisScope, update: Types.BoneAxisBindingUpdate): Partial<Types.Profile> => request('bone.applyBilateralAxisUpdate', { profile, boneName, axis, scope, update });
 export const applyAUBoneBindingUpdate = (profile: Types.Profile, auId: number, update: { boneName: string | null; axis: Types.BoneAxisKey; direction: Types.BoneAxisDirection; maxDegrees: number | null }): Types.Profile => request('bone.applyAUBindingUpdate', { profile, auId, update });
-export const createBoneAxisAu = (profile: Types.Profile, boneName: string, axis: Types.BoneAxisKey, direction: Types.BoneAxisDirection, options: { name?: string } = {}): Types.CreatedBoneAxisAu => request('bone.createAxisAU', { profile, boneName, axis, direction, name: options.name });
-export const createBilateralBoneAxisAu = (profile: Types.Profile, boneName: string, axis: Types.BoneAxisKey, scope: Types.BilateralBoneAxisScope, direction: Types.BoneAxisDirection, options: { name?: string } = {}): Types.CreatedBoneAxisAu => request('bone.createBilateralAxisAU', { profile, boneName, axis, scope, direction, name: options.name });
-export const buildBoneAuOptions = (profile: Types.Profile): Array<{ value: string; label: string; detail?: string }> => request('bone.buildAUOptions', { profile });
+export const createBoneAxisAu = (profile: Types.ProfileInput, boneName: string, axis: Types.BoneAxisKey, direction: Types.BoneAxisDirection, options: { name?: string } = {}): Types.CreatedBoneAxisAu => request('bone.createAxisAU', { profile, boneName, axis, direction, name: options.name });
+export const createBilateralBoneAxisAu = (profile: Types.ProfileInput, boneName: string, axis: Types.BoneAxisKey, scope: Types.BilateralBoneAxisScope, direction: Types.BoneAxisDirection, options: { name?: string } = {}): Types.CreatedBoneAxisAu => request('bone.createBilateralAxisAU', { profile, boneName, axis, scope, direction, name: options.name });
+export const buildBoneAuOptions = (profile: Partial<Types.Profile>): Array<{ value: string; label: string; detail?: string }> => request('bone.buildAUOptions', { profile });
 export const isJointControlAuInfo = (info?: Pick<Types.AUInfo, 'facePart'> | null): boolean => request('bone.isJointControlInfo', { info });
 export const classifyAuAsJointControl = (profile: Types.Profile, auId: number, options: { boneName?: string | null; nodeKey?: string | null } = {}): Types.Profile => request('bone.classifyJointControl', { profile, auId, boneName: options.boneName, nodeKey: options.nodeKey });
 export const resolveContinuumDisplayLabel = (profile: Partial<Pick<Types.Profile, 'continuumPairs' | 'continuumLabels' | 'auInfo' | 'boneNodes' | 'bonePrefix' | 'boneSuffix'>>, negativeAuId: number, positiveAuId: number): string => request<string | null>('bone.resolveContinuumLabel', { profile, negativeAuId, positiveAuId }) ?? `AU ${negativeAuId} <-> AU ${positiveAuId}`;

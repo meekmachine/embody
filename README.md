@@ -72,6 +72,9 @@ empty, and `getHairPhysicsConfig()` may be empty before the first model bind.
 `ProfileInput` accepts sparse mappings and app metadata without adding arbitrary
 keys to the output `Profile` declaration. Humanoid queries accept sparse profiles;
 `setHumanoidRoleBinding` returns a sparse profile because Rust omits empty tables.
+The bone editor queries and mutation results follow the same sparse data contract.
+`setAUMorphTargets` preserves its input JSON and guarantees the edited `auToMorphs`
+map. An omitted serialized field is not a request to delete an authored override.
 These type declarations add no playback state, lifecycle or animation clock.
 
 An AU animation drives its profile's mapped bones and morphs through the same

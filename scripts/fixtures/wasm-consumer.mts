@@ -16,6 +16,17 @@ import type { WebGPURenderer } from 'three/webgpu';
 import {
   getAUDescriptors as threeAUDescriptors,
   getAUBoneBindingStates,
+  getAUBoneBindingState,
+  getBoneAxisBindingState,
+  getBilateralAxisBindingState,
+  buildBoneAuOptions,
+  findNodeKeyForBone,
+  ensureBilateralBoneNodeKeys,
+  applyBoneAxisBindingUpdate,
+  applyBilateralAxisBindingUpdate,
+  createBoneAxisAu,
+  createBilateralBoneAxisAu,
+  setAUMorphTargets,
   hasLeftRightMorphs,
   isMixedAU,
   resolveContinuumDisplayLabel,
@@ -117,6 +128,21 @@ const sparseValidation = validateHumanoidCharacterization(new Object3D(), accept
 const roleEditedProfile: Partial<Profile> = setHumanoidRoleBinding({}, 'head', 'Head');
 // @ts-expect-error Rust omits empty tables from a role mutation's result.
 const completeRoleProfile: Profile = setHumanoidRoleBinding({}, 'head', null);
+// Bone/morph editors can chain native sparse reads through the owning helpers.
+const nodeKey: string | null = findNodeKeyForBone('Head', acceptedProfile);
+const boneAUOptions: Array<{ value: string; label: string; detail?: string }> = buildBoneAuOptions(acceptedProfile);
+const auBinding = getAUBoneBindingState(acceptedProfile, 51);
+const axisBinding = getBoneAxisBindingState(acceptedProfile, 'Head', 'yaw');
+const bilateralBinding = getBilateralAxisBindingState(acceptedProfile, 'LeftEye', 'yaw');
+const pairedNodes: Partial<Profile> = ensureBilateralBoneNodeKeys(acceptedProfile, 'LeftEye', 'RightEye');
+const axisCreated = createBoneAxisAu(acceptedProfile, 'Head', 'yaw', 'positive');
+const bilateralCreated = createBilateralBoneAxisAu(pairedNodes, 'LeftEye', 'yaw', 'shared', 'positive');
+const axisUpdated: Partial<Profile> = applyBoneAxisBindingUpdate(axisCreated.profile, 'Head', 'yaw', { positiveAuId: axisCreated.auId });
+const bilateralUpdated: Partial<Profile> = applyBilateralAxisBindingUpdate(bilateralCreated.profile, 'LeftEye', 'yaw', 'shared', { positiveAuId: bilateralCreated.auId });
+const morphEdited = setAUMorphTargets(acceptedProfile, 12, 'center', ['Smile']);
+const editedMorphs: Array<string | number> = morphEdited.auToMorphs[12].center;
+// @ts-expect-error Bone authoring results do not invent absent mapping tables.
+const completeAxisProfile: Profile = axisCreated.profile;
 const meshEntries: MeshInfo[] = character.getMeshList();
 const unassignedCategory: MeshCategory = 'other';
 const appearance: HairAppearanceState = character.getHairAppearance();
@@ -151,7 +177,8 @@ character.missingCharacterOperation();
 // @ts-expect-error Factories retain that same native member contract.
 unboundCharacter.missingCharacterOperation();
 void [initializedCharacter, boundCharacter, namedProfileInput, mappedHead, bilateral, mixed, continuumLabel,
-  sparseCharacterization, sparseValidation, roleEditedProfile, meshEntries, unassignedCategory, stiffness, nativeCompletion];
+  sparseCharacterization, sparseValidation, roleEditedProfile, nodeKey, boneAUOptions, auBinding, axisBinding,
+  bilateralBinding, axisUpdated, bilateralUpdated, editedMorphs, meshEntries, unassignedCategory, stiffness, nativeCompletion];
 const rootAUs: RootAUDescriptor[] = rootAUDescriptors({});
 const wasmAUs: WasmAUDescriptor[] = wasmAUDescriptors({}, { bones: [] });
 const threeAUs: ThreeAUDescriptor[] = threeAUDescriptors({});

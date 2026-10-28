@@ -372,7 +372,7 @@ export interface BilateralAxisDirectionScaleState { left: BoneAxisDirectionScale
 export interface BilateralAxisScopeBindingState { scope: BilateralBoneAxisScope; label: string; negativeAuId: number | null; positiveAuId: number | null; negativeMaxDegrees: number | null; positiveMaxDegrees: number | null; negativeScale: BilateralAxisDirectionScaleState; positiveScale: BilateralAxisDirectionScaleState; }
 export interface BilateralAxisBindingState { axis: BoneAxisKey; familyLabel: string; leftBoneName: string; leftNodeKey: string; rightBoneName: string; rightNodeKey: string; selectedSide: 'left' | 'right'; shared: BilateralAxisScopeBindingState; left: BilateralAxisScopeBindingState; right: BilateralAxisScopeBindingState; }
 export interface ChiralBoneNamePair { leftBoneName: string; rightBoneName: string; selectedSide: 'left' | 'right'; familyLabel: string; }
-export interface CreatedBoneAxisAu { auId: number; profile: Profile; }
+export interface CreatedBoneAxisAu { auId: number; profile: Partial<Profile>; }
 
 export interface BoneInfo { name: string; parent: string | null; children: string[]; worldPosition: { x: number; y: number; z: number }; depth: number; }
 export interface TrackInfo { name: string; targetName: string; property: string; type: string; keyframeCount: number; valueRange?: { min: number[]; max: number[] }; }
