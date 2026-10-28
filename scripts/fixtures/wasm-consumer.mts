@@ -24,6 +24,8 @@ import {
   createDefaultCharacterScene,
   createDefaultCharacterSceneAsync,
   createCharacterHost,
+  createRustEmbodyHost,
+  createRustEmbodyHostUnbound,
   type CharacterHost,
   type CharacterHostOptions,
   type DefaultCharacterScene,
@@ -34,6 +36,16 @@ import {
   type CharacterSceneRendererPreference,
   type ThreeModelReferencePose,
   Embody,
+  type Profile,
+  type MeshInfo,
+  type MeshCategory,
+  type HairAppearanceState,
+  type HairPhysicsRuntimeConfig,
+  type ThreeResolvedMaterialConfig,
+  type AnimationClipInfo,
+  type BakedClipChannelInfo,
+  type CharacterPlaybackHandle,
+  type CharacterPlaybackEvent,
   ThreeNativePlaybackConnector,
   ThreeAnnotations,
   ThreeAnnotationController,
@@ -75,6 +87,46 @@ controller.focusRegion(123);
 
 const core: EmbodyCore = await initEmbodyCore();
 const character = new Embody({ profileMode: 'profile', profile: {} });
+// Native constructors, factories and the scene host expose the same class.
+const initializedCharacter: Embody = await Embody.create({ profileMode: 'profile', profile: {} });
+const unboundCharacter: Embody = createRustEmbodyHostUnbound({ profile: { appMetadata: { owner: 'consumer' } } });
+const boundCharacter: Embody = await createRustEmbodyHost(new Object3D(), { profileMode: 'profile', profile: {} });
+const acceptedProfile: Partial<Profile> = character.getProfile();
+character.setProfile({ ...acceptedProfile, appMetadata: { owner: 'consumer' } });
+const meshEntries: MeshInfo[] = character.getMeshList();
+const unassignedCategory: MeshCategory = 'other';
+const appearance: HairAppearanceState = character.getHairAppearance();
+const hairConfig: Partial<HairPhysicsRuntimeConfig> = character.getHairPhysicsConfig();
+const stiffness: number | undefined = hairConfig.stiffness;
+character.setHairPhysicsConfig({ stiffness: 7.5, morphTargets: { swayLeft: { key: 'HairLeft', axis: 'yaw' } } });
+character.setHairPhysicsConfig({ morphTargets: { swayLeft: 'HairLeft', headUp: { HairUp: 1 } } });
+character.setHairColor({ baseColor: appearance.hairColor.baseColor });
+const material: ThreeResolvedMaterialConfig | null = character.getMeshMaterialConfig('Hair');
+character.setMeshMaterialConfig('Hair', { opacity: material?.opacity ?? 1, blending: 'Normal' });
+const clipCatalog: AnimationClipInfo[] = character.getAnimationClips();
+const clipChannels: BakedClipChannelInfo[] = clipCatalog[0].channels;
+const nativeHandle: CharacterPlaybackHandle = character.playSnippet('smile', { 12: [{ time: 0, intensity: 0 }, { time: 1, intensity: 0.5 }] });
+const nativeCompletion: Promise<CharacterPlaybackEvent> = nativeHandle.pause().resume().setIntensity(0.5).seek(0.2).finished;
+character.pauseAllAnimations();
+character.resumeAllAnimations();
+character.updateClipParams('smile', { speed: 0.5 });
+// @ts-expect-error Sparse resolved profiles do not acquire missing mappings.
+const completeProfile: Profile = character.getProfile();
+// @ts-expect-error An unbound character's hair config is empty until binding.
+const completeHairConfig: HairPhysicsRuntimeConfig = unboundCharacter.getHairPhysicsConfig();
+// @ts-expect-error Known profile fields retain their canonical shape alongside extensions.
+character.setProfile({ boneNodes: 'Head' });
+// @ts-expect-error Hair tuning uses numeric values.
+character.setHairPhysicsConfig({ stiffness: 'soft' });
+// @ts-expect-error Material results retain numeric opacity.
+const wrongOpacity: string = material!.opacity;
+// @ts-expect-error Clip catalog entries retain channel playability.
+const wrongPlayability: string = clipChannels[0].playable;
+// @ts-expect-error Native characters have no arbitrary operations.
+character.missingCharacterOperation();
+// @ts-expect-error Factories retain that same native member contract.
+unboundCharacter.missingCharacterOperation();
+void [initializedCharacter, boundCharacter, meshEntries, unassignedCategory, stiffness, nativeCompletion];
 const rootAUs: RootAUDescriptor[] = rootAUDescriptors({});
 const wasmAUs: WasmAUDescriptor[] = wasmAUDescriptors({}, { bones: [] });
 const threeAUs: ThreeAUDescriptor[] = threeAUDescriptors({});
@@ -222,8 +274,14 @@ const pendingHost: Promise<CharacterHost> = createCharacterHost({
   },
 });
 const loadedHost = await pendingHost;
+const canonicalHostEngine: Embody = loadedHost.engine;
+const hostEngineType: CharacterHost['engine'] = character;
+const hostProfile: Partial<Profile> = loadedHost.engine.getProfile();
+const hostClips: AnimationClipInfo[] = loadedHost.engine.getAnimationClips();
+// @ts-expect-error The host engine is the native API, not an arbitrary method bag.
+loadedHost.engine.missingCharacterOperation();
 const hostAnnotations: ThreeAnnotationController | null = loadedHost.cameraController;
-void [legacyPositiveAU, hostAnnotations];
+void [legacyPositiveAU, hostAnnotations, canonicalHostEngine, hostEngineType, hostProfile, hostClips];
 const sceneOptions: DefaultCharacterSceneAsyncOptions = {
   type: 'studio', renderer: 'webgpu', signal: new AbortController().signal, lighting: { envMapEnabled: true },
   onDeviceLost: (error: Error) => { console.error(error.message); },

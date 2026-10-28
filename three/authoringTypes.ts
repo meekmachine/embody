@@ -21,7 +21,7 @@ export interface MorphMeshSelection {
   resolvedNames: string[];
   unresolvedNames: string[];
 }
-export type MeshCategory = 'body' | 'eye' | 'eyeOcclusion' | 'tearLine' | 'teeth' | 'tongue' | 'hair' | 'eyebrow' | 'cornea' | 'eyelash';
+export type MeshCategory = 'body' | 'eye' | 'eyeOcclusion' | 'tearLine' | 'teeth' | 'tongue' | 'hair' | 'eyebrow' | 'cornea' | 'eyelash' | 'other';
 export type BlendingMode = 'Normal' | 'Additive' | 'Subtractive' | 'Multiply' | 'None';
 
 export interface MorphTargetsBySide {
@@ -133,6 +133,9 @@ export interface MeshMaterialSettings {
   blending?: BlendingMode;
 }
 
+/** Current values read from a native mesh and its first material. */
+export type ThreeResolvedMaterialConfig = Required<MeshMaterialSettings>;
+
 export interface MeshInfo {
   name?: string;
   visible?: boolean;
@@ -234,6 +237,8 @@ export interface HumanoidCharacterizationResolution {
 }
 
 export interface Profile {
+  /** App metadata and future profile extensions survive profile intake. */
+  [extension: string]: unknown;
   name?: string;
   animalType?: string;
   emoji?: string;
@@ -310,9 +315,40 @@ export type CharacterConfig = CharacterProfile & {
   regions: Region[];
 };
 
+export type AnimationSource = string;
+export type BakedClipChannel = 'face' | 'body' | 'scene' | 'custom';
+/** Rust's clip catalog describes which native channels can be played. */
+export interface BakedClipChannelInfo {
+  channel: BakedClipChannel;
+  trackCount: number;
+  playable: boolean;
+  blendMode?: 'replace' | 'additive';
+}
+export interface AnimationClipInfo {
+  name: string;
+  duration: number;
+  trackCount: number;
+  source: AnimationSource;
+  channels: BakedClipChannelInfo[];
+}
+
 export interface HairColorAppearance { name: string; baseColor: string; emissive: string; emissiveIntensity: number; }
 export interface HairAppearanceState { hairColor: HairColorAppearance; eyebrowColor: HairColorAppearance; showOutline: boolean; outlineColor: string; outlineOpacity: number; }
-export interface HairPhysicsRuntimeConfig { enabled: boolean; [key: string]: any; }
+export interface HairPhysicsRuntimeConfig extends Omit<HairPhysicsProfileConfig, 'direction' | 'morphTargets'> {
+  enabled: boolean;
+  direction?: { yawSign?: number; pitchSign?: number } | null;
+  /** Runtime normalization accepts authored records and returns names/weights. */
+  morphTargets?: {
+    swayLeft?: string | HairMorphTargetMapping | null;
+    swayRight?: string | HairMorphTargetMapping | null;
+    swayFront?: string | HairMorphTargetMapping | null;
+    fluffRight?: string | HairMorphTargetMapping | null;
+    fluffBottom?: string | HairMorphTargetMapping | null;
+    headUp?: Record<string, number | HairMorphTargetValueMapping | null> | null;
+    headDown?: Record<string, number | HairMorphTargetValueMapping | null> | null;
+  } | null;
+  [extension: string]: unknown;
+}
 export type HairPhysicsRuntimeConfigUpdate = Partial<HairPhysicsRuntimeConfig>;
 export interface TransitionHandle { promise: Promise<void>; pause(): void; resume(): void; cancel(): void; }
 
