@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DPthreeCameraController } from '../DPthreeCameraController';
+import type { ThreeAnnotationController } from '../ThreeAnnotationController';
 import type { MarkerStyle } from '../types';
 import {
   createMarkerLifecycleRevealOptions,
@@ -32,7 +32,7 @@ describe('createMarkerVisibilityLifecycle', () => {
   it('shows markers for the load window and auto-hides them when the timer expires', () => {
     const controller = new MockCameraController();
     const lifecycle = createMarkerVisibilityLifecycle(
-      () => controller as Pick<DPthreeCameraController, 'setMarkersVisible' | 'setMarkerStyle'>,
+      () => controller as Pick<ThreeAnnotationController, 'setMarkersVisible' | 'setMarkerStyle'>,
       1_000,
     );
 
@@ -51,7 +51,7 @@ describe('createMarkerVisibilityLifecycle', () => {
   it('uses the default auto-hide duration when no override is provided', () => {
     const controller = new MockCameraController();
     const lifecycle = createMarkerVisibilityLifecycle(
-      () => controller as Pick<DPthreeCameraController, 'setMarkersVisible' | 'setMarkerStyle'>,
+      () => controller as Pick<ThreeAnnotationController, 'setMarkersVisible' | 'setMarkerStyle'>,
     );
 
     lifecycle.showForCharacterLoad();
@@ -66,7 +66,7 @@ describe('createMarkerVisibilityLifecycle', () => {
   it('cancels the pending auto-hide when visibility is changed manually or a new load starts', () => {
     const controller = new MockCameraController();
     const lifecycle = createMarkerVisibilityLifecycle(
-      () => controller as Pick<DPthreeCameraController, 'setMarkersVisible' | 'setMarkerStyle'>,
+      () => controller as Pick<ThreeAnnotationController, 'setMarkersVisible' | 'setMarkerStyle'>,
       1_000,
     );
 
@@ -86,7 +86,7 @@ describe('createMarkerVisibilityLifecycle', () => {
   it('can delay the initial reveal before starting the auto-hide window', () => {
     const controller = new MockCameraController();
     const lifecycle = createMarkerVisibilityLifecycle(
-      () => controller as Pick<DPthreeCameraController, 'setMarkersVisible' | 'setMarkerStyle'>,
+      () => controller as Pick<ThreeAnnotationController, 'setMarkersVisible' | 'setMarkerStyle'>,
       1_000,
     );
 
@@ -110,7 +110,7 @@ describe('createMarkerVisibilityLifecycle', () => {
   it('cancels a pending delayed reveal when visibility is changed manually', () => {
     const controller = new MockCameraController();
     const lifecycle = createMarkerVisibilityLifecycle(
-      () => controller as Pick<DPthreeCameraController, 'setMarkersVisible' | 'setMarkerStyle'>,
+      () => controller as Pick<ThreeAnnotationController, 'setMarkersVisible' | 'setMarkerStyle'>,
       1_000,
     );
 
@@ -124,7 +124,7 @@ describe('createMarkerVisibilityLifecycle', () => {
   it('uses the shared auto-hide duration for character-load reveal options', () => {
     const controller = new MockCameraController();
     const lifecycle = createMarkerVisibilityLifecycle(
-      () => controller as Pick<DPthreeCameraController, 'setMarkersVisible' | 'setMarkerStyle'>,
+      () => controller as Pick<ThreeAnnotationController, 'setMarkersVisible' | 'setMarkerStyle'>,
     );
 
     lifecycle.showForCharacterLoad(createMarkerLifecycleRevealOptions({
@@ -149,7 +149,7 @@ describe('createMarkerVisibilityLifecycle', () => {
   it('keeps the intro reveal delay while preserving the shared auto-hide duration', () => {
     const controller = new MockCameraController();
     const lifecycle = createMarkerVisibilityLifecycle(
-      () => controller as Pick<DPthreeCameraController, 'setMarkersVisible' | 'setMarkerStyle'>,
+      () => controller as Pick<ThreeAnnotationController, 'setMarkersVisible' | 'setMarkerStyle'>,
     );
 
     lifecycle.showForCharacterLoad(createMarkerLifecycleRevealOptions({
