@@ -16,6 +16,9 @@ import type { WebGPURenderer } from 'three/webgpu';
 import {
   getAUDescriptors as threeAUDescriptors,
   getAUBoneBindingStates,
+  hasLeftRightMorphs,
+  isMixedAU,
+  resolveContinuumDisplayLabel,
   type AUBoneBindingState,
   type AUDescriptor as ThreeAUDescriptor,
   bindModelReferencePose,
@@ -93,6 +96,9 @@ const unboundCharacter: Embody = createRustEmbodyHostUnbound({ profile: { appMet
 const boundCharacter: Embody = await createRustEmbodyHost(new Object3D(), { profileMode: 'profile', profile: {} });
 const acceptedProfile: Partial<Profile> = character.getProfile();
 character.setProfile({ ...acceptedProfile, appMetadata: { owner: 'consumer' } });
+const bilateral: boolean = hasLeftRightMorphs(acceptedProfile, 12);
+const mixed: boolean = isMixedAU(acceptedProfile, 12);
+const continuumLabel: string = resolveContinuumDisplayLabel(acceptedProfile, 51, 52);
 const meshEntries: MeshInfo[] = character.getMeshList();
 const unassignedCategory: MeshCategory = 'other';
 const appearance: HairAppearanceState = character.getHairAppearance();
@@ -126,7 +132,7 @@ const wrongPlayability: string = clipChannels[0].playable;
 character.missingCharacterOperation();
 // @ts-expect-error Factories retain that same native member contract.
 unboundCharacter.missingCharacterOperation();
-void [initializedCharacter, boundCharacter, meshEntries, unassignedCategory, stiffness, nativeCompletion];
+void [initializedCharacter, boundCharacter, bilateral, mixed, continuumLabel, meshEntries, unassignedCategory, stiffness, nativeCompletion];
 const rootAUs: RootAUDescriptor[] = rootAUDescriptors({});
 const wasmAUs: WasmAUDescriptor[] = wasmAUDescriptors({}, { bones: [] });
 const threeAUs: ThreeAUDescriptor[] = threeAUDescriptors({});

@@ -33,8 +33,8 @@ export const setAUMorphTargets = (profile: Types.Profile, auId: number, side: 'l
 export const setHumanoidRoleBinding = (profile: Types.Profile, role: Types.VRMHumanoidRole, boneName: string | null): Types.Profile => request('profile.setHumanoidRoleBinding', { profile, role, boneName });
 export const resolveHumanoidCharacterization = (profile: Types.Profile): Types.HumanoidCharacterizationResolution => request('profile.resolveHumanoidCharacterization', { profile });
 
-export const hasLeftRightMorphs = (profile: Types.Profile, auId: number): boolean => request('profile.hasLeftRightMorphs', { profile, auId });
-export const isMixedAU = (profile: Types.Profile, auId: number): boolean => request('profile.isMixedAU', { profile, auId });
+export const hasLeftRightMorphs = (profile: Partial<Types.Profile>, auId: number): boolean => request('profile.hasLeftRightMorphs', { profile, auId });
+export const isMixedAU = (profile: Partial<Types.Profile>, auId: number): boolean => request('profile.isMixedAU', { profile, auId });
 export const resolveVisemeProfile = (profile: Partial<Types.Profile>): Types.ResolvedVisemeProfile => request('profile.resolveVisemes', { profile });
 
 export const isMaxDegreesOnlyAxisBindingUpdate = (update: Types.BoneAxisBindingUpdate): boolean => request('bone.isMaxDegreesOnlyUpdate', { update });
@@ -74,7 +74,7 @@ export const createBilateralBoneAxisAu = (profile: Types.Profile, boneName: stri
 export const buildBoneAuOptions = (profile: Types.Profile): Array<{ value: string; label: string; detail?: string }> => request('bone.buildAUOptions', { profile });
 export const isJointControlAuInfo = (info?: Pick<Types.AUInfo, 'facePart'> | null): boolean => request('bone.isJointControlInfo', { info });
 export const classifyAuAsJointControl = (profile: Types.Profile, auId: number, options: { boneName?: string | null; nodeKey?: string | null } = {}): Types.Profile => request('bone.classifyJointControl', { profile, auId, boneName: options.boneName, nodeKey: options.nodeKey });
-export const resolveContinuumDisplayLabel = (profile: Pick<Types.Profile, 'continuumPairs' | 'continuumLabels' | 'auInfo' | 'boneNodes' | 'bonePrefix' | 'boneSuffix'>, negativeAuId: number, positiveAuId: number): string => request<string | null>('bone.resolveContinuumLabel', { profile, negativeAuId, positiveAuId }) ?? `AU ${negativeAuId} <-> AU ${positiveAuId}`;
+export const resolveContinuumDisplayLabel = (profile: Partial<Pick<Types.Profile, 'continuumPairs' | 'continuumLabels' | 'auInfo' | 'boneNodes' | 'bonePrefix' | 'boneSuffix'>>, negativeAuId: number, positiveAuId: number): string => request<string | null>('bone.resolveContinuumLabel', { profile, negativeAuId, positiveAuId }) ?? `AU ${negativeAuId} <-> AU ${positiveAuId}`;
 
 function inspectModel(model: Object3D, meshes?: Mesh[], profile?: Types.Profile) {
   return new ThreeModelInspector().inspectModel(model, { meshes, profile });
