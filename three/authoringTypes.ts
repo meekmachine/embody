@@ -237,8 +237,6 @@ export interface HumanoidCharacterizationResolution {
 }
 
 export interface Profile {
-  /** App metadata and future profile extensions survive profile intake. */
-  [extension: string]: unknown;
   name?: string;
   animalType?: string;
   emoji?: string;
@@ -281,6 +279,9 @@ export interface Profile {
   humanoidCharacterization?: HumanoidCharacterization;
   /** Authored overrides may patch individual fields; null removes a preset control. */
 }
+
+/** Intake accepts app metadata while keeping the profile's known keys explicit. */
+export type ProfileInput = Partial<Profile> | (Partial<Profile> & Record<string, unknown>);
 
 export interface ProfileRuntimeConfig extends Partial<Profile> {
   profilePresetId?: PresetType;

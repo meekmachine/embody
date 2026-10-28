@@ -30,8 +30,8 @@ export const resolveMorphMeshSelections = (
 ): Record<string, Types.MorphMeshSelection> => request('profile.resolveMorphMeshSelections', { profile, categories, availableNames });
 export const getHumanoidSpecification = (): Types.HumanoidSpecification => request('humanoid.getSpecification');
 export const setAUMorphTargets = (profile: Types.Profile, auId: number, side: 'left' | 'right' | 'center', targets: Types.MorphTargetRef[]): Types.Profile => request('profile.setAUMorphTargets', { profile, auId, side, targets });
-export const setHumanoidRoleBinding = (profile: Types.Profile, role: Types.VRMHumanoidRole, boneName: string | null): Types.Profile => request('profile.setHumanoidRoleBinding', { profile, role, boneName });
-export const resolveHumanoidCharacterization = (profile: Types.Profile): Types.HumanoidCharacterizationResolution => request('profile.resolveHumanoidCharacterization', { profile });
+export const setHumanoidRoleBinding = (profile: Types.ProfileInput, role: Types.VRMHumanoidRole, boneName: string | null): Partial<Types.Profile> => request('profile.setHumanoidRoleBinding', { profile, role, boneName });
+export const resolveHumanoidCharacterization = (profile: Partial<Types.Profile>): Types.HumanoidCharacterizationResolution => request('profile.resolveHumanoidCharacterization', { profile });
 
 export const hasLeftRightMorphs = (profile: Partial<Types.Profile>, auId: number): boolean => request('profile.hasLeftRightMorphs', { profile, auId });
 export const isMixedAU = (profile: Partial<Types.Profile>, auId: number): boolean => request('profile.isMixedAU', { profile, auId });
@@ -76,7 +76,7 @@ export const isJointControlAuInfo = (info?: Pick<Types.AUInfo, 'facePart'> | nul
 export const classifyAuAsJointControl = (profile: Types.Profile, auId: number, options: { boneName?: string | null; nodeKey?: string | null } = {}): Types.Profile => request('bone.classifyJointControl', { profile, auId, boneName: options.boneName, nodeKey: options.nodeKey });
 export const resolveContinuumDisplayLabel = (profile: Partial<Pick<Types.Profile, 'continuumPairs' | 'continuumLabels' | 'auInfo' | 'boneNodes' | 'bonePrefix' | 'boneSuffix'>>, negativeAuId: number, positiveAuId: number): string => request<string | null>('bone.resolveContinuumLabel', { profile, negativeAuId, positiveAuId }) ?? `AU ${negativeAuId} <-> AU ${positiveAuId}`;
 
-function inspectModel(model: Object3D, meshes?: Mesh[], profile?: Types.Profile) {
+function inspectModel(model: Object3D, meshes?: Mesh[], profile?: Partial<Types.Profile>) {
   return new ThreeModelInspector().inspectModel(model, { meshes, profile });
 }
 
@@ -111,7 +111,7 @@ export function validateMappings(meshes: unknown[], skeleton: unknown, profile: 
   const bones = ((skeleton as { bones?: Array<string | { name?: string }> } | null)?.bones ?? []).map((bone, index) => ({ id: index + 1, name: typeof bone === 'string' ? bone : bone.name ?? '' }));
   return JSON.parse(requireInitializedEmbodyCore().validate_profile_model(json(profile), json({ meshes: descriptorMeshes, morphTargets, bones, objects: [] }), json(options)));
 }
-export function validateHumanoidCharacterization(model: Object3D, profile: Types.Profile): Types.HumanoidCharacterizationResolution {
+export function validateHumanoidCharacterization(model: Object3D, profile: Partial<Types.Profile>): Types.HumanoidCharacterizationResolution {
   return JSON.parse(requireInitializedEmbodyCore().validate_humanoid_characterization(json(profile), json(inspectModel(model, undefined, profile).descriptor)));
 }
 export function normalizeHairColorAppearance(value: Types.HairColorAppearance | string, fallback: Types.HairColorAppearance = DEFAULT_HAIR_COLOR_APPEARANCE): Types.HairColorAppearance {

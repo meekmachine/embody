@@ -69,6 +69,9 @@ material, hair and clip-catalog result types come from `three/authoringTypes.ts`
 downstream libraries can re-export them without another character interface.
 `getProfile()` returns `Partial<Profile>` because an explicit profile may be
 empty, and `getHairPhysicsConfig()` may be empty before the first model bind.
+`ProfileInput` accepts sparse mappings and app metadata without adding arbitrary
+keys to the output `Profile` declaration. Humanoid queries accept sparse profiles;
+`setHumanoidRoleBinding` returns a sparse profile because Rust omits empty tables.
 These type declarations add no playback state, lifecycle or animation clock.
 
 An AU animation drives its profile's mapped bones and morphs through the same

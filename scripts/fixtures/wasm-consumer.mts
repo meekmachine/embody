@@ -19,6 +19,9 @@ import {
   hasLeftRightMorphs,
   isMixedAU,
   resolveContinuumDisplayLabel,
+  resolveHumanoidCharacterization,
+  setHumanoidRoleBinding,
+  validateHumanoidCharacterization,
   type AUBoneBindingState,
   type AUDescriptor as ThreeAUDescriptor,
   bindModelReferencePose,
@@ -40,6 +43,7 @@ import {
   type ThreeModelReferencePose,
   Embody,
   type Profile,
+  type ProfileInput,
   type MeshInfo,
   type MeshCategory,
   type HairAppearanceState,
@@ -96,9 +100,23 @@ const unboundCharacter: Embody = createRustEmbodyHostUnbound({ profile: { appMet
 const boundCharacter: Embody = await createRustEmbodyHost(new Object3D(), { profileMode: 'profile', profile: {} });
 const acceptedProfile: Partial<Profile> = character.getProfile();
 character.setProfile({ ...acceptedProfile, appMetadata: { owner: 'consumer' } });
+declare const namedProfile: Profile;
+character.setProfile(namedProfile);
+const namedProfileInput: ProfileInput = namedProfile;
+createRustEmbodyHostUnbound({ profile: namedProfile });
+character.setProfile({ appMetadata: { owner: 'consumer' } });
+const mappingInput: Omit<Partial<Profile>, 'annotationRegions'> = { boneNodes: { HEAD: 'Head' } };
+const mappedHead: string | undefined = mappingInput.boneNodes?.HEAD;
+// @ts-expect-error Omit must preserve known mapping value types.
+const wrongMapping: Omit<Partial<Profile>, 'annotationRegions'> = { boneNodes: { HEAD: 1 } };
 const bilateral: boolean = hasLeftRightMorphs(acceptedProfile, 12);
 const mixed: boolean = isMixedAU(acceptedProfile, 12);
 const continuumLabel: string = resolveContinuumDisplayLabel(acceptedProfile, 51, 52);
+const sparseCharacterization = resolveHumanoidCharacterization(acceptedProfile);
+const sparseValidation = validateHumanoidCharacterization(new Object3D(), acceptedProfile);
+const roleEditedProfile: Partial<Profile> = setHumanoidRoleBinding({}, 'head', 'Head');
+// @ts-expect-error Rust omits empty tables from a role mutation's result.
+const completeRoleProfile: Profile = setHumanoidRoleBinding({}, 'head', null);
 const meshEntries: MeshInfo[] = character.getMeshList();
 const unassignedCategory: MeshCategory = 'other';
 const appearance: HairAppearanceState = character.getHairAppearance();
@@ -132,7 +150,8 @@ const wrongPlayability: string = clipChannels[0].playable;
 character.missingCharacterOperation();
 // @ts-expect-error Factories retain that same native member contract.
 unboundCharacter.missingCharacterOperation();
-void [initializedCharacter, boundCharacter, bilateral, mixed, continuumLabel, meshEntries, unassignedCategory, stiffness, nativeCompletion];
+void [initializedCharacter, boundCharacter, namedProfileInput, mappedHead, bilateral, mixed, continuumLabel,
+  sparseCharacterization, sparseValidation, roleEditedProfile, meshEntries, unassignedCategory, stiffness, nativeCompletion];
 const rootAUs: RootAUDescriptor[] = rootAUDescriptors({});
 const wasmAUs: WasmAUDescriptor[] = wasmAUDescriptors({}, { bones: [] });
 const threeAUs: ThreeAUDescriptor[] = threeAUDescriptors({});

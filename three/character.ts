@@ -21,7 +21,7 @@ import type { ThreeNativePlaybackControl, ThreeNativePlaybackEvent, ThreeNativeP
 import type {
   AnimationClipInfo, HairAppearanceState, HairColorAppearance,
   HairPhysicsRuntimeConfig, HairPhysicsRuntimeConfigUpdate, MeshCategory,
-  MeshInfo, Profile, ThreeResolvedMaterialConfig,
+  MeshInfo, Profile, ProfileInput, ThreeResolvedMaterialConfig,
 } from './authoringTypes';
 
 type JsonObject = Record<string, any>;
@@ -30,7 +30,7 @@ export type RustEmbodyHostConfig = {
   profileMode?: 'preset' | 'profile';
   presetId?: string;
   presetType?: string;
-  profile?: Partial<Profile>;
+  profile?: ProfileInput;
   meshes?: Mesh[];
   referencePose?: ThreeModelReferencePose;
 };
@@ -254,7 +254,7 @@ export class Embody {
     this.bind(model, reference, inspection, this.profileSource, this.profile);
     return reference;
   }
-  setProfile(value: Partial<Profile>): void {
+  setProfile(value: ProfileInput): void {
     this.assertAlive();
     const source = this.validateProfile(value);
     const profile = this.resolveProfile(source);
