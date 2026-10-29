@@ -1,10 +1,11 @@
 // This fixture is copied into an isolated consumer of the packed package.
 // The error assertions below fail if the public loader regresses to `any`.
-import { initEmbodyCore as initFromRoot, getAUDescriptors as rootAUDescriptors, LEGACY_BODY_CONTROL_AUS, type AUDescriptor as RootAUDescriptor } from '@lovelace_lol/embody';
+import { initEmbodyCore as initFromRoot, getAUDescriptors as rootAUDescriptors, LEGACY_BODY_CONTROL_AUS, decodeLegacyPose, type AUDescriptor as RootAUDescriptor } from '@lovelace_lol/embody';
 import {
   getAUDescriptors as wasmAUDescriptors,
   type AUDescriptor as WasmAUDescriptor,
   getEmbodyCore,
+  decodeLegacyAnimation,
   initEmbodyCore,
   requireInitializedEmbodyCore,
   type EmbodyCore,
@@ -105,6 +106,11 @@ new ThreeAnnotations({});
 controller.focusRegion(123);
 
 const core: EmbodyCore = await initEmbodyCore();
+const decodedSavedPose = decodeLegacyPose({ label: 'saved pose', aus: { '26': 0.5 } });
+const decodedSavedAnimation = decodeLegacyAnimation({ label: 'saved animation', curves: {} });
+const savedPoseLabel: string = decodedSavedPose.label;
+const savedAnimationLabel: string = decodedSavedAnimation.label;
+void [savedPoseLabel, savedAnimationLabel];
 const character = new Embody({ profileMode: 'profile', profile: {} });
 // Native constructors, factories and the scene host expose the same class.
 const initializedCharacter: Embody = await Embody.create({ profileMode: 'profile', profile: {} });

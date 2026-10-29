@@ -24,6 +24,7 @@ mod profile;
 mod profile_api;
 mod profile_merge;
 mod runtime;
+mod saved_animation;
 mod skeleton;
 mod snippet_compile;
 mod template_fit_metadata;
@@ -43,6 +44,7 @@ pub use model_analysis::*;
 pub use playback::*;
 pub use profile_api::*;
 pub use runtime::*;
+pub use saved_animation::{decode_legacy_animation, decode_legacy_pose};
 pub use skeleton::*;
 pub use template_fit_metadata::*;
 

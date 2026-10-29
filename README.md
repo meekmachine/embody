@@ -9,6 +9,28 @@ Embody is a Rust/Wasm character animation core for facial action units,
 visemes, bone controls, baked animation clips, and hair motion. Three.js is a
 host adapter, not the runtime implementation.
 
+## Reading historical saved movements
+
+`decodeLegacyPose(record, historicalProfile?)` and
+`decodeLegacyAnimation(record, historicalProfile?)` translate retired named
+`semanticPose` / `semanticAnimation` records into existing numeric AU fields.
+The translation and conflict checks live in Rust. Await `initEmbodyCore()` before
+decoding historical records; ordinary records without the retired field return
+unchanged and do not require initialization. Inputs are JSON saved records.
+
+Explicit `historicalProfile.bodyControls` metadata is authoritative, including an
+empty map. Only when that metadata is absent does the decoder use the embedded
+historical table. Unresolved names, conflicting authored values, and opposing
+pose directions fail without changing the input. Keyframe seconds, balance,
+morph strength, custom profile IDs, and unrelated saved metadata are preserved.
+The returned copy removes the decoded retired field; this does not write storage.
+
+These readers do not consolidate eye mappings, assign FACS/body namespaces,
+convert curve snippets into explicit channels, or change native playback. Those
+migrations require profile-specific equivalence and compiler parity work under
+[Polymer epic #325](https://github.com/meekmachine/Polymer/issues/325). Semantic
+readback and slider ownership remain separate integration work.
+
 ## Architecture
 
 ```text
