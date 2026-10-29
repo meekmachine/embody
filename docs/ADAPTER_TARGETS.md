@@ -23,6 +23,13 @@ owns `AnimationMixer` scheduling and the character render binding. Polymer
 provides the application facade and agency intent; LoomLarge does not import
 Embody internals.
 
+VRM Animation body interchange follows the same split. Rust owns Mixamo role
+mapping, reference/hierarchy validation, rotation basis math, hip-height/unit
+conversion and the portable GLB contract. Three inspects explicit references or
+skin bind inverses, parses FBX, releases parser resources and materializes native
+clips. Playback/blending remain host-owned. No Three sampling loop or alternative
+JavaScript retargeting core is introduced. See [the supported contract](ANIMATION_REFERENCE_POSES.md#mixamo-fbx-and-vrm-animation-body-interchange).
+
 `createSceneSceneryRenderer` owns native scenery model parsing, placement wrappers,
 background textures, cancellation and resource release. Applications supply a
 resolved layout and an abortable authorized byte loader. Scenery asset catalogs,

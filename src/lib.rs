@@ -30,6 +30,7 @@ mod skeleton;
 mod snippet_compile;
 mod template_fit_metadata;
 mod validation;
+mod vrm_animation;
 
 pub use abi::*;
 pub use annotation_camera::*;
@@ -48,6 +49,7 @@ pub use runtime::*;
 pub use saved_animation::{decode_legacy_animation, decode_legacy_pose};
 pub use skeleton::*;
 pub use template_fit_metadata::*;
+pub use vrm_animation::*;
 
 use wasm_bindgen::prelude::*;
 

@@ -87,6 +87,23 @@ The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
 not sample or lerp clips on the hot path.
 
+For portable body clips, Rust converts Mixamo references/keys into standard
+VRM Animation 1.0 `.vrma` GLB files and retargets supported humanoid tracks.
+The Three adapter exposes `convertMixamoFbxToVrmAnimations`,
+`convertMixamoToVrmAnimation`, `inspectVrmAnimation`, and
+`createAnimationClipFromVrmAnimation`. Initialize Wasm first; supply explicit
+units and a target T-pose reference. See [body-animation interchange](docs/ANIMATION_REFERENCE_POSES.md#mixamo-fbx-and-vrm-animation-body-interchange)
+for examples, supported inputs and errors. VRMA joint rotations remain distinct
+from authored semantic action-space controls and facial/morph snippets.
+
+The same native `Embody` character exposes `supportsVrmAnimation()`,
+`convertMixamoFbxToVrmAnimations`, `getVrmAnimationInfo`,
+`registerVrmAnimation(name, bytes, { metersPerUnit })` and
+`releaseVrmAnimation(name)`. Registration uses the character's captured reference
+and resolved profile, and does not play or stop an action. Polymer's Animation
+agency schedules later playback. Cleanup removes only the accepted native source
+on the original model, preserving a later same-name replacement; disposal is safe.
+
 `Embody` is the character API exposed by the native Three adapter.
 `createRustEmbodyHost`, `createRustEmbodyHostUnbound` and
 `createCharacterHost(...).engine` use that same class. Its profile, mesh,

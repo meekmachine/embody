@@ -15,6 +15,8 @@ import {
   bindModelReferencePose, captureModelReferencePose, extendModelReferencePose,
 } from './reference-pose';
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
+import { convertMixamoFbxToVrmAnimations, createAnimationClipFromVrmAnimation, inspectVrmAnimation } from './vrm-animation';
+import type { VrmAnimationFile, VrmAnimationInfo, VrmAnimationUnits } from './vrm-animation';
 import { ThreeNativePlaybackConnector } from './nativePlayback';
 import { withComponentTracks } from './clipBindings';
 import type { ThreeNativePlaybackControl, ThreeNativePlaybackEvent, ThreeNativePlaybackOptions } from './nativePlayback';
@@ -151,6 +153,7 @@ export class Embody {
   private readonly profileMode: 'preset' | 'profile';
   private readonly preset: string;
   private readonly sources = new Map<string, Source>();
+  private readonly vrmAnimations = new Map<string, { model: Object3D; clip: AnimationClip }>();
   private readonly playbacks = new Map<string, Playback>();
   private readonly current = new Map<string, Playback>();
   private playDepth = 0;
@@ -247,7 +250,7 @@ export class Embody {
     catch (error) { core.free(); throw error; }
     this.core.free();
     this.core = core;
-    if (replacingModel) this.sources.clear();
+    if (replacingModel) { this.sources.clear(); this.vrmAnimations.clear(); }
     this.boundModel = model;
     this.inspection = inspection;
     this.referenceBindings = referenceBindings;
@@ -745,6 +748,37 @@ export class Embody {
     if (!connector.getAction(playback.id)) this.forget(playback);
   }
 
+  supportsVrmAnimation(): boolean { return true; }
+  convertMixamoFbxToVrmAnimations(bytes: ArrayBuffer, options: VrmAnimationUnits): VrmAnimationFile[] {
+    this.requireModel();
+    return convertMixamoFbxToVrmAnimations(bytes, options);
+  }
+  getVrmAnimationInfo(bytes: Uint8Array): VrmAnimationInfo {
+    this.requireModel();
+    const document = inspectVrmAnimation(bytes);
+    return { name: document.name, durationSeconds: document.durationSeconds, trackCount: document.tracks.length };
+  }
+  /** Registers a source; Animation owns the later playback request. */
+  registerVrmAnimation(name: string, bytes: Uint8Array, options: VrmAnimationUnits): void {
+    if (typeof name !== 'string' || !name.trim()) throw new Error('VRM Animation requires a nonempty clip name.');
+    const model = this.requireModel();
+    const clip = createAnimationClipFromVrmAnimation(bytes, model, {
+      name, metersPerUnit: options.metersPerUnit,
+      referencePose: this.references.get(model)!, profile: this.profile,
+    });
+    // Save ownership only after native registration accepts the complete clip.
+    this.registerAnimationClips([clip]);
+    this.vrmAnimations.set(name, { model, clip });
+  }
+  /** Stale editor cleanup must not remove a later same-name native source. */
+  releaseVrmAnimation(name: string): void {
+    const registered = this.vrmAnimations.get(name);
+    const source = this.sources.get(name);
+    if (registered && !this.disposed && registered.model === this.boundModel &&
+        source?.kind === 'native' && source.clip === registered.clip) this.removeAnimationClip(name);
+    this.vrmAnimations.delete(name);
+  }
+
   registerAnimationClips(clips: AnimationClip[]): void {
     const model = this.requireModel();
     for (const clip of clips) {
@@ -756,6 +790,7 @@ export class Embody {
   }
   loadAnimationClips(clips: AnimationClip[]): void {
     this.stopAllAnimations();
+    this.vrmAnimations.clear();
     for (const source of [...this.sources.values()]) if (source.kind === 'native') {
       this.sources.delete(source.name);
       this.core.remove_animation_clip(source.name);
@@ -1156,6 +1191,7 @@ export class Embody {
     this.playbacks.clear();
     this.current.clear();
     this.sources.clear();
+    this.vrmAnimations.clear();
     this.hairObjects.clear();
     this.hairHeadObservation = undefined;
     this.meshes.length = 0;
