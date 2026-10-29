@@ -64,6 +64,21 @@ The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
 not sample or lerp clips on the hot path.
 
+`Embody` is the character API exposed by the native Three adapter.
+`createRustEmbodyHost`, `createRustEmbodyHostUnbound` and
+`createCharacterHost(...).engine` use that same class. Its profile, mesh,
+material, hair and clip-catalog result types come from `three/authoringTypes.ts`;
+downstream libraries can re-export them without another character interface.
+`getProfile()` returns `Partial<Profile>` because an explicit profile may be
+empty, and `getHairPhysicsConfig()` may be empty before the first model bind.
+`ProfileInput` accepts sparse mappings and app metadata without adding arbitrary
+keys to the output `Profile` declaration. Humanoid queries accept sparse profiles;
+`setHumanoidRoleBinding` returns a sparse profile because Rust omits empty tables.
+The bone editor queries and mutation results follow the same sparse data contract.
+`setAUMorphTargets` preserves its input JSON and guarantees the edited `auToMorphs`
+map. An omitted serialized field is not a request to delete an authored override.
+These type declarations add no playback state, lifecycle or animation clock.
+
 An AU animation drives its profile's mapped bones and morphs through the same
 Rust evaluation used by live AU controls. For example, speech can send an AU
 103 curve and separate viseme shape curves; the profile decides which bones
