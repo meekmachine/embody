@@ -569,8 +569,10 @@ For an Embody → Polymer → LoomLarge feature stack, open every draft from its
 current `main` without waiting for publication. The Polymer PR body declares
 `Depends-on: https://github.com/meekmachine/embody/pull/<number>` and the LoomLarge
 PR body declares `Depends-on: https://github.com/meekmachine/Polymer/pull/<number>`.
-CI resolves the compiled previews and owns their pin and lockfile updates;
-agents do not need to add preview URLs before opening downstream drafts.
+CI resolves the compiled previews in temporary test checkouts. Committed
+manifests and lockfiles retain exact stable npm versions; the release coordinator
+adopts a stable release containing the change after upstream merge and publication.
+Agents do not add preview URLs before opening downstream drafts.
 Documentation-only companion PRs use ordinary reciprocal links instead.
 
 After publication, the producing workflow uploads a JSON notification record

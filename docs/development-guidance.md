@@ -5,6 +5,9 @@ current ownership. [VISION_AND_PRD](../VISION_AND_PRD.md) describes product inte
 it is not proof that an API or renderer integration exists. These rules guide
 new and touched code, not an unsolicited rewrite of existing modules.
 
+See [real writing examples](writing-examples.md) for source-backed weak/strong
+comparisons and existing good contracts worth preserving.
+
 ## Agent handoff
 
 Follow the root [delivery workflow](../AGENTS.md#default-engineering-delivery-workflow):
@@ -15,6 +18,37 @@ screenshots for visual QA and browser performance tools). Do not monitor or wait
 for CI or package publication. Pass the same restrictions to delegated agents;
 only an explicit user request for the particular check changes this default.
 
+
+## Coding agents: explain the bug before implementing a fix
+
+Before changing code to fix a bug, record a short explanation in the progress
+update and include the confirmed diagnosis in the PR description:
+
+1. State what should happen and what happens instead. Distinguish user reports,
+   source findings, and executed checks; inspecting code is not a reproduction.
+2. Follow the existing input through profile configuration, Rust computation,
+   and the adapter or host output. Cite the relevant files or symbols and inspect
+   the package revision the consumer actually installs.
+3. Identify the code or configuration that explains the difference. Check saved
+   settings and package versions before assuming the algorithm is wrong. If the
+   cause is uncertain, label it as a hypothesis and continue investigating.
+
+Prefer the smallest correction in the component or data responsible. Before
+adding a fallback, bypassing an operation, or duplicating responsibility, explain
+why correcting that existing component or data would not satisfy the supported
+behavior. A working default character does not establish that saved mappings,
+scheduling, or other supported outputs still work.
+
+Add or update a focused regression for CI that would catch the shortcut ignoring
+the contract. Derive expectations from supported behavior and saved settings;
+do not weaken them to match the workaround. Follow the root delivery workflow
+for execution; this guidance adds no local test requirement or approval step.
+
+For example, AU 103 was missing from the [CC4 preset](../assets/presets/cc4.json)
+entry `compositeRotations` → `JAW.pitch.aus`. Adding 103 to that list corrected
+the preset. It did not require a new compiler algorithm or a hardcoded jaw
+rotation in Polymer. Inspect the saved mapping and existing composite rotation
+configuration before changing Rust evaluation or asking a caller to replace it.
 
 ## Make the runtime boundary visible
 
@@ -101,6 +135,61 @@ and consumer migration where applicable. Do not repeat an entire architecture or
 require a large template for a small correction; link the durable contract.
 If existing documents conflict, verify the owning code and resolve the affected
 claim instead of propagating an obsolete restriction.
+
+## Write claims at the boundary the change controls
+
+A consumer uses a PR description to decide which behavior changes when adopting
+the package. Lead with the input condition, failure, and resulting output. Put
+scope and compatibility qualifications beside the claim they limit. For example,
+"an empty face category produces no face-routed morph bindings" names a compiler
+contract; "clearing face selection stops facial animation" also promises host UI,
+other category, and playback behavior that needs separate evidence.
+
+The source review of [Embody #145](https://github.com/meekmachine/embody/pull/145)
+at `205aecf` and its consumer [LoomLarge #1120](https://github.com/meekmachine/LoomLarge/pull/1120)
+at `7b5d51a` provides a concrete example. Treat these as revision-specific writing
+examples and recheck current source before reusing their behavior claims:
+
+- **State the category boundary.** The compiler fix restricts morph bindings to
+  a configured category's resolved meshes. The
+  [CC4 preset](https://github.com/meekmachine/embody/blob/205aecf9b78fe53eebc9eb333fddc9e3eca0db38/assets/presets/cc4.json#L2258-L2289)
+  routes eyelids through `eye` and speech shapes through `viseme`. Clearing
+  `face` therefore leaves those categories and independent bone mappings alone.
+  This distinction tells a host author which setting must change for the desired
+  output; a broad statement about all facial animation would misdirect them.
+- **Include compatibility in the contract.** "Only selected meshes animate" is
+  ambiguous when the
+  [resolver expands legacy names](https://github.com/meekmachine/embody/blob/205aecf9b78fe53eebc9eb333fddc9e3eca0db38/src/profile.rs#L1587-L1601).
+  Write "Exact names select one mesh; when no exact mesh exists, a legacy name
+  can resolve to numbered primitive meshes." For example, `Skin` may resolve to
+  `Skin_1` and `Skin_2`. A host checklist that compares literal names can show
+  those concrete targets unchecked. Describe that integration gap explicitly;
+  compiler enforcement alone does not establish correct checklist behavior.
+- **Describe what the evidence reaches.** The
+  [added runtime test](https://github.com/meekmachine/embody/blob/205aecf9b78fe53eebc9eb333fddc9e3eca0db38/src/runtime.rs#L3444-L3514)
+  uses a synthetic AU routed through `face` and asserts live frame and compiled
+  clip outputs. "Added regression coverage for category selection and independent
+  bone bindings; tests were not run" describes the work. It does not establish
+  rendered behavior, real CC4 checklist routing, or successful execution.
+
+The reason to write this way is practical: a reviewer must be able to distinguish
+the implemented library behavior from the consumer experience still to deliver.
+Use the exported API or field name when it makes that distinction precise, and
+define terms such as AU (facial action unit) and viseme (speech shape) when the
+intended reader needs them. Replace vague descriptions of "strict routing" with
+the specific fallback removed and the compatibility behavior retained.
+
+Keep a small PR description short: the problem and resulting behavior, material
+compatibility or host work, and actual verification. Link durable detail rather
+than narrating every helper or historical commit. Explain downstream package
+adoption separately from the source fix; a linked PR does not establish that a
+consumer has installed or deployed it. Keep unresolved findings visible after
+copy edits instead of changing their status to fixed.
+
+Before handoff, check whether the title and opening could imply a broader output,
+completed integration, or stronger evidence than the final diff supports. Narrow
+that claim and name the remaining work. This editorial review does not authorize
+local tests, browser validation, or waiting for CI.
 
 ## Verify the observable contract
 
