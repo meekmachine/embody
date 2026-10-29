@@ -27,6 +27,7 @@ import {
   createBoneAxisAu,
   createBilateralBoneAxisAu,
   setAUMorphTargets,
+  getMeshNamesForAUProfile,
   hasLeftRightMorphs,
   isMixedAU,
   resolveContinuumDisplayLabel,
@@ -141,6 +142,10 @@ const axisUpdated: Partial<Profile> = applyBoneAxisBindingUpdate(axisCreated.pro
 const bilateralUpdated: Partial<Profile> = applyBilateralAxisBindingUpdate(bilateralCreated.profile, 'LeftEye', 'yaw', 'shared', { positiveAuId: bilateralCreated.auId });
 const morphEdited = setAUMorphTargets(acceptedProfile, 12, 'center', ['Smile']);
 const editedMorphs: Array<string | number> = morphEdited.auToMorphs[12].center;
+const unmappedMeshes: string[] = getMeshNamesForAUProfile({}, 12);
+const editedMeshNames: string[] = getMeshNamesForAUProfile(morphEdited, 12);
+// @ts-expect-error Mesh routing queries retain numeric AU ids with sparse profiles.
+getMeshNamesForAUProfile(morphEdited, '12');
 // @ts-expect-error Bone authoring results do not invent absent mapping tables.
 const completeAxisProfile: Profile = axisCreated.profile;
 const meshEntries: MeshInfo[] = character.getMeshList();
@@ -178,7 +183,8 @@ character.missingCharacterOperation();
 unboundCharacter.missingCharacterOperation();
 void [initializedCharacter, boundCharacter, namedProfileInput, mappedHead, bilateral, mixed, continuumLabel,
   sparseCharacterization, sparseValidation, roleEditedProfile, nodeKey, boneAUOptions, auBinding, axisBinding,
-  bilateralBinding, axisUpdated, bilateralUpdated, editedMorphs, meshEntries, unassignedCategory, stiffness, nativeCompletion];
+  bilateralBinding, axisUpdated, bilateralUpdated, editedMorphs, unmappedMeshes, editedMeshNames,
+  meshEntries, unassignedCategory, stiffness, nativeCompletion];
 const rootAUs: RootAUDescriptor[] = rootAUDescriptors({});
 const wasmAUs: WasmAUDescriptor[] = wasmAUDescriptors({}, { bones: [] });
 const threeAUs: ThreeAUDescriptor[] = threeAUDescriptors({});

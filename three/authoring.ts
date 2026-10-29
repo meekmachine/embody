@@ -22,7 +22,7 @@ export const getPreset = (id: Types.PresetType): Types.Profile => request('prese
 export const extendCharacterConfigWithPreset = <T extends Types.ProfileRuntimeConfig>(config: T): T => request('profile.extendConfig', { config });
 export const extractProfileOverrides = (config: Types.ProfileRuntimeConfig): Partial<Types.Profile> => request('profile.extractOverrides', { config });
 export const mergeCharacterRegionsByName = (base?: Region[], override?: Region[]): Region[] => request('profile.mergeRegions', { base, override });
-export const getMeshNamesForAUProfile = (profile: Types.Profile, auId: number): string[] => request('profile.getMeshNamesForAU', { profile, auId });
+export const getMeshNamesForAUProfile = (profile: Partial<Types.Profile>, auId: number): string[] => request('profile.getMeshNamesForAU', { profile, auId });
 /** Resolve routing and legacy mesh aliases once for an editor inventory. */
 export const resolveMorphMeshSelections = (
   profile: Partial<Pick<Types.Profile, 'morphToMesh' | 'visemeMeshCategory'>>,
