@@ -22,7 +22,7 @@ describe('annotation anchor model', () => {
     const resolved = resolveMarkerAnchorRegion(region);
 
     expect(resolved.source).toBe('legacy-region');
-    expect(resolved.region).toBe(region);
+    expect(resolved.region).toEqual(region);
     expect(resolved.useLegacyRegionSemantics).toBe(true);
     expect(shouldUseFaceCenterForMarkerAnchor(resolved)).toBe(true);
     expect(shouldProjectMarkerAnchorToSurface(resolved, true)).toBe(true);

@@ -1,4 +1,5 @@
 import { control, WebGLRenderer, PMREMGenerator as FixturePMREM } from './three.mjs';
+import { WebGPUCoordinateSystem } from 'three';
 
 function backend(native) {
   return { isWebGPUBackend: native, disposeCount: 0, dispose() { this.disposeCount++; } };
@@ -24,6 +25,14 @@ export class WebGPURenderer extends WebGLRenderer {
     return this;
   }
   hasInitialized() { return this.initialized; }
+  render(scene, camera) {
+    // Match r184's persistent camera mutation at the renderer boundary.
+    for (const current of [camera, ...scene.children.filter(child => child.shadow).map(light => light.shadow.camera)]) {
+      current.coordinateSystem = WebGPUCoordinateSystem;
+      current.updateProjectionMatrix();
+    }
+    super.render(scene, camera);
+  }
   async setAnimationLoop(callback) { this.loopCallbacks.push(callback); }
   dispose() {
     // Three's real pre-init dispose would re-enter init through setAnimationLoop.

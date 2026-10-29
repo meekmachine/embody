@@ -1,23 +1,19 @@
 import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DPthreeCameraController } from '../DPthreeCameraController';
+import { ThreeAnnotationController } from '../ThreeAnnotationController';
 
-vi.mock('three/examples/jsm/controls/OrbitControls.js', () => ({
-  OrbitControls: class {
-    target = new THREE.Vector3();
-    update() {} dispose() {}
-  },
-}));
+import { installAnnotationDom } from './annotationDom';
 
 function deferred() {
   let resolve!: () => void; let reject!: (reason: unknown) => void;
   const promise = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-const controllers: DPthreeCameraController[] = [];
+const controllers: ThreeAnnotationController[] = [];
 afterEach(() => { controllers.splice(0).forEach((controller) => controller.dispose()); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 function fixture(native = true) {
+  const { domElement } = installAnnotationDom();
   vi.stubGlobal('window', { innerWidth: 640, innerHeight: 480, addEventListener: vi.fn(), removeEventListener: vi.fn() });
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   const scene = new THREE.Scene(); const camera = new THREE.PerspectiveCamera();
@@ -54,8 +50,8 @@ function fixture(native = true) {
     getMRT: () => mrt, setMRT: (value: object) => { mrt = value; },
   };
   const renderFrame = vi.fn<() => void | Promise<void>>(); const onRenderError = vi.fn();
-  const controller = new DPthreeCameraController({
-    scene, camera, domElement: { clientWidth: 640, clientHeight: 480 } as HTMLElement,
+  const controller = new ThreeAnnotationController({
+    scene, camera, domElement,
     renderer: renderer as unknown as THREE.WebGLRenderer, renderFrame, onRenderError, showDOMControls: false,
   });
   controllers.push(controller); controller.setModel(model);
@@ -82,6 +78,30 @@ function skinnedTriangle() {
 }
 
 describe('controller model render readiness', () => {
+  it('prepares joint indices when binding the model, before its first renderer frame', () => {
+    const f = fixture(); const { mesh } = skinnedTriangle();
+    const geometry = mesh.geometry, skeleton = mesh.skeleton;
+    f.controller.setModel(mesh);
+    expect(geometry.getAttribute('skinIndex').array).toBeInstanceOf(Float32Array);
+    expect(mesh.geometry).toBe(geometry); expect(mesh.skeleton).toBe(skeleton);
+    expect(f.renderer.compileAsync).not.toHaveBeenCalled();
+    expect(f.renderer.render).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('prepares separately supplied skinned models before compile (native=%s)', async (native) => {
+    const f = fixture(native); const { mesh } = skinnedTriangle();
+    const original = mesh.geometry.getAttribute('skinIndex');
+    f.renderer.compileAsync.mockImplementationOnce(async model => {
+      expect(model).toBe(mesh);
+      const indices = mesh.geometry.getAttribute('skinIndex');
+      expect(indices.array).toBeInstanceOf(Float32Array);
+      expect(Array.from(indices.array)).toEqual(Array.from(original.array));
+    });
+    const readiness = f.controller.prepareModelForRender(mesh);
+    await Promise.resolve(); f.tick(); await readiness;
+    expect(mesh.parent).toBeNull(); expect(mesh.visible).toBe(true);
+  });
+
   it.each([false, true])('compiles only the model and draws the complete scene once on the existing frame (native=%s)', async (native) => {
     const f = fixture(native); const compilation = deferred();
     const background = new THREE.Color(0xabcdef); f.scene.background = background;

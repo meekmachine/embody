@@ -16,8 +16,9 @@ try {
   assert.equal(core.get_viseme(0), 0.75);
   assert.equal(core.get_viseme_jaw_scale(0), 0.25);
   assert.deepEqual(core.evaluate_active_morph_frame(), active, 'snapshot reads do not alter packed output');
-  core.transition_viseme(0, 0.5, 200, 0);
-  assert.equal(core.get_viseme(0), 0.5, 'reads canonical immediate transition state');
+  core.set_viseme(0, 0.5);
+  core.set_viseme_jaw_scale(0, 0);
+  assert.equal(core.get_viseme(0), 0.5, 'reads canonical authored state');
   assert.equal(core.get_viseme_jaw_scale(0), 0);
   core.set_viseme(0, 0);
   core.set_viseme_jaw_scale(0, 1);

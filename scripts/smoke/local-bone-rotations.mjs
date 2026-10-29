@@ -46,6 +46,13 @@ const play = (ir, at, expected) => {
 try {
   const ir = compile(channels().reverse());
   assert.equal(ir.tracks.length, 1);
+  assert.equal(ir.durationSeconds, 1);
+  const longerAuthoredTimeline = compile([...channels(), {
+    target: { type: 'au', id: 99999 },
+    keyframes: [{ time: 0, intensity: 0 }, { time: 2, intensity: 1 }],
+  }]);
+  assert.equal(longerAuthoredTimeline.durationSeconds, 2,
+    'unmapped authored channels still preserve the current clip duration contract');
   near(hand.quaternion, reference, 'compilation is pure');
   for (const [index, sample] of samples.entries()) play(ir, index / 2, orientation(sample));
   play(ir, 0.25, orientation(samples[0]).slerp(orientation(samples[1]), 0.5));

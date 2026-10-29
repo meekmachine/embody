@@ -6,7 +6,19 @@ import {
   MeshBasicMaterial,
   Object3D,
 } from 'three';
-import { ThreeFrameApplier } from '../../dist/three.js';
+import { ThreeFrameApplier, resolveMorphMeshSelections } from '../../dist/three.js';
+import { initEmbodyCore } from '../../dist/wasm.js';
+
+await initEmbodyCore();
+const selections = resolveMorphMeshSelections(
+  { morphToMesh: { face: ['Skin', 'Unavailable'], hair: [] } },
+  ['face', 'eye', 'viseme', 'hair'], ['Skin_1', 'Skin_2', 'NoMorphs'],
+);
+assert.deepEqual(selections.viseme, selections.face);
+assert.deepEqual(selections.eye.resolvedNames, ['Skin_1', 'Skin_2']);
+assert.deepEqual(selections.face.unresolvedNames, ['Unavailable']);
+assert.equal(selections.hair.hasSelection, true);
+assert.deepEqual(selections.hair.resolvedNames, []);
 
 const makeMesh = (name, { absolute = false, existing = false } = {}) => {
   const geometry = new BufferGeometry();

@@ -26,25 +26,37 @@ semantics and computation. Adapters operate on renderer objects; the host mixer
 owns clip playback and blending. Do not create a parallel TypeScript semantic
 runtime or a second copy of live AU/viseme state.
 
-The boundary has real feature-specific responsibilities: annotation camera and
-marker math live in Rust, while Three owns native inspection, labels, DOM controls,
-marker state and disposal. Follow the README's annotation contract rather than
-interpreting “thin adapter” as a prohibition on necessary browser lifecycle code.
+For an AU animation bug, trace the caller's AU curve through profile compilation
+to its bone and morph outputs before changing the caller. A mapped AU must drive
+all of its configured outputs in both live controls and compiled clips. Check
+the saved mapping and existing rotation groups before changing the compiler;
+fix the owning profile or Rust code and add a regression for the missing output.
+Do not make Polymer or LoomLarge read bone mappings, substitute a hardcoded jaw
+rotation, or drop mapped morphs to make speech appear to work. Preserve the
+existing LipSync timing and Animation scheduling flow; its AU/viseme curves are
+the inputs to Embody, not a reason to duplicate Embody's mapping logic.
 
-- Distinguish semantic control IDs, AU IDs, viseme slots, bone names, mesh/target
+Annotation behavior and state live in `src/annotation_runtime/`: camera gestures,
+framing, region/target selection, placement, expansion, solo, style, visibility and
+lifecycle deadlines. Three owns native inspection, raycasts, skinned-vertex
+queries, DOM input/labels, renderer preparation and disposal. Adapters transport
+observations and apply Rust effects; snapshots must not become a second mutable
+runtime. Follow the [annotation contract](../README.md#annotation-runtime).
+
+- Distinguish AU IDs, viseme slots, bone names, mesh/target
   IDs and renderer handles. An identical integer or name does not make two
   namespaces equivalent. Use profile vocabulary consistently in code and docs.
 - Expose units, coordinate frames, handedness and ownership in types/names or the
   immediate contract. Distinguish seconds from milliseconds, degrees from radians,
   normalized intensity from rotation, and character-left from viewer-left. For
-  example, semantic animation `durationSeconds` and keyframe `time` are seconds;
+  example, animation `durationSeconds` and keyframe `time` are seconds;
   bilateral balance is a character-relative value, not an angle.
 - Validate untrusted JSON and profile inputs at their entry boundary. Use typed
   internal representations and explicit variants where useful; make unsupported,
   missing and invalid values distinguishable. Avoid partial state updates after
   validation fails. Preserve deliberate compatibility defaults and document them.
-  [Semantic pose code](../src/semantic_pose.rs) is a concrete input/validation
-  boundary to inspect when changing that contract.
+  [AU descriptor code](../src/au_descriptors.rs) observes saved mappings;
+  [AU compiler code](../src/snippet_compile.rs) owns animation output.
 - Keep pure geometry, normalization and validation separate from engine writes,
   network/model loading and DOM work. Keep ownership of allocated resources and
   their release visible. On replacement/disposal, reject obsolete asynchronous
@@ -73,7 +85,7 @@ payloads. Do not hand-edit generated Wasm declarations to make an example fit.
 | Annotation profile precedence, camera/marker configuration | [Annotation configuration](../ANNOTATION_CONFIGURATION.md) and README annotation lifecycle |
 | Capture or reuse of reference poses, clip conversion | [Animation reference poses](ANIMATION_REFERENCE_POSES.md) |
 | Inheritance of current values at clip creation | [Inherited clip starts](INHERITED_CLIP_STARTS.md) |
-| Humanoid roles, semantic body control/profile authoring | [Body controls](body-controls.md) and README semantic pose/clip contracts |
+| Humanoid roles, AU/profile authoring | [Body controls](body-controls.md) and README AU control/clip contracts |
 | Benchmark or performance claim | [Runtime benchmarks](RUNTIME_BENCHMARKS.md), including measured workload and limits |
 
 For numeric or binary contracts, state ranges, units, layout and invalid-input
@@ -82,7 +94,7 @@ capturing a reference before playback and reusing it afterward is different from
 sampling the currently animated rig. Preserve that distinction rather than
 claiming automatic bind-pose recovery or retargeting.
 
-Describe the runtime benefit honestly: compiling a semantic clip is not an
+Describe the runtime benefit honestly: compiling an AU clip is not an
 implemented animation-authoring screen. Identify required Polymer/host work when
 there is any. Keep intended designs labeled, and describe compatibility changes
 and consumer migration where applicable. Do not repeat an entire architecture or

@@ -1,9 +1,11 @@
+import type { MeshHighlightFrame } from '../wasm/highlighting';
 import {
   AdditiveBlending,
   AnimationClip,
   BufferAttribute,
   Euler,
   InterpolateDiscrete,
+  MeshBasicMaterial,
   MultiplyBlending,
   NoBlending,
   NormalBlending,
@@ -15,20 +17,30 @@ import {
   VectorKeyframeTrack,
 } from 'three';
 export * from './annotations/index';
+export * from './authoring';
+export * from './character';
+export * from './characterHost';
+export { renderScenePlayback, createScenePlaybackFrame } from './playbackRendering';
 import { bindModelReferencePose } from './reference-pose';
+import { concreteTrackName, withComponentTracks } from './clipBindings';
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
 
 export { captureModelReferencePose, bindModelReferencePose, extendModelReferencePose } from './reference-pose';
 export type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
+export { ThreeNativePlaybackConnector } from './nativePlayback';
+export type {
+  ThreeNativeLoop,
+  ThreeNativePlaybackOptions,
+  ThreeNativePlaybackControl,
+  ThreeNativePlaybackEvent,
+  ThreeNativePlaybackBinding,
+} from './nativePlayback';
 import type {
   KeyframeTrack,
   Material,
   Mesh,
   Object3D,
 } from 'three';
-
-export { ThreeGazeFocus } from './gaze';
-export type { ThreeGazeFocusOptions, ThreeGazeFocusRequest, ThreeGazeFocusControls, ThreeGazeFocusDiagnostic } from './gaze';
 
 export const THREE_BLENDING_MODES = {
   Normal: NormalBlending,
@@ -37,6 +49,7 @@ export const THREE_BLENDING_MODES = {
   Multiply: MultiplyBlending,
   None: NoBlending,
 } as const;
+export const BLENDING_MODES = THREE_BLENDING_MODES;
 
 type BoneEntry = {
   obj: Object3D;
@@ -126,7 +139,15 @@ const createMorphAttribute = (
 };
 
 export type ThreeModelInspection = {
-  descriptor: Record<string, unknown>;
+  descriptor: Record<string, unknown> & {
+    morphTargets: Array<{
+      id: number;
+      meshId: number | undefined;
+      name: string;
+      hostIndex: number;
+      initialValue: number;
+    }>;
+  };
   meshByName: Map<string, Mesh>;
   allMeshes: Mesh[];
   morphMeshes: Mesh[];
@@ -204,6 +225,7 @@ export class ThreeModelInspector {
     const allMeshes: Mesh[] = [];
     const boneObjects: Object3D[] = [];
     model.traverse((obj: any) => {
+      if (highlightOverlays.has(obj)) return;
       objects.push(obj);
       if (obj.isMesh) allMeshes.push(obj);
       if (obj.isBone || obj.type === 'Bone') boneObjects.push(obj);
@@ -218,7 +240,7 @@ export class ThreeModelInspector {
     const boneIds = new Map(Array.from(boneBindings, ([id, bone]) => [bone, id]));
     const objectIds = new Map(Array.from(objectBindings, ([id, object]) => [object, id]));
     const morphBindings = new Map<number, { mesh: Mesh; index: number }>();
-    const morphTargets: Array<Record<string, unknown>> = [];
+    const morphTargets: ThreeModelInspection['descriptor']['morphTargets'] = [];
     const morphIdsByMesh = new Map<Mesh, number[]>();
     let morphId = 1;
     for (const mesh of allMeshes) {
@@ -334,6 +356,7 @@ export type ClipIRTrack = {
 export type ClipIR = {
   name: string;
   durationSeconds?: number;
+  channels?: Array<{ id: number; kind: string; name?: string }>;
   tracks: ClipIRTrack[];
 };
 
@@ -354,6 +377,8 @@ export function createAnimationClipFromClipIR(
   const tracks: KeyframeTrack[] = [];
   for (const track of clip.tracks ?? []) {
     const kind = track.target?.kind;
+    const trackName = concreteTrackName(track.target, inspection);
+    if (!trackName) continue;
     const times = Array.from(track.times ?? []);
     const values = Array.from(track.values ?? []);
     if (!times.length || !values.length) continue;
@@ -364,7 +389,6 @@ export function createAnimationClipFromClipIR(
     if (kind === 'morphTarget') {
       const binding = inspection.morphBindings.get(Number(track.target.morphTargetId));
       if (!binding?.mesh) continue;
-      const trackName = `${binding.mesh.uuid}.morphTargetInfluences[${binding.index}]`;
       if (track.inheritStart) {
         values[0] = binding.mesh.morphTargetInfluences?.[binding.index] ?? 0;
       }
@@ -380,13 +404,17 @@ export function createAnimationClipFromClipIR(
       const property = track.target.property ?? 'rotation';
       if (property === 'rotation' || property === 'quaternion') {
         if (track.inheritStart) object.quaternion.toArray(values, 0);
-        tracks.push(new QuaternionKeyframeTrack(`${object.uuid}.quaternion`, times, values, interpolation));
+        tracks.push(new QuaternionKeyframeTrack(trackName, times, values, interpolation));
+      } else if (property === 'eulerX' || property === 'eulerY' || property === 'eulerZ') {
+        const axis = property.slice(-1).toLowerCase() as 'x' | 'y' | 'z';
+        if (track.inheritStart) values[0] = object.rotation[axis];
+        tracks.push(new NumberKeyframeTrack(trackName, times, values, interpolation));
       } else if (property === 'position') {
         if (track.inheritStart) object.position.toArray(values, 0);
-        tracks.push(new VectorKeyframeTrack(`${object.uuid}.position`, times, values, interpolation));
+        tracks.push(new VectorKeyframeTrack(trackName, times, values, interpolation));
       } else if (property === 'scale') {
         if (track.inheritStart) object.scale.toArray(values, 0);
-        tracks.push(new VectorKeyframeTrack(`${object.uuid}.scale`, times, values, interpolation));
+        tracks.push(new VectorKeyframeTrack(trackName, times, values, interpolation));
       }
       continue;
     }
@@ -395,7 +423,7 @@ export function createAnimationClipFromClipIR(
       const mesh = inspection.meshBindings.get(Number(track.target.meshId));
       if (!mesh) continue;
       if (track.inheritStart) values[0] = Number(mesh.visible);
-      tracks.push(new NumberKeyframeTrack(`${mesh.uuid}.visible`, times, values, interpolation));
+      tracks.push(new NumberKeyframeTrack(trackName, times, values, interpolation));
     }
   }
 
@@ -413,8 +441,17 @@ export function serializeAnimationClips(
   const meshIds = new Map(Array.from(inspection.meshBindings, ([id, mesh]) => [mesh, id]));
   const boneIds = new Map<object, number>(Array.from(inspection.boneBindings, ([id, bone]) => [bone, id]));
   const objectIds = new Map<object, number>(Array.from(inspection.objectBindings, ([id, object]) => [object, id]));
+  const morphIds = new Map<Mesh, Map<number, number>>();
+  for (const [id, { mesh, index }] of inspection.morphBindings) {
+    let indices = morphIds.get(mesh);
+    if (!indices) { indices = new Map(); morphIds.set(mesh, indices); }
+    if (!indices.has(index)) indices.set(index, id);
+  }
+  // A catalog commonly repeats the same destinations in many clips. Resolve
+  // each track name once per call; nothing survives a model/profile rebind.
+  const destinations = new Map<string, ReturnType<typeof findTrackTarget>>();
   return clips.map((clip) => {
-    const tracks: Array<Record<string, unknown>> = [];
+    const tracks: ClipIRTrack[] = [];
     const channelKinds = new Map<string, number>();
     const channelId = (kind: 'face' | 'body' | 'scene') => {
       const existing = channelKinds.get(kind);
@@ -423,11 +460,15 @@ export function serializeAnimationClips(
       channelKinds.set(kind, id);
       return id;
     };
-    clip.tracks.forEach((track, index) => {
-      const found = findTrackTarget(model, track);
+    withComponentTracks(clip).tracks.forEach((track, index) => {
+      let found = destinations.get(track.name);
+      if (found === undefined) {
+        found = findTrackTarget(model, track);
+        destinations.set(track.name, found);
+      }
       if (!found?.object) return;
       const { parsed, object } = found;
-      let target: Record<string, unknown> | null = null;
+      let target: ClipIRTrack['target'] | null = null;
       const property = parsed.propertyName;
       if ((property === 'morphTargetInfluences' || property === 'weights') && (object as any).isMesh) {
         const mesh = object as Mesh;
@@ -437,18 +478,21 @@ export function serializeAnimationClips(
           : Number.isFinite(Number(requested))
             ? Number(requested)
             : mesh.morphTargetDictionary?.[String(requested)];
-        const binding = Array.from(inspection.morphBindings).find(([, entry]) => entry.mesh === mesh && entry.index === indexValue);
-        if (binding) target = { kind: 'morphTarget', meshId: meshIds.get(mesh), morphTargetId: binding[0] };
+        if (indexValue === undefined) return;
+        const morphTargetId = morphIds.get(mesh)?.get(indexValue);
+        if (morphTargetId !== undefined) target = { kind: 'morphTarget', meshId: meshIds.get(mesh), morphTargetId };
       } else if (property === 'visible' && (object as any).isMesh) {
         target = { kind: 'meshVisibility', meshId: meshIds.get(object as Mesh) };
       } else {
-        const transformProperty = property === 'quaternion' || property === 'rotation'
-          ? 'rotation'
-          : property === 'position'
-            ? 'position'
-            : property === 'scale'
-              ? 'scale'
-              : null;
+        const transformProperty = property === 'rotation' && ['x', 'y', 'z'].includes(String(parsed.propertyIndex))
+          ? `euler${String(parsed.propertyIndex).toUpperCase()}`
+          : property === 'quaternion'
+            ? 'rotation'
+            : property === 'position'
+              ? 'position'
+              : property === 'scale'
+                ? 'scale'
+                : null;
         if (transformProperty) {
           const boneId = boneIds.get(object);
           target = boneId
@@ -462,14 +506,26 @@ export function serializeAnimationClips(
         : target.kind === 'boneTransform'
           ? 'body'
           : 'scene';
-      const size = track.getValueSize();
+      // glTF cubic tracks store in-tangent/value/out-tangent per key. The
+      // registry/validation view describes values; native playback retains
+      // the original track and its Three interpolant, including its tangents.
+      const cubic = !!(track as KeyframeTrack & {
+        createInterpolant: { isInterpolantFactoryMethodGLTFCubicSpline?: boolean };
+      }).createInterpolant.isInterpolantFactoryMethodGLTFCubicSpline;
+      const size = track.getValueSize() / (cubic ? 3 : 1);
+      if (!track.values.every(Number.isFinite)) {
+        throw new Error(`Animation track ${JSON.stringify(track.name)} contains non-finite samples.`);
+      }
+      const values = cubic
+        ? Array.from(track.times).flatMap((_, key) => Array.from(track.values.slice((key * 3 + 1) * size, (key * 3 + 2) * size)))
+        : Array.from(track.values);
       tracks.push({
         id: index + 1,
         channelId: channelId(kind),
         target,
         valueType: size === 4 ? 'quat' : size === 3 ? 'vec3' : 'scalar',
         times: Array.from(track.times),
-        values: Array.from(track.values),
+        values,
         interpolation: track.getInterpolation() === InterpolateDiscrete ? 'step' : 'linear',
         sourceName: track.name,
       });
@@ -495,14 +551,17 @@ type MaterialConfig = {
 const materials = (value: Material | Material[] | undefined): Material[] =>
   value ? (Array.isArray(value) ? value : [value]) : [];
 
+const highlightOverlays = new WeakSet<Object3D>();
+
 export class ThreeFrameApplier {
   private meshes = new Map<number, Mesh>();
   private morphs = new Map<number, { mesh: Mesh; index: number }>();
   private bones = new Map<number, Object3D>();
   private objects = new Map<number, Object3D>();
-  private originalEmissive = new Map<string, { color: number; intensity: number }>();
+  private highlighted = new Map<Mesh, { original: Material | Material[]; overlay: Mesh }>();
 
   setBindings(inspection: ThreeModelInspection) {
+    this.clearMeshHighlights();
     this.meshes = new Map(inspection.meshBindings);
     this.morphs = new Map(inspection.morphBindings);
     this.bones = new Map(inspection.boneBindings);
@@ -554,7 +613,7 @@ export class ThreeFrameApplier {
       // Profile replay runs when a model binds and when its profile changes.
       // A visibility-only entry is just as authored as a material override.
       if (typeof config.visible === 'boolean') object.visible = config.visible;
-      if (config.material) this.applyMaterial(object, config.material);
+      if (config.material) this.applyHighlightedMeshMaterial(object, config.material);
     });
   }
 
@@ -570,32 +629,96 @@ export class ThreeFrameApplier {
   }
 
   setMeshMaterialConfig(root: Object3D, name: string, config: MaterialConfig) {
-    this.visitMesh(root, name, (mesh) => this.applyMaterial(mesh, config));
+    this.visitMesh(root, name, (mesh) => this.applyHighlightedMeshMaterial(mesh, config));
+  }
+
+  private applyHighlightedMeshMaterial(mesh: Mesh, config: MaterialConfig): void {
+    this.applyMaterial(mesh, config);
+    const original = this.highlighted.get(mesh)?.original;
+    if (!original) return;
+    const highlighted = mesh.material;
+    try {
+      mesh.material = original;
+      this.applyMaterial(mesh, config);
+    } finally {
+      mesh.material = highlighted;
+    }
   }
 
   setMeshVisible(root: Object3D, name: string, visible: boolean) {
     this.visitMesh(root, name, (mesh) => { mesh.visible = visible; });
   }
 
-  highlightMesh(root: Object3D, name: string | null, color = 0x00ffff, intensity = 0.5) {
-    root.traverse((object: any) => {
-      if (!object.isMesh) return;
-      for (const material of materials(object.material) as any[]) {
-        if (!material.emissive) continue;
-        const key = `${object.uuid}:${material.uuid}`;
-        if (name === object.name) {
-          if (!this.originalEmissive.has(key)) this.originalEmissive.set(key, { color: material.emissive.getHex(), intensity: material.emissiveIntensity ?? 0 });
-          material.emissive.setHex(color);
-          material.emissiveIntensity = intensity;
-        } else {
-          const original = this.originalEmissive.get(key);
-          if (original) {
-            material.emissive.setHex(original.color);
-            material.emissiveIntensity = original.intensity;
-          }
-        }
+  /** Apply a complete Rust snapshot. Only native resources and ID bindings live here. */
+  applyMeshHighlightFrame(frame: MeshHighlightFrame): void {
+    if (frame.version !== 1) throw new Error(`Unsupported mesh highlight frame version: ${frame.version}`);
+    const selected = new Set(frame.highlights.map(write => this.meshes.get(write.meshId)));
+    for (const mesh of this.highlighted.keys()) {
+      if (!selected.has(mesh)) this.clearMeshHighlight(mesh);
+    }
+    for (const write of frame.highlights) {
+      if (write.edgeMode !== 'triangles') throw new Error(`Unsupported highlight edge mode: ${write.edgeMode}`);
+      const mesh = this.meshes.get(write.meshId);
+      if (!mesh) continue;
+      let state = this.highlighted.get(mesh);
+      if (!state) {
+        const original = mesh.material;
+        // Isolate temporary fill changes when several meshes share a material.
+        const copies = materials(original).map(material => {
+          const copy = material.clone();
+          // Offset the fill just enough to keep coplanar wire edges visible.
+          copy.polygonOffset = true;
+          copy.polygonOffsetFactor = 1;
+          copy.polygonOffsetUnits = 1;
+          return copy;
+        });
+        mesh.material = Array.isArray(original) ? copies : copies[0];
+        const overlay = mesh.clone(false);
+        overlay.name = '';
+        overlay.userData = {};
+        overlay.position.set(0, 0, 0);
+        overlay.quaternion.identity();
+        overlay.scale.set(1, 1, 1);
+        overlay.matrix.identity();
+        overlay.matrixAutoUpdate = true;
+        overlay.visible = true;
+        overlay.castShadow = overlay.receiveShadow = false;
+        overlay.raycast = () => {};
+        overlay.material = new MeshBasicMaterial({ wireframe: write.edgeMode === 'triangles', transparent: true, depthWrite: false, toneMapped: false });
+        overlay.onBeforeRender = () => {
+          overlay.geometry = mesh.geometry;
+          overlay.morphTargetInfluences = mesh.morphTargetInfluences;
+        };
+        highlightOverlays.add(overlay);
+        mesh.add(overlay);
+        state = { original, overlay };
+        this.highlighted.set(mesh, state);
       }
-    });
+      for (const material of materials(mesh.material) as any[]) {
+        if (!material.emissive) continue;
+        material.emissive.setRGB(...write.fillColor);
+        material.emissiveIntensity = write.fillIntensity;
+      }
+      const edges = state.overlay.material as MeshBasicMaterial;
+      edges.color.setRGB(...write.edgeColor);
+      edges.opacity = write.edgeOpacity;
+      edges.side = materials(mesh.material)[0]?.side ?? edges.side;
+      state.overlay.renderOrder = mesh.renderOrder + 1;
+    }
+  }
+
+  clearMeshHighlights(): void {
+    for (const mesh of this.highlighted.keys()) this.clearMeshHighlight(mesh);
+  }
+
+  private clearMeshHighlight(mesh: Mesh): void {
+    const state = this.highlighted.get(mesh)!;
+    state.overlay.removeFromParent();
+    (state.overlay.material as Material).dispose();
+    // Geometry and skeleton belong to the source mesh and must stay alive.
+    for (const material of materials(mesh.material)) material.dispose();
+    mesh.material = state.original;
+    this.highlighted.delete(mesh);
   }
 
   applyHairAppearance(meshes: readonly Mesh[], appearance: any) {
@@ -766,13 +889,21 @@ export class ThreeFrameApplier {
   private applyMaterial(mesh: Mesh, config: MaterialConfig) {
     if (typeof config.renderOrder === 'number') mesh.renderOrder = config.renderOrder;
     for (const material of materials((mesh as any).material) as any[]) {
-      if (typeof config.opacity === 'number') material.opacity = config.opacity;
-      if (typeof config.transparent === 'boolean') material.transparent = config.transparent;
-      else if (typeof config.opacity === 'number' && config.opacity < 1) material.transparent = true;
-      if (typeof config.depthWrite === 'boolean') material.depthWrite = config.depthWrite;
-      if (typeof config.depthTest === 'boolean') material.depthTest = config.depthTest;
-      if (config.blending) material.blending = THREE_BLENDING_MODES[config.blending];
-      material.needsUpdate = true;
+      let changed = false;
+      const assign = (key: string, value: unknown) => {
+        if (material[key] === value) return;
+        material[key] = value;
+        changed = true;
+      };
+      if (typeof config.opacity === 'number') assign('opacity', config.opacity);
+      if (typeof config.transparent === 'boolean') assign('transparent', config.transparent);
+      else if (typeof config.opacity === 'number' && config.opacity < 1) assign('transparent', true);
+      if (typeof config.depthWrite === 'boolean') assign('depthWrite', config.depthWrite);
+      if (typeof config.depthTest === 'boolean') assign('depthTest', config.depthTest);
+      if (config.blending) assign('blending', THREE_BLENDING_MODES[config.blending]);
+      // Profile replacement also replays unchanged materials after mapping edits.
+      // Invalidate renderer programs only when an authored material value changes.
+      if (changed) material.needsUpdate = true;
     }
   }
 
@@ -783,9 +914,12 @@ export class ThreeFrameApplier {
 
 export const collectMorphMeshes = (root: Object3D) => {
   const meshes: Mesh[] = [];
-  root.traverse((object: any) => { if (object.isMesh && morphEntries(object).length > 0) meshes.push(object); });
+  root.traverse((object: any) => { if (object.isMesh && !highlightOverlays.has(object) && morphEntries(object).length > 0) meshes.push(object); });
   return meshes;
 };
 
 export * from './model';
 export * from './scene';
+
+export * from './editor/SkeletonOverlay';
+export * from './editor/morphVertexPreview';
