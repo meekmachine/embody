@@ -100,7 +100,12 @@ pub(crate) fn decode_animation(mut animation: Value, profile: &Value) -> Result<
         if curves.contains_key(&id) { return Err(conflict(&id, "")); }
         curves.insert(id.clone(), track.get("keyframes").ok_or("Invalid saved movement keyframes")?.clone());
         for (field, destination) in [("balance", &mut balances), ("morphStrength", &mut weights)] {
-            if let Some(value) = track.get(field).filter(|v| !v.is_null()) { destination.insert(id.clone(), value.clone()); }
+            if let Some(value) = track.get(field).filter(|v| !v.is_null()) {
+                if destination.get(&id).is_some_and(|old| !equal_setting(old, value)) {
+                    return Err(conflict(&id, " side settings"));
+                }
+                destination.insert(id.clone(), value.clone());
+            }
         }
     }
     let out = animation.as_object_mut().ok_or("Saved animation must be an object")?;

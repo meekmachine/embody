@@ -58,3 +58,27 @@ fn unknown_names_and_directions_fail_without_reclassifying_custom_ids() {
     let fish = json!({"aus":{"26":0.6,"30":0.4},"label":"fins"});
     assert_eq!(decode_pose(fish.clone(), &Value::Null).unwrap(), fish);
 }
+
+
+#[test]
+fn animation_rejects_conflicting_side_settings_without_replacing_saved_data() {
+    let original = json!({"label":"keep", "semanticAnimation":{"tracks":[{
+        "controlId":"body.headTurn", "direction":"positive", "keyframes":[],
+        "balance":1, "morphStrength":0.25
+    }]}});
+    for (field, value) in [("balanceMap", -1.0), ("mixWeights", 0.75)] {
+        let mut conflict = original.clone();
+        conflict[field] = json!({"52":value, "999":0.4});
+        assert!(decode_animation(conflict.clone(), &Value::Null)
+            .unwrap_err().contains("side settings"));
+        assert_eq!(conflict[field]["52"], value);
+        assert!(conflict.get("semanticAnimation").is_some());
+    }
+    let mut equal = original;
+    equal["balanceMap"] = json!({"52":1.0,"999":-0.5});
+    equal["mixWeights"] = json!({"52":0.25,"999":0.4});
+    let decoded = decode_animation(equal, &Value::Null).unwrap();
+    assert_eq!(decoded["balanceMap"], json!({"52":1,"999":-0.5}));
+    assert_eq!(decoded["mixWeights"], json!({"52":0.25,"999":0.4}));
+    assert_eq!(decoded["curves"]["52"], json!([]));
+}
