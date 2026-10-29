@@ -1,10 +1,11 @@
 // This fixture is copied into an isolated consumer of the packed package.
 // The error assertions below fail if the public loader regresses to `any`.
-import { initEmbodyCore as initFromRoot, getAUDescriptors as rootAUDescriptors, LEGACY_BODY_CONTROL_AUS, type AUDescriptor as RootAUDescriptor } from '@lovelace_lol/embody';
+import { initEmbodyCore as initFromRoot, getAUDescriptors as rootAUDescriptors, LEGACY_BODY_CONTROL_AUS, decodeLegacyPose, type AUDescriptor as RootAUDescriptor } from '@lovelace_lol/embody';
 import {
   getAUDescriptors as wasmAUDescriptors,
   type AUDescriptor as WasmAUDescriptor,
   getEmbodyCore,
+  decodeLegacyAnimation,
   initEmbodyCore,
   requireInitializedEmbodyCore,
   type EmbodyCore,
@@ -114,6 +115,11 @@ new ThreeAnnotations({});
 controller.focusRegion(123);
 
 const core: EmbodyCore = await initEmbodyCore();
+const decodedSavedPose = decodeLegacyPose({ label: 'saved pose', aus: { '26': 0.5 } });
+const decodedSavedAnimation = decodeLegacyAnimation({ label: 'saved animation', curves: {} });
+const savedPoseLabel: string = decodedSavedPose.label;
+const savedAnimationLabel: string = decodedSavedAnimation.label;
+void [savedPoseLabel, savedAnimationLabel];
 const character = new Embody({ profileMode: 'profile', profile: {} });
 const contribution: Record<string, number> | null = character.readAUContribution('head-yaw');
 const auState: import('@lovelace_lol/embody').CharacterAUState = character.readAUState();
