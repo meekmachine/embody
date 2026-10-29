@@ -42,6 +42,8 @@ export type ThreeNativePlaybackBinding = {
   inspection: ThreeModelInspection;
   /** Optional existing native mixer. Otherwise the connector owns one. */
   mixer?: AnimationMixer;
+  /** Apply renderer effects using the existing scene clock; never starts a loop. */
+  onFrame?: (deltaSeconds: number) => void;
 };
 type BoundPlayback = ThreeNativePlaybackBinding & { mixer: AnimationMixer };
 
@@ -132,6 +134,10 @@ export class ThreeNativePlaybackConnector {
 
   private readonly afterFrame = (renderDeltaSeconds: number): void => {
     this.flushEvents();
+    if (this.disposed) return;
+    // Keep renderer-owned effects (including mesh highlighting) on the same
+    // scene-clock callback before observing the resulting pose for hair.
+    this.binding.onFrame?.(renderDeltaSeconds);
     if (this.disposed || !this.onRenderedFrame) return;
     try { this.onRenderedFrame(renderDeltaSeconds * this.binding.mixer.timeScale); }
     catch (error) {

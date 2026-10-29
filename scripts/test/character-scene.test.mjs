@@ -244,6 +244,42 @@ test('the synchronous API still immediately returns an attached, unprepared WebG
   assertReleased(host, callbacks);
 });
 
+for (const synchronous of [false, true]) {
+  test(`${synchronous ? 'synchronous' : 'async'} scene applies each character configuration without carrying previous settings`, async (t) => {
+    const callbacks = resizeEvents(t), host = container();
+    const handle = synchronous ? createDefaultCharacterScene(host, { type: 'void' })
+      : await createWebGLSceneAsync(host, { type: 'void' });
+    handle.setSceneSettings({ type: 'showcase', cameraFov: 60, shadows: false, shadowPlane: false,
+      background: '#123456', lighting: { exposure: 1.7 } });
+    assert.equal(handle.scene.background.getHex(), 0x123456);
+    assert.equal(handle.camera.fov, 60);
+    assert.equal(handle.lighting.getSettings().exposure, 1.7);
+    assert.equal(handle.renderer.shadowMap.enabled, false);
+    assert.equal(handle.sceneType, 'showcase');
+    handle.setSceneSettings({});
+    assert.equal(handle.scene.background, null);
+    assert.equal(handle.camera.fov, 45);
+    assert.equal(handle.lighting.getSettings().exposure, 1.08);
+    assert.equal(handle.renderer.shadowMap.enabled, true);
+    assert.equal(handle.shadowPlane.visible, true, 'a later character can acquire the initially absent shadow plane');
+    assert.equal(handle.sceneType, 'studio');
+    await handle.dispose();
+    assertReleased(host, callbacks);
+  });
+}
+
+test('character shadow settings survive a renderer backend replacement', async (t) => {
+  webgpuAvailable(t);
+  const host = container();
+  const runtime = createDefaultCharacterSceneRuntime(host, { renderer: 'webgl' });
+  await runtime.ready;
+  runtime.setSceneSettings({ shadows: false, lighting: { exposure: 1.4 } });
+  await runtime.rendering.setSettings({ preference: 'webgpu' });
+  assert.equal(runtime.renderer.shadowMap.enabled, false);
+  assert.equal(runtime.renderer.toneMappingExposure, 1.4);
+  await runtime.dispose();
+});
+
 function webgpuAvailable(t, gpu = {}) {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { gpu } });
@@ -692,6 +728,66 @@ test('capture leases delay replacement and equal preference joins the pending re
   assert.equal(renderer.disposeCount, 1); await runtime.dispose(); assertReleased(host, callbacks);
 });
 
+test('async renderer admission drains queued scenery changes before borrowing and protects its granted lease', async (t) => {
+  const host = container(), callbacks = resizeEvents(t);
+  const runtime = createDefaultCharacterSceneRuntime(host, { renderer: 'webgl' }); await runtime.ready;
+  const capture = runtime.rendering.acquireRenderer(), changes = [];
+  // Scenery attachment and retirement use this actual scene-owner queue.
+  const first = runtime.rendering.releaseSceneResources(() => changes.push('first'));
+  let admitted = false;
+  const admission = runtime.rendering.acquireRendererAsync().then(lease => { admitted = true; return lease; });
+  const second = runtime.rendering.releaseSceneResources(() => changes.push('second'));
+  await Promise.resolve();
+  assert.equal(admitted, false); assert.deepEqual(changes, []);
+  assert.throws(() => runtime.rendering.acquireRenderer(), /not available/);
+  capture.release(); await first; await second;
+  const lease = await admission;
+  assert.equal(lease.renderer, runtime.renderer); assert.deepEqual(changes, ['first', 'second']);
+  const third = runtime.rendering.releaseSceneResources(() => changes.push('third'));
+  await Promise.resolve(); assert.deepEqual(changes, ['first', 'second']);
+  lease.release(); await third; assert.deepEqual(changes, ['first', 'second', 'third']);
+  await runtime.dispose(); assertReleased(host, callbacks);
+});
+
+test('async renderer admission owns its lease before the caller resumes', async (t) => {
+  const host = container(), callbacks = resizeEvents(t);
+  const runtime = createDefaultCharacterSceneRuntime(host, { renderer: 'webgl' }); await runtime.ready;
+  const admission = runtime.rendering.acquireRendererAsync();
+  let changed = false;
+  const sceneryChange = runtime.rendering.releaseSceneResources(() => { changed = true; });
+  await Promise.resolve(); assert.equal(changed, false);
+  const lease = await admission;
+  assert.equal(changed, false); lease.release(); await sceneryChange;
+  assert.equal(changed, true); await runtime.dispose(); assertReleased(host, callbacks);
+});
+
+test('scene disposal rejects async admission queued behind borrowed resource work', async (t) => {
+  const host = container(), callbacks = resizeEvents(t);
+  const runtime = createDefaultCharacterSceneRuntime(host, { renderer: 'webgl' }); await runtime.ready;
+  const capture = runtime.rendering.acquireRenderer();
+  const sceneryChange = runtime.rendering.releaseSceneResources(() => {});
+  const rejected = assert.rejects(runtime.rendering.acquireRendererAsync(), { name: 'AbortError' });
+  const disposal = runtime.dispose();
+  capture.release(); await sceneryChange; await rejected; await disposal;
+  assertReleased(host, callbacks);
+});
+
+test('async renderer admission retains a healthy renderer after failed replacement', async (t) => {
+  webgpuAvailable(t);
+  const host = container(), callbacks = resizeEvents(t), entered = deferred(), compile = deferred();
+  const runtime = createDefaultCharacterSceneRuntime(host, { renderer: 'webgl' }); await runtime.ready;
+  const original = runtime.renderer;
+  control.prepare = () => { entered.resolve(); return compile.promise; };
+  const switching = runtime.rendering.setSettings({ preference: 'webgpu' });
+  const rejected = assert.rejects(switching, /scenery admission switch failed/);
+  await entered.promise;
+  const admission = runtime.rendering.acquireRendererAsync();
+  compile.reject(new Error('scenery admission switch failed')); await rejected;
+  const lease = await admission;
+  assert.equal(lease.renderer, original); assert.equal(runtime.rendering.getSnapshot().status, 'error');
+  lease.release(); await runtime.dispose(); assertReleased(host, callbacks);
+});
+
 test('dispose closes immediately and settles after compilation and capture borrowing', async (t) => {
   webgpuAvailable(t);
   const host = container(), callbacks = resizeEvents(t), entered = deferred(), compile = deferred();
@@ -736,6 +832,7 @@ test('device-loss snapshot permits WebGL recovery without rebuilding character s
   runtime.renderer.onDeviceLost({ message: 'device reset' });
   assert.equal(runtime.rendering.getSnapshot().status, 'lost');
   assert.throws(() => runtime.rendering.acquireRenderer(), /not available/);
+  await assert.rejects(runtime.rendering.acquireRendererAsync(), /not available/);
   await runtime.rendering.setSettings({ preference: 'webgl' });
   assert.equal(runtime.rendering.getSnapshot().status, 'ready'); assert.equal(runtime.backend, 'webgl');
   assert.equal(runtime.scene, scene); assert.equal(runtime.lighting, lighting); assert.equal(runtime.camera, camera);

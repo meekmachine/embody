@@ -1,5 +1,149 @@
 # Default scene readiness and renderer selection
 
+## Character host ownership
+
+`createCharacterHost` composes the existing model loader, scene, camera controller,
+Embody engine and native render integration. Applications resolve database profiles
+and authorized asset URLs; they do not construct another scene, model binding or
+render loop around this host. The returned `cameraController`, lighting and rendering
+controllers expose editor operations. `gltf` retains model metadata for attribution.
+
+`character.profile` and `embody.profileMode` retain their existing semantics. An
+already-expanded profile uses `profileMode: 'profile'`; the host does not silently
+select a preset. The existing Rust mapping validator applies supported model-name
+corrections to that runtime copy and the supplied `character.annotationConfig`.
+Saved annotation configuration controls initial regions and camera behavior; the
+full-body fallback applies only when no annotation configuration was supplied.
+
+`loadModel(url, { ...loaderOptions, signal })` can deliver the model through the
+application's existing authenticated cache or storage route. Resolving transfers
+the model and its resources to the host, including late results after cancellation.
+The host releases rejected/superseded results after any borrowed Three work settles.
+The default loader remains available and cannot interrupt a Three parse already in
+progress. Applications retain database authorization and profile persistence.
+
+`prepareCharacter({ engine, model, meshes, animations, gltf, character, signal })`
+runs with a bound, stopped engine so authored morph edits can use its public APIs.
+Saved transforms precede binding and reference capture. The model remains hidden.
+Embody then normalizes morph layouts, reinspects authored targets, prepares GPU
+resources, applies camera configuration,
+and reveals the model. `onCharacterReady` runs after preparation and camera setup,
+before reveal. These callbacks borrow the host's rendering lease; they must not
+await a renderer switch or host disposal that needs that lease. Optional embedded
+clips remain available on `host.animations` when `registerEmbeddedAnimations: false`;
+this prevents eager registration without discarding their source data. No saved
+animation autoplay policy is introduced. Profile-enabled hair continues through
+Embody's existing native clip path.
+
+The factory's `signal` covers construction only and is detached after success.
+`setCharacter(character, loaderOptions?, signal?)` preserves the scene while replacing
+the engine/model. Newer requests cancel older ones; cancellation is checked after
+asset delivery, authored preparation and GPU preparation before publication. A
+failed preparation retains the previous character. A retirement failure after
+publication reports an error while the host still identifies the new character.
+`dispose()` cancels outstanding
+work, drains renderer borrowers and releases the final model and owned scene.
+
+`character.scene` contains `CharacterSceneConfiguration`: scene type, background,
+camera FOV, shadows, lighting preset/settings and shadow-plane visibility. Every
+character applies a fresh configuration through the existing scene handle's
+`setSceneSettings` method. Omitted values reset to the selected scene type's defaults
+instead of retaining another character's edits. Renderer preference and DOM/resize
+ownership remain factory settings. Backend replacement preserves the current
+character's shadow and lighting choices.
+
+Acceptance in the application should cover loading a saved custom profile, authored
+morph replay, saved annotation focus, manual animation controls, enabled hair,
+switching to a character with different or absent scene settings, cancelling a
+switch during loading/preparation, and disposing while a renderer operation is
+pending. CI owns execution of the host lifecycle, morph-layout and scene-setting
+regressions; these checks are not evidence of completed browser acceptance.
+
+## Scenery layouts and background ownership
+
+`createSceneSceneryRenderer({ scene, rendering, loadAsset, onError })` attaches
+scenery to an existing scene. `loadAsset(assetId, signal)` returns
+`{ bytes: ArrayBuffer, contentType: string }` through the application's authorized
+asset path. Storage, catalog identities, persisted layouts and selection precedence
+remain application concerns. Polymer may reexport this Three adapter; applications
+do not need direct GLTF loaders, texture loaders or a second render loop.
+
+`update(layout)` accepts `SceneSceneryLayout | null`. A layout contains `skybox`
+and `instances`. Each instance has a unique `instanceId`, an `assetId` and finite
+world `position: { x, y, z }` in the scene's native units (Y up in default scenes).
+A placement wrapper preserves the GLB's authored transforms. Two instances of one
+asset remain independent. Editing a retained placement's position does not reload
+it. Changing its asset or removing it cancels its download/parse completion and
+retires only that placement. Models must be self-contained GLB 2.0 with content
+type `model/gltf-binary`; parsing refuses external texture/geometry URLs.
+Embedded animation clips are not played automatically.
+
+The optional background contains `kind: 'skybox' | 'backdrop' | 'color'`,
+`assetId: string | null`, six-digit `color: '#rrggbb'`, finite nonnegative
+`intensity`, and finite `rotation` in Y-axis degrees. Skybox images use
+equirectangular mapping; backdrops use screen-space mapping. PNG, JPEG and WebP
+images load through the same asset callback. A missing image asset creates a
+gradient using the saved color. A solid color requires `assetId: null`.
+All layout fields validate and copy before any selection changes. Runtime load
+errors reach `onError`; a failed image replacement keeps the previous committed
+background, and the same update can retry it. Superseded work never attaches.
+
+Each scene permits one live scenery controller. Default scene constructors and
+`setSceneSettings` keep the character's inherited background separate from the
+scenery override. Character replacement can update that base under an active
+skybox; clearing scenery restores the latest base, including its intensity and
+rotation. Applications must not mutate `scene.background` while scenery owns it.
+Scenery leaves the character, camera, native render loop, lighting/environment
+and unrelated scene objects intact.
+
+Pass the existing scene's `rendering` controller so model attachment, background
+swaps and resource retirement use `releaseSceneResources` to drain compilation,
+captures and native frames. Omit it only when the external scene owner guarantees
+there is no borrowed asynchronous rendering work. `dispose()` cancels loads,
+releases logical background ownership immediately and returns the same promise
+until pending noninterruptible parses/decodes and resource cleanup settle. A new
+controller may acquire the scene while that cleanup drains; the retired owner
+cannot overwrite the new background. Await disposal before releasing externally
+owned scene resources. Disposing an Embody-owned default scene also cancels its
+scenery owner. An authorized loader must honor cancellation or eventually settle.
+
+Character preparation acquires its renderer through
+`rendering.acquireRendererAsync()`. Admission waits queued scenery cleanup or
+renderer replacement, then holds a lease before its promise resolves. A scenery
+download completing during a character change therefore queues behind an
+already admitted character or completes before its admission; it does not turn
+ordinary resource contention into a failed character load. Cancellation after
+admission releases that lease before the candidate model is retired. The
+synchronous `acquireRenderer()` remains available for immediate capture and
+continues to reject while scene resource work is queued. Async admission rejects
+when the owner is disposed or its active renderer is lost, while a failed switch
+that retained a healthy renderer still permits borrowing it. Callers release
+either kind of lease in `finally`; they must not request async admission while
+holding a lease that queued scene work is waiting to drain.
+
+```ts
+import { createSceneSceneryRenderer } from '@lovelace_lol/embody/three';
+
+const scenery = createSceneSceneryRenderer({
+  scene: host.scene,
+  rendering: host.rendering,
+  loadAsset: loadAuthorizedSceneryBytes,
+  onError: showSceneryError,
+});
+scenery.update({
+  skybox: { kind: 'skybox', assetId: 'garden-sky', color: '#668cae', intensity: 1, rotation: 90 },
+  instances: [{ instanceId: 'tree-left', assetId: 'tree', position: { x: -2, y: 0, z: 4 } }],
+});
+// Later: await scenery.dispose(), then release an externally owned scene.
+```
+
+CI regression source covers invalid/duplicate placements, independent instances,
+late loader/parse/decode results, latest-base restoration, overlapping controller
+cleanup and renderer-drained disposal. These adapter cases do not establish
+browser acceptance or saved selection behavior in the application.
+
+## Renderer selection
+
 The Three adapter owns renderer acquisition, switching, lighting/environment,
 canvas binding and backend recovery. Hosts persist settings and display the
 controller snapshot. Character loading and animation scheduling stay with their
@@ -7,12 +151,12 @@ existing owners. The default preference is `auto`; the synchronous legacy
 factory remains WebGL-only.
 
 ```ts
-import { createDefaultCharacterSceneRuntime, DPthreeCameraController } from '@lovelace_lol/embody/three';
+import { createDefaultCharacterSceneRuntime, ThreeAnnotationController } from '@lovelace_lol/embody/three';
 
 const runtime = createDefaultCharacterSceneRuntime(container, {
   rendering: { preference: 'auto' },
 });
-const cameraControls = new DPthreeCameraController({
+const cameraControls = await ThreeAnnotationController.create({
   scene: runtime.scene, camera: runtime.camera, domElement: container,
   rendering: runtime.rendering,
 });
@@ -168,8 +312,8 @@ do not notify the compatibility `onDeviceLost` callback. Loss after readiness
 publishes `lost` with the error; `setSettings` can acquire a healthy renderer
 without recreating the scene. Recovery is explicit, never a hidden backend swap.
 
-Pass `rendering` to `DPthreeCameraController` to bind it to the runtime. Its one
-loop is suspended/drained, then retargeted along with OrbitControls and annotation
+Pass `rendering` to `ThreeAnnotationController` to bind it to the runtime. Its one
+loop is suspended/drained, then retargeted along with native input controls and annotation
 canvas listeners by Embody. Pending model readiness is canceled before switching.
 Bound render/loop failures update the rendering snapshot rather than invoking a
 fatal host `onRenderError` recovery path. The legacy fixed-renderer configuration
@@ -179,7 +323,7 @@ owns or disposes caller-added character resources.
 
 ## Model readiness
 
-`DPthreeCameraController.prepareModelForRender(model, { signal? }): Promise<void>`
+`ThreeAnnotationController.prepareModelForRender(model, { signal? }): Promise<void>`
 prepares a loaded model before its first reveal. The controller must own an
 active renderer loop, and a WebGPU renderer must already be initialized (as it
 is after `createDefaultCharacterSceneAsync`). The model must be detached or part

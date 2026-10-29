@@ -22,6 +22,7 @@ import type { WebGPURenderer } from 'three/webgpu';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { registerSceneRendering } from './sceneRenderingBinding';
 import { prepareModelSkinning } from './modelSkinning';
+import { disposeSceneBackground, setSceneBaseBackground } from './sceneBackground';
 
 export type DefaultCharacterLightingSettings = {
   envMapEnabled: boolean;
@@ -68,6 +69,11 @@ export type DefaultCharacterSceneOptions = {
   shadowPlane?: boolean;
   manageResize?: boolean;
 };
+/** Saved per-character appearance; renderer preference and DOM ownership stay separate. */
+export type CharacterSceneConfiguration = Pick<DefaultCharacterSceneOptions,
+  'type' | 'cameraFov' | 'shadows' | 'lightingPreset' | 'lighting' | 'shadowPlane'> & {
+    background?: string | number | null;
+  };
 
 export type DefaultCharacterSceneAsyncOptions = DefaultCharacterSceneOptions & {
   /** Auto (default) tries native WebGPU initialization, then falls back to WebGL. */
@@ -94,6 +100,7 @@ type CharacterScene<R extends CharacterSceneRenderer> = {
   sceneType: CharacterSceneTypeId;
   ownsScene: true;
   resize: () => void;
+  setSceneSettings: (settings: CharacterSceneConfiguration) => void;
   dispose: () => void;
 };
 
@@ -117,6 +124,8 @@ export interface CharacterSceneRenderingController {
   subscribe(listener: (snapshot: CharacterSceneRenderingSnapshot) => void): () => void;
   /** Borrow for capture/readback; release in finally. Unavailable during switching/loss. */
   acquireRenderer(): CharacterSceneRendererLease;
+  /** Wait for queued scene work, then atomically borrow the active renderer. Release in finally. */
+  acquireRendererAsync(): Promise<CharacterSceneRendererLease>;
   /** Drain borrowed work, then synchronously detach/free caller-owned resources, even after loss/disposal. */
   releaseSceneResources(release: () => void): Promise<void>;
 }
@@ -313,22 +322,42 @@ function constructDefaultCharacterScene<R extends CharacterSceneRenderer>(
   lifetime.add(disposeRenderer);
   try {
     const sceneType = CHARACTER_SCENE_TYPES[options.type as CharacterSceneTypeId] ?? CHARACTER_SCENE_TYPES.studio;
+    let currentSceneType = sceneType.id;
     const width = Math.max(1, container.clientWidth || globalThis.innerWidth || 1);
     const height = Math.max(1, container.clientHeight || globalThis.innerHeight || 1);
     const ratio = () => Math.min(globalThis.devicePixelRatio || 1, options.pixelRatioCap ?? 1.5);
     renderer.setPixelRatio(ratio()); renderer.setSize(width, height, true); renderer.shadowMap.enabled = options.shadows ?? true; renderer.shadowMap.type = PCFShadowMap;
     Object.assign(renderer.domElement.style, { display: 'block', width: '100%', height: '100%' });
-    const scene = new Scene(); const background = options.background === undefined ? sceneType.background : options.background; scene.background = background == null ? null : new Color(background);
+    const scene = new Scene(); const background = options.background === undefined ? sceneType.background : options.background;
+    setSceneBaseBackground(scene, background == null ? null : new Color(background));
+    lifetime.add(() => disposeSceneBackground(scene));
     const camera = new PerspectiveCamera(options.cameraFov ?? 45, width / height, .1, 1000);
     const preset = DEFAULT_CHARACTER_LIGHTING_PRESETS[(options.lightingPreset ?? sceneType.lightingPreset) as DefaultCharacterLightingPresetId]?.settings ?? DEFAULT_CHARACTER_LIGHTING_SETTINGS;
     const lighting = createLighting(scene, { ...preset, ...options.lighting });
     lifetime.add(() => lighting.dispose());
-    const shadowPlane = (options.shadowPlane ?? sceneType.shadowPlane) ? createShadowPlane(scene, { opacity: lighting.getSettings().shadowOpacity }) : null;
-    if (shadowPlane) {
-      lifetime.add(() => shadowPlane.material.dispose());
-      lifetime.add(() => shadowPlane.geometry.dispose());
-      lifetime.add(() => scene.remove(shadowPlane));
-    }
+    let shadowPlane: ReturnType<typeof createShadowPlane> | null = null;
+    const ensureShadowPlane = () => {
+      if (shadowPlane) return shadowPlane;
+      const plane = createShadowPlane(scene, { opacity: lighting.getSettings().shadowOpacity });
+      lifetime.add(() => plane.material.dispose()); lifetime.add(() => plane.geometry.dispose()); lifetime.add(() => scene.remove(plane));
+      shadowPlane = plane;
+      return plane;
+    };
+    if (options.shadowPlane ?? sceneType.shadowPlane) ensureShadowPlane();
+    const setSceneSettings = (value: CharacterSceneConfiguration) => {
+      if (lifetime.isDisposed()) return;
+      const type = CHARACTER_SCENE_TYPES[value.type ?? DEFAULT_CHARACTER_SCENE_TYPE_ID] ?? CHARACTER_SCENE_TYPES[DEFAULT_CHARACTER_SCENE_TYPE_ID];
+      currentSceneType = type.id;
+      const background = value.background === undefined ? type.background : value.background;
+      setSceneBaseBackground(scene, background == null ? null : new Color(background));
+      camera.fov = value.cameraFov ?? 45; camera.updateProjectionMatrix();
+      const preset = DEFAULT_CHARACTER_LIGHTING_PRESETS[value.lightingPreset ?? type.lightingPreset] ?? DEFAULT_CHARACTER_LIGHTING_PRESETS[DEFAULT_CHARACTER_LIGHTING_PRESET_ID];
+      lighting.setSettings({ ...preset.settings, ...value.lighting });
+      renderer.shadowMap.enabled = value.shadows ?? true;
+      const showPlane = value.shadowPlane ?? type.shadowPlane;
+      if (showPlane) ensureShadowPlane();
+      if (shadowPlane) shadowPlane.visible = showPlane;
+    };
     const resize = () => {
       if (lifetime.isDisposed()) return;
       const w = Math.max(1, container.clientWidth || globalThis.innerWidth || 1);
@@ -336,7 +365,7 @@ function constructDefaultCharacterScene<R extends CharacterSceneRenderer>(
       camera.aspect = w / h; camera.updateProjectionMatrix();
       renderer.setPixelRatio(ratio()); renderer.setSize(w, h, false);
     };
-    const handle: CharacterScene<R> = { container, scene, renderer, camera, lighting, shadowPlane, sceneType: sceneType.id, ownsScene: true, resize, dispose: lifetime.dispose };
+    const handle: CharacterScene<R> = { container, scene, renderer, camera, lighting, get shadowPlane() { return shadowPlane; }, get sceneType() { return currentSceneType; }, ownsScene: true, resize, setSceneSettings, dispose: lifetime.dispose };
     const attach = () => {
       lifetime.add(() => { if (renderer.domElement.parentElement === container) container.removeChild(renderer.domElement); });
       container.appendChild(renderer.domElement);
@@ -465,19 +494,25 @@ export function createDefaultCharacterSceneRuntime(
   const lifetime = createDisposer();
   try {
     const sceneType = CHARACTER_SCENE_TYPES[options.type as CharacterSceneTypeId] ?? CHARACTER_SCENE_TYPES.studio;
+    let currentSceneType = sceneType.id;
     const scene = new Scene();
     const background = options.background === undefined ? sceneType.background : options.background;
-    scene.background = background == null ? null : new Color(background);
+    setSceneBaseBackground(scene, background == null ? null : new Color(background));
+    lifetime.add(() => disposeSceneBackground(scene));
     const camera = new PerspectiveCamera(options.cameraFov ?? 45, 1, .1, 1000);
     const preset = DEFAULT_CHARACTER_LIGHTING_PRESETS[(options.lightingPreset ?? sceneType.lightingPreset) as DefaultCharacterLightingPresetId]?.settings ?? DEFAULT_CHARACTER_LIGHTING_SETTINGS;
     const lighting = createMutableCharacterLighting(scene, { ...preset, ...options.lighting });
     lifetime.add(lighting.controller.dispose);
-    const shadowPlane = (options.shadowPlane ?? sceneType.shadowPlane) ? createShadowPlane(scene, { opacity: lighting.controller.getSettings().shadowOpacity }) : null;
-    if (shadowPlane) {
-      lifetime.add(() => shadowPlane.material.dispose());
-      lifetime.add(() => shadowPlane.geometry.dispose());
-      lifetime.add(() => scene.remove(shadowPlane));
-    }
+    let shadowsEnabled = options.shadows ?? true;
+    let shadowPlane: ReturnType<typeof createShadowPlane> | null = null;
+    const ensureShadowPlane = () => {
+      if (shadowPlane) return shadowPlane;
+      const plane = createShadowPlane(scene, { opacity: lighting.controller.getSettings().shadowOpacity });
+      lifetime.add(() => plane.material.dispose()); lifetime.add(() => plane.geometry.dispose()); lifetime.add(() => scene.remove(plane));
+      shadowPlane = plane;
+      return plane;
+    };
+    if (options.shadowPlane ?? sceneType.shadowPlane) ensureShadowPlane();
     let settings: CharacterSceneRenderingSettings = { preference: rendererPreference(options.rendering?.preference ?? options.renderer ?? 'auto') };
     let active: RendererCandidate | null = null;
     let candidateInUse: RendererCandidate | null = null;
@@ -561,7 +596,7 @@ export function createDefaultCharacterSceneRuntime(
           candidateInUse = candidate;
           const renderer = candidate.renderer;
           sizeRenderer(renderer, true);
-          renderer.shadowMap.enabled = options.shadows ?? true;
+          renderer.shadowMap.enabled = shadowsEnabled;
           // WebGL PCF is already soft in supported Three versions; the old
           // constant warns and is replaced on the first draw. Keep native filtering.
           renderer.shadowMap.type = candidate.backend === 'webgl' ? PCFShadowMap : PCFSoftShadowMap;
@@ -657,6 +692,21 @@ export function createDefaultCharacterSceneRuntime(
           if (--leaseCount === 0) { leasesReleased?.(); leasesReleased = null; leaseBarrier = null; }
         } };
       },
+      acquireRendererAsync: async () => {
+        for (;;) {
+          if (disposed) throw renderingAborted();
+          const settling = pending;
+          if (settling) {
+            // A failed replacement can retain a healthy renderer. Recheck the
+            // current owner after settlement rather than failing its borrower.
+            await settling.catch(() => undefined);
+            continue;
+          }
+          // No await separates this availability check from incrementing the
+          // lease count; later scenery work must drain this borrower first.
+          return rendering.acquireRenderer();
+        }
+      },
       releaseSceneResources: (release) => {
         // Disposal already owns the drain. A later caller can free its resources
         // once that completion settles, including when owned cleanup failed.
@@ -716,9 +766,24 @@ export function createDefaultCharacterSceneRuntime(
       else cleanup();
       return disposal;
     };
+    const setSceneSettings = (value: CharacterSceneConfiguration) => {
+      if (disposed) return;
+      shadowsEnabled = value.shadows ?? true;
+      const type = CHARACTER_SCENE_TYPES[value.type ?? DEFAULT_CHARACTER_SCENE_TYPE_ID] ?? CHARACTER_SCENE_TYPES[DEFAULT_CHARACTER_SCENE_TYPE_ID];
+      currentSceneType = type.id;
+      const background = value.background === undefined ? type.background : value.background;
+      setSceneBaseBackground(scene, background == null ? null : new Color(background));
+      camera.fov = value.cameraFov ?? 45; camera.updateProjectionMatrix();
+      const preset = DEFAULT_CHARACTER_LIGHTING_PRESETS[value.lightingPreset ?? type.lightingPreset] ?? DEFAULT_CHARACTER_LIGHTING_PRESETS[DEFAULT_CHARACTER_LIGHTING_PRESET_ID];
+      lighting.controller.setSettings({ ...preset.settings, ...value.lighting });
+      if (active) active.renderer.shadowMap.enabled = value.shadows ?? true;
+      const showPlane = value.shadowPlane ?? type.shadowPlane;
+      if (showPlane) ensureShadowPlane();
+      if (shadowPlane) shadowPlane.visible = showPlane;
+    };
     const ready = setSettings(settings);
-    return { container, scene, camera, lighting: lighting.controller, shadowPlane, sceneType: sceneType.id, ownsScene: true,
-      rendering, ready, get renderer() { return active?.renderer ?? null; }, get backend() { return active?.backend ?? null; }, resize, dispose };
+    return { container, scene, camera, lighting: lighting.controller, get shadowPlane() { return shadowPlane; }, get sceneType() { return currentSceneType; }, ownsScene: true,
+      rendering, ready, get renderer() { return active?.renderer ?? null; }, get backend() { return active?.backend ?? null; }, resize, setSceneSettings, dispose };
   } catch (failure) { rollback(lifetime.dispose); throw failure; }
 }
 
@@ -738,6 +803,7 @@ export async function createDefaultCharacterSceneAsync(
     // rendering.getSnapshot() when an atomic backend/renderer pair is needed.
     Object.defineProperties(handle, {
       renderer: { get: () => runtime.renderer }, backend: { get: () => runtime.backend },
+      shadowPlane: { get: () => runtime.shadowPlane }, sceneType: { get: () => runtime.sceneType },
     });
     return handle;
   } catch (failure) {
