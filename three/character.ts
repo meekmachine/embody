@@ -68,9 +68,9 @@ type Source =
   | { name: string; kind: 'curves' | 'typed'; input: any; options: CharacterPlaybackOptions }
   | { name: string; kind: 'compiled'; clip: ClipIR };
 /**
- * Who requested a playback. Caller commands (Stop All, crossfade, pause/resume
- * all) act on `caller` playbacks only. `live` actions belong to the live
- * setters; `hair` actions follow the hair configuration and render step.
+ * Who requested a playback. Stop All and crossfade act only on `caller`
+ * playbacks. Aggregate pause/resume also controls `live` setter transitions,
+ * while `hair` actions follow explicit hair controls and the render step.
  */
 type PlaybackOwner = 'caller' | 'live' | 'hair';
 type Playback = {

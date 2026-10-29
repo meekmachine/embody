@@ -360,7 +360,8 @@ Disposal removes its render hook and releases native output.
 
 Hair actions have explicit character ownership. `stopAllAnimations`, `crossfadeTo`,
 `pauseAllAnimations` and `resumeAllAnimations` leave them running; Stop All and
-crossfade also leave live setter targets intact. Explicit
+crossfade also leave live setter targets intact. Aggregate pause/resume continues
+to pause/resume live setter transitions as well as caller playback. Explicit
 `pauseAnimation('__embody_hair_response')` freezes the simulation, and that pause
 survives cleared mappings and disable/re-enable until the matching
 `resumeAnimation` call. Profile replacement starts a new configuration.
