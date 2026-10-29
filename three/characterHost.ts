@@ -146,7 +146,9 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
     try { await rendering.setSettings(rendering.getSettings()); }
     catch (error) { if (!rendering.getSnapshot().renderer) throw error; }
     check(signal);
-    return rendering.acquireRenderer();
+    const lease = await rendering.acquireRendererAsync();
+    try { check(signal); return lease; }
+    catch (error) { lease.release(); throw error; }
   };
   const makeEngine = (value: CharacterModelLoadResult, character: CharacterHostCharacterOptions) => {
     let profile = character.profile ?? options.embody?.profile;

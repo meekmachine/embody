@@ -6,7 +6,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 export type CharacterModelLoadResult = { model: Object3D; meshes: Mesh[]; animations: AnimationClip[]; gltf: GLTF | null };
-export type CharacterModelLoadOptions = { onProgress?: (progress: number) => void; castShadows?: boolean; dracoDecoderPath?: string };
+export type CharacterModelFormat = 'gltf' | 'fbx';
+export type CharacterModelLoadOptions = { format?: CharacterModelFormat; onProgress?: (progress: number) => void; castShadows?: boolean; dracoDecoderPath?: string };
 export type CharacterModelTransform = { modelOffset?: { x?: number; y?: number; z?: number }; modelRotation?: { x?: number; y?: number; z?: number }; modelScale?: number; modelGroundClearance?: number };
 
 let draco: DRACOLoader | null = null;
@@ -47,6 +48,16 @@ const prepare = (model: Object3D, castShadows = true) => {
   return meshes;
 };
 
+const prepareCharacterModelResult = (model: Object3D, animations: AnimationClip[], gltf: GLTF | null, options: CharacterModelLoadOptions): CharacterModelLoadResult =>
+  ({ model, meshes: prepare(model, options.castShadows), animations, gltf });
+
+const bufferFormat = (data: ArrayBuffer): CharacterModelFormat => {
+  // Inspect only the header; keep glTF's existing errors for unrecognized data.
+  // Explicit format selection also supports ASCII FBX with unusually long comments.
+  const header = new TextDecoder().decode(new Uint8Array(data, 0, Math.min(data.byteLength, 4096)));
+  return header.startsWith('Kaydara FBX Binary  \0') || /^\s*FBXHeaderExtension\s*:/m.test(header) ? 'fbx' : 'gltf';
+};
+
 const progress = (listener?: (progress: number) => void) => {
   let last = -1;
   return (event: ProgressEvent) => {
@@ -75,8 +86,8 @@ export function disposeCharacterModel(scene: Scene | null, model: Object3D) {
 }
 
 export function loadCharacterModel(url: string, options: CharacterModelLoadOptions = {}): Promise<CharacterModelLoadResult> {
-  const done = (model: Object3D, animations: AnimationClip[], gltf: GLTF | null) => ({ model, meshes: prepare(model, options.castShadows), animations, gltf });
-  if (/\.fbx(?:\?|$)/i.test(url)) {
+  const done = (model: Object3D, animations: AnimationClip[], gltf: GLTF | null) => prepareCharacterModelResult(model, animations, gltf, options);
+  if ((options.format ?? (/\.fbx(?:[?#]|$)/i.test(url) ? 'fbx' : 'gltf')) === 'fbx') {
     fbxLoader ??= new FBXLoader();
     return new Promise((resolve, reject) => fbxLoader!.load(url, (model) => resolve(done(model, model.animations ?? [], null)), progress(options.onProgress), reject));
   }
@@ -85,6 +96,14 @@ export function loadCharacterModel(url: string, options: CharacterModelLoadOptio
 }
 
 export function parseCharacterModel(data: ArrayBuffer, resourcePath = '', options: CharacterModelLoadOptions = {}): Promise<CharacterModelLoadResult> {
+  if ((options.format ?? bufferFormat(data)) === 'fbx') {
+    // Keep parse failures asynchronous, like GLTFLoader.parse failures.
+    return Promise.resolve().then(() => {
+      fbxLoader ??= new FBXLoader();
+      const model = fbxLoader.parse(data, resourcePath);
+      return prepareCharacterModelResult(model, model.animations ?? [], null, options);
+    });
+  }
   const loader = getGltfLoader(options.dracoDecoderPath);
-  return new Promise((resolve, reject) => loader.parse(data, resourcePath, (gltf) => resolve({ model: gltf.scene, meshes: prepare(gltf.scene, options.castShadows), animations: gltf.animations ?? [], gltf }), reject));
+  return new Promise((resolve, reject) => loader.parse(data, resourcePath, (gltf) => resolve(prepareCharacterModelResult(gltf.scene, gltf.animations ?? [], gltf, options)), reject));
 }
