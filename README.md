@@ -228,6 +228,29 @@ React hosts forward user events and subscribe to controller state. They do not
 need local copies of the camera, marker, placement or timer algorithms.
 The convenience facade delegates to one controller-owned marker layer.
 
+## Character model loading
+
+The Three adapter loads GLB/glTF and FBX characters into the same
+`{ model, meshes, animations, gltf }` result. `meshes` contains morph-enabled
+meshes; FBX results have `gltf: null`. Both formats use the same shadow setup,
+model transforms, inspection, and disposal helpers.
+
+```ts
+import { loadCharacterModel, parseCharacterModel } from '@lovelace_lol/embody/three';
+
+const character = await loadCharacterModel('/characters/avatar.fbx');
+// For blob URLs or endpoints without a file extension, supply the format.
+const uploaded = await loadCharacterModel(objectUrl, { format: 'fbx' });
+// Standard binary/ASCII FBX headers are detected automatically. The resource path resolves
+// external textures referenced by the file.
+const cached = await parseCharacterModel(buffer, '/characters/textures/');
+```
+
+Use `format: 'gltf'` or `format: 'fbx'` to override detection. Draco options apply
+to glTF only. FBX rigs, morph names, scale, and external texture paths depend on
+the export; use a matching character profile and model transform as needed.
+Loading a format does not automatically retarget its rig or rename its morphs.
+
 ## Runtime Use
 
 Embody is an ES module package. Use `import` / dynamic `import()`; CommonJS
