@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import { requireInitializedEmbodyCore } from '@lovelace_lol/embody/wasm';
 import type { NativeAnnotationRuntime } from './runtime';
-import type { AnnotationAnchoredRegion } from './types';
-import { getRuntimeAUMorphAnchorPoint } from './runtimeAnnotationSidePreview';
 
 type Bounds = { min: number[]; max: number[] };
 export interface AnnotationModelObservation {
@@ -17,12 +15,23 @@ export function readAttribute(attribute: THREE.BufferAttribute | THREE.Interleav
   return values;
 }
 const bounds = (box: THREE.Box3): Bounds | null => box.isEmpty() ? null : { min: box.min.toArray(), max: box.max.toArray() };
+type MorphObservation = {
+  planId: number;
+  mesh: THREE.Mesh;
+  geometry: THREE.BufferGeometry;
+  position: THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
+  indices: Uint32Array;
+  samples: Float32Array;
+};
 
 /** Stable native handle table. No region matching or anchor policy lives here. */
 export class AnnotationModelObserver {
   readonly objects = new Map<number, THREE.Object3D>();
   readonly meshes: THREE.Mesh[] = [];
   private readonly ids = new Map<THREE.Object3D, number>();
+  private morphGeneration: number | null = null;
+  private morphObservations: MorphObservation[] = [];
+  private readonly vertex = new THREE.Vector3();
   constructor(readonly model: THREE.Object3D) {
     model.traverse(object => {
       const id = this.objects.size + 1;
@@ -31,8 +40,14 @@ export class AnnotationModelObserver {
     });
   }
   id(object: THREE.Object3D): number | undefined { return this.ids.get(object); }
+  private updateWorldMatrices(): void {
+    this.model.parent?.updateWorldMatrix(true, false);
+    // SkinnedMesh updates its bind inverse in updateMatrixWorld. Bypassing that
+    // override would apply a moved mesh's transform twice during CPU skinning.
+    this.model.updateMatrixWorld(true);
+  }
   capture(): AnnotationModelObservation {
-    this.model.updateWorldMatrix(true, true);
+    this.updateWorldMatrices();
     const modelBox = new THREE.Box3().setFromObject(this.model);
     if (modelBox.isEmpty()) modelBox.setFromCenterAndSize(this.model.getWorldPosition(new THREE.Vector3()), new THREE.Vector3());
     return {
@@ -49,21 +64,60 @@ export class AnnotationModelObserver {
   transforms(runtime: NativeAnnotationRuntime): Float32Array {
     const ids = runtime.tracked_objects();
     if (!ids.length) return new Float32Array();
-    this.model.updateWorldMatrix(true, true);
+    this.updateWorldMatrices();
     const values = new Float32Array(ids.length * 17);
     ids.forEach((id, index) => { const object = this.objects.get(id); if (object) { values[index * 17] = id; values.set(object.matrixWorld.elements, index * 17 + 1); } });
     return values;
   }
-  morphAnchors(runtime: NativeAnnotationRuntime): Record<string, { x: number; y: number; z: number }> {
-    const requests = JSON.parse(runtime.command('morphRequests', '{}', performance.now())) as { objectId: number; region: AnnotationAnchoredRegion }[];
-    const anchors: Record<string, { x: number; y: number; z: number }> = {};
+  prepareMorphAnchors(runtime: NativeAnnotationRuntime): void {
+    const generation = runtime.generation();
+    if (this.morphGeneration === generation || !runtime.is_current(generation)) return;
+    this.morphGeneration = generation;
+    this.morphObservations = [];
+    const requests = JSON.parse(runtime.command('morphRequests', '{}', performance.now())) as { objectId: number; region: { name: string }; morphNames: string[] }[];
     for (const request of requests) {
       const mesh = this.objects.get(request.objectId) as THREE.Mesh | undefined;
       if (!mesh?.isMesh) continue;
-      const point = getRuntimeAUMorphAnchorPoint(request.region, mesh);
-      if (point) anchors[request.region.name] = { x: point.x, y: point.y, z: point.z };
+      const position = mesh.geometry.getAttribute('position');
+      if (!position || position.itemSize !== 3) continue;
+      const attributes = request.morphNames.flatMap(name => {
+        const index = mesh.morphTargetDictionary?.[name];
+        const attribute = index == null ? undefined : mesh.geometry.morphAttributes.position?.[index];
+        return attribute ? [attribute] : [];
+      });
+      if (!attributes.length || attributes.some(attribute => attribute.count !== position.count || attribute.itemSize !== 3)) continue;
+      const base = readAttribute(position);
+      const morphs = new Float32Array(attributes.length * base.length);
+      attributes.forEach((attribute, index) => morphs.set(readAttribute(attribute), index * base.length));
+      const plan = runtime.prepare_morph_anchor(generation, request.objectId, request.region.name, base, morphs, mesh.geometry.morphTargetsRelative);
+      if (plan.length < 2) continue;
+      const indices = plan.slice(1);
+      this.morphObservations.push({ planId: plan[0], mesh, geometry: mesh.geometry, position, indices, samples: new Float32Array(indices.length * 3) });
     }
-    return anchors;
+  }
+  /** Transport only: Rust owns the vertex selection, weights and live anchor. */
+  observeMorphAnchors(runtime: NativeAnnotationRuntime): void {
+    if (this.morphGeneration === null || !runtime.is_current(this.morphGeneration)) {
+      this.morphObservations = [];
+      this.morphGeneration = null;
+      return;
+    }
+    if (!this.morphObservations.length) return;
+    this.updateWorldMatrices();
+    for (const { planId, mesh, geometry, position, indices, samples } of this.morphObservations) {
+      // A topology replacement requires setModel/loadRegions; never sample old
+      // vertex indices against a different native attribute in the meantime.
+      if (mesh.geometry !== geometry || geometry.getAttribute('position') !== position) continue;
+      const skinned = mesh as THREE.SkinnedMesh;
+      if (skinned.isSkinnedMesh) skinned.skeleton.update();
+      indices.forEach((index, offset) => {
+        mesh.getVertexPosition(index, this.vertex).applyMatrix4(mesh.matrixWorld);
+        samples[offset * 3] = this.vertex.x;
+        samples[offset * 3 + 1] = this.vertex.y;
+        samples[offset * 3 + 2] = this.vertex.z;
+      });
+      runtime.observe_morph_anchor(this.morphGeneration, planId, samples);
+    }
   }
   /** Rust selects influenced vertices; Three evaluates the current native pose. */
   observeFocus(runtime: NativeAnnotationRuntime, request: unknown): void {

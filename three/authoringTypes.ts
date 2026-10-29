@@ -21,7 +21,7 @@ export interface MorphMeshSelection {
   resolvedNames: string[];
   unresolvedNames: string[];
 }
-export type MeshCategory = 'body' | 'eye' | 'eyeOcclusion' | 'tearLine' | 'teeth' | 'tongue' | 'hair' | 'eyebrow' | 'cornea' | 'eyelash';
+export type MeshCategory = 'body' | 'eye' | 'eyeOcclusion' | 'tearLine' | 'teeth' | 'tongue' | 'hair' | 'eyebrow' | 'cornea' | 'eyelash' | 'other';
 export type BlendingMode = 'Normal' | 'Additive' | 'Subtractive' | 'Multiply' | 'None';
 
 export interface MorphTargetsBySide {
@@ -132,6 +132,9 @@ export interface MeshMaterialSettings {
   depthTest?: boolean;
   blending?: BlendingMode;
 }
+
+/** Current values read from a native mesh and its first material. */
+export type ThreeResolvedMaterialConfig = Required<MeshMaterialSettings>;
 
 export interface MeshInfo {
   name?: string;
@@ -277,6 +280,9 @@ export interface Profile {
   /** Authored overrides may patch individual fields; null removes a preset control. */
 }
 
+/** Intake accepts app metadata while keeping the profile's known keys explicit. */
+export type ProfileInput = Partial<Profile> | (Partial<Profile> & Record<string, unknown>);
+
 export interface ProfileRuntimeConfig extends Partial<Profile> {
   profilePresetId?: PresetType;
   presetId?: PresetType;
@@ -310,9 +316,40 @@ export type CharacterConfig = CharacterProfile & {
   regions: Region[];
 };
 
+export type AnimationSource = string;
+export type BakedClipChannel = 'face' | 'body' | 'scene' | 'custom';
+/** Rust's clip catalog describes which native channels can be played. */
+export interface BakedClipChannelInfo {
+  channel: BakedClipChannel;
+  trackCount: number;
+  playable: boolean;
+  blendMode?: 'replace' | 'additive';
+}
+export interface AnimationClipInfo {
+  name: string;
+  duration: number;
+  trackCount: number;
+  source: AnimationSource;
+  channels: BakedClipChannelInfo[];
+}
+
 export interface HairColorAppearance { name: string; baseColor: string; emissive: string; emissiveIntensity: number; }
 export interface HairAppearanceState { hairColor: HairColorAppearance; eyebrowColor: HairColorAppearance; showOutline: boolean; outlineColor: string; outlineOpacity: number; }
-export interface HairPhysicsRuntimeConfig { enabled: boolean; [key: string]: any; }
+export interface HairPhysicsRuntimeConfig extends Omit<HairPhysicsProfileConfig, 'direction' | 'morphTargets'> {
+  enabled: boolean;
+  direction?: { yawSign?: number; pitchSign?: number } | null;
+  /** Runtime normalization accepts authored records and returns names/weights. */
+  morphTargets?: {
+    swayLeft?: string | HairMorphTargetMapping | null;
+    swayRight?: string | HairMorphTargetMapping | null;
+    swayFront?: string | HairMorphTargetMapping | null;
+    fluffRight?: string | HairMorphTargetMapping | null;
+    fluffBottom?: string | HairMorphTargetMapping | null;
+    headUp?: Record<string, number | HairMorphTargetValueMapping | null> | null;
+    headDown?: Record<string, number | HairMorphTargetValueMapping | null> | null;
+  } | null;
+  [extension: string]: unknown;
+}
 export type HairPhysicsRuntimeConfigUpdate = Partial<HairPhysicsRuntimeConfig>;
 export interface TransitionHandle { promise: Promise<void>; pause(): void; resume(): void; cancel(): void; }
 
@@ -335,7 +372,7 @@ export interface BilateralAxisDirectionScaleState { left: BoneAxisDirectionScale
 export interface BilateralAxisScopeBindingState { scope: BilateralBoneAxisScope; label: string; negativeAuId: number | null; positiveAuId: number | null; negativeMaxDegrees: number | null; positiveMaxDegrees: number | null; negativeScale: BilateralAxisDirectionScaleState; positiveScale: BilateralAxisDirectionScaleState; }
 export interface BilateralAxisBindingState { axis: BoneAxisKey; familyLabel: string; leftBoneName: string; leftNodeKey: string; rightBoneName: string; rightNodeKey: string; selectedSide: 'left' | 'right'; shared: BilateralAxisScopeBindingState; left: BilateralAxisScopeBindingState; right: BilateralAxisScopeBindingState; }
 export interface ChiralBoneNamePair { leftBoneName: string; rightBoneName: string; selectedSide: 'left' | 'right'; familyLabel: string; }
-export interface CreatedBoneAxisAu { auId: number; profile: Profile; }
+export interface CreatedBoneAxisAu { auId: number; profile: Partial<Profile>; }
 
 export interface BoneInfo { name: string; parent: string | null; children: string[]; worldPosition: { x: number; y: number; z: number }; depth: number; }
 export interface TrackInfo { name: string; targetName: string; property: string; type: string; keyframeCount: number; valueRange?: { min: number[]; max: number[] }; }

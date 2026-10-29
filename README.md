@@ -63,6 +63,21 @@ The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
 not sample or lerp clips on the hot path.
 
+`Embody` is the character API exposed by the native Three adapter.
+`createRustEmbodyHost`, `createRustEmbodyHostUnbound` and
+`createCharacterHost(...).engine` use that same class. Its profile, mesh,
+material, hair and clip-catalog result types come from `three/authoringTypes.ts`;
+downstream libraries can re-export them without another character interface.
+`getProfile()` returns `Partial<Profile>` because an explicit profile may be
+empty, and `getHairPhysicsConfig()` may be empty before the first model bind.
+`ProfileInput` accepts sparse mappings and app metadata without adding arbitrary
+keys to the output `Profile` declaration. Humanoid queries accept sparse profiles;
+`setHumanoidRoleBinding` returns a sparse profile because Rust omits empty tables.
+The bone editor queries and mutation results follow the same sparse data contract.
+`setAUMorphTargets` preserves its input JSON and guarantees the edited `auToMorphs`
+map. An omitted serialized field is not a request to delete an authored override.
+These type declarations add no playback state, lifecycle or animation clock.
+
 An AU animation drives its profile's mapped bones and morphs through the same
 Rust evaluation used by live AU controls. For example, speech can send an AU
 103 curve and separate viseme shape curves; the profile decides which bones
@@ -78,6 +93,17 @@ application, material writes, model loading/disposal, and default scene
 construction. Annotation adapters capture DOM input, observe native geometry,
 apply Rust camera/marker frames, render labels and release native resources.
 Camera integration, region selection and marker state belong to Rust.
+
+`createSceneSceneryRenderer` from `@lovelace_lol/embody/three` applies resolved
+scenery layouts to the existing scene: self-contained GLB placements with independent
+world XYZ positions, equirectangular skyboxes, image backdrops and solid colors.
+Applications supply an abortable authorized byte loader and retain saved layouts,
+asset catalogs and Persona/Character/Interaction selection policy. The adapter
+owns model/texture loading, stale-result cancellation and renderer-drained cleanup;
+it preserves the character, lights and existing render loop. Character scene
+settings remain the inherited background beneath scenery, so clearing an override
+restores the latest character configuration. See the
+[scenery contract](docs/SCENE_READINESS.md#scenery-layouts-and-background-ownership).
 
 `ThreeFrameApplier.applyMeshMaterialConfigs(model, profile.meshes)` replays named
 mesh visibility and material overrides when a host binds or replaces a profile.
@@ -125,11 +151,16 @@ HTML overlays align with the canvas rectangle inside its container, update on
 resize/rebind, and restore borrowed parent positioning when the final view is
 disposed. These coordinates assume axis-aligned CSS boxes without transforms.
 
-AU morph anchors currently sample native deformed vertices during marker
-preparation, then follow the selected object's transform. They do not yet
-resample morph weights or skinning on subsequent frames. Animated surface
-tracking requires cached vertex candidates and per-frame pose observations;
-ordinary object-transform tracking does not provide that behavior.
+AU morph anchors follow morph and skeletal animation on each annotation update.
+Rust selects and caches affected vertices and their influence weights during
+marker preparation, using mesh-space geometry so rotating a character cannot
+change the selected semantic band. The adapter evaluates those vertices in the
+current native pose and supplies packed world-space positions; Rust updates the
+existing anchors without restarting reveal or rebuilding marker resources.
+Explicit point and whole-model anchors retain their existing behavior. Model or
+region changes invalidate the plans, and stale or invalid pose observations are
+ignored. Geometry is immutable within a plan: after replacing topology or morph
+attributes, rebind the model or reload regions to select vertices again.
 
 This is a breaking replacement of the DPthree exports. Use
 `ThreeAnnotationController.create(options)` or `ThreeAnnotations.create(options)`
@@ -148,10 +179,12 @@ support through the scene's rendering controller.
 Runtime preview region IDs retain the `runtime:annotation:` namespace.
 
 When the annotation controller owns the renderer loop, it advances registered
-native character mixers before observing annotation transforms and drawing the
+native character mixers before observing annotation poses and drawing the
 scene. The first frame establishes the timer origin; skipped asynchronous draws
 do not accumulate playback time. External render loops use the existing
-`createScenePlaybackFrame` integration to advance character playback.
+`createScenePlaybackFrame` integration to advance character playback, then call
+`annotations.update()` before drawing. No per-frame application-side anchor
+logic or agency registration is required.
 
 ```ts
 import { ThreeAnnotations } from '@lovelace_lol/embody/three';
@@ -209,6 +242,29 @@ callbacks. Later calls create a fresh runtime, preserving host effect-replay cle
 React hosts forward user events and subscribe to controller state. They do not
 need local copies of the camera, marker, placement or timer algorithms.
 The convenience facade delegates to one controller-owned marker layer.
+
+## Character model loading
+
+The Three adapter loads GLB/glTF and FBX characters into the same
+`{ model, meshes, animations, gltf }` result. `meshes` contains morph-enabled
+meshes; FBX results have `gltf: null`. Both formats use the same shadow setup,
+model transforms, inspection, and disposal helpers.
+
+```ts
+import { loadCharacterModel, parseCharacterModel } from '@lovelace_lol/embody/three';
+
+const character = await loadCharacterModel('/characters/avatar.fbx');
+// For blob URLs or endpoints without a file extension, supply the format.
+const uploaded = await loadCharacterModel(objectUrl, { format: 'fbx' });
+// Standard binary/ASCII FBX headers are detected automatically. The resource path resolves
+// external textures referenced by the file.
+const cached = await parseCharacterModel(buffer, '/characters/textures/');
+```
+
+Use `format: 'gltf'` or `format: 'fbx'` to override detection. Draco options apply
+to glTF only. FBX rigs, morph names, scale, and external texture paths depend on
+the export; use a matching character profile and model transform as needed.
+Loading a format does not automatically retarget its rig or rename its morphs.
 
 ## Runtime Use
 
@@ -564,6 +620,16 @@ repository dispatches run full verification and publish immutable `pkg.pr.new`
 previews for testing linked upstream changes. An explicit ref remains a preview
 request even when it names `main`; it does not publish to npm. Manual and
 repository dispatch requests may include `upstream_pr` to identify their linked PR.
+
+For an Embody → Polymer → LoomLarge feature stack, open every draft from its own
+current `main` without waiting for publication. The Polymer PR body declares
+`Depends-on: https://github.com/meekmachine/embody/pull/<number>` and the LoomLarge
+PR body declares `Depends-on: https://github.com/meekmachine/Polymer/pull/<number>`.
+CI resolves the compiled previews in temporary test checkouts. Committed
+manifests and lockfiles retain exact stable npm versions; the release coordinator
+adopts a stable release containing the change after upstream merge and publication.
+Agents do not add preview URLs before opening downstream drafts.
+Documentation-only companion PRs use ordinary reciprocal links instead.
 
 After publication, the producing workflow uploads a JSON notification record
 without a dispatch credential. The separate `Notify package publication`

@@ -59,6 +59,17 @@ CI, the user, or explicitly requested validation. Report what was not run.
   reflect the final diff and explain why it addresses the linked issue, what
   changed for consumers, and actual verification with its limits. Identify any
   acceptance criteria left incomplete; planned checks are not completed checks.
+- Qualify a runtime claim where it appears: identify the category, profile mode,
+  input, and output it governs. Distinguish omitted routes, explicit empty lists,
+  exact names, and compatibility aliases when those cases change the result.
+  A restriction on one category is not a global switch for character animation.
+- Separate configured names, compiled targets, adapter application, and host UI
+  state. Describe a library correction at the boundary it changes and keep any
+  unresolved host mismatch visible; improving PR wording does not fix that code.
+- Describe test source and observed results separately. A synthetic AU fixture
+  does not establish real preset behavior or checklist/runtime agreement. Name
+  relevant coverage gaps and downstream package adoption without claiming tests
+  ran, integration succeeded, or the application was deployed.
 - Use precise, searchable titles naming the affected behavior or contract, and
   concise active prose proportional to the change. Define unfamiliar terms and
   replace claims such as "improve expressiveness" with a specific result. Keep
@@ -67,12 +78,22 @@ CI, the user, or explicitly requested validation. Report what was not run.
 - Review findings must explain the triggering condition, failure, consequence,
   and evidence. Name the concrete consumer or system impact of an architecture
   violation; a prose preference alone is not a correctness defect.
+- Use the [scope and evidence examples](docs/development-guidance.md#write-claims-at-the-boundary-the-change-controls)
+  to explain why a qualification matters. Lead with the consumer-visible result;
+  keep helper lists, commit history, and repeated assurances only when they help
+  assess a specific compatibility decision or tradeoff.
 
 ## Code clarity and contract documentation
 
 - Before changing behavior, read [development guidance](docs/development-guidance.md)
   and trace the affected path through its owning code. Apply the relevant rules
   to new and touched code; do not expand a task into an unrelated cleanup.
+- Before implementing a bug fix, coding agents must explain what should happen,
+  what happens instead, and the code or configuration that causes the difference.
+  Put that explanation in a short progress update with code references; label
+  uncertain causes and include the confirmed diagnosis in the PR description.
+  Check existing configuration and installed dependency versions before changing
+  algorithms. Follow the [coding-agent diagnosis guidance](docs/development-guidance.md#coding-agents-explain-the-bug-before-implementing-a-fix).
 - Use domain-specific names, explicit units and identities, and one owner for
   each mutable state/resource. Make transitions, failure, cancellation, and
   cleanup visible at the responsible boundary.
@@ -119,8 +140,32 @@ default delivery workflow unless the user explicitly requests local validation.
 
 ## Coordinating Polymer changes
 
-1. Open a draft Embody PR and hand it off as **ready to test**. Do not watch, poll, or wait for its `Verify built package` job or preview publication.
-2. Once an exact compiled preview URL has already been published by Embody CI, use it in the dependent Polymer branch and commit the matching lockfile. If it is not available, report the downstream dependency still pending; do not invent a URL or use a source archive.
-3. Build and publish Polymer from its own CI; LoomLarge PR testing may consume Polymer's immutable preview, without compiling Embody transitively. Production consumes exact npm versions and a committed lockfile.
-4. Only when the user explicitly authorizes merging, merge in dependency order: Embody first, then replace Polymer's preview URL with the intended stable Embody release/version before Polymer's stable release, then update LoomLarge.
-5. For preview testing that needs a source SHA republished, send repository dispatch event `publish-pkg-pr-new` with `client_payload.sha`, or run the workflow manually with `ref`. This does not create a production release. Do not use the preview URL in Polymer's stable npm package.
+1. Create the Embody, Polymer, and LoomLarge draft PRs from their own current
+   `origin/main`, targeting their own `main`, and link the full stack
+   reciprocally. Do not delay downstream drafts for preview publication.
+2. Put `Depends-on: https://github.com/meekmachine/embody/pull/<number>` in the
+   Polymer PR body and `Depends-on: https://github.com/meekmachine/Polymer/pull/<number>`
+   in the LoomLarge PR body. These declarations select package dependencies;
+   ordinary reciprocal links alone do not. Documentation-only companions use
+   ordinary links without `Depends-on:` or package pin changes.
+3. CI resolves each upstream head to its compiled full-SHA pkg.pr.new package.
+   Polymer's linked-dependency workflow applies Embody while building Polymer's
+   preview; LoomLarge consumes that compiled Polymer package. Start with main's
+   valid dependency pins; do not manually add preview URLs or regenerate
+   lockfiles merely to create the stack. Compiled previews are installed only
+   in temporary CI checkouts. Committed manifests and lockfiles retain exact
+   stable npm versions; preserve valid stable adoption updates and inspect the
+   resolver before diagnosing a mismatch. Do not bypass Polymer with a direct
+   host Embody override.
+4. An unavailable artifact blocks the dependent CI build or preview, not opening
+   its PR. Hand off all draft links as **ready to test**, naming pending CI
+   dependencies without claiming publication or validation succeeded. Do not
+   build locally, invent URLs, use source archives, or wait/watch/poll.
+5. Only merge with user authorization. After upstream merges and stable npm
+   publication, the release coordinator updates downstream manifests and
+   lockfiles to the exact release containing the change and removes completed
+   dependency directives. Production packages must contain stable dependencies.
+6. CI owns preview publication and its existing dispatch/retry paths. A
+   `publish-pkg-pr-new` dispatch with `client_payload.sha`, or a manual workflow
+   run with `ref`, requests a preview rather than a stable release; neither is
+   a prerequisite for opening downstream drafts.
