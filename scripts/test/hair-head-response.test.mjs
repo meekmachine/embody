@@ -172,7 +172,8 @@ test('rapid retargets to a held pose never produce repeated impulses', (t) => {
 });
 
 test('Stop All, crossfade and pause/resume all leave hair actions running', (t) => {
-  const { host } = fixture(t, { idleSwayAmount: 0.3 });
+  const idleDuration = 0.5;
+  const { host } = fixture(t, { idleSwayAmount: 0.3, idleClipDuration: idleDuration });
   const idle = actionId(host, HAIR_IDLE);
   const response = actionId(host, HAIR_RESPONSE);
   assert.ok(idle && response);
@@ -194,7 +195,10 @@ test('Stop All, crossfade and pause/resume all leave hair actions running', (t) 
   assert.equal(actionId(host, HAIR_RESPONSE), response, 'resume all does not replay the held response');
   const before = host.getAnimationState(HAIR_IDLE).time;
   renderHostFrame(host, 0.1);
-  assert.ok(host.getAnimationState(HAIR_IDLE).time > before, 'hair idle keeps advancing');
+  // The native action wraps at 0.5 s; local time need not increase across a loop.
+  const after = host.getAnimationState(HAIR_IDLE).time;
+  near((after - before + idleDuration) % idleDuration, 0.1, 'hair idle advances through its loop boundary');
+  assert.equal(host.getAnimationState(HAIR_IDLE).playing, true);
 });
 
 test('stopped rendering, disabled hair, rebind and disposal gate the render-step response', (t) => {
