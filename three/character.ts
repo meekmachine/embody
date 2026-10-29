@@ -165,6 +165,7 @@ export class Embody {
     this.assertAlive();
     const model = options.model;
     if (!model?.isObject3D) throw new Error('onReady requires a Three Object3D model.');
+    this.applier.clearMeshHighlights();
     const reference = this.references.get(model) ?? options.referencePose ?? (!this.boundModel ? this.config.referencePose : undefined) ?? captureModelReferencePose(model);
     const inspection = this.inspector.inspectModel(model, { meshes: options.meshes, profile: this.profile, referencePose: reference });
     this.bind(model, reference, inspection, this.profileSource, this.profile);
@@ -220,6 +221,10 @@ export class Embody {
     try {
       this.connector = new ThreeNativePlaybackConnector(session, {
         model, inspection,
+        onFrame: (deltaSeconds) => {
+          if (this.disposed) return;
+          this.applier.applyMeshHighlightFrame(parse(this.core.advance_mesh_highlight(deltaSeconds)));
+        },
         onRelease: (id) => {
           const playback = this.playbacks.get(id);
           if (playback?.terminal) this.forget(playback);
@@ -238,12 +243,14 @@ export class Embody {
 
   bindModel(meshes?: Mesh[]): void {
     const model = this.requireModel();
+    this.applier.clearMeshHighlights();
     const reference = this.references.get(model)!;
     const inspection = this.inspector.inspectModel(model, { meshes, profile: this.profile, referencePose: reference });
     this.bind(model, reference, inspection, this.profileSource, this.profile);
   }
   extendReferencePose(): ThreeModelReferencePose {
     const model = this.requireModel();
+    this.applier.clearMeshHighlights();
     const reference = extendModelReferencePose(model, this.references.get(model)!);
     const inspection = this.inspector.inspectModel(model, { profile: this.profile, referencePose: reference });
     this.bind(model, reference, inspection, this.profileSource, this.profile);
@@ -254,6 +261,7 @@ export class Embody {
     const source = this.validateProfile(value);
     const profile = this.resolveProfile(source);
     if (!this.boundModel) { this.profileSource = source; this.profile = profile; return; }
+    this.applier.clearMeshHighlights();
     const reference = this.references.get(this.boundModel)!;
     const inspection = this.inspector.inspectModel(this.boundModel, { profile, referencePose: reference });
     this.bind(this.boundModel, reference, inspection, source, profile, false);
@@ -868,7 +876,11 @@ export class Embody {
   getBones(): ThreeModelInspection['bones'] { return this.bones; }
   private meshProfile(name: string): JsonObject { return (this.profile.meshes ??= {})[name] ??= { category: 'other' }; }
   setMeshVisible(name: string, visible: boolean): void { this.applier.setMeshVisible(this.requireModel(), name, visible); this.meshProfile(name).visible = visible; }
-  highlightMesh(name: string | null, color?: number, value?: number): void { this.applier.highlightMesh(this.requireModel(), name, color, value); }
+  highlightMesh(name: string | null, color?: number, value?: number): void {
+    this.requireModel();
+    this.core.request_mesh_highlight(name ?? undefined, color, value);
+    this.applier.applyMeshHighlightFrame(parse(this.core.evaluate_mesh_highlight_frame()));
+  }
   getMeshMaterialConfig(name: string): Record<string, unknown> | null { return this.applier.getMeshMaterialConfig(this.requireModel(), name); }
   setMeshMaterialConfig(name: string, value: Parameters<ThreeFrameApplier['setMeshMaterialConfig']>[2]): void { this.applier.setMeshMaterialConfig(this.requireModel(), name, value); const entry = this.meshProfile(name); entry.material = { ...entry.material, ...value }; }
 
@@ -967,6 +979,7 @@ export class Embody {
   dispose(): void {
     if (this.disposed) return;
     this.connector?.dispose();
+    this.applier.clearMeshHighlights();
     this.core.free();
     this.playbacks.clear();
     this.current.clear();

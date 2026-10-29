@@ -1,6 +1,6 @@
 // This fixture is copied into an isolated consumer of the packed package.
 // The error assertions below fail if the public loader regresses to `any`.
-import { initEmbodyCore as initFromRoot, getAUDescriptors as rootAUDescriptors, type AUDescriptor as RootAUDescriptor } from '@lovelace_lol/embody';
+import { initEmbodyCore as initFromRoot, getAUDescriptors as rootAUDescriptors, LEGACY_BODY_CONTROL_AUS, type AUDescriptor as RootAUDescriptor } from '@lovelace_lol/embody';
 import {
   getAUDescriptors as wasmAUDescriptors,
   type AUDescriptor as WasmAUDescriptor,
@@ -24,12 +24,17 @@ inspectActorModel('https://example.com/model.glb');
 prepareActorModel(actorSource, { kind: 'guess-clothes' });
 import {
   getAUDescriptors as threeAUDescriptors,
+  getAUBoneBindingStates,
+  type AUBoneBindingState,
   type AUDescriptor as ThreeAUDescriptor,
   bindModelReferencePose,
   captureModelReferencePose,
   extendModelReferencePose,
   createDefaultCharacterScene,
   createDefaultCharacterSceneAsync,
+  createCharacterHost,
+  type CharacterHost,
+  type CharacterHostOptions,
   type DefaultCharacterScene,
   type DefaultCharacterSceneAsyncOptions,
   type ReadyDefaultCharacterScene,
@@ -37,21 +42,30 @@ import {
   type CharacterSceneRenderer,
   type CharacterSceneRendererPreference,
   type ThreeModelReferencePose,
-  DPthree,
-  DPthreeCameraController,
   Embody,
   ThreeNativePlaybackConnector,
+  ThreeAnnotations,
+  ThreeAnnotationController,
   resolveAnnotationCharacterConfig,
   createRuntimeAnnotationPreviewLifecycle,
   type AnnotationCharacterConfig,
   type MarkerStateSnapshot,
-  type DPthreeCameraControllerConfig,
+  type ThreeAnnotationControllerConfig,
+  type ThreeAnnotationControls,
 } from '@lovelace_lol/embody/three';
+
+const boneStates: Record<number, AUBoneBindingState> = getAUBoneBindingStates({}, [12, 26] as const);
+const mappedBone: string | null = boneStates[12].boneName;
+void mappedBone;
+// @ts-expect-error Bone queries require numeric AU ids.
+getAUBoneBindingStates({}, ['12']);
 
 const annotationProfile: AnnotationCharacterConfig = { characterId: 'consumer', auPresetType: 'cc4' };
 const resolvedAnnotationProfile = await resolveAnnotationCharacterConfig(annotationProfile);
-declare const cameraOptions: DPthreeCameraControllerConfig;
-const controller = new DPthreeCameraController(cameraOptions);
+declare const cameraOptions: ThreeAnnotationControllerConfig;
+const controller = await ThreeAnnotationController.create(cameraOptions);
+const annotationControls: ThreeAnnotationControls = controller.controls;
+annotationControls.enabled = true;
 declare const renderModel: import('three').Object3D;
 const modelReady: Promise<void> = controller.prepareModelForRender(renderModel, { signal: new AbortController().signal });
 void modelReady;
@@ -64,7 +78,7 @@ controller.subscribeMarkerState((state: MarkerStateSnapshot) => { const visible:
 const preview = createRuntimeAnnotationPreviewLifecycle({ getAutoClearMs: () => undefined });
 preview.start(); preview.dispose();
 // @ts-expect-error Annotation constructors retain required Three scene inputs.
-new DPthree({});
+new ThreeAnnotations({});
 // @ts-expect-error Camera methods retain public region-name types.
 controller.focusRegion(123);
 
@@ -74,6 +88,9 @@ const rootAUs: RootAUDescriptor[] = rootAUDescriptors({});
 const wasmAUs: WasmAUDescriptor[] = wasmAUDescriptors({}, { bones: [] });
 const threeAUs: ThreeAUDescriptor[] = threeAUDescriptors({});
 const characterAUs: RootAUDescriptor[] = character.getAUDescriptors();
+const legacyPositiveAU: number = LEGACY_BODY_CONTROL_AUS['body.elbowFlex'].positiveAuId;
+// @ts-expect-error Historical decoder identities are immutable.
+LEGACY_BODY_CONTROL_AUS['body.elbowFlex'].positiveAuId = 42;
 const sideSelection: boolean = rootAUs[0].bilateral;
 const actualSides: Array<'left' | 'right' | 'center'> = rootAUs[0].availableSides;
 void [wasmAUs, threeAUs, characterAUs, sideSelection, actualSides];
@@ -199,6 +216,23 @@ extendModelReferencePose(model);
 
 // Scene readiness is additive and cannot accidentally widen to an `any` renderer.
 declare const container: HTMLElement;
+// The current scene owner exposes the renamed annotation controller to consumers.
+declare const hostOptions: CharacterHostOptions;
+const pendingHost: Promise<CharacterHost> = createCharacterHost({
+  ...hostOptions,
+  camera: { transitionDuration: 250 },
+  onCharacterReady: ({ cameraController, engine }) => {
+    const annotations: ThreeAnnotationController | null = cameraController;
+    const mappedActions: RootAUDescriptor[] = engine.getAUDescriptors();
+    annotations?.setMarkersVisible(true);
+    // @ts-expect-error Host callbacks must not erase the annotation API's types.
+    cameraController?.focusRegion(123);
+    void mappedActions;
+  },
+});
+const loadedHost = await pendingHost;
+const hostAnnotations: ThreeAnnotationController | null = loadedHost.cameraController;
+void [legacyPositiveAU, hostAnnotations];
 const sceneOptions: DefaultCharacterSceneAsyncOptions = {
   type: 'studio', renderer: 'webgpu', signal: new AbortController().signal, lighting: { envMapEnabled: true },
   onDeviceLost: (error: Error) => { console.error(error.message); },
@@ -219,7 +253,7 @@ if (readyScene.backend === 'webgpu') {
 } else {
   const glRenderer: WebGLRenderer = readyScene.renderer;
 }
-new DPthreeCameraController({
+new ThreeAnnotationController({
   ...cameraOptions, renderer,
   renderFrame: async (activeRenderer, scene, camera) => { activeRenderer.render(scene, camera); },
   resizeRenderer: (activeRenderer, width, height) => { activeRenderer.setSize(width, height); },
@@ -245,3 +279,17 @@ createDefaultCharacterSceneAsync(container, { lighting: { exposure: 'bright' } }
 pendingScene.renderer.render(readyScene.scene, readyScene.camera);
 // @ts-expect-error The renderer remains concrete, not an any-typed capability bag.
 readyScene.renderer.nonexistentMethod();
+
+// The renamed runtime is typed directly from the generated Rust exports.
+const annotationRuntime = new core.AnnotationRuntime('{}');
+const annotationSnapshot: string = annotationRuntime.snapshot();
+const annotationCamera: Float32Array = annotationRuntime.camera_frame(0, new Float32Array(10));
+const annotationIds: Uint32Array = annotationRuntime.tracked_objects();
+// @ts-expect-error Annotation time is milliseconds as a number.
+annotationRuntime.command('visibility', '{}', '0');
+// @ts-expect-error Packed transforms use generated float-array types.
+annotationRuntime.observe_transforms([1, 2, 3]);
+annotationRuntime.dispose(); annotationRuntime.free();
+const lifecycle = new core.AnnotationLifecycle('preview', 1200);
+const deadline: number | undefined = lifecycle.deadline();
+lifecycle.free();
