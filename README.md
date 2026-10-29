@@ -42,6 +42,7 @@ The Rust core owns:
   preview/reveal lifecycles, and humanoid template fitting
 - profile-aware screen-space gaze geometry for eye/head AU trajectories
 - renderer-neutral model analysis and packed live frame generation
+- transient mesh highlight selection, styling, transitions, and versioned preview snapshots
 
 `resolveMorphMeshSelections(profile, categories, availableNames)` resolves editor
 mesh selections in one Rust request. It returns each requested category's effective
@@ -67,6 +68,21 @@ The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
 not sample or lerp clips on the hot path.
 
+`Embody` is the character API exposed by the native Three adapter.
+`createRustEmbodyHost`, `createRustEmbodyHostUnbound` and
+`createCharacterHost(...).engine` use that same class. Its profile, mesh,
+material, hair and clip-catalog result types come from `three/authoringTypes.ts`;
+downstream libraries can re-export them without another character interface.
+`getProfile()` returns `Partial<Profile>` because an explicit profile may be
+empty, and `getHairPhysicsConfig()` may be empty before the first model bind.
+`ProfileInput` accepts sparse mappings and app metadata without adding arbitrary
+keys to the output `Profile` declaration. Humanoid queries accept sparse profiles;
+`setHumanoidRoleBinding` returns a sparse profile because Rust omits empty tables.
+The bone editor queries and mutation results follow the same sparse data contract.
+`setAUMorphTargets` preserves its input JSON and guarantees the edited `auToMorphs`
+map. An omitted serialized field is not a request to delete an authored override.
+These type declarations add no playback state, lifecycle or animation clock.
+
 An AU animation drives its profile's mapped bones and morphs through the same
 Rust evaluation used by live AU controls. For example, speech can send an AU
 103 curve and separate viseme shape curves; the profile decides which bones
@@ -82,6 +98,17 @@ application, material writes, model loading/disposal, and default scene
 construction. Annotation adapters capture DOM input, observe native geometry,
 apply Rust camera/marker frames, render labels and release native resources.
 Camera integration, region selection and marker state belong to Rust.
+
+`createSceneSceneryRenderer` from `@lovelace_lol/embody/three` applies resolved
+scenery layouts to the existing scene: self-contained GLB placements with independent
+world XYZ positions, equirectangular skyboxes, image backdrops and solid colors.
+Applications supply an abortable authorized byte loader and retain saved layouts,
+asset catalogs and Persona/Character/Interaction selection policy. The adapter
+owns model/texture loading, stale-result cancellation and renderer-drained cleanup;
+it preserves the character, lights and existing render loop. Character scene
+settings remain the inherited background beneath scenery, so clearing an override
+restores the latest character configuration. See the
+[scenery contract](docs/SCENE_READINESS.md#scenery-layouts-and-background-ownership).
 
 `ThreeFrameApplier.applyMeshMaterialConfigs(model, profile.meshes)` replays named
 mesh visibility and material overrides when a host binds or replaces a profile.
@@ -129,11 +156,16 @@ HTML overlays align with the canvas rectangle inside its container, update on
 resize/rebind, and restore borrowed parent positioning when the final view is
 disposed. These coordinates assume axis-aligned CSS boxes without transforms.
 
-AU morph anchors currently sample native deformed vertices during marker
-preparation, then follow the selected object's transform. They do not yet
-resample morph weights or skinning on subsequent frames. Animated surface
-tracking requires cached vertex candidates and per-frame pose observations;
-ordinary object-transform tracking does not provide that behavior.
+AU morph anchors follow morph and skeletal animation on each annotation update.
+Rust selects and caches affected vertices and their influence weights during
+marker preparation, using mesh-space geometry so rotating a character cannot
+change the selected semantic band. The adapter evaluates those vertices in the
+current native pose and supplies packed world-space positions; Rust updates the
+existing anchors without restarting reveal or rebuilding marker resources.
+Explicit point and whole-model anchors retain their existing behavior. Model or
+region changes invalidate the plans, and stale or invalid pose observations are
+ignored. Geometry is immutable within a plan: after replacing topology or morph
+attributes, rebind the model or reload regions to select vertices again.
 
 This is a breaking replacement of the DPthree exports. Use
 `ThreeAnnotationController.create(options)` or `ThreeAnnotations.create(options)`
@@ -152,10 +184,12 @@ support through the scene's rendering controller.
 Runtime preview region IDs retain the `runtime:annotation:` namespace.
 
 When the annotation controller owns the renderer loop, it advances registered
-native character mixers before observing annotation transforms and drawing the
+native character mixers before observing annotation poses and drawing the
 scene. The first frame establishes the timer origin; skipped asynchronous draws
 do not accumulate playback time. External render loops use the existing
-`createScenePlaybackFrame` integration to advance character playback.
+`createScenePlaybackFrame` integration to advance character playback, then call
+`annotations.update()` before drawing. No per-frame application-side anchor
+logic or agency registration is required.
 
 ```ts
 import { ThreeAnnotations } from '@lovelace_lol/embody/three';
@@ -213,6 +247,29 @@ callbacks. Later calls create a fresh runtime, preserving host effect-replay cle
 React hosts forward user events and subscribe to controller state. They do not
 need local copies of the camera, marker, placement or timer algorithms.
 The convenience facade delegates to one controller-owned marker layer.
+
+## Character model loading
+
+The Three adapter loads GLB/glTF and FBX characters into the same
+`{ model, meshes, animations, gltf }` result. `meshes` contains morph-enabled
+meshes; FBX results have `gltf: null`. Both formats use the same shadow setup,
+model transforms, inspection, and disposal helpers.
+
+```ts
+import { loadCharacterModel, parseCharacterModel } from '@lovelace_lol/embody/three';
+
+const character = await loadCharacterModel('/characters/avatar.fbx');
+// For blob URLs or endpoints without a file extension, supply the format.
+const uploaded = await loadCharacterModel(objectUrl, { format: 'fbx' });
+// Standard binary/ASCII FBX headers are detected automatically. The resource path resolves
+// external textures referenced by the file.
+const cached = await parseCharacterModel(buffer, '/characters/textures/');
+```
+
+Use `format: 'gltf'` or `format: 'fbx'` to override detection. Draco options apply
+to glTF only. FBX rigs, morph names, scale, and external texture paths depend on
+the export; use a matching character profile and model transform as needed.
+Loading a format does not automatically retarget its rig or rename its morphs.
 
 ## Runtime Use
 
@@ -569,6 +626,16 @@ previews for testing linked upstream changes. An explicit ref remains a preview
 request even when it names `main`; it does not publish to npm. Manual and
 repository dispatch requests may include `upstream_pr` to identify their linked PR.
 
+For an Embody → Polymer → LoomLarge feature stack, open every draft from its own
+current `main` without waiting for publication. The Polymer PR body declares
+`Depends-on: https://github.com/meekmachine/embody/pull/<number>` and the LoomLarge
+PR body declares `Depends-on: https://github.com/meekmachine/Polymer/pull/<number>`.
+CI resolves the compiled previews in temporary test checkouts. Committed
+manifests and lockfiles retain exact stable npm versions; the release coordinator
+adopts a stable release containing the change after upstream merge and publication.
+Agents do not add preview URLs before opening downstream drafts.
+Documentation-only companion PRs use ordinary reciprocal links instead.
+
 After publication, the producing workflow uploads a JSON notification record
 without a dispatch credential. The separate `Notify package publication`
 `workflow_run` receiver checks out `main`, treats the artifact only as data, and
@@ -688,6 +755,62 @@ values/curves, using their original profile mappings. `LEGACY_BODY_CONTROL_AUS`
 is a deprecated reader-only historical identity snapshot for old CC4 records;
 it is never consulted for current controls, actuation or profile compilation.
 Unknown legacy names must be reported rather than silently omitted.
+
+### Mesh highlight previews
+
+Rust owns transient mesh highlight state and its renderer-neutral output in
+`src/highlighting.rs`, exposed through `RuntimeCore`. This preview is independent
+of AU/morph/bone actuation, clip playback, and persisted profile data. Rust resolves
+mesh names (including duplicate names) against the configured model, chooses the
+default gold color and intensity, computes darker edges in linear color space,
+and advances a 400 ms eased transition. Interrupted fades resume from the current
+strength; changing targets removes the old preview immediately. Clearing or an
+unknown name fades out the current selection. Repeated identical requests do not
+restart a fade. Model reconfiguration clears transient highlights.
+
+| Core operation | Contract |
+| --- | --- |
+| `request_mesh_highlight(name?, color?, intensity?)` | Request a mesh name or omit it to clear. Optional color is packed 24-bit sRGB; intensity is clamped to 0–1, with nonfinite values using the default. |
+| `evaluate_mesh_highlight_frame()` | Return the current complete JSON snapshot without advancing time. |
+| `advance_mesh_highlight(delta_seconds)` | Advance preview time using the host render clock and return the snapshot. Negative/nonfinite deltas do not advance time. |
+
+Snapshot version 1 contains `highlights`, an array of writes with `meshId`,
+`fillColor`, `fillIntensity`, `edgeColor`, `edgeMode: "triangles"`, and `edgeOpacity`.
+Colors are linear RGB triplets, strength/opacity are in 0–1, and IDs refer to the
+configured model descriptor. The fill is an emissive surface preview and the
+edges show triangle topology. An omitted mesh ID means restore its original
+appearance and release its preview resources. `{ "version": 1, "highlights": [] }`
+clears every preview. The TypeScript contract is exported from
+`@lovelace_lol/embody/wasm` without importing a renderer.
+
+Another renderer configures the same `RuntimeCore` from its own model descriptor,
+keeps a map of mesh IDs to native surfaces, sends requests, and applies snapshots
+from its existing render tick. It does not traverse by name, derive edge colors,
+or reproduce the easing curve. For example, after configuring `core`:
+
+```ts
+core.request_mesh_highlight('Face');
+// Apply the initial snapshot immediately to remove obsolete selections.
+applyNativePreview(JSON.parse(core.evaluate_mesh_highlight_frame()));
+// Inside the host's existing render tick (seconds, independent of clip speed):
+applyNativePreview(JSON.parse(core.advance_mesh_highlight(deltaSeconds)));
+```
+
+`applyNativePreview` is the renderer's effect boundary: resolve `meshId`, apply
+emission and triangle edges from the supplied values, and remove omitted previews.
+The host must advance the core once per frame, even with no playing clips. Pausing
+its render clock pauses preview progression; no additional animation loop exists.
+
+For Three, `character.highlightMesh(name, color?, intensity?)` sends the core
+request; the existing scene playback binding supplies elapsed seconds and calls
+`ThreeFrameApplier.applyMeshHighlightFrame`. The applier only binds mesh IDs and
+manages native materials/overlays, deformation, picking exclusion and disposal.
+It does not choose colors, resolve names, or sample fades. Temporary materials
+are isolated from shared source materials; geometry and skeletons remain owned
+by the source model. Native overlays follow source geometry, morph weights and
+skeletons. Character rebind/disposal removes them. Direct applier consumers must
+call `clearMeshHighlights()` on disposal. Other renderers implement their own
+snapshot application; this change does not supply a second native renderer.
 
 ### Character-derived studio background
 

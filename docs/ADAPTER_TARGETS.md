@@ -27,6 +27,14 @@ The current Three.js adapter is in `three/`. Polymer owns agency scheduling and
 uses Embody's character/native playback adapter for renderer resources.
 LoomLarge supplies scene inputs and saved configuration through Polymer.
 
+`createSceneSceneryRenderer` owns native scenery model parsing, placement wrappers,
+background textures, cancellation and resource release. Applications supply a
+resolved layout and an abortable authorized byte loader. Scenery asset catalogs,
+saved layouts and Persona/Character/Interaction selection precedence remain with
+the application. The adapter does not create another renderer, animation clock,
+character binding or lighting environment. See the
+[scenery lifecycle](SCENE_READINESS.md#scenery-layouts-and-background-ownership).
+
 Annotation adapters additionally capture raw pointer/wheel input, inspect native
 bounds/vertex attributes and execute Rust-planned native raycasts. Rust's
 `AnnotationRuntime` owns camera integration, regions, target selection, marker

@@ -197,7 +197,9 @@ export class ThreeAnnotationController {
     if (this.disposed || !this.observer) return;
     const observer = this.observer; const generation = this.runtime.generation();
     observer.observe(this.runtime);
-    const queries = JSON.parse(this.runtime.plan_markers(JSON.stringify(observer.morphAnchors(this.runtime)))) as SurfaceQuery[];
+    observer.prepareMorphAnchors(this.runtime);
+    observer.observeMorphAnchors(this.runtime);
+    const queries = JSON.parse(this.runtime.plan_markers('{}')) as SurfaceQuery[];
     for (const initial of queries) {
       let query: SurfaceQuery | null = initial;
       while (query && this.isCurrent(generation)) {
@@ -252,7 +254,7 @@ export class ThreeAnnotationController {
   }
   getMarkerStyle(): MarkerStyle { return this.state.style; }
   setMarkerStyle(style: MarkerStyle): void { if (this.disposed) return; this.call('style', { style }); this.sync(); this.update(); }
-  clearMarkers(): void { if (this.disposed) return; this.cancelModelPreparation(); this.call('clear'); this.hostConfig = null; this.configSnapshot = null; this.configSnapshotHost = null; this.settleFlights(); this.sync(); }
+  clearMarkers(): void { if (this.disposed) return; this.cancelModelPreparation(); this.call('clear'); this.observer?.observeMorphAnchors(this.runtime); this.hostConfig = null; this.configSnapshot = null; this.configSnapshotHost = null; this.settleFlights(); this.sync(); }
   subscribeMarkerState(listener: (state: MarkerStateSnapshot) => void): () => void { this.markerStateListeners.add(listener); listener({ visible: this.state.visible, style: this.state.style }); return () => { this.markerStateListeners.delete(listener); }; }
   onRegionChange(listener: RegionChangeCallback): () => void { this.regionListeners.add(listener); return () => { this.regionListeners.delete(listener); }; }
   soloMarker(name: string | null): void { if (this.disposed) return; this.call('solo', { name }); this.sync(); this.update(); }
@@ -280,7 +282,10 @@ export class ThreeAnnotationController {
     const rect = this.domElement.getBoundingClientRect(); const now = performance.now();
     const pose = this.runtime.camera_frame(now, new Float32Array([...this.camera.position.toArray(), ...this.controls.target.toArray(), this.camera.fov, this.camera.aspect, rect.width, rect.height]));
     if (this.manageCamera && pose.length >= 6) { this.camera.position.fromArray(pose); this.controls.target.fromArray(pose, 3); this.camera.lookAt(this.controls.target); }
-    if (this.observer) this.runtime.observe_transforms(this.observer.transforms(this.runtime));
+    if (this.observer) {
+      this.runtime.observe_transforms(this.observer.transforms(this.runtime));
+      this.observer.observeMorphAnchors(this.runtime);
+    }
     this.sync(); this.markerRenderer.update(now); this.settleFlights();
     if (pose[9] === 1) this.controls.notifyChange();
   }

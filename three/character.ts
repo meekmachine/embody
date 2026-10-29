@@ -21,6 +21,11 @@ import { prepareDistanceTiming, validateDistancePredecessor, validateDistanceTim
 import type { DistancePredecessor, DistanceTimingOptions, InheritedDistanceBasis } from './inheritedDistanceTiming';
 export type { DistanceTimingOptions } from './inheritedDistanceTiming';
 import type { ThreeNativePlaybackControl, ThreeNativePlaybackEvent, ThreeNativePlaybackOptions } from './nativePlayback';
+import type {
+  AnimationClipInfo, HairAppearanceState, HairColorAppearance,
+  HairPhysicsRuntimeConfig, HairPhysicsRuntimeConfigUpdate, MeshCategory,
+  MeshInfo, Profile, ProfileInput, ThreeResolvedMaterialConfig,
+} from './authoringTypes';
 
 type JsonObject = Record<string, any>;
 type NativeTrack = KeyframeTrack & { createInterpolant: ((result?: Float32Array) => { evaluate(time: number): ArrayLike<number> }) & { isInterpolantFactoryMethodGLTFCubicSpline?: boolean } };
@@ -28,7 +33,7 @@ export type RustEmbodyHostConfig = {
   profileMode?: 'preset' | 'profile';
   presetId?: string;
   presetType?: string;
-  profile?: JsonObject;
+  profile?: ProfileInput;
   meshes?: Mesh[];
   referencePose?: ThreeModelReferencePose;
 };
@@ -127,7 +132,7 @@ export class Embody {
   private readonly hairObjects = new Map<string, Mesh>();
   private hairConfig: JsonObject = {};
   private hairHead?: { object: Object3D; boneName: string; reference: number[] };
-  private hairAppearance: JsonObject = {
+  private hairAppearance: HairAppearanceState = {
     hairColor: copy(DEFAULT_HAIR_COLOR_APPEARANCE),
     eyebrowColor: copy(DEFAULT_HAIR_COLOR_APPEARANCE),
     showOutline: false, outlineColor: '#000000', outlineOpacity: 1,
@@ -173,6 +178,7 @@ export class Embody {
     this.assertAlive();
     const model = options.model;
     if (!model?.isObject3D) throw new Error('onReady requires a Three Object3D model.');
+    this.applier.clearMeshHighlights();
     const reference = this.references.get(model) ?? options.referencePose ?? (!this.boundModel ? this.config.referencePose : undefined) ?? captureModelReferencePose(model);
     const inspection = this.inspector.inspectModel(model, { meshes: options.meshes, profile: this.profile, referencePose: reference });
     this.bind(model, reference, inspection, this.profileSource, this.profile);
@@ -229,6 +235,10 @@ export class Embody {
       this.connector = new ThreeNativePlaybackConnector(session, {
         model, inspection,
         afterSample: (deltaSeconds) => this.sampleHairResponse(deltaSeconds, true),
+        onFrame: (deltaSeconds) => {
+          if (this.disposed) return;
+          this.applier.applyMeshHighlightFrame(parse(this.core.advance_mesh_highlight(deltaSeconds)));
+        },
         onRelease: (id) => {
           const playback = this.playbacks.get(id);
           if (playback?.terminal) this.forget(playback);
@@ -250,27 +260,30 @@ export class Embody {
 
   bindModel(meshes?: Mesh[]): void {
     const model = this.requireModel();
+    this.applier.clearMeshHighlights();
     const reference = this.references.get(model)!;
     const inspection = this.inspector.inspectModel(model, { meshes, profile: this.profile, referencePose: reference });
     this.bind(model, reference, inspection, this.profileSource, this.profile);
   }
   extendReferencePose(): ThreeModelReferencePose {
     const model = this.requireModel();
+    this.applier.clearMeshHighlights();
     const reference = extendModelReferencePose(model, this.references.get(model)!);
     const inspection = this.inspector.inspectModel(model, { profile: this.profile, referencePose: reference });
     this.bind(model, reference, inspection, this.profileSource, this.profile);
     return reference;
   }
-  setProfile(value: JsonObject): void {
+  setProfile(value: ProfileInput): void {
     this.assertAlive();
     const source = this.validateProfile(value);
     const profile = this.resolveProfile(source);
     if (!this.boundModel) { this.profileSource = source; this.profile = profile; return; }
+    this.applier.clearMeshHighlights();
     const reference = this.references.get(this.boundModel)!;
     const inspection = this.inspector.inspectModel(this.boundModel, { profile, referencePose: reference });
     this.bind(this.boundModel, reference, inspection, source, profile, false);
   }
-  getProfile(): JsonObject { return this.profile; }
+  getProfile(): Partial<Profile> { return this.profile; }
   getProfileMode(): 'preset' | 'profile' { return this.profileMode; }
   getPresetId(): string | null { return this.profileMode === 'preset' ? this.preset : null; }
   supportsPreset(value?: string): boolean { return supportsRustEmbodyPreset(value); }
@@ -728,7 +741,7 @@ export class Embody {
     this.sources.delete(name);
     return this.core.remove_animation_clip(name);
   }
-  getAnimationClips(): any[] { return parse(this.core.get_animation_clips()); }
+  getAnimationClips(): AnimationClipInfo[] { return parse(this.core.get_animation_clips()); }
   playAnimation(name: string, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
     const source = this.sources.get(name);
     if (!source) throw new Error(`Unknown animation clip: ${name}`);
@@ -939,19 +952,23 @@ export class Embody {
   getMorphTargetIndices(): Record<string, { name: string; index: number }[]> { return Object.fromEntries(this.meshes.map((mesh) => [mesh.name, Object.entries(mesh.morphTargetDictionary ?? {}).map(([name, index]) => ({ name, index })).sort((a, b) => a.index - b.index)])); }
   addMorphTarget(target: Parameters<ThreeFrameApplier['addMorphTarget']>[1], options?: Parameters<ThreeFrameApplier['addMorphTarget']>[2]): number { const index = this.applier.addMorphTarget(this.requireModel(), target, options); this.bindModel(); return index; }
   addMorphTargets(targets: Parameters<ThreeFrameApplier['addMorphTargets']>[1], options?: Parameters<ThreeFrameApplier['addMorphTargets']>[2]): Record<string, number> { const result = this.applier.addMorphTargets(this.requireModel(), targets, options); this.bindModel(); return result; }
-  private meshCategory(mesh: Object3D): string { return this.profile.meshes?.[mesh.name]?.category ?? 'other'; }
-  getMeshList(): JsonObject[] { return (this.inspection?.allMeshes ?? []).map((mesh) => ({ name: mesh.name, visible: mesh.visible, morphCount: mesh.morphTargetInfluences?.length ?? 0, category: this.meshCategory(mesh) })); }
+  private meshCategory(mesh: Object3D): MeshCategory { return this.profile.meshes?.[mesh.name]?.category ?? 'other'; }
+  getMeshList(): MeshInfo[] { return (this.inspection?.allMeshes ?? []).map((mesh) => ({ name: mesh.name, visible: mesh.visible, morphCount: mesh.morphTargetInfluences?.length ?? 0, category: this.meshCategory(mesh) })); }
   getBones(): ThreeModelInspection['bones'] { return this.bones; }
   private meshProfile(name: string): JsonObject { return (this.profile.meshes ??= {})[name] ??= { category: 'other' }; }
   setMeshVisible(name: string, visible: boolean): void { this.applier.setMeshVisible(this.requireModel(), name, visible); this.meshProfile(name).visible = visible; }
-  highlightMesh(name: string | null, color?: number, value?: number): void { this.applier.highlightMesh(this.requireModel(), name, color, value); }
-  getMeshMaterialConfig(name: string): Record<string, unknown> | null { return this.applier.getMeshMaterialConfig(this.requireModel(), name); }
+  highlightMesh(name: string | null, color?: number, value?: number): void {
+    this.requireModel();
+    this.core.request_mesh_highlight(name ?? undefined, color, value);
+    this.applier.applyMeshHighlightFrame(parse(this.core.evaluate_mesh_highlight_frame()));
+  }
+  getMeshMaterialConfig(name: string): ThreeResolvedMaterialConfig | null { return this.applier.getMeshMaterialConfig(this.requireModel(), name); }
   setMeshMaterialConfig(name: string, value: Parameters<ThreeFrameApplier['setMeshMaterialConfig']>[2]): void { this.applier.setMeshMaterialConfig(this.requireModel(), name, value); const entry = this.meshProfile(name); entry.material = { ...entry.material, ...value }; }
 
   registerHairObjects(objects: Object3D[]): { name: string; isMesh: boolean; isEyebrow: boolean }[] {
     this.hairObjects.clear();
     for (const object of objects) if ((object as Mesh).isMesh) this.hairObjects.set(object.name, object as Mesh);
-    for (const category of ['hair', 'eyebrow']) {
+    for (const category of ['hair', 'eyebrow'] as const) {
       const mesh = [...this.hairObjects.values()].find((object) => this.meshCategory(object) === category);
       const material: any = mesh && (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material);
       if (material) this.hairAppearance[`${category}Color`] = { ...this.hairAppearance[`${category}Color`], baseColor: material.color ? `#${material.color.getHexString()}` : '#000000', emissive: material.emissive ? `#${material.emissive.getHexString()}` : '#000000', emissiveIntensity: material.emissiveIntensity ?? 0 };
@@ -963,15 +980,15 @@ export class Embody {
   }
   getRegisteredHairObjects(): Object3D[] { return [...this.hairObjects.values()]; }
   getHairMorphTargets(name?: string): string[] { const meshes = name ? [this.hairObjects.get(name)] : [...this.hairObjects.values()]; return [...new Set(meshes.flatMap((mesh) => Object.keys(mesh?.morphTargetDictionary ?? {})))].sort(); }
-  getHairAppearance(): JsonObject { return copy(this.hairAppearance); }
-  private setHairAppearance(category: 'hair' | 'eyebrow', value: string | JsonObject): void {
-    const key = `${category}Color`;
+  getHairAppearance(): HairAppearanceState { return copy(this.hairAppearance); }
+  private setHairAppearance(category: 'hair' | 'eyebrow', value: string | Partial<HairColorAppearance>): void {
+    const key = `${category}Color` as const;
     const next = parse(this.wasm.normalize_hair_color_appearance_json(json(value), json(this.hairAppearance[key])));
     this.hairAppearance[key] = next;
     this.applier.applyHairAppearance([...this.hairObjects.values()].filter((mesh) => this.meshCategory(mesh) === category), next);
   }
-  setHairColor(value: string | JsonObject): void { this.setHairAppearance('hair', value); }
-  setEyebrowColor(value: string | JsonObject): void { this.setHairAppearance('eyebrow', value); }
+  setHairColor(value: string | Partial<HairColorAppearance>): void { this.setHairAppearance('hair', value); }
+  setEyebrowColor(value: string | Partial<HairColorAppearance>): void { this.setHairAppearance('eyebrow', value); }
   setHairBaseColor(value: string): void { this.setHairColor({ baseColor: value }); }
   setEyebrowBaseColor(value: string): void { this.setEyebrowColor({ baseColor: value }); }
   setHairGlow(color: string, value: number): void { this.setHairColor({ emissive: color, emissiveIntensity: value }); }
@@ -1015,12 +1032,12 @@ export class Embody {
   }
   setHairPhysicsEnabled(value: boolean): void { this.setHairPhysicsConfig({ enabled: value }); }
   isHairPhysicsEnabled(): boolean { return !!this.hairConfig.enabled; }
-  setHairPhysicsConfig(value: JsonObject): void {
+  setHairPhysicsConfig(value: HairPhysicsRuntimeConfigUpdate): void {
     this.assertAlive();
     this.hairConfig = parse(this.core.set_hair_config_json(json(value)));
     this.sampleHairResponse(0);
   }
-  getHairPhysicsConfig(): JsonObject { return copy(this.hairConfig); }
+  getHairPhysicsConfig(): Partial<HairPhysicsRuntimeConfig> { return copy(this.hairConfig); }
   validateHairMorphTargets(): string[] {
     return parse(this.core.get_missing_hair_morph_targets_json(json(this.getHairMorphTargets())));
   }
@@ -1045,6 +1062,7 @@ export class Embody {
   dispose(): void {
     if (this.disposed) return;
     this.connector?.dispose();
+    this.applier.clearMeshHighlights();
     this.core.free();
     this.playbacks.clear();
     this.current.clear();

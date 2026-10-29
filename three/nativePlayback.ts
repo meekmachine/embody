@@ -42,6 +42,8 @@ export type ThreeNativePlaybackBinding = {
   inspection: ThreeModelInspection;
   /** Optional existing native mixer. Otherwise the connector owns one. */
   mixer?: AnimationMixer;
+  /** Apply renderer effects using the existing scene clock; never starts a loop. */
+  onFrame?: (deltaSeconds: number) => void;
 };
 type BoundPlayback = ThreeNativePlaybackBinding & { mixer: AnimationMixer };
 
@@ -117,7 +119,8 @@ export class ThreeNativePlaybackConnector {
     this.onRelease = binding.onRelease;
     this.afterSample = binding.afterSample;
     this.binding.mixer.addEventListener('finished', this.finished);
-    this.rendering = bindPlaybackRendering(binding.model, this.binding.mixer, () => this.flushEvents(), this.sampleResponse);
+    this.rendering = bindPlaybackRendering(binding.model, this.binding.mixer,
+      (deltaSeconds) => { this.flushEvents(); this.binding.onFrame?.(deltaSeconds); }, this.sampleResponse);
   }
 
   /** Prepare bindings first; old actions are released before the new binding is exposed. */
@@ -129,7 +132,8 @@ export class ThreeNativePlaybackConnector {
       this.rendering.dispose();
       this.binding = { ...binding, mixer: binding.mixer ?? new AnimationMixer(binding.model) };
       this.binding.mixer.addEventListener('finished', this.finished);
-      this.rendering = bindPlaybackRendering(binding.model, this.binding.mixer, () => this.flushEvents(), this.sampleResponse);
+      this.rendering = bindPlaybackRendering(binding.model, this.binding.mixer,
+        (deltaSeconds) => { this.flushEvents(); this.binding.onFrame?.(deltaSeconds); }, this.sampleResponse);
       this.rendering.setEnabled(this.renderingEnabled);
     });
   }

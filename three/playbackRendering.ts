@@ -1,11 +1,11 @@
 import { Timer } from 'three';
 import type { AnimationMixer, Object3D } from 'three';
 
-type Binding = { mixer: AnimationMixer; enabled: boolean; disposed: boolean; afterFrame: () => void; afterSample?: (deltaSeconds: number) => void };
+type Binding = { mixer: AnimationMixer; enabled: boolean; disposed: boolean; afterFrame: (deltaSeconds: number) => void; afterSample?: (deltaSeconds: number) => void };
 const bindings = new WeakMap<Object3D, Set<Binding>>();
 
 /** Register native playback with the existing scene renderer; never starts a loop. */
-export function bindPlaybackRendering(model: Object3D, mixer: AnimationMixer, afterFrame: () => void, afterSample?: (deltaSeconds: number) => void) {
+export function bindPlaybackRendering(model: Object3D, mixer: AnimationMixer, afterFrame: (deltaSeconds: number) => void, afterSample?: (deltaSeconds: number) => void) {
   const binding: Binding = { mixer, enabled: true, disposed: false, afterFrame, afterSample };
   const entries = bindings.get(model) ?? new Set<Binding>();
   entries.add(binding);
@@ -44,7 +44,7 @@ export function renderScenePlayback(scene: Object3D, timer: Timer): void {
   }
   // Native finished callbacks run inside mixer iteration. Resource release and
   // observers must wait until every mixer has finished sampling this frame.
-  for (const binding of active) if (binding.enabled && !binding.disposed) binding.afterFrame();
+  for (const binding of active) if (binding.enabled && !binding.disposed) binding.afterFrame(deltaSeconds);
 }
 
 /** Frame hook for an existing Three/R3F renderer. Does not create a render loop. */

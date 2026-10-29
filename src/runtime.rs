@@ -158,6 +158,7 @@ pub struct RuntimeCore {
     hair_head_binding: Option<crate::hair_curves::HairHeadBinding>,
     hair_response: crate::hair::HairResponse,
     hair_response_paused: bool,
+    mesh_highlight: crate::highlighting::MeshHighlightState,
 }
 
 #[wasm_bindgen]
@@ -198,6 +199,7 @@ impl RuntimeCore {
             hair_head_binding: None,
             hair_response: crate::hair::HairResponse::default(),
             hair_response_paused: false,
+            mesh_highlight: crate::highlighting::MeshHighlightState::default(),
         }
     }
 
@@ -286,6 +288,7 @@ impl RuntimeCore {
         self.object_rest_rotations.clear();
         self.object_rest_scales.clear();
         self.mesh_visibility.clear();
+        self.mesh_highlight = crate::highlighting::MeshHighlightState::default();
         for morph in &model.morph_targets {
             self.initial_morph_values.insert(
                 (morph.mesh_id, morph.id),
@@ -1190,7 +1193,6 @@ impl RuntimeCore {
             }
         }
 
-        let mut viseme_writes: HashMap<(u32, u32), f32> = HashMap::new();
         for binding in &self.viseme_bindings {
             let index = binding.viseme_index as usize;
             let value = if index < self.viseme_values.len() {
@@ -1199,18 +1201,13 @@ impl RuntimeCore {
                 0.0
             };
             let weighted = clamp01(clamp01(value) * binding.weight);
-            let key = (binding.mesh_id, binding.morph_target_id);
-            match viseme_writes.get(&key) {
-                Some(existing) if weighted <= *existing => {}
-                _ => {
-                    viseme_writes.insert(key, weighted);
-                }
-            }
-        }
-        for (key, value) in viseme_writes {
-            let entry = writes.entry(key).or_insert(0.0);
-            if value > *entry {
-                *entry = value;
+            // Visemes share the AU max-combine destination, including neutral
+            // targets needed by full frames. No separate aggregation is needed.
+            let entry = writes
+                .entry((binding.mesh_id, binding.morph_target_id))
+                .or_insert(0.0);
+            if weighted > *entry {
+                *entry = weighted;
             }
         }
 
@@ -1500,6 +1497,25 @@ impl RuntimeCore {
             out.push(flags as f32);
         }
         (out.into_boxed_slice(), active_flags)
+    }
+
+    /// Transient preview request. Names resolve against the configured model in Rust.
+    #[wasm_bindgen]
+    pub fn request_mesh_highlight(&mut self, name: Option<String>, color: Option<u32>, intensity: Option<f32>) {
+        self.mesh_highlight.request(self.model.as_ref(), name.as_deref(), color, intensity);
+    }
+
+    /// Host supplies elapsed seconds from its existing render clock, independent of clip speed.
+    #[wasm_bindgen]
+    pub fn advance_mesh_highlight(&mut self, delta_seconds: f64) -> Result<String, JsError> {
+        self.mesh_highlight.advance(delta_seconds);
+        self.evaluate_mesh_highlight_frame()
+    }
+
+    /// Complete versioned snapshot; omitted IDs must have previous preview resources removed.
+    #[wasm_bindgen]
+    pub fn evaluate_mesh_highlight_frame(&self) -> Result<String, JsError> {
+        serialize_runtime_json(&self.mesh_highlight.frame(), "mesh highlight frame")
     }
 
     /// Scene extras for live state. Clip-driven scale/visibility/object writes
@@ -2971,6 +2987,55 @@ mod tests {
     }
 
     #[test]
+    fn shared_au_viseme_morphs_preserve_max_zero_overrides_and_release() {
+        let mut core = RuntimeCore::new(2);
+        core.configure_with_profile(
+            r#"{"morphToMesh":{"face":["Face"]}}"#,
+            r#"{
+                "meshes":[{"id":20,"name":"Face","morphTargetIds":[200,201,202]}],
+                "morphTargets":[
+                    {"id":200,"meshId":20,"name":"Shared","hostIndex":0},
+                    {"id":201,"meshId":20,"name":"VisemeOnly","hostIndex":1},
+                    {"id":202,"meshId":20,"name":"Neutral","hostIndex":2}
+                ]
+            }"#,
+        ).unwrap();
+        core.set_viseme_slot_count(2);
+        core.load_au_morph_bindings(&[12.0, 2.0, 20.0, 200.0, 1.0]);
+        core.load_viseme_morph_bindings(&[
+            0.0, 20.0, 200.0, 1.0,
+            1.0, 20.0, 200.0, 0.25,
+            0.0, 20.0, 201.0, 0.5,
+            0.0, 20.0, 202.0, 0.0,
+        ]);
+        core.set_au(12, 0.5, 0.0);
+        core.set_viseme(0, 0.75);
+        core.set_viseme(1, 1.0);
+        assert_eq!(unpack_rows(&core.evaluate_morph_frame_delta()),
+            vec![(20, 200, 0.75), (20, 201, 0.375), (20, 202, 0.0)]);
+        assert_eq!(unpack_rows(&core.evaluate_active_morph_frame()),
+            vec![(20, 200, 0.75), (20, 201, 0.375)]);
+
+        // An AU can win the same destination without summing the visemes.
+        core.set_au(12, 1.0, 0.0);
+        assert_eq!(unpack_rows(&core.evaluate_active_morph_frame()),
+            vec![(20, 200, 1.0), (20, 201, 0.375)]);
+        assert_eq!(core.set_morph("Shared", 0.0, "[]"), 1);
+        assert_eq!(unpack_rows(&core.evaluate_active_morph_frame()),
+            vec![(20, 200, 0.0), (20, 201, 0.375)]);
+        assert_eq!(core.release_morph("Shared", "[]"), 1);
+        assert_eq!(unpack_rows(&core.evaluate_active_morph_frame()),
+            vec![(20, 200, 1.0), (20, 201, 0.375)]);
+
+        core.set_au(12, 0.0, 0.0);
+        core.set_viseme(0, 0.0);
+        core.set_viseme(1, 0.0);
+        assert_eq!(unpack_rows(&core.evaluate_morph_frame_delta()),
+            vec![(20, 200, 0.0), (20, 201, 0.0), (20, 202, 0.0)]);
+        assert!(core.evaluate_active_morph_frame().is_empty());
+    }
+
+    #[test]
     fn applies_mix_weight_only_for_mixed_aus() {
         let mut core = RuntimeCore::new(0);
         core.load_au_morph_bindings(&[2.0, 2.0, 1.0, 50.0, 1.0]);
@@ -3969,4 +4034,21 @@ mod tests {
         rows.sort_by_key(|row| (row.0, row.1));
         rows
     }
+    #[test]
+    fn mesh_highlight_is_transient_and_model_reconfiguration_resets_it() {
+        let model = r#"{"meshes":[{"id":42,"name":"Face"}]}"#;
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile("{}", model).unwrap();
+        core.request_mesh_highlight(Some("Face".into()), None, None);
+        let frame: serde_json::Value = serde_json::from_str(&core.advance_mesh_highlight(0.4).unwrap()).unwrap();
+        assert_eq!(frame["version"], 1);
+        assert_eq!(frame["highlights"][0]["meshId"], 42);
+        // Core actuation and persisted profiles don't absorb the editor preview.
+        assert!(core.evaluate_morph_frame_delta().is_empty());
+        assert!(core.evaluate_bone_frame_delta().is_empty());
+        core.configure_with_profile("{}", model).unwrap();
+        let frame: serde_json::Value = serde_json::from_str(&core.evaluate_mesh_highlight_frame().unwrap()).unwrap();
+        assert!(frame["highlights"].as_array().unwrap().is_empty());
+    }
+
 }
