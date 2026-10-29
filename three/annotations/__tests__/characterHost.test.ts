@@ -54,6 +54,7 @@ function scene() {
         leases += 1;
         return { renderer: state.renderer, release() { leases -= 1; } };
       }),
+      acquireRendererAsync: vi.fn(async () => state.rendering.acquireRenderer()),
     },
   };
   return state;
@@ -217,6 +218,31 @@ describe('character host acquisition and disposal', () => {
     expect(acquisition.release.mock.calls.map(([value]) => value)).toEqual([second.model, first.model]);
     expect(acquisition.engines.every(engine => engine.dispose.mock.calls.length === 1)).toBe(true);
     expect(owned.dispose).toHaveBeenCalledOnce();
+  });
+
+  it.each(['cancel', 'dispose'] as const)('releases a renderer lease granted after replacement %s', async action => {
+    const owned = scene(), first = model(), second = model();
+    acquisition.scene.mockResolvedValueOnce(owned);
+    acquisition.load.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    const host = await createCharacterHost({ container, character: { modelUrl: 'first.glb' }, autoFrame: false });
+    let entered!: () => void, resume!: () => void;
+    const waiting = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { resume = resolve; });
+    owned.rendering.acquireRendererAsync.mockImplementationOnce(async () => {
+      entered(); await gate;
+      return owned.rendering.acquireRenderer();
+    });
+    const cancellation = new AbortController();
+    const replacement = host.setCharacter({ modelUrl: 'second.glb' }, undefined, cancellation.signal);
+    const rejected = expect(replacement).rejects.toMatchObject({ name: 'AbortError' });
+    await waiting;
+    let disposal: Promise<void> | undefined;
+    if (action === 'cancel') cancellation.abort(); else disposal = host.dispose();
+    resume(); await rejected;
+    // The fixture's releaseSceneResources asserts that no lease remains held.
+    expect(acquisition.release).toHaveBeenCalledWith(second.model);
+    expect(host.model).toBe(first.model);
+    await (disposal ?? host.dispose());
   });
 });
 
