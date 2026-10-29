@@ -16,6 +16,7 @@ src/                 Rust source (the Wasm crate) — hair, clips, profiles, run
 assets/presets/      Embedded typed character profiles
 assets/templates/    Embedded humanoid skeleton templates
 three/               Thin Three.js inspection/application adapter only
+model-tools/         Browser/Node GLB preparation, public types, and CLI
 wasm/                Generated-Wasm JS loader + ABI constants
 index.ts             Package re-exports only
 ```
@@ -121,6 +122,88 @@ retains samples only for the active hover, and releases old GPU attributes befor
 replacing differently sized geometry. Hiding or changing the hover clears its
 sample cache; an explicitly empty mesh selection produces no preview. Applications
 forward hover/show/hide events and dispose the overlay when its scene is released.
+
+### Preparing Actor Models
+
+`@lovelace_lol/embody/model-tools` exposes `inspectActorModel(bytes)` and
+`prepareActorModel(bytes, options)` to prepare separate GLB files for an Actor.
+This module owns file transformations; LoomLarge owns the guided workflow,
+Model upload, Actor persistence, and Mapping selection. It does not load the
+animation runtime or initialize Embody's runtime Wasm.
+
+```js
+import { inspectActorModel, prepareActorModel } from '@lovelace_lol/embody/model-tools';
+
+const source = new Uint8Array(await file.arrayBuffer());
+const inspection = await inspectActorModel(source);
+// Show inspection.meshes to the creator before choosing explicit mesh IDs.
+const prepared = await prepareActorModel(source, {
+  kind: 'low-resolution',
+  targetRatio: 0.5,
+  maxError: 0.001,
+  signal: abortController.signal,
+});
+// Persist prepared.bytes as a new Model only after the operation succeeds.
+```
+
+Inspection returns source-scoped mesh IDs, original names, node names,
+materials, vertex/triangle counts, skin and morph presence, total byte length,
+and processing limitations. Preparation returns a new byte array, before/after
+inspection, the removed source mesh IDs, and warnings. It never writes into the
+input array, fetches resources, or persists an Actor.
+
+| Kind | File operation |
+| --- | --- |
+| `original` | Copy source bytes exactly. |
+| `optimized` | Compact unused vertex data and remove explicitly selected meshes and orphaned file resources. |
+| `low-resolution` | Reduce triangle count; default target is 50%, limited by geometry, rig protection, and error. |
+| `miniature` | Apply an explicitly supplied uniform `scale` above existing scene roots. This changes physical scale, not texture resolution. |
+| `bust` | Keep explicit `keepMeshIds`; requires separately authored body-part meshes. |
+| `outfit` | Keep/remove explicit mesh IDs for a prepared outfit; never guess garments from names. |
+
+`targetRatio` accepts 0.05–1 and `maxError` accepts 0–0.05 relative to each
+primitive's extent. `scale` is required only for miniature and accepts 0.01–0.99.
+Mesh IDs belong to the inspected input; inspect each new file before editing it
+again. Removing a shared mesh removes all its instances. A combined body mesh
+must be split in a modeling tool before a bust or garment can be removed. These
+tools do not generate clothing, transfer garments between rigs, cut surfaces,
+or implement runtime garment switching.
+
+Processed variants require self-contained, extension-free GLB. Unsupported
+extensions (including compression and VRM) or resource URIs produce an explicit
+error before rewriting. Original copies retain such payloads and inspection
+reports `canTransform: false`; hosts must still apply their upload policy.
+Textures keep their original bytes and dimensions. Output includes actual byte
+and triangle counts; a requested reduction is not a size guarantee.
+
+Triangle reduction locks vertices participating in any morph and vertices at
+skin-influence transitions. It preserves topological borders and weighs normals,
+UVs, and colors. All retained attributes, including joints, weights and every
+morph target, use one vertex remap. Existing mesh/node names, skeleton hierarchy,
+bind matrices and surviving animation targets remain intact. Only morph animation
+channels targeting an explicitly removed mesh are removed, with a warning.
+No node, joint, or surviving morph target is renamed. Hosts must review Mapping
+targets when source names are missing/duplicated or a mapped mesh was removed;
+vertex-index annotations require remapping after compaction.
+
+Cancellation is checked between processing stages and primitives. A synchronous
+simplifier call cannot be interrupted halfway through; hosts should use a worker
+when processing large assets must not occupy the UI thread.
+
+The installed `embody-prepare-actor` command uses the same implementation:
+
+```bash
+embody-prepare-actor --input character.glb --inspect
+embody-prepare-actor --input character.glb --output low.glb --kind low-resolution --ratio 0.5
+embody-prepare-actor --input character.glb --output outfit.glb --kind outfit --remove-mesh mesh:2
+embody-prepare-actor --input character.glb --output bust.glb --kind bust --keep-mesh mesh:0
+```
+
+Repeat `--remove-mesh`/`--keep-mesh` for multiple selections. The CLI refuses an
+existing output path, including the source file or a symlink to it. It prints a
+JSON report after creating the new file. In a source checkout, invoke
+`node model-tools/prepare-actor.mjs` with the same arguments. CI runs the
+`test:model-tools` regression source as part of the existing package checks.
 
 ### Annotation runtime
 
