@@ -192,10 +192,10 @@ export function convertMixamoFbxToVrmAnimations(bytes: ArrayBuffer, options: { m
   if (!bytes.byteLength || bytes.byteLength > MAX_BYTES) throw new Error('FBX must be between 1 byte and 64 MiB');
   const textures = new Set<Texture>();
   class AnimationTextureLoader extends TextureLoader {
-    override load(url: string): Texture {
+    override load(url: string): Texture<HTMLImageElement> {
       // FBXLoader may create blob URLs for embedded images; consume no image data.
       if (url.startsWith('blob:')) URL.revokeObjectURL(url);
-      const texture = new Texture(); textures.add(texture); return texture;
+      const texture = new Texture<HTMLImageElement>(); textures.add(texture); return texture;
     }
   }
   const manager = new LoadingManager();

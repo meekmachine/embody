@@ -108,6 +108,16 @@ blending toward it. Quaternion key values retain their authored starting pose;
 conversion does not rebase them against the current model or frame zero. Source
 clips and input ClipIR are not mutated.
 
+Packed morph and Euler tracks are split into component-sized buffers before
+constructing their native tracks. Conversion copies each component's times and
+samples, including glTF cubic tangents, and retains the native interpolation
+factory; it does not clone the complete packed sample buffer for every
+component. The resulting clip retains the source duration, blend mode and copied
+user data. `serializeAnimationClips` indexes morph bindings once and reuses
+track-name resolution within a single call. It keeps no destination cache across
+calls, so later model inspections and renamed nodes resolve afresh. Profile
+replacement still rebuilds bindings and clears prior playback/live state.
+
 This does not promise lossless conversion of every Three track. Existing
 unsupported targets can be omitted, and smooth/custom interpolants are not
 represented losslessly by the current serializer. The VRMA path below is a

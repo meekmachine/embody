@@ -23,6 +23,11 @@ export const extendCharacterConfigWithPreset = <T extends Types.ProfileRuntimeCo
 export const extractProfileOverrides = (config: Types.ProfileRuntimeConfig): Partial<Types.Profile> => request('profile.extractOverrides', { config });
 export const mergeCharacterRegionsByName = (base?: Region[], override?: Region[]): Region[] => request('profile.mergeRegions', { base, override });
 export const getMeshNamesForAUProfile = (profile: Types.Profile, auId: number): string[] => request('profile.getMeshNamesForAU', { profile, auId });
+/** Resolve routing and legacy mesh aliases once for an editor inventory. */
+export const resolveMorphMeshSelections = (
+  profile: Partial<Pick<Types.Profile, 'morphToMesh' | 'visemeMeshCategory'>>,
+  categories: string[], availableNames: string[],
+): Record<string, Types.MorphMeshSelection> => request('profile.resolveMorphMeshSelections', { profile, categories, availableNames });
 export const getHumanoidSpecification = (): Types.HumanoidSpecification => request('humanoid.getSpecification');
 export const setAUMorphTargets = (profile: Types.Profile, auId: number, side: 'left' | 'right' | 'center', targets: Types.MorphTargetRef[]): Types.Profile => request('profile.setAUMorphTargets', { profile, auId, side, targets });
 export const setHumanoidRoleBinding = (profile: Types.Profile, role: Types.VRMHumanoidRole, boneName: string | null): Types.Profile => request('profile.setHumanoidRoleBinding', { profile, role, boneName });
@@ -46,6 +51,19 @@ export const getBoneAxisBindingState = (profile: Types.Profile, boneName: string
 export const resolveBoneAxisChannel = (profile: Types.Profile, boneName: string, axis: Types.BoneAxisKey): Types.RotationChannel => request('bone.resolveAxisChannel', { profile, boneName, axis });
 export const getBilateralAxisBindingState = (profile: Types.Profile, boneName: string, axis: Types.BoneAxisKey): Types.BilateralAxisBindingState | null => request('bone.getBilateralAxisState', { profile, boneName, axis });
 export const getAUBoneBindingState = (profile: Types.Profile, auId: number): Types.AUBoneBindingState => request('bone.getAUBindingState', { profile, auId });
+/** Resolve a panel's bone links without repeatedly serializing its full character. */
+export const getAUBoneBindingStates = (
+  profile: Partial<Pick<Types.Profile, 'auToBones' | 'boneNodes' | 'bonePrefix' | 'boneSuffix' | 'suffixPattern' | 'compositeRotations' | 'continuumPairs' | 'humanoidCharacterization'>>,
+  auIds: readonly number[],
+): Record<number, Types.AUBoneBindingState> => request('bone.getAUBindingStates', {
+  profile: {
+    auToBones: profile.auToBones, boneNodes: profile.boneNodes,
+    bonePrefix: profile.bonePrefix, boneSuffix: profile.boneSuffix, suffixPattern: profile.suffixPattern,
+    compositeRotations: profile.compositeRotations, continuumPairs: profile.continuumPairs,
+    humanoidCharacterization: profile.humanoidCharacterization,
+  },
+  auIds,
+});
 export const inferEyeControlScope = (profile: Pick<Types.Profile, 'auToBones'>, binding: Pick<Types.BoneAxisBindingState, 'nodeKey' | 'negativeAuId' | 'positiveAuId'>): Types.BoneControlScope | null => request('bone.inferEyeScope', { profile, binding });
 export const inferEyeControlFamily = (binding: Pick<Types.BoneAxisBindingState, 'nodeKey' | 'axis'>): Types.BoneControlFamily | null => request('bone.inferEyeFamily', { binding });
 export const applyBoneAxisBindingUpdate = (profile: Types.Profile, boneName: string, axis: Types.BoneAxisKey, update: Types.BoneAxisBindingUpdate): Types.Profile => request('bone.applyAxisUpdate', { profile, boneName, axis, update });
