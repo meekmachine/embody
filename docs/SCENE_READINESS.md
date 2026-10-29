@@ -1,5 +1,64 @@
 # Default scene readiness and renderer selection
 
+## Character host ownership
+
+`createCharacterHost` composes the existing model loader, scene, camera controller,
+Embody engine and native render integration. Applications resolve database profiles
+and authorized asset URLs; they do not construct another scene, model binding or
+render loop around this host. The returned `cameraController`, lighting and rendering
+controllers expose editor operations. `gltf` retains model metadata for attribution.
+
+`character.profile` and `embody.profileMode` retain their existing semantics. An
+already-expanded profile uses `profileMode: 'profile'`; the host does not silently
+select a preset. The existing Rust mapping validator applies supported model-name
+corrections to that runtime copy and the supplied `character.annotationConfig`.
+Saved annotation configuration controls initial regions and camera behavior; the
+full-body fallback applies only when no annotation configuration was supplied.
+
+`loadModel(url, { ...loaderOptions, signal })` can deliver the model through the
+application's existing authenticated cache or storage route. Resolving transfers
+the model and its resources to the host, including late results after cancellation.
+The host releases rejected/superseded results after any borrowed Three work settles.
+The default loader remains available and cannot interrupt a Three parse already in
+progress. Applications retain database authorization and profile persistence.
+
+`prepareCharacter({ engine, model, meshes, animations, gltf, character, signal })`
+runs with a bound, stopped engine so authored morph edits can use its public APIs.
+Saved transforms precede binding and reference capture. The model remains hidden.
+Embody then normalizes morph layouts, reinspects authored targets, prepares GPU
+resources, applies camera configuration,
+and reveals the model. `onCharacterReady` runs after preparation and camera setup,
+before reveal. These callbacks borrow the host's rendering lease; they must not
+await a renderer switch or host disposal that needs that lease. Optional embedded
+clips remain available on `host.animations` when `registerEmbeddedAnimations: false`;
+this prevents eager registration without discarding their source data. No saved
+animation autoplay policy is introduced. Profile-enabled hair continues through
+Embody's existing native clip path.
+
+The factory's `signal` covers construction only and is detached after success.
+`setCharacter(character, loaderOptions?, signal?)` preserves the scene while replacing
+the engine/model. Newer requests cancel older ones; cancellation is checked after
+asset delivery, authored preparation and GPU preparation before publication. A
+failed preparation retains the previous character. A retirement failure after
+publication reports an error while the host still identifies the new character.
+`dispose()` cancels outstanding
+work, drains renderer borrowers and releases the final model and owned scene.
+
+`character.scene` contains `CharacterSceneConfiguration`: scene type, background,
+camera FOV, shadows, lighting preset/settings and shadow-plane visibility. Every
+character applies a fresh configuration through the existing scene handle's
+`setSceneSettings` method. Omitted values reset to the selected scene type's defaults
+instead of retaining another character's edits. Renderer preference and DOM/resize
+ownership remain factory settings. Backend replacement preserves the current
+character's shadow and lighting choices.
+
+Acceptance in the application should cover loading a saved custom profile, authored
+morph replay, saved annotation focus, manual animation controls, enabled hair,
+switching to a character with different or absent scene settings, cancelling a
+switch during loading/preparation, and disposing while a renderer operation is
+pending. CI owns execution of the host lifecycle, morph-layout and scene-setting
+regressions; these checks are not evidence of completed browser acceptance.
+
 The Three adapter owns renderer acquisition, switching, lighting/environment,
 canvas binding and backend recovery. Hosts persist settings and display the
 controller snapshot. Character loading and animation scheduling stay with their
@@ -7,12 +66,12 @@ existing owners. The default preference is `auto`; the synchronous legacy
 factory remains WebGL-only.
 
 ```ts
-import { createDefaultCharacterSceneRuntime, DPthreeCameraController } from '@lovelace_lol/embody/three';
+import { createDefaultCharacterSceneRuntime, ThreeAnnotationController } from '@lovelace_lol/embody/three';
 
 const runtime = createDefaultCharacterSceneRuntime(container, {
   rendering: { preference: 'auto' },
 });
-const cameraControls = new DPthreeCameraController({
+const cameraControls = await ThreeAnnotationController.create({
   scene: runtime.scene, camera: runtime.camera, domElement: container,
   rendering: runtime.rendering,
 });
@@ -168,8 +227,8 @@ do not notify the compatibility `onDeviceLost` callback. Loss after readiness
 publishes `lost` with the error; `setSettings` can acquire a healthy renderer
 without recreating the scene. Recovery is explicit, never a hidden backend swap.
 
-Pass `rendering` to `DPthreeCameraController` to bind it to the runtime. Its one
-loop is suspended/drained, then retargeted along with OrbitControls and annotation
+Pass `rendering` to `ThreeAnnotationController` to bind it to the runtime. Its one
+loop is suspended/drained, then retargeted along with native input controls and annotation
 canvas listeners by Embody. Pending model readiness is canceled before switching.
 Bound render/loop failures update the rendering snapshot rather than invoking a
 fatal host `onRenderError` recovery path. The legacy fixed-renderer configuration
@@ -179,7 +238,7 @@ owns or disposes caller-added character resources.
 
 ## Model readiness
 
-`DPthreeCameraController.prepareModelForRender(model, { signal? }): Promise<void>`
+`ThreeAnnotationController.prepareModelForRender(model, { signal? }): Promise<void>`
 prepares a loaded model before its first reveal. The controller must own an
 active renderer loop, and a WebGPU renderer must already be initialized (as it
 is after `createDefaultCharacterSceneAsync`). The model must be detached or part

@@ -574,8 +574,9 @@ pub struct ProfileData {
     pub hair_physics: Option<HairPhysicsData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub humanoid_characterization: Option<HumanoidCharacterizationData>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty", deserialize_with = "null_default")]
-    pub body_controls: BTreeMap<String, BodyControlData>,
+    /// Discard old UI catalog metadata on read; it is not an active profile contract.
+    #[serde(rename = "bodyControls", default, skip_serializing)]
+    pub legacy_body_controls: Option<Value>,
     // Typed legacy fish fields retained until that preset schema is normalized.
     #[serde(skip_serializing_if = "HashMap::is_empty", deserialize_with = "null_default")]
     pub action_info: HashMap<String, AuInfoData>,
@@ -614,21 +615,6 @@ pub struct HumanoidCharacterizationData {
     pub roles: BTreeMap<String, HumanoidRoleData>,
     #[serde(flatten)]
     pub extensions: Map<String, Value>,
-}
-
-/// Semantic body controls reuse numeric actions and the same bone/morph
-/// evaluator as FACS. VRM identifies the anatomy, not the action vocabulary.
-#[derive(Deserialize, Serialize, Debug, Clone, Default)]
-#[serde(rename_all = "camelCase", default)]
-pub struct BodyControlData {
-    pub label: String,
-    pub section: String,
-    pub au_id: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub negative_au_id: Option<u32>,
-    pub bilateral: bool,
-    pub roles: Vec<String>,
-    pub order: i32,
 }
 
 impl ProfileData {
@@ -787,7 +773,6 @@ pub struct ResolvedProfileView {
     pub continuum_pairs: HashMap<String, Option<ContinuumPairData>>,
     pub hair_physics: Option<HairPhysicsData>,
     pub humanoid_characterization: Option<HumanoidCharacterizationData>,
-    pub body_controls: BTreeMap<String, BodyControlData>,
 }
 
 pub fn resolve_profile_view(profile: &ProfileData) -> ResolvedProfileView {
@@ -825,7 +810,6 @@ pub fn resolve_profile_view(profile: &ProfileData) -> ResolvedProfileView {
         continuum_pairs: profile.continuum_pairs.clone(),
         hair_physics: profile.hair_physics.clone(),
         humanoid_characterization: profile.humanoid_characterization.clone(),
-        body_controls: profile.body_controls.clone(),
     }
 }
 
@@ -883,7 +867,7 @@ fn compile_au_morph_bindings(
         // Body's morph strength remains meaningful when its bone actuator is
         // absent or deliberately cleared. Keep legacy non-Body morph-only AU
         // behavior, while compiling the same weighting rule for live controls
-        // and snippet tracks, including shared head/eye/jaw actions.
+        // and snippet tracks. Actual head/eye/jaw bone mappings use this same evaluator.
         if has_morphs && (has_bones || is_body_action(profile, au_id)) {
             tables.mixed_aus.push(au_id);
         }
@@ -1372,9 +1356,9 @@ fn viseme_binding_targets(
     Vec::new()
 }
 
-fn is_body_action(profile: &ProfileData, au_id: u32) -> bool {
-    profile.body_controls.values().any(|control|
-        control.au_id == au_id || control.negative_au_id == Some(au_id))
+pub(crate) fn is_body_action(profile: &ProfileData, au_id: u32) -> bool {
+    profile.au_info.get(&au_id.to_string()).or_else(|| profile.action_info.get(&au_id.to_string()))
+        .is_some_and(|info| info.face_area.as_deref() == Some("Body") || info.face_part.as_deref() == Some("Body"))
 }
 
 fn mesh_category_for_au(profile: &ProfileData, au_id: u32) -> &str {
@@ -1420,7 +1404,7 @@ fn mesh_names_for_visemes(profile: &ProfileData) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn viseme_mesh_category(profile: &ProfileData) -> String {
+pub(crate) fn viseme_mesh_category(profile: &ProfileData) -> String {
     if profile.morph_to_mesh.contains_key("face") {
         return "face".to_string();
     }
@@ -1591,10 +1575,10 @@ impl NameResolver {
                 mapping.standard == "VRMC_vrm-1.0" && !mapping.roles.contains_key(node_key)) {
             return None;
         }
-        if let Some(exact) = crate::body_controls::exact_bone_name(profile, node_key) {
+        if let Some(exact) = crate::profile_resolution::exact_bone_name(profile, node_key) {
             return model.bones.iter().find(|bone| bone.name == exact);
         }
-        let node_key = crate::body_controls::node_key(profile, node_key);
+        let node_key = crate::profile_resolution::node_key(profile, node_key);
         let configured = profile
             .bone_nodes
             .get(node_key)

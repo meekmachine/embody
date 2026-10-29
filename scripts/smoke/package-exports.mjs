@@ -46,6 +46,12 @@ const annotationMath = await three.createRustAnnotationCameraCore();
 const orbit = annotationMath.createCameraOrbit({ x: 0, y: 0, z: 0 }, 2, 1, 100);
 const orbitPose = orbit.sample(100); orbit.dispose();
 
+const annotations = new core.AnnotationRuntime('{}');
+annotations.command('configure', JSON.stringify({ config: { characterId: 'smoke', regions: [{ name: 'head' }] } }), 0);
+annotations.command('visibility', '{"visible":true}', 1);
+const annotationState = JSON.parse(annotations.snapshot());
+const annotationLifecycle = new core.AnnotationLifecycle('preview', 1200);
+const previewEffects = JSON.parse(annotationLifecycle.command('start', '{}', 0));
 const distEntries = await readdir(new URL('../../dist/', import.meta.url));
 const wasmEntrySource = await readFile(new URL('../../dist/wasm.js', import.meta.url), 'utf8');
 const preset = JSON.parse(core.get_preset_json('cc4'));
@@ -101,10 +107,16 @@ new three.ThreeFrameApplier().addMorphTarget(morphRoot, {
 
 const checks = [
   ['root ESM Three adapter', typeof root.ThreeModelInspector === 'function'],
+  ['AU descriptors share all public entry points', typeof root.getAUDescriptors === 'function' && root.getAUDescriptors === wasm.getAUDescriptors && three.getAUDescriptors === wasm.getAUDescriptors],
+  ['historical AU decoder shares all public entry points', typeof root.LEGACY_BODY_CONTROL_AUS === 'object' && root.LEGACY_BODY_CONTROL_AUS !== null && root.LEGACY_BODY_CONTROL_AUS === wasm.LEGACY_BODY_CONTROL_AUS && three.LEGACY_BODY_CONTROL_AUS === wasm.LEGACY_BODY_CONTROL_AUS],
+  ['retired named catalog is absent', !('getBodyControls' in root) && !('getBodyControls' in three)],
   ['root and Wasm exports share one loader', root.initEmbodyCore === wasm.initEmbodyCore && root.requireInitializedEmbodyCore() === core],
   ['synchronous Three authoring uses public Wasm initialization', synchronousPreset.meshes.CC_Base_Eye.category === 'eye' && synchronousVisemes.visemeSlots.length === 0],
   ['synchronous Three unbound character uses public Wasm initialization', unboundProfileMode === 'profile'],
-  ...['DPthree', 'DPthreeCameraController', 'DPthree3DMarkers', 'DPthreeHTMLMarkers', 'DPthreeMarkers', 'CameraDOMControls', 'createMarkerVisibilityLifecycle', 'createRuntimeAnnotationPreviewLifecycle'].map(name => [`annotation runtime ${name}`, typeof three[name] === 'function']),
+  ...['ThreeAnnotations', 'ThreeAnnotationController', 'ThreeAnnotationMarkers', 'HtmlAnnotationMarkers', 'OverlayAnnotationMarkers', 'CameraDOMControls', 'createMarkerVisibilityLifecycle', 'createRuntimeAnnotationPreviewLifecycle'].map(name => [`annotation runtime ${name}`, typeof three[name] === 'function']),
+  ['legacy DPthree runtime exports removed', !('DPthree' in three) && !('DPthreeCameraController' in three)],
+  ['annotation state is supplied by Rust', annotationState.regions[0].name === 'head' && annotationState.visible],
+  ['annotation lifecycle is supplied by Rust', previewEffects[0].kind === 'previewStart' && annotationLifecycle.deadline() === 1200],
   ['annotation adapter shares initialized Wasm', markerAngleVisible],
   ['standalone annotation preset resolution', annotationConfig.regions.length > 0 && !!annotationConfig.auToMorphs],
   ['annotation camera handle samples real Wasm', orbitPose.done && Number.isFinite(orbitPose.position.z)],
@@ -144,6 +156,7 @@ const checks = [
   ],
 ];
 
+annotations.dispose(); annotations.free(); annotationLifecycle.free();
 runtime.free();
 staticRuntime.free();
 const failures = checks.filter(([, passed]) => !passed);

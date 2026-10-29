@@ -1,6 +1,6 @@
 # Annotation Configuration
 
-Embody stores annotation configuration in Rust profile `annotationRegions`. The Three adapter exports `resolveAnnotationCharacterConfig(...)` for preset-expanded camera and marker inputs; `DPthreeCameraController.loadRegions(...)` calls it by default. The full runtime, marker objects and visibility lifecycles are owned by `@lovelace_lol/embody/three`.
+Embody stores annotation configuration in Rust profile `annotationRegions`. The Three adapter exports `resolveAnnotationCharacterConfig(...)` for preset-expanded camera and marker inputs; `ThreeAnnotationController.loadRegions(...)` calls it by default. `AnnotationRuntime` owns camera and marker decisions/state in Rust; `AnnotationLifecycle` owns preview/reveal timing. The `@lovelace_lol/embody/three` adapters inspect native objects, execute native queries and apply Rust results. Await `ThreeAnnotationController.create(...)` or initialize the Wasm core before using synchronous constructors. See the [runtime and migration contract](README.md#annotation-runtime).
 
 There are three related shapes to know about:
 

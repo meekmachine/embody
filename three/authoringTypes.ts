@@ -14,6 +14,13 @@ export type BoneControlScope = 'Both Eyes' | 'Left Eye Only' | 'Right Eye Only';
 export type HumanoidSkeletonTemplateVec3 = readonly [number, number, number];
 export type HumanoidSkeletonTemplateBounds = readonly [number, number, number, number, number, number];
 export type MorphTargetRef = string | number;
+export interface MorphMeshSelection {
+  category: string;
+  /** Includes an explicit empty selection. */
+  hasSelection: boolean;
+  resolvedNames: string[];
+  unresolvedNames: string[];
+}
 export type MeshCategory = 'body' | 'eye' | 'eyeOcclusion' | 'tearLine' | 'teeth' | 'tongue' | 'hair' | 'eyebrow' | 'cornea' | 'eyelash';
 export type BlendingMode = 'Normal' | 'Additive' | 'Subtractive' | 'Multiply' | 'None';
 
@@ -226,67 +233,6 @@ export interface HumanoidCharacterizationResolution {
   valid: boolean;
 }
 
-/** Semantic body actions reuse the AU bone/morph evaluator. VRM names identify targets. */
-export interface BodyControlDefinition {
-  label: string;
-  section: string;
-  auId: number;
-  negativeAuId?: number | null;
-  bilateral: boolean;
-  roles: VRMHumanoidRole[];
-  order?: number;
-}
-
-export interface BodyControlDescriptor {
-  id: string;
-  label: string;
-  section: string;
-  auId: number;
-  negativeAuId: number | null;
-  auIds: number[];
-  bilateral: boolean;
-  roles: VRMHumanoidRole[];
-  order: number;
-  boneBindings: Array<BoneBinding & { auId: number; boneName: string }>;
-  morphBindings: MorphTargetsBySide;
-  meshNames: string[];
-  hasBones: boolean;
-  hasMorphs: boolean;
-  isMixed: boolean;
-  available: boolean;
-  diagnostics: string[];
-}
-
-/** Pose values are normalized authored action amounts, never world Euler angles. */
-export interface SemanticPoseChannel {
-  intensity: number;
-  /** -1 = character's left, 0 = both, +1 = character's right. */
-  balance?: number;
-  /** Morph contribution only; bone activation remains intensity. Defaults to profile. */
-  morphStrength?: number;
-}
-export interface SemanticPose {
-  version: 1;
-  controls: Array<{ controlId: string; positive?: SemanticPoseChannel; negative?: SemanticPoseChannel }>;
-}
-export interface SemanticPoseDirection {
-  auId: number; label: string; available: boolean; availableSides?: Array<'left' | 'right' | 'center'>; hasBones: boolean; hasMorphs: boolean; morphStrength: number;
-}
-export interface SemanticPoseControl {
-  id: string; label: string; section: string; roles: string[]; bilateral: boolean;
-  boneNames: string[]; morphNames: string[];
-  positive: SemanticPoseDirection; negative?: SemanticPoseDirection;
-}
-export interface SemanticAnimation {
-  version: 1;
-  durationSeconds: number;
-  tracks: Array<{ controlId: string; direction: 'positive' | 'negative'; balance?: number; morphStrength?: number;
-    keyframes: Array<{ time: number; intensity: number }> }>;
-}
-export interface SemanticAnimationOptions extends Record<string, unknown> {
-  faceCurves?: Record<string, Array<{ time: number; intensity: number; inherit?: boolean }>>;
-}
-
 export interface Profile {
   name?: string;
   animalType?: string;
@@ -329,7 +275,6 @@ export interface Profile {
   hairPhysics?: HairPhysicsProfileConfig;
   humanoidCharacterization?: HumanoidCharacterization;
   /** Authored overrides may patch individual fields; null removes a preset control. */
-  bodyControls?: Record<string, Partial<BodyControlDefinition> | null>;
 }
 
 export interface ProfileRuntimeConfig extends Partial<Profile> {

@@ -1,8 +1,9 @@
 import {
   AdditiveAnimationBlendMode, AnimationClip, AnimationUtils, LoopOnce, LoopPingPong,
-  NormalAnimationBlendMode, PropertyBinding, Quaternion, InterpolateDiscrete, InterpolateLinear,
+  NormalAnimationBlendMode, PropertyBinding, Quaternion, Euler, InterpolateDiscrete, InterpolateLinear,
 } from 'three';
 import type { KeyframeTrack, Mesh, Object3D } from 'three';
+import type { AUDescriptor } from '@lovelace_lol/embody/wasm';
 import { initEmbodyCore, requireInitializedEmbodyCore, DEFAULT_HAIR_COLOR_APPEARANCE } from '@lovelace_lol/embody/wasm';
 import type { RuntimeCore } from '@lovelace_lol/embody/wasm';
 import {
@@ -15,6 +16,7 @@ import {
 } from './reference-pose';
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
 import { ThreeNativePlaybackConnector } from './nativePlayback';
+import { withComponentTracks } from './clipBindings';
 import type { ThreeNativePlaybackControl, ThreeNativePlaybackEvent, ThreeNativePlaybackOptions } from './nativePlayback';
 
 type JsonObject = Record<string, any>;
@@ -58,7 +60,7 @@ export interface CharacterTransitionHandle {
 
 type Source =
   | { name: string; kind: 'native'; clip: AnimationClip }
-  | { name: string; kind: 'curves' | 'typed' | 'semantic'; input: any; options: CharacterPlaybackOptions }
+  | { name: string; kind: 'curves' | 'typed'; input: any; options: CharacterPlaybackOptions }
   | { name: string; kind: 'compiled'; clip: ClipIR };
 type Playback = {
   id: string;
@@ -163,6 +165,7 @@ export class Embody {
     this.assertAlive();
     const model = options.model;
     if (!model?.isObject3D) throw new Error('onReady requires a Three Object3D model.');
+    this.applier.clearMeshHighlights();
     const reference = this.references.get(model) ?? options.referencePose ?? (!this.boundModel ? this.config.referencePose : undefined) ?? captureModelReferencePose(model);
     const inspection = this.inspector.inspectModel(model, { meshes: options.meshes, profile: this.profile, referencePose: reference });
     this.bind(model, reference, inspection, this.profileSource, this.profile);
@@ -218,6 +221,10 @@ export class Embody {
     try {
       this.connector = new ThreeNativePlaybackConnector(session, {
         model, inspection,
+        onFrame: (deltaSeconds) => {
+          if (this.disposed) return;
+          this.applier.applyMeshHighlightFrame(parse(this.core.advance_mesh_highlight(deltaSeconds)));
+        },
         onRelease: (id) => {
           const playback = this.playbacks.get(id);
           if (playback?.terminal) this.forget(playback);
@@ -236,12 +243,14 @@ export class Embody {
 
   bindModel(meshes?: Mesh[]): void {
     const model = this.requireModel();
+    this.applier.clearMeshHighlights();
     const reference = this.references.get(model)!;
     const inspection = this.inspector.inspectModel(model, { meshes, profile: this.profile, referencePose: reference });
     this.bind(model, reference, inspection, this.profileSource, this.profile);
   }
   extendReferencePose(): ThreeModelReferencePose {
     const model = this.requireModel();
+    this.applier.clearMeshHighlights();
     const reference = extendModelReferencePose(model, this.references.get(model)!);
     const inspection = this.inspector.inspectModel(model, { profile: this.profile, referencePose: reference });
     this.bind(model, reference, inspection, this.profileSource, this.profile);
@@ -252,6 +261,7 @@ export class Embody {
     const source = this.validateProfile(value);
     const profile = this.resolveProfile(source);
     if (!this.boundModel) { this.profileSource = source; this.profile = profile; return; }
+    this.applier.clearMeshHighlights();
     const reference = this.references.get(this.boundModel)!;
     const inspection = this.inspector.inspectModel(this.boundModel, { profile, referencePose: reference });
     this.bind(this.boundModel, reference, inspection, source, profile, false);
@@ -277,9 +287,8 @@ export class Embody {
     switch (source.kind) {
       case 'curves': return parse(this.core.build_clip(source.name, json(source.input), json(buildOptions)));
       case 'typed': return parse(this.core.build_typed_clip(source.name, json(source.input), json(buildOptions)));
-      case 'semantic': return parse(this.core.build_semantic_clip(source.name, json(source.input), json(buildOptions)));
       case 'compiled': return source.clip;
-      case 'native': throw new Error('Native animation sources do not require semantic compilation.');
+      case 'native': throw new Error('Native animation sources do not require AU compilation.');
     }
   }
 
@@ -297,8 +306,15 @@ export class Embody {
     if (!reference) return undefined;
     switch (parsed.propertyName) {
       case 'quaternion': return Object.values(reference.transform.rotation);
+      case 'rotation': {
+        const rotation = reference.transform.rotation;
+        const euler = reference.rotationEuler ?? new Euler().setFromQuaternion(new Quaternion(rotation.x, rotation.y, rotation.z, rotation.w), reference.rotationOrder);
+        const axis = parsed.propertyIndex;
+        return axis === 'x' || axis === 'y' || axis === 'z' ? [euler[axis]] : [euler.x, euler.y, euler.z];
+      }
       case 'position': return Object.values(reference.transform.position);
       case 'scale': return Object.values(reference.transform.scale);
+      case 'weights':
       case 'morphTargetInfluences': {
         const mesh = object as Mesh;
         const index = typeof parsed.propertyIndex === 'string' && !/^\d+$/.test(parsed.propertyIndex)
@@ -316,7 +332,7 @@ export class Embody {
     if (!nativeSource) {
       ir = this.compile(source, options);
     }
-    const clip = nativeSource ? source.clip.clone() : createAnimationClipFromClipIR(ir!, this.inspection);
+    const clip = nativeSource ? withComponentTracks(source.clip).clone() : createAnimationClipFromClipIR(ir!, this.inspection);
     if (ir) {
       const predecessor = this.current.get(source.name);
       const outgoing = predecessor?.connector.getAction(predecessor.id);
@@ -682,18 +698,14 @@ export class Embody {
     return this.handle(source, options, play);
   }
   buildClip(name: string, curves: JsonObject, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
-    return options.semanticAnimation
-      ? this.semanticAnimationToClip(name, options.semanticAnimation, { ...options, faceCurves: curves })
-      : this.build({ name, kind: 'curves', input: copy(curves), options: copy(options) }, options, false);
+    if (options.semanticAnimation) throw new Error('Decode legacy named animation tracks to numeric AU curves before building a clip.');
+    return this.build({ name, kind: 'curves', input: copy(curves), options: copy(options) }, options, false);
   }
   snippetToClip(name: string, curves: JsonObject, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle { return this.buildClip(name, curves, options); }
   buildTypedClip(name: string, channels: any[], options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
     return this.build({ name, kind: 'typed', input: copy(channels), options: copy(options) }, options, false);
   }
   typedSnippetToClip(name: string, channels: any[], options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle { return this.buildTypedClip(name, channels, options); }
-  semanticAnimationToClip(name: string, animation: JsonObject, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
-    return this.build({ name, kind: 'semantic', input: copy(animation), options: copy(options) }, options, false);
-  }
   playSnippet(snippet: string | { name: string; curves: JsonObject }, curvesOrOptions: JsonObject = {}, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
     return typeof snippet === 'string' ? this.buildClip(snippet, curvesOrOptions, options).play() : this.buildClip(snippet.name, snippet.curves, curvesOrOptions).play();
   }
@@ -832,13 +844,7 @@ export class Embody {
   setAU(id: number, value: number, balance = this.core.get_au_balance(id)): void { this.mutateLive(() => this.core.set_au_signed(id, value, balance)); }
   getAU(id: number): number { return this.core.get_au(id); }
   getAUBalance(id: number): number { return this.core.get_au_balance(id); }
-  getBodyControls(): any[] { return parse(this.core.get_body_controls_json()); }
-  getSemanticPoseCatalog(): any[] { return parse(this.core.get_semantic_pose_catalog_json()); }
-  captureSemanticPose(): JsonObject { return parse(this.core.capture_semantic_pose_json()); }
-  validateSemanticPose(pose: JsonObject): JsonObject { return parse(this.core.validate_semantic_pose_json(json(pose))); }
-  applySemanticPose(pose: JsonObject): void { this.mutateLive(() => this.core.apply_semantic_pose_json(json(pose))); }
-  validateSemanticAnimation(animation: JsonObject, options: JsonObject = {}): void { this.core.validate_semantic_animation_json(json(animation), json(options)); }
-  resetBodyControls(): void { this.mutateLive(() => this.core.reset_body_controls()); }
+  getAUDescriptors(): AUDescriptor[] { return parse(this.core.get_au_descriptors_json()); }
   setContinuum(negative: number, positive: number, value: number, balance = NaN): void { this.mutateLive(() => this.core.set_continuum(negative, positive, value, balance)); }
   getContinuum(negative: number, positive: number): number { return this.core.get_continuum(negative, positive); }
   transitionAU(id: number, value: number, durationMs = 200, balance = this.core.get_au_balance(id)): CharacterTransitionHandle { return this.transition(this.mutateLive(() => this.core.set_au_signed(id, value, balance), durationMs)); }
@@ -870,7 +876,11 @@ export class Embody {
   getBones(): ThreeModelInspection['bones'] { return this.bones; }
   private meshProfile(name: string): JsonObject { return (this.profile.meshes ??= {})[name] ??= { category: 'other' }; }
   setMeshVisible(name: string, visible: boolean): void { this.applier.setMeshVisible(this.requireModel(), name, visible); this.meshProfile(name).visible = visible; }
-  highlightMesh(name: string | null, color?: number, value?: number): void { this.applier.highlightMesh(this.requireModel(), name, color, value); }
+  highlightMesh(name: string | null, color?: number, value?: number): void {
+    this.requireModel();
+    this.core.request_mesh_highlight(name ?? undefined, color, value);
+    this.applier.applyMeshHighlightFrame(parse(this.core.evaluate_mesh_highlight_frame()));
+  }
   getMeshMaterialConfig(name: string): Record<string, unknown> | null { return this.applier.getMeshMaterialConfig(this.requireModel(), name); }
   setMeshMaterialConfig(name: string, value: Parameters<ThreeFrameApplier['setMeshMaterialConfig']>[2]): void { this.applier.setMeshMaterialConfig(this.requireModel(), name, value); const entry = this.meshProfile(name); entry.material = { ...entry.material, ...value }; }
 
@@ -969,6 +979,7 @@ export class Embody {
   dispose(): void {
     if (this.disposed) return;
     this.connector?.dispose();
+    this.applier.clearMeshHighlights();
     this.core.free();
     this.playbacks.clear();
     this.current.clear();
