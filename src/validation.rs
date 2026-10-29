@@ -136,7 +136,7 @@ fn referenced_bones(profile: &ProfileData) -> BTreeSet<String> {
             names.insert(resolve(&binding.node));
         }
     }
-    for composite in &profile.composite_rotations {
+    for composite in profile.composite_rotations.iter() {
         names.insert(resolve(&composite.node));
     }
     for pair in profile.continuum_pairs.values().flatten() {

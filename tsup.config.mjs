@@ -4,7 +4,7 @@ const shared = {
   treeshake: true,
   splitting: false,
   sourcemap: true,
-  external: ['three'],
+  external: ['three', '@lovelace_lol/embody/wasm'],
 };
 
 export default defineConfig([

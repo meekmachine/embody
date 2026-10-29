@@ -4,15 +4,18 @@
 //! `ProfilePatch` before any merge rule runs, keeping profile semantics in Rust
 //! and preventing renderer hosts from becoming a second profile engine.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
+use std::sync::OnceLock;
 
 use serde::Deserialize;
 
 use crate::profile::{
     deserialize_json, AnnotationRegionData, AuInfoData, AuMorphEntry, BoneBindingData,
-    CompositeRotationData, ContinuumPairData, HairDirectionData, HairMorphTargetsData,
-    HairPhysicsData, LineConfigData, MappingSectionData, MarkerStyleData, MeshInfoData,
+    CompositeRotationData, ContinuumPairData, HairDirectionData,
+    HumanoidCharacterizationData,
+    HairMorphTargetData, HairMorphTargetValueData, HairMorphTargetsData, HairPhysicsData,
+    LineConfigData, MappingSectionData, MarkerStyleData, MeshInfoData,
     MeshMaterialData, MorphRef, ProfileData, ProfileVec3Data, VisemeBindingData, VisemeSlotData,
 };
 
@@ -51,7 +54,52 @@ pub(crate) struct ProfilePatch {
     meshes: Option<HashMap<String, Option<MeshInfoData>>>,
     annotation_regions: Option<Vec<AnnotationRegionPatch>>,
     disabled_regions: Option<Vec<String>>,
-    hair_physics: Option<HairPhysicsData>,
+    #[serde(deserialize_with = "optional_nullable")]
+    hair_physics: Option<Option<HairPhysicsPatch>>,
+    humanoid_characterization: Option<HumanoidCharacterizationData>,
+}
+
+#[derive(Deserialize, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct HairPhysicsPatch {
+    #[serde(deserialize_with = "optional_nullable")]
+    morph_targets: Option<Option<HairMorphTargetsPatch>>,
+    #[serde(flatten)]
+    values: HairPhysicsData,
+}
+
+#[derive(Deserialize, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct HairMorphTargetsPatch {
+    #[serde(deserialize_with = "optional_nullable")]
+    sway_left: Option<Option<HairMorphTargetData>>,
+    #[serde(deserialize_with = "optional_nullable")]
+    sway_right: Option<Option<HairMorphTargetData>>,
+    #[serde(deserialize_with = "optional_nullable")]
+    sway_front: Option<Option<HairMorphTargetData>>,
+    #[serde(deserialize_with = "optional_nullable")]
+    fluff_right: Option<Option<HairMorphTargetData>>,
+    #[serde(deserialize_with = "optional_nullable")]
+    fluff_bottom: Option<Option<HairMorphTargetData>>,
+    #[serde(deserialize_with = "optional_nullable")]
+    head_up: Option<Option<HashMap<String, Option<HairMorphTargetValueData>>>>,
+    #[serde(deserialize_with = "optional_nullable")]
+    head_down: Option<Option<HashMap<String, Option<HairMorphTargetValueData>>>>,
+    #[serde(flatten)]
+    extensions: serde_json::Map<String, serde_json::Value>,
+}
+
+impl HairMorphTargetsPatch {
+    fn is_empty(&self) -> bool {
+        self.sway_left.is_none() && self.sway_right.is_none() && self.sway_front.is_none()
+            && self.fluff_right.is_none() && self.fluff_bottom.is_none()
+            && self.head_up.is_none() && self.head_down.is_none() && self.extensions.is_empty()
+    }
+}
+
+fn optional_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where D: serde::Deserializer<'de>, T: Deserialize<'de> {
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -83,14 +131,46 @@ pub(crate) fn parse_profile_patch(json: &str) -> Result<Option<ProfilePatch>, St
     deserialize_json(trimmed, "Invalid profile override JSON").map(Some)
 }
 
+fn legacy_cc4_profile() -> &'static ProfileData {
+    static LEGACY: OnceLock<ProfileData> = OnceLock::new();
+    LEGACY.get_or_init(|| {
+        serde_json::from_str(include_str!("../assets/legacy/cc4-body-profile.json"))
+            .expect("embedded legacy CC4 profile must be valid")
+    })
+}
+
 pub(crate) fn extend_preset_with_profile(
     base: &ProfileData,
     extension: Option<ProfilePatch>,
 ) -> ProfileData {
-    let Some(extension) = extension else {
+    let Some(mut extension) = extension else {
         return base.clone();
     };
 
+    let legacy = legacy_cc4_profile();
+    let current_cc4 = crate::presets::load_profile("cc4").expect("CC4 preset must exist");
+    let is_cc4_base = base.humanoid_characterization == current_cc4.humanoid_characterization;
+    // Only the exact historical snapshot is upgraded. An authored role change,
+    // partial map, or different preset remains authoritative.
+    let legacy_cc4 = extension.humanoid_characterization == legacy.humanoid_characterization
+        && is_cc4_base;
+    if legacy_cc4 {
+        extension.humanoid_characterization = base.humanoid_characterization.clone();
+        // Preserve literal AU targets while upgrading the old anatomical role map.
+        for (role, mapping) in legacy.humanoid_characterization.as_ref().into_iter().flat_map(|mapping| &mapping.roles) {
+            let old_node = &mapping.node_key;
+            if crate::profile_resolution::node_key(base, role) == old_node { continue; }
+            for bindings in extension.au_to_bones.as_mut().into_iter().flat_map(|bindings| bindings.values_mut()).flatten() {
+                for binding in bindings { if binding.node == *role { binding.node = old_node.clone(); } }
+            }
+            for composite in extension.composite_rotations.as_mut().into_iter().flatten() {
+                if composite.node == *role { composite.node = old_node.clone(); }
+            }
+            for pair in extension.continuum_pairs.as_mut().into_iter().flat_map(|pairs| pairs.values_mut()).flatten() {
+                if pair.node.as_deref() == Some(role.as_str()) { pair.node = Some(old_node.clone()); }
+            }
+        }
+    }
     let mut merged = base.clone();
     replace_option(&mut merged.name, extension.name);
     replace_option(&mut merged.animal_type, extension.animal_type);
@@ -119,10 +199,54 @@ pub(crate) fn extend_preset_with_profile(
         extension.au_face_part_to_mesh_category,
     );
     merge_map(&mut merged.au_mix_defaults, extension.au_mix_defaults);
-    replace_vec(
-        &mut merged.composite_rotations,
-        extension.composite_rotations,
+    replace_option(
+        &mut merged.humanoid_characterization,
+        extension.humanoid_characterization,
     );
+    if let Some(mut composites) = extension.composite_rotations {
+        let empty_override = composites.is_empty();
+        let legacy_actions = legacy.au_to_bones.keys().filter_map(|id| id.parse::<u32>().ok())
+            .collect::<HashSet<_>>();
+        // The old snapshot has AU bindings but no AU classification metadata.
+        // Use the inherited preset's AU metadata to distinguish its body nodes
+        // from facial-only rotation snapshots without consulting named controls.
+        let legacy_body_nodes = legacy.au_to_bones.iter().filter(|(id,_)| {
+            id.parse::<u32>().ok().is_some_and(|au|
+                crate::profile::is_body_action(legacy, au)
+                    || crate::profile::is_body_action(base, au))
+        }).flat_map(|(_,bindings)| bindings).map(|binding| crate::profile_resolution::node_key(legacy, &binding.node)).collect::<HashSet<_>>();
+        let legacy_facial_nodes = legacy.composite_rotations.iter()
+            .map(|composite| crate::profile_resolution::node_key(legacy, &composite.node))
+            .filter(|node| !legacy_body_nodes.contains(node)).collect::<HashSet<_>>();
+        // Older saved CC4 profiles contain a snapshot of facial composites.
+        // Keep untouched default body nodes while honoring explicit per-node
+        // overrides. General facial composite replacement remains unchanged.
+        for composite in base.composite_rotations.iter().filter(|_| !empty_override) {
+            let node = crate::profile_resolution::node_key(base, &composite.node);
+            if is_cc4_base && legacy_facial_nodes.contains(node) { continue; }
+            let is_body = merged.au_to_bones.iter().any(|(id,bindings)| {
+                id.parse::<u32>().ok().is_some_and(|au| crate::profile::is_body_action(&merged, au))
+                    && bindings.iter().any(|binding| crate::profile_resolution::configured_bone_name(&merged, &binding.node)
+                        == crate::profile_resolution::configured_bone_name(&merged, &composite.node))
+            });
+            let overridden = composites.iter_mut().find(|candidate|
+                crate::profile_resolution::configured_bone_name(&merged, &candidate.node)
+                    == crate::profile_resolution::configured_bone_name(&merged, &composite.node));
+            if !is_body { continue; }
+            if let Some(candidate) = overridden {
+                if legacy_cc4 {
+                    for (current, default) in [(&mut candidate.pitch, &composite.pitch),
+                        (&mut candidate.yaw, &composite.yaw), (&mut candidate.roll, &composite.roll)] {
+                        if current.is_none() && default.as_ref().is_some_and(|axis|
+                            !axis.aus.is_empty() && axis.aus.iter().all(|id| !legacy_actions.contains(id))) {
+                            *current = default.clone();
+                        }
+                    }
+                }
+            } else { composites.push(composite.clone()); }
+        }
+        merged.composite_rotations = composites.into();
+    }
     merge_nullable_map(&mut merged.continuum_pairs, extension.continuum_pairs);
     merge_map(&mut merged.continuum_labels, extension.continuum_labels);
     replace_vec(&mut merged.viseme_keys, extension.viseme_keys);
@@ -340,14 +464,22 @@ fn merge_line_config(base: &mut LineConfigData, extension: LineConfigData) {
     base.extensions.extend(extension.extensions);
 }
 
-fn merge_hair_physics(base: &mut Option<HairPhysicsData>, extension: Option<HairPhysicsData>) {
+fn merge_hair_physics(base: &mut Option<HairPhysicsData>, extension: Option<Option<HairPhysicsPatch>>) {
     let Some(extension) = extension else {
         return;
     };
-    let Some(base) = base.as_mut() else {
-        *base = Some(extension);
+    let Some(patch) = extension else {
+        // Keep a complete disabled/empty mapping in the resolved profile so a
+        // subsequent save and preset expansion cannot restore cleared targets.
+        *base = Some(HairPhysicsData {
+            enabled: Some(false),
+            morph_targets: Some(HairMorphTargetsData::default()),
+            ..Default::default()
+        });
         return;
     };
+    let base = base.get_or_insert_with(HairPhysicsData::default);
+    let extension = patch.values;
     replace_option(&mut base.enabled, extension.enabled);
     replace_option(&mut base.stiffness, extension.stiffness);
     replace_option(&mut base.damping, extension.damping);
@@ -373,13 +505,7 @@ fn merge_hair_physics(base: &mut Option<HairPhysicsData>, extension: Option<Hair
             base.direction = Some(direction);
         }
     }
-    if let Some(morph_targets) = extension.morph_targets {
-        if let Some(base_targets) = base.morph_targets.as_mut() {
-            merge_hair_morph_targets(base_targets, morph_targets);
-        } else {
-            base.morph_targets = Some(morph_targets);
-        }
-    }
+    merge_hair_morph_targets(&mut base.morph_targets, patch.morph_targets);
     base.extensions.extend(extension.extensions);
 }
 
@@ -389,15 +515,39 @@ fn merge_hair_direction(base: &mut HairDirectionData, extension: HairDirectionDa
     base.extensions.extend(extension.extensions);
 }
 
-fn merge_hair_morph_targets(base: &mut HairMorphTargetsData, extension: HairMorphTargetsData) {
-    replace_option(&mut base.sway_left, extension.sway_left);
-    replace_option(&mut base.sway_right, extension.sway_right);
-    replace_option(&mut base.sway_front, extension.sway_front);
-    replace_option(&mut base.fluff_right, extension.fluff_right);
-    replace_option(&mut base.fluff_bottom, extension.fluff_bottom);
-    base.head_up.extend(extension.head_up);
-    base.head_down.extend(extension.head_down);
+fn merge_hair_morph_targets(base: &mut Option<HairMorphTargetsData>, patch: Option<Option<HairMorphTargetsPatch>>) {
+    let Some(patch) = patch else { return };
+    let Some(extension) = patch else {
+        *base = Some(HairMorphTargetsData::default());
+        return;
+    };
+    if extension.is_empty() {
+        *base = Some(HairMorphTargetsData::default());
+        return;
+    }
+    let base = base.get_or_insert_with(HairMorphTargetsData::default);
+    if let Some(value) = extension.sway_left { base.sway_left = value; }
+    if let Some(value) = extension.sway_right { base.sway_right = value; }
+    if let Some(value) = extension.sway_front { base.sway_front = value; }
+    if let Some(value) = extension.fluff_right { base.fluff_right = value; }
+    if let Some(value) = extension.fluff_bottom { base.fluff_bottom = value; }
+    merge_hair_target_group(&mut base.head_up, extension.head_up);
+    merge_hair_target_group(&mut base.head_down, extension.head_down);
     base.extensions.extend(extension.extensions);
+}
+
+fn merge_hair_target_group(
+    base: &mut HashMap<String, Option<HairMorphTargetValueData>>,
+    patch: Option<Option<HashMap<String, Option<HairMorphTargetValueData>>>>,
+) {
+    match patch {
+        None => {},
+        Some(None) => base.clear(),
+        Some(Some(values)) if values.is_empty() => base.clear(),
+        // Keep per-target tombstones in saved profile data. Runtime hair
+        // normalization removes them after preset composition is complete.
+        Some(Some(values)) => base.extend(values),
+    }
 }
 
 #[cfg(test)]
@@ -433,6 +583,43 @@ mod tests {
         assert_eq!(merged["auToMorphs"]["2"]["center"][0], "B2");
         assert_eq!(merged["auToMorphs"]["3"]["center"][0], "C");
         assert_eq!(merged["visemeKeys"], json!(["Ooh"]));
+    }
+
+    #[test]
+    fn custom_au_classification_preserves_mapped_rotations_and_explicit_overrides() {
+        for metadata in ["auInfo", "actionInfo"] {
+            for category in ["faceArea", "facePart"] {
+                let mut base = json!({
+                    "auToBones": {"7001": [{
+                        "node": "CustomArm", "channel": "rx", "scale": 1,
+                        "maxDegrees": 60
+                    }]},
+                    "compositeRotations": [{
+                        "node": "CustomArm", "pitch": {"aus": [7001], "axis": "rx"}
+                    }]
+                });
+                base[metadata] = json!({"7001": {"name": "Character-specific arm motion"}});
+                base[metadata]["7001"][category] = json!("Body");
+                let merged = merge(base.clone(), json!({"compositeRotations": [{
+                    "node": "AuthoredHead", "yaw": {"aus": [9002], "axis": "ry"}
+                }]}));
+                let mut core = crate::runtime::RuntimeCore::new(0);
+                core.configure_with_profile(&merged.to_string(),
+                    r#"{"bones":[{"id":17,"name":"CustomArm"}]}"#).unwrap();
+                core.set_au(7001, 0.5, 0.0);
+                let frame = core.evaluate_active_bone_frame();
+                assert!(!frame.is_empty(), "{metadata}/{category} loses its mapped AU");
+                assert_eq!(frame[0], 17.0);
+                assert!(frame[4] > 0.1, "the inherited AU must rotate its mapped bone");
+
+                let authored = merge(base.clone(), json!({"compositeRotations": [{
+                    "node": "CustomArm", "pitch": {"aus": [7002], "axis": "rx"}
+                }]}));
+                assert_eq!(authored["compositeRotations"][0]["pitch"]["aus"], json!([7002]));
+                let disabled = merge(base, json!({"compositeRotations": []}));
+                assert_eq!(disabled["compositeRotations"], json!([]));
+            }
+        }
     }
 
     #[test]
@@ -524,6 +711,62 @@ mod tests {
         assert_eq!(hair["morphTargets"]["headUp"]["a"]["value"], 1.0);
         assert_eq!(hair["morphTargets"]["headUp"]["c"]["value"], 2.0);
         assert_eq!(hair["morphTargets"]["headDown"]["b"]["value"], 1.0);
+        let cleared = merge(merged, json!({"hairPhysics":{"morphTargets":{"headUp":{"a":null}}}}));
+        assert!(cleared["hairPhysics"]["morphTargets"]["headUp"]["a"].is_null());
+        assert_eq!(cleared["hairPhysics"]["morphTargets"]["headUp"]["c"]["value"], 2.0);
+    }
+
+    #[test]
+    fn preset_hair_overrides_clear_mappings_without_restoring_them_on_reload() {
+        let base = crate::presets::load_profile("cc4").unwrap();
+        for patch in [
+            json!({"hairPhysics":{"morphTargets":{}}}),
+            json!({"hairPhysics":{"morphTargets":null}}),
+            json!({"hairPhysics":null}),
+        ] {
+            let mut core = crate::runtime::RuntimeCore::new(0);
+            core.configure_with_preset("cc4", &patch.to_string(), "{}").unwrap();
+            let direct = core.get_hair_config_json().unwrap();
+            let merged = extend_preset_with_profile(base, parse_profile_patch(&patch.to_string()).unwrap());
+            let saved = serde_json::to_string(&merged).unwrap();
+            core.configure_with_preset("cc4", &saved, "{}").unwrap();
+            for resolved in [direct, core.get_hair_config_json().unwrap()] {
+                let normalized: Value = serde_json::from_str(&resolved).unwrap();
+                let config = crate::hair_curves::normalize_config(
+                    &crate::hair_curves::HairPlaybackConfig::default(), &normalized
+                ).unwrap();
+                assert!(crate::hair_curves::configured_targets(&config).is_empty());
+            }
+        }
+
+        for head_down in [json!({}), Value::Null] {
+            let patch = json!({"hairPhysics":{"morphTargets":{"headDown":head_down,"swayLeft":null}}});
+            let merged = extend_preset_with_profile(base, parse_profile_patch(&patch.to_string()).unwrap());
+            let saved = serde_json::to_string(&merged).unwrap();
+            let mut core = crate::runtime::RuntimeCore::new(0);
+            core.configure_with_preset("cc4", &saved, "{}").unwrap();
+            let normalized: Value = serde_json::from_str(&core.get_hair_config_json().unwrap()).unwrap();
+            assert!(normalized["morphTargets"]["headDown"].as_object().unwrap().is_empty());
+            assert!(normalized["morphTargets"]["swayLeft"].is_null());
+            assert!(normalized["morphTargets"]["swayRight"].is_string());
+            assert!(!normalized["morphTargets"]["headUp"].as_object().unwrap().is_empty());
+        }
+
+        let preset_hair = serde_json::to_value(&base.hair_physics).unwrap();
+        for group in ["headUp", "headDown"] {
+            let targets = preset_hair["morphTargets"][group].as_object().unwrap();
+            let mut names = targets.keys();
+            let removed = names.next().unwrap();
+            let retained = names.next().unwrap();
+            let patch = json!({"hairPhysics":{"morphTargets":{(group):{(removed):null}}}});
+            let merged = extend_preset_with_profile(base, parse_profile_patch(&patch.to_string()).unwrap());
+            let saved = serde_json::to_string(&merged).unwrap();
+            let mut core = crate::runtime::RuntimeCore::new(0);
+            core.configure_with_preset("cc4", &saved, "{}").unwrap();
+            let normalized: Value = serde_json::from_str(&core.get_hair_config_json().unwrap()).unwrap();
+            assert!(normalized["morphTargets"][group].get(removed).is_none());
+            assert!(normalized["morphTargets"][group].get(retained).is_some());
+        }
     }
 
     #[test]
@@ -565,5 +808,29 @@ mod tests {
             json!({ "boneNodes": { "HEAD": null } }),
         );
         assert_eq!(merged["boneNodes"]["HEAD"], "Head");
+    }
+
+    #[test]
+    fn humanoid_characterization_replaces_as_one_versioned_contract() {
+        let merged = merge(
+            json!({
+                "humanoidCharacterization": {
+                    "schemaVersion": 1,
+                    "standard": "VRMC_vrm-1.0",
+                    "status": "incomplete",
+                    "roles": { "head": { "nodeKey": "HEAD" } }
+                }
+            }),
+            json!({
+                "humanoidCharacterization": {
+                    "schemaVersion": 1,
+                    "standard": "VRMC_vrm-1.0",
+                    "status": "characterized",
+                    "roles": { "head": { "nodeKey": "HEAD_2" } }
+                }
+            }),
+        );
+        assert_eq!(merged["humanoidCharacterization"]["status"], "characterized");
+        assert_eq!(merged["humanoidCharacterization"]["roles"]["head"]["nodeKey"], "HEAD_2");
     }
 }

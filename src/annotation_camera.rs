@@ -1,9 +1,9 @@
-//! DPthree annotation camera core.
+//! ThreeAnnotations annotation camera core.
 //!
-//! Rust port of the pure camera math from the DPthree camera controller:
+//! Rust port of the pure camera math from the ThreeAnnotations camera controller:
 //! region framing, auto closeup angles, camera-angle direction resolution,
 //! and the spherical camera flight / orbit animation state machines.
-//! Scene-graph concerns (bounding boxes, OrbitControls, render loop) stay in
+//! Native scene-graph concerns (bounding-box queries and render loops) stay in
 //! the host; this module only consumes packed floats.
 
 use wasm_bindgen::prelude::*;
@@ -77,7 +77,7 @@ pub(crate) fn distance3(a: [f32; 3], b: [f32; 3]) -> f32 {
     (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
 }
 
-fn quat_or_identity(values: &[f32]) -> [f32; 4] {
+pub(crate) fn quat_or_identity(values: &[f32]) -> [f32; 4] {
     if values.len() < 4 {
         return [0.0, 0.0, 0.0, 1.0];
     }
@@ -89,7 +89,7 @@ fn quat_or_identity(values: &[f32]) -> [f32; 4] {
     [q[0] / len, q[1] / len, q[2] / len, q[3] / len]
 }
 
-fn rotate_by_quat(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
+pub(crate) fn rotate_by_quat(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
     let [qx, qy, qz, qw] = q;
     // t = 2 * cross(q.xyz, v)
     let tx = 2.0 * (qy * v[2] - qz * v[1]);
@@ -478,7 +478,7 @@ pub(crate) fn ease_in_out_quad(t: f32) -> f32 {
 
 /// Spherical camera flight between two camera poses.
 ///
-/// Mirrors the DPthree camera transition: orbital interpolation with a
+/// Mirrors the ThreeAnnotations camera transition: orbital interpolation with a
 /// pullback arc so large rotations do not pass through the model.
 /// `sample(elapsed_ms)` returns
 /// `[posX, posY, posZ, targetX, targetY, targetZ, done]`.
