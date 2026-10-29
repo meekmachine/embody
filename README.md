@@ -38,6 +38,7 @@ src/                 Rust source (the Wasm crate) — hair, clips, profiles, run
 assets/presets/      Embedded typed character profiles
 assets/templates/    Embedded humanoid skeleton templates
 three/               Thin Three.js inspection/application adapter only
+model-tools/         Browser/Node GLB preparation, public types, and CLI
 wasm/                Generated-Wasm JS loader + ABI constants
 index.ts             Package re-exports only
 ```
@@ -57,7 +58,7 @@ The Rust core owns:
 - hair curves, hair physics, and appearance normalization
 - annotation regions, camera gestures/flights/orbits, marker placement and visibility,
   preview/reveal lifecycles, and humanoid template fitting
-- profile-aware screen-space gaze geometry for eye/head AU trajectories
+- on-demand semantic AU reads of active AU-curve clips (no clock or polling)
 - renderer-neutral model analysis and packed live frame generation
 - transient mesh highlight selection, styling, transitions, and versioned preview snapshots
 
@@ -144,6 +145,88 @@ replacing differently sized geometry. Hiding or changing the hover clears its
 sample cache; an explicitly empty mesh selection produces no preview. Applications
 forward hover/show/hide events and dispose the overlay when its scene is released.
 
+### Preparing Actor Models
+
+`@lovelace_lol/embody/model-tools` exposes `inspectActorModel(bytes)` and
+`prepareActorModel(bytes, options)` to prepare separate GLB files for an Actor.
+This module owns file transformations; LoomLarge owns the guided workflow,
+Model upload, Actor persistence, and Mapping selection. It does not load the
+animation runtime or initialize Embody's runtime Wasm.
+
+```js
+import { inspectActorModel, prepareActorModel } from '@lovelace_lol/embody/model-tools';
+
+const source = new Uint8Array(await file.arrayBuffer());
+const inspection = await inspectActorModel(source);
+// Show inspection.meshes to the creator before choosing explicit mesh IDs.
+const prepared = await prepareActorModel(source, {
+  kind: 'low-resolution',
+  targetRatio: 0.5,
+  maxError: 0.001,
+  signal: abortController.signal,
+});
+// Persist prepared.bytes as a new Model only after the operation succeeds.
+```
+
+Inspection returns source-scoped mesh IDs, original names, node names,
+materials, vertex/triangle counts, skin and morph presence, total byte length,
+and processing limitations. Preparation returns a new byte array, before/after
+inspection, the removed source mesh IDs, and warnings. It never writes into the
+input array, fetches resources, or persists an Actor.
+
+| Kind | File operation |
+| --- | --- |
+| `original` | Copy source bytes exactly. |
+| `optimized` | Compact unused vertex data and remove explicitly selected meshes and orphaned file resources. |
+| `low-resolution` | Reduce triangle count; default target is 50%, limited by geometry, rig protection, and error. |
+| `miniature` | Apply an explicitly supplied uniform `scale` above existing scene roots. This changes physical scale, not texture resolution. |
+| `bust` | Keep explicit `keepMeshIds`; requires separately authored body-part meshes. |
+| `outfit` | Keep/remove explicit mesh IDs for a prepared outfit; never guess garments from names. |
+
+`targetRatio` accepts 0.05–1 and `maxError` accepts 0–0.05 relative to each
+primitive's extent. `scale` is required only for miniature and accepts 0.01–0.99.
+Mesh IDs belong to the inspected input; inspect each new file before editing it
+again. Removing a shared mesh removes all its instances. A combined body mesh
+must be split in a modeling tool before a bust or garment can be removed. These
+tools do not generate clothing, transfer garments between rigs, cut surfaces,
+or implement runtime garment switching.
+
+Processed variants require self-contained, extension-free GLB. Unsupported
+extensions (including compression and VRM) or resource URIs produce an explicit
+error before rewriting. Original copies retain such payloads and inspection
+reports `canTransform: false`; hosts must still apply their upload policy.
+Textures keep their original bytes and dimensions. Output includes actual byte
+and triangle counts; a requested reduction is not a size guarantee.
+
+Triangle reduction locks vertices participating in any morph and vertices at
+skin-influence transitions. It preserves topological borders and weighs normals,
+UVs, and colors. All retained attributes, including joints, weights and every
+morph target, use one vertex remap. Existing mesh/node names, skeleton hierarchy,
+bind matrices and surviving animation targets remain intact. Only morph animation
+channels targeting an explicitly removed mesh are removed, with a warning.
+No node, joint, or surviving morph target is renamed. Hosts must review Mapping
+targets when source names are missing/duplicated or a mapped mesh was removed;
+vertex-index annotations require remapping after compaction.
+
+Cancellation is checked between processing stages and primitives. A synchronous
+simplifier call cannot be interrupted halfway through; hosts should use a worker
+when processing large assets must not occupy the UI thread.
+
+The installed `embody-prepare-actor` command uses the same implementation:
+
+```bash
+embody-prepare-actor --input character.glb --inspect
+embody-prepare-actor --input character.glb --output low.glb --kind low-resolution --ratio 0.5
+embody-prepare-actor --input character.glb --output outfit.glb --kind outfit --remove-mesh mesh:2
+embody-prepare-actor --input character.glb --output bust.glb --kind bust --keep-mesh mesh:0
+```
+
+Repeat `--remove-mesh`/`--keep-mesh` for multiple selections. The CLI refuses an
+existing output path, including the source file or a symlink to it. It prints a
+JSON report after creating the new file. In a source checkout, invoke
+`node model-tools/prepare-actor.mjs` with the same arguments. CI runs the
+`test:model-tools` regression source as part of the existing package checks.
+
 ### Annotation runtime
 
 `AnnotationRuntime` in `src/annotation_runtime/` owns the annotation behavior
@@ -195,6 +278,8 @@ instance. Region and camera snapshots are observations; mutate through controlle
 methods. Explicit `undefined` fields in `updateAnnotationRegion` remove overrides.
 `getCharacterConfig()` retains snapshot identity until configuration content or
 the model changes; selection, visibility and camera input do not replace it.
+Authored intro focus targets use the same framing as manual region selection;
+extra eye padding and composition bias apply only to the default region target.
 Call `clearModel()` before releasing a removed model's native resources. The
 controller retains renderer rebinding, canvas input reconnect and resource-drain
 support through the scene's rendering controller.
@@ -416,50 +501,6 @@ when the Three clip is constructed. Hosts must construct it again to capture
 a fresh pose; this does not change cached host replay or generated bone
 inheritance behavior.
 
-### Gaze geometry contract
-
-`solve_profile_screen_space_gaze` and `solve_profile_viewer_space_gaze` return
-14 floats: combined target XY, eye target XY, head target XY, total yaw/pitch,
-camera yaw/pitch, eye-to-camera distance, and viewer world XYZ. XY outputs are
-signed AU intensities in [-1, 1]; positive Y is up and horizontal direction is
-subject-relative. Angular values are degrees.
-
-Pass current world camera position/quaternion, character eye midpoint, and
-model quaternion. The viewer solver takes normalized image XY (+Y up) and
-depth behind the virtual camera; depth and all positions must share scene
-units. Convert physical webcam estimates before calling and supply the actual
-source FOV/aspect. Zero viewer XY extends the character-eye-to-camera bearing,
-so the character looks at the viewer even when scene framing puts its eyes
-away from image center. Offsets retain the camera's right/up axes; when the
-camera coincides with the eyes, its local +Z supplies the fallback bearing.
-The depth guard is 0.2–10 scene units. Mouse and webcam can share this contract
-when they use the same calibration.
-
-Ordinary head following participates toward the common target from calibrated
-model-neutral +Z: `head_follow_fraction` is a share of the target yaw/pitch,
-defaulting to 0.35 for a non-finite value. Zero prefers neutral, one follows the
-full target, and eye overflow can recruit more head movement within its limits.
-The explicit `lock_head_to_camera` flag instead prefers the camera bearing while
-eyes can reach; a zero follow fraction alone does not select that policy. When
-eyes are disabled the head carries the target regardless of follow or lock.
-This removes the previous implicit camera bias, which could point the head
-opposite the selected target when the camera was off-center. Hosts that intend
-camera-facing behavior must request the explicit viewer-solver lock; Polymer's
-`headFollowEyes: false` maps to zero participation, not an implicit lock.
-Eye angles are solved in the
-rotated head frame, using yaw then pitch to match runtime composition. Limits
-and AU normalization are directional and include each binding's scale. Missing
-or morph-only mappings contribute no inferred angular capacity.
-
-The profile must describe the active rig with calibrated semantic axes:
-model +Z is forward, +Y is up. This ABI does not include the skeleton's rest
-frames or optical axes, per-eye origins, current animated head pose, or
-webcam-to-display calibration. It solves an endpoint in the assumed calibrated
-basis; it does not provide binocular convergence or compensate intermediate
-head motion. Shared eye commands use the smaller mapped eye capacity; unequal
-left/right ranges need separate calibration. Hosts must compose the requested
-rotations without averaging independent yaw/pitch clips together.
-
 For import-time inspection, `captureModelReferencePose` provides an explicit,
 immutable transform and morph reference that hosts can reuse after playback.
 `extendModelReferencePose` explicitly adds appended skeletons while preserving
@@ -527,94 +568,6 @@ const report = JSON.parse(wasm.analyze_model_descriptor(
   JSON.stringify({ suggestCorrections: true }),
 ));
 ```
-
-## Pose-aware focus
-
-`ThreeGazeFocus` from `@lovelace_lol/embody/three` applies a focus constraint
-inside an animation runtime. It has no clock or target-selection policy:
-call `restore()` before evaluating the base animation, then `apply(request,
-controls)` after it. Restoration compares quaternion orientations independently
-of Float32 sample norms, preserving the exact authored sample and any newer
-authored orientation. Repeated applications between mixer ticks do not accumulate
-the constraint's previous correction. Controls are the current positions of existing motor
-tracks. The optional sampled `controls.headIntensity` and `controls.eyeIntensity`
-override the matching request fields, so the host can animate configuration
-changes on its existing motor tracks. Both mean contribution in [0, 1]: zero
-preserves the evaluated base, one applies the full solved excursion, and legacy
-values above one normalize to one. Intermediate eye contribution proportionally
-reduces the correction; it does not shrink anatomical limits. Reduced eye
-contribution deliberately leaves focus error. These controls do not amplify
-input displacement or control response speed.
-
-During travel, the remaining sampled bearing rotates the requested finite
-target. At the endpoint that rotation becomes identity, reaching the exact
-world target continuously. There is no settled-threshold switch between targets
-constructed from the authored and tracking-shifted eye origins; a larger head
-turn must not introduce a final eye snap.
-
-Pass `{ referencePose }` as the constructor's third argument, reusing the
-reference captured at import. Without it, construction captures the current
-pose, so callers must construct before playback. The head solves its bounded
-gaze excursion in that reference hierarchy under the model's current scene
-transform, then composes the excursion onto the evaluated authored head pose.
-Head and neck gestures retain their motion instead of being cancelled or
-reversed by tracking. Each eye then solves toward the same finite target from
-its own origin in the final animated hierarchy. Full eye contribution retains
-binocular focus wherever the combined authored motion and gaze are reachable;
-otherwise diagnostics report the remaining angular error and limits. Authored
-gestures are not suppressed to force a target into range. The signed limits
-bound the tracking excursion; they do not clamp the final authored pose plus
-that excursion against a neutral-reference joint range. Authored motion can
-therefore take the combined pose beyond that range or the eyes' reach.
-
-`readControlState({worldTarget, headIntensity, eyeIntensity})` provides initial
-motor bearings without changing the rig. It inverts existing focus contributions
-against their saved base, and seeds zero added head excursion when enabling on
-a purely authored pose. When replacing legacy AU controls, also provide the
-evaluated local `headBaseQuaternion` and/or `eyeBaseQuaternions` (a map keyed by
-bone name), with those legacy controls excluded. `headSeedLimited` and
-`eyeSeedLimited` report poses that cannot be represented by the bounded motor
-bearings. Parallel legacy eyes cannot both be preserved exactly by a shared
-finite target; inverse eye contribution avoids double attenuation but does not
-remove that convergence residual. This helper supplies no handoff transition
-clock; the host owns activation policy and movement timing.
-
-The optional `profile.gazeCalibration` supplies bone-local
-`head`, `leftEye`, and `rightEye` optical axes and `modelUnitsPerMeter`.
-Without explicit optical axes, signed yaw/pitch bindings determine the optical
-frame. Unresolvable joints remain untouched and are reported in diagnostics.
-
-`solve_profile_viewer_space_gaze_scaled` adds `world_units_per_meter` as its
-last argument. Multiply the authored units-per-meter calibration by the
-presentation's uniform root scale. The original viewer solver keeps its
-existing scale-one behavior. Neither solver infers physical webcam/display
-placement from face landmarks.
-
-`solve_profile_tracking_gaze` maps normalized display-right/up controls to the
-profile's full signed head AU rotation range. Pass `head_follow_fraction = 1`
-for full participation: on an aligned display axis, an input endpoint of +/-1
-requests the same head rotation as the corresponding AU at intensity 1. Binding
-scale and asymmetric `maxDegrees` remain authoritative. Camera distance and FOV
-do not reduce this range. Intermediate inputs interpolate between the bounded
-camera bearing at zero and the corresponding signed endpoint; camera roll
-rotates the display axes into the model frame. With head tracking disabled,
-the target spans the eye AU range instead.
-
-The signature is `(profile_json, tracking_target, camera_position,
-camera_quaternion, gaze_origin, model_quaternion, eyes_enabled, head_enabled,
-head_follow_fraction, lock_head_to_camera, world_units_per_meter)`. It returns
-the same 14-float layout as the existing physical projection solvers. Target Z
-is depth in meters, clamped to 0.2–10 before scene scaling; it sets a finite
-binocular focus distance without attenuating the angular range. X/Y clamp to
-[-1, 1], nonfinite coordinates become zero, invalid positive depth/scale use
-0.8/1 respectively, and absent AU bindings supply no angular capacity.
-
-This is an input-range mapping, not a physical reconstruction of the viewer's
-position. The existing screen/viewer projection APIs retain their contracts.
-Consumers must select this entry point and request full head participation to
-use it; adding the export alone does not change LoomLarge tracking. Eye focus
-still uses the resulting finite target and reports residual error when reduced
-strength, authored motion, or rig limits make that target unreachable.
 
 ## npm releases and PR previews
 
@@ -731,6 +684,31 @@ Native playback owns interpolation, pause, resume, cancellation and blending.
 Reset an authored control by setting its mapped AU values to zero. Hosts select
 which mapped AU IDs to reset; unrelated face state and saved mix strengths remain
 under their existing owners.
+
+### Reading current AU state
+
+Rust records each admitted AU-curve clip's authored keys, resolved inherited
+start, strength and easing. Those records change only at admission or a
+strength/easing edit; nothing ticks them. Reads evaluate them on demand at the
+native action's time and effective weight, so a fading slot reports
+value × weight:
+
+- `readAUContribution(name)` returns one slot's own `{auId: value}`, or `null`
+  when it is not playing or was not an AU-curve clip.
+- `readAUState()` returns `{live, animated, total, unreadable}`: live control
+  values, active AU-curve clip contributions and their sum. Baked/native and
+  typed clips animate rig outputs directly and cannot be inverted to AU values,
+  so they are listed in `unreadable` rather than estimated.
+- `measureAUGoal(name, destinations)` returns `{distance, reversal, current}`:
+  the largest travel from the slot's current contribution to `{auId: value}`
+  destinations, measured along profile `continuumPairs` as `positive − negative`
+  (crossing neutral from 0.3 negative to 0.3 positive is 0.6), and whether it
+  reverses the slot's unfinished travel. Callers apply their own timing policy
+  and send an ordinary inherited clip with the duration they choose.
+
+Each call does a small amount of work in Rust; read when deciding, not every
+frame. See [inherited clip starts](docs/INHERITED_CLIP_STARTS.md) for how
+inherited starts and weights resolve.
 
 Named semantic pose/animation APIs and profile `bodyControls` are retired.
 Persisted named records must be decoded at the storage boundary to numeric AU

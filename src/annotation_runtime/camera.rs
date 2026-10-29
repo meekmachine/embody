@@ -102,17 +102,25 @@ impl Camera {
         let eye = intro_region(regions);
         let mut landing = eye.and_then(|r| {
             let mut r = r.clone();
-            r["paddingFactor"] = json!((number(
-                &r,
-                "paddingFactor",
-                number(settings, "closeUpPaddingFactor", 1.2)
-            ) * 0.72)
-                .min(0.85));
+            let target_kind = text(&r["focusTarget"], "type");
+            let authored_target = !target_kind.is_empty() && target_kind != "region";
+            // Authored targets use the same framing as manual selection. The
+            // tighter eye composition applies only to the default region target.
+            if !authored_target {
+                r["paddingFactor"] = json!((number(
+                    &r,
+                    "paddingFactor",
+                    number(settings, "closeUpPaddingFactor", 1.2)
+                ) * 0.72)
+                    .min(0.85));
+            }
             self.focus_pose(model, &r, config, settings, left)
                 .map(|(mut pos, mut target)| {
-                    let bias = (model.bounds.size()[1] * 0.025).max(0.025);
-                    pos[1] -= bias;
-                    target[1] -= bias;
+                    if !authored_target {
+                        let bias = (model.bounds.size()[1] * 0.025).max(0.025);
+                        pos[1] -= bias;
+                        target[1] -= bias;
+                    }
                     (pos, target, Some(text(&r, "name").to_owned()))
                 })
         });
