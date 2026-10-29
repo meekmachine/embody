@@ -184,3 +184,93 @@ describe('native renderer lifecycle', () => {
     expect(f.onRenderError).not.toHaveBeenCalled();
   });
 });
+
+describe('skinned region framing', () => {
+  function createSkinnedPatch(boneIndex: number, centerX = 0, morphOffsetY = 0): THREE.SkinnedMesh {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+      centerX - 0.1, -0.1, 0,
+      centerX + 0.1, 0.1, 0,
+    ], 3));
+    geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute([
+      boneIndex, 0, 0, 0, boneIndex, 0, 0, 0,
+    ], 4));
+    geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute([
+      1, 0, 0, 0, 1, 0, 0, 0,
+    ], 4));
+    if (morphOffsetY) {
+      geometry.morphTargetsRelative = true;
+      geometry.morphAttributes.position = [new THREE.Float32BufferAttribute([
+        0, morphOffsetY, 0, 0, morphOffsetY, 0,
+      ], 3)];
+    }
+    return new THREE.SkinnedMesh(geometry, new THREE.MeshBasicMaterial());
+  }
+
+  it('focuses the rendered bone region with a translated bind matrix and active morph', async () => {
+    const { scene, controller } = fixture();
+    const model = new THREE.Group();
+    model.position.set(3, 4, 5);
+    const eye = new THREE.Bone();
+    eye.name = 'Eye';
+    eye.position.y = 2;
+    const mesh = createSkinnedPatch(0, 0, 0.5);
+    mesh.position.x = 2;
+    model.add(eye, mesh);
+    scene.add(model);
+    model.updateMatrixWorld(true);
+    mesh.bind(new THREE.Skeleton([eye]));
+    mesh.morphTargetInfluences![0] = 1;
+    eye.position.y += 1;
+    controller.setModel(model);
+
+    try {
+      await controller.focusBones(['Eye'], 0);
+
+      // The patch starts at world (5, 4, 5); the bone adds 1 and morph adds 0.5 to Y.
+      expect(controller.controls.target.x).toBeCloseTo(5, 5);
+      expect(controller.controls.target.y).toBeCloseTo(5.5, 5);
+      expect(controller.controls.target.z).toBeCloseTo(5, 5);
+    } finally {
+      controller.dispose();
+      mesh.skeleton.dispose();
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+    }
+  });
+
+  it('includes every mesh sharing a bone even when its skeleton index differs', async () => {
+    const { scene, controller } = fixture();
+    const model = new THREE.Group();
+    model.position.set(3, 4, 5);
+    const eye = new THREE.Bone();
+    eye.name = 'Eye';
+    eye.position.y = 2;
+    const otherBone = new THREE.Bone();
+    const leftPatch = createSkinnedPatch(0, -2);
+    const rightPatch = createSkinnedPatch(1, 2);
+    model.add(eye, otherBone, leftPatch, rightPatch);
+    scene.add(model);
+    model.updateMatrixWorld(true);
+    leftPatch.bind(new THREE.Skeleton([eye, otherBone]));
+    rightPatch.bind(new THREE.Skeleton([otherBone, eye]));
+    eye.position.y += 1;
+    controller.setModel(model);
+
+    try {
+      await controller.focusBones(['Eye'], 0);
+
+      expect(controller.controls.target.x).toBeCloseTo(3, 5);
+      expect(controller.controls.target.y).toBeCloseTo(5, 5);
+      expect(controller.controls.target.z).toBeCloseTo(5, 5);
+    } finally {
+      controller.dispose();
+      for (const mesh of [leftPatch, rightPatch]) {
+        mesh.skeleton.dispose();
+        mesh.geometry.dispose();
+        (mesh.material as THREE.Material).dispose();
+      }
+    }
+  });
+});
+

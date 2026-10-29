@@ -24,6 +24,7 @@ mod profile;
 mod profile_api;
 mod profile_merge;
 mod runtime;
+mod semantic_slots;
 mod skeleton;
 mod snippet_compile;
 mod template_fit_metadata;
