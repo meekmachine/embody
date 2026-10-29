@@ -158,6 +158,7 @@ pub struct RuntimeCore {
     hair_head_binding: Option<crate::hair_curves::HairHeadBinding>,
     hair_response: crate::hair::HairResponse,
     hair_response_paused: bool,
+    semantic_slots: HashMap<String, crate::semantic_slots::SemanticSlot>,
     mesh_highlight: crate::highlighting::MeshHighlightState,
 }
 
@@ -199,6 +200,7 @@ impl RuntimeCore {
             hair_head_binding: None,
             hair_response: crate::hair::HairResponse::default(),
             hair_response_paused: false,
+            semantic_slots: HashMap::new(),
             mesh_highlight: crate::highlighting::MeshHighlightState::default(),
         }
     }
@@ -564,6 +566,96 @@ impl RuntimeCore {
         } else {
             pos
         }
+    }
+
+    /// Record the semantic AU keys of an admitted AU-curve clip slot. The
+    /// same-name slot recorded earlier is the predecessor: `predecessor_time`
+    /// is its native action time (NaN when absent) and `weight_ratio` its
+    /// effective weight divided by the incoming weight, as for physical
+    /// inheritance. Only numeric AU curves are kept.
+    #[wasm_bindgen]
+    pub fn record_semantic_slot(&mut self, name: &str, curves_json: &str, intensity_scale: f64, easing: &str,
+        predecessor_time: f64, weight_ratio: f64) -> Result<(), JsError> {
+        let curves: BTreeMap<String, Vec<RuntimeCurvePoint>> =
+            deserialize_json(curves_json, "Invalid snippet curves JSON").map_err(|error| JsError::new(&error))?;
+        let curves = curves.into_iter().map(|(key, points)| (key, points.into_iter().map(|point|
+            crate::semantic_slots::AuthoredPoint { time: point.time, intensity: point.intensity, inherit: point.inherit }).collect())).collect();
+        let easing = crate::semantic_slots::Easing::parse(easing).map_err(|error| JsError::new(&error))?;
+        let predecessor = (predecessor_time.is_finite() && weight_ratio.is_finite())
+            .then(|| self.semantic_slots.get(name).map(|slot| (slot, predecessor_time, weight_ratio)))
+            .flatten();
+        let slot = crate::semantic_slots::SemanticSlot::admit(curves, intensity_scale, easing, predecessor)
+            .map_err(|error| JsError::new(&error))?;
+        self.semantic_slots.insert(name.into(), slot);
+        Ok(())
+    }
+
+    /// Forget a slot once its native action is released or replaced by a
+    /// non-curve source. Returns whether a slot existed.
+    #[wasm_bindgen]
+    pub fn release_semantic_slot(&mut self, name: &str) -> bool { self.semantic_slots.remove(name).is_some() }
+
+    /// Apply an in-place strength/easing edit to a running slot.
+    #[wasm_bindgen]
+    pub fn restyle_semantic_slot(&mut self, name: &str, intensity_scale: f64, easing: &str) -> Result<bool, JsError> {
+        let easing = crate::semantic_slots::Easing::parse(easing).map_err(|error| JsError::new(&error))?;
+        let Some(slot) = self.semantic_slots.get_mut(name) else { return Ok(false); };
+        slot.restyle(intensity_scale, easing).map_err(|error| JsError::new(&error))?;
+        Ok(true)
+    }
+
+    /// One slot's own AU contribution, `{auId: value}`, at the host's native
+    /// action time and effective weight; `null` when the slot is not readable.
+    #[wasm_bindgen]
+    pub fn read_semantic_slot(&self, name: &str, time: f64, weight: f64) -> String {
+        match self.semantic_slots.get(name) {
+            Some(slot) if time.is_finite() && weight.is_finite() => au_map_json(&slot.values_at(time, weight)).to_string(),
+            _ => "null".into(),
+        }
+    }
+
+    /// Live AU state plus every listed slot's contribution. `slots_json` is
+    /// `[{name, time, weight}]` for the host's active actions. Returns
+    /// `{live, animated, total}`; unreadable names are the host's to report.
+    #[wasm_bindgen]
+    pub fn read_semantic_state(&self, slots_json: &str) -> Result<String, JsError> {
+        #[derive(Deserialize)]
+        struct ActiveSlot { name: String, time: f64, weight: f64 }
+        let slots: Vec<ActiveSlot> = deserialize_json(slots_json, "Invalid active slot JSON").map_err(|error| JsError::new(&error))?;
+        let live: BTreeMap<u32, f64> = self.au_values.iter().filter(|(_, value)| **value != 0.0).map(|(id, value)| (*id, *value as f64)).collect();
+        let mut animated = BTreeMap::<u32, f64>::new();
+        for active in slots.iter().filter(|active| active.time.is_finite() && active.weight.is_finite()) {
+            let Some(slot) = self.semantic_slots.get(&active.name) else { continue; };
+            for (id, value) in slot.values_at(active.time, active.weight) { *animated.entry(id).or_default() += value; }
+        }
+        let mut total = live.clone();
+        for (id, value) in &animated { *total.entry(*id).or_default() += value; }
+        Ok(serde_json::json!({"live": au_map_json(&live), "animated": au_map_json(&animated), "total": au_map_json(&total)}).to_string())
+    }
+
+    /// Distance from a slot's current contribution to `destination_json`
+    /// (`{auId: value}`), measured along profile continuum pairs. Travel is
+    /// reversed only against an `unfinished` slot. A missing slot is at zero.
+    /// Returns `{distance, reversal, current}`.
+    #[wasm_bindgen]
+    pub fn measure_au_goal(&self, name: &str, time: f64, weight: f64, destination_json: &str, unfinished: bool) -> Result<String, JsError> {
+        let destination: BTreeMap<String, f64> =
+            deserialize_json(destination_json, "Invalid AU destination JSON").map_err(|error| JsError::new(&error))?;
+        let slot = self.semantic_slots.get(name).filter(|_| time.is_finite() && weight.is_finite());
+        let mut ids = Vec::new();
+        let (mut current, mut target, mut preceding) = (Vec::new(), Vec::new(), Vec::new());
+        for (key, value) in destination {
+            let id = key.parse::<u32>().map_err(|_| JsError::new(&format!("AU destination key {key} is not a numeric AU id.")))?;
+            if !value.is_finite() { return Err(JsError::new(&format!("AU {id} destination must be finite."))); }
+            ids.push(id);
+            target.push(value as f32);
+            current.push(slot.and_then(|slot| slot.value_at(id, time)).map_or(0.0, |value| value * weight) as f32);
+            preceding.push(if unfinished { slot.map_or(0.0, |slot| slot.travel_at(id, time) * weight) as f32 } else { 0.0 });
+        }
+        let (distance, reversal) = crate::semantic_slots::measure_travel(&ids, &current, &target, &preceding, &self.continuum_pairs)
+            .ok_or_else(|| JsError::new("AU goal measurement inputs must align."))?;
+        let current: BTreeMap<u32, f64> = ids.iter().zip(&current).map(|(id, value)| (*id, *value as f64)).collect();
+        Ok(serde_json::json!({"distance": distance, "reversal": reversal, "current": au_map_json(&current)}).to_string())
     }
 
     #[wasm_bindgen]
@@ -1207,8 +1299,10 @@ impl RuntimeCore {
     }
 
     /// Compile the current live semantic controls into ordinary native tracks.
-    /// The connector captures inherited starts at play time; Rust never ticks
-    /// or interpolates these samples. Empty output relinquishes all live tracks.
+    /// `inherit_start` marks timed tracks as continuing from the current pose;
+    /// the Three adapter resolves it from each live target's own outgoing
+    /// action (not the mixed pose) at play time. Rust never ticks or
+    /// interpolates these samples. Empty output relinquishes all live tracks.
     #[wasm_bindgen]
     pub fn build_live_clip(&self, name: &str, duration_seconds: f64) -> Result<String, JsError> {
         if name.trim().is_empty() || !duration_seconds.is_finite() || duration_seconds < 0.0 {
@@ -1243,47 +1337,6 @@ impl RuntimeCore {
             channels: vec![ClipChannel { id: 1, kind: "live".into(), name: None }],
             tracks, metadata: None,
         }).map_err(|error| JsError::new(&error.to_string()))
-    }
-
-    /// Compile relinquished live targets back to their reference values. Run
-    /// this clip with finalPose=release so native ownership ends at completion.
-    #[wasm_bindgen]
-    pub fn build_live_release_clip(&self, name: &str, previous_clip_json: &str, duration_seconds: f64) -> Result<String, JsError> {
-        let previous: ClipIR = serde_json::from_str(previous_clip_json)
-            .map_err(|error| JsError::new(&error.to_string()))?;
-        let active: ClipIR = serde_json::from_str(&self.build_live_clip(name, duration_seconds)?)
-            .map_err(|error| JsError::new(&error.to_string()))?;
-        let active_targets: HashSet<String> = active.tracks.iter().map(|track| track.target.to_string()).collect();
-        let mut tracks = Vec::new();
-        for mut track in previous.tracks {
-            if active_targets.contains(&track.target.to_string()) { continue; }
-            let target = &track.target;
-            let neutral: Vec<f64> = match target.get("kind").and_then(serde_json::Value::as_str) {
-                Some("morphTarget") => {
-                    let mesh = target["meshId"].as_u64().unwrap_or(0) as u32;
-                    let morph = target["morphTargetId"].as_u64().unwrap_or(0) as u32;
-                    vec![self.initial_morph_values.get(&(mesh, morph)).copied().unwrap_or(0.0) as f64]
-                },
-                Some("boneTransform") => {
-                    let id = target["boneId"].as_u64().unwrap_or(0) as u32;
-                    let rest = self.bone_rest_transforms.get(&id).copied().unwrap_or(RestTransform {
-                        position: [0.0; 3], rotation: [0.0, 0.0, 0.0, 1.0],
-                    });
-                    if target["property"].as_str() == Some("position") {
-                        rest.position.iter().map(|v| *v as f64).collect()
-                    } else { rest.rotation.iter().map(|v| *v as f64).collect() }
-                },
-                _ => return Err(JsError::new("Live release requires mapped morph or bone targets.")),
-            };
-            track.id = tracks.len() as u32 + 1;
-            track.channel_id = 1;
-            track.times = if duration_seconds > 0.0 { vec![0.0, duration_seconds] } else { vec![0.0] };
-            track.values = neutral.clone();
-            if duration_seconds > 0.0 { track.values.extend(neutral); }
-            track.inherit_start = duration_seconds > 0.0;
-            tracks.push(track);
-        }
-        serde_json::to_string(&ClipIR { tracks, ..active }).map_err(|error| JsError::new(&error.to_string()))
     }
 
     /// Emit only currently/previously owned bone properties. Position and
@@ -1765,7 +1818,22 @@ impl RuntimeCore {
         // targets are resolved. Numeric id alone is not a channel identity.
         let mut semantic_curves = Vec::new();
         let mut remaining = Vec::new();
+        let mut local_rotations: BTreeMap<u32, Vec<(TypedChannel, f64)>> = BTreeMap::new();
         for channel in channels {
+            if let Some(space) = channel.target.get("rotationSpace") {
+                let target_type = channel.target.get("type").or_else(|| channel.target.get("kind"))
+                    .and_then(serde_json::Value::as_str);
+                if space.as_str() != Some("local") || target_type != Some("bone") {
+                    return Err(JsError::new("rotationSpace must be 'local' on a bone rotation target."));
+                }
+                let node = channel.target.get("id").and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| JsError::new("Local rotation target requires a bone id."))?;
+                let bone_id = self.resolve_bone_id(node)
+                    .ok_or_else(|| JsError::new(&format!("Local rotation bone '{node}' could not be resolved.")))?;
+                let scale = global_scale * channel.intensity_scale.unwrap_or(1.0);
+                local_rotations.entry(bone_id).or_default().push((channel, scale));
+                continue;
+            }
             if channel.keyframes.is_empty() {
                 continue;
             }
@@ -1969,6 +2037,15 @@ impl RuntimeCore {
                 _ => {}
             }
         }
+        for (bone_id, channels) in local_rotations {
+            if tracks.iter().any(|track| track.target["kind"] == "boneTransform"
+                && track.target["boneId"] == bone_id && track.target["property"] == "rotation") {
+                return Err(JsError::new(&format!("Local rotation for bone {bone_id} overlaps another rotation track.")));
+            }
+            tracks.push(compile_local_rotation(next_track_id, bone_id, &channels)
+                .map_err(|error| JsError::new(&format!("Local rotation for bone {bone_id}: {error}")))?);
+            next_track_id += 1;
+        }
         clip_from_tracks(clip_name, tracks, duration)
     }
 
@@ -2028,6 +2105,10 @@ impl RuntimeCore {
     }
 }
 
+fn au_map_json(values: &BTreeMap<u32, f64>) -> serde_json::Value {
+    serde_json::Value::Object(values.iter().map(|(id, value)| (id.to_string(), serde_json::json!(value))).collect())
+}
+
 fn parse_runtime_json<T>(json: &str, label: &str) -> Result<T, JsError>
 where
     T: serde::de::DeserializeOwned + Default,
@@ -2067,6 +2148,69 @@ fn scalar_track(
         inherit_start: points.first().is_some_and(|point| point.inherit),
         source_name: None,
     }
+}
+
+/// Absolute local Euler samples are a single orientation, not independently
+/// blended axis tracks. Require complete synchronized XYZ curves so missing
+/// axes cannot silently become identity or a sampled reference pose.
+fn compile_local_rotation(
+    id: u32,
+    bone_id: u32,
+    channels: &[(TypedChannel, f64)],
+) -> Result<ClipTrackIR, String> {
+    let mut axes: [Option<(&TypedChannel, f64)>; 3] = [None, None, None];
+    for (channel, scale) in channels {
+        let axis = match channel.target.get("channel").and_then(serde_json::Value::as_str) {
+            Some("rx") => 0,
+            Some("ry") => 1,
+            Some("rz") => 2,
+            _ => return Err("requires rx, ry and rz channels only".into()),
+        };
+        if axes[axis].replace((channel, *scale)).is_some() {
+            return Err("duplicate axis (including aliases of the same bone)".into());
+        }
+    }
+    let [Some(x), Some(y), Some(z)] = axes else {
+        return Err("requires all three rx, ry and rz axes".into());
+    };
+    let points = &x.0.keyframes;
+    if points.is_empty() || points.iter().any(|point| !point.time.is_finite() || point.time < 0.0)
+        || points.windows(2).any(|pair| pair[0].time >= pair[1].time) {
+        return Err("key times must be nonnegative, finite and strictly increasing".into());
+    }
+    let mut angles: [Vec<f32>; 3] = std::array::from_fn(|_| Vec::with_capacity(points.len()));
+    for (axis, (channel, scale)) in [x, y, z].into_iter().enumerate() {
+        if channel.keyframes.len() != points.len() || channel.keyframes.iter().zip(points)
+            .any(|(point, anchor)| point.time != anchor.time || point.inherit != anchor.inherit) {
+            return Err("axes must share key times and inheritance flags".into());
+        }
+        let number = |name, default| -> Result<f64, String> {
+            match channel.target.get(name) {
+                None => Ok(default),
+                Some(value) => value.as_f64().filter(|value| value.is_finite())
+                    .ok_or_else(|| format!("{name} must be finite")),
+            }
+        };
+        let multiplier = scale * number("scale", 1.0)? * number("maxDegrees", 60.0)?;
+        for (index, point) in channel.keyframes.iter().enumerate() {
+            let angle = (point.intensity * multiplier).to_radians() as f32;
+            if !angle.is_finite() || (point.inherit && index != 0) {
+                return Err("angles must be finite; only the first sample can inherit".into());
+            }
+            angles[axis].push(angle);
+        }
+    }
+    let values = (0..points.len()).flat_map(|index| {
+        // Intrinsic XYZ order, matching Three.Euler(..., 'XYZ'). Do not
+        // multiply by the reference quaternion: these are local orientations.
+        multiply_quat(
+            multiply_quat(quat_from_channel(0, angles[0][index]), quat_from_channel(1, angles[1][index])),
+            quat_from_channel(2, angles[2][index]),
+        )
+    }).map(f64::from).collect();
+    Ok(vector_track(id, serde_json::json!({
+        "kind": "boneTransform", "boneId": bone_id, "property": "rotation",
+    }), "quat", points, values))
 }
 
 fn vector_track(
@@ -3944,11 +4088,6 @@ mod tests {
         core.set_au(12, 0.0, 0.0);
         let inactive: ClipIR = serde_json::from_str(&core.build_live_clip("live", 0.2).unwrap()).unwrap();
         assert!(inactive.tracks.is_empty());
-        let release: ClipIR = serde_json::from_str(&core.build_live_release_clip("release", &live_json, 0.2).unwrap()).unwrap();
-        assert_eq!(release.tracks.len(), 1);
-        assert_eq!(release.tracks[0].times, vec![0.0, 0.2]);
-        assert_eq!(release.tracks[0].values, vec![0.0, 0.0]);
-        assert!(release.tracks[0].inherit_start);
     }
 
     fn unpack_rows(packed: &[f32]) -> Vec<(u32, u32, f32)> {

@@ -627,7 +627,7 @@ fn intro_lands_on_the_left_eye_and_releases_its_camera_request() {
     assert_eq!(r.camera.finished, r.camera.generation);
     assert_eq!(r.current.as_deref(), Some("left_eye"));
     assert!((r.camera.target[0] + 0.2).abs() < 1e-5);
-    assert!((r.camera.target[1] - 1.55).abs() < 1e-5);
+    assert!((r.camera.target[1] - 1.6).abs() < 1e-5);
 }
 #[test]
 fn repeated_previews_replace_old_options_without_rebuilding_identical_regions() {
@@ -814,4 +814,35 @@ fn temporary_overshoot_clipping_does_not_restart_reveal() {
         }
     }
     assert!(marker.transition.is_none());
+}
+
+#[test]
+fn intro_preserves_authored_point_and_bone_focus_without_extra_bias_or_padding() {
+    for focus_target in [
+        json!({"type":"point","position":{"x":0.4,"y":0.7,"z":0.2},"cameraAngle":0}),
+        json!({"type":"bone","bones":["RightEye"],"cameraAngle":0}),
+    ] {
+        let region = json!({"name":"left_eye","bones":["LeftEye"],
+            "focusTarget":focus_target,"cameraOffset":{"x":0.2,"y":0.1,"z":0.05}});
+        let mut r = runtime(json!([region]));
+        r.execute("focus", json!({"name":"left_eye","duration":0}), 0.).unwrap();
+        let position = r.camera.position;
+        let target = r.camera.target;
+        r.execute("intro", json!({"orbitDuration":100,"zoomDuration":50}), 0.).unwrap();
+        r.camera_frame(150., &[]);
+        for axis in 0..3 {
+            assert!((r.camera.position[axis] - position[axis]).abs() < 1e-5);
+            assert!((r.camera.target[axis] - target[axis]).abs() < 1e-5);
+        }
+        assert_eq!(r.current.as_deref(), Some("left_eye"));
+    }
+}
+
+#[test]
+fn intro_retains_default_eye_composition_without_an_authored_target() {
+    let mut r = runtime(json!([{"name":"left_eye","bones":["LeftEye"]}]));
+    r.execute("intro", json!({"orbitDuration":100,"zoomDuration":50}), 0.).unwrap();
+    r.camera_frame(150., &[]);
+    assert!((r.camera.target[0] + 0.2).abs() < 1e-5);
+    assert!((r.camera.target[1] - 1.55).abs() < 1e-5);
 }
