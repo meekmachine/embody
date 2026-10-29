@@ -33,10 +33,31 @@ The Rust core owns:
   (`morphTarget` / `boneTransform` tracks) for the host mixer to schedule
 - mesh-category routing and material profile data
 - hair curves, hair physics, and appearance normalization
-- annotation camera/marker math and humanoid template fitting
+- annotation regions, camera gestures/flights/orbits, marker placement and visibility,
+  preview/reveal lifecycles, and humanoid template fitting
 - profile-aware screen-space gaze geometry for eye/head AU trajectories
 - renderer-neutral model analysis and packed live frame generation
 - transient mesh highlight selection, styling, transitions, and versioned preview snapshots
+
+`resolveMorphMeshSelections(profile, categories, availableNames)` resolves editor
+mesh selections in one Rust request. It returns each requested category's effective
+category, `hasSelection` (including explicit empty arrays), resolved loaded names,
+and unresolved configured names. Request `viseme` for speech routing. Facial
+categories share an authored `face` selection; body and hair stay independent.
+Exact names take precedence over legacy mesh aliases. Consumers save concrete
+resolved names plus unresolved names when editing, so deselecting one mesh does
+not reactivate it through a legacy alias. This query does not change the profile.
+
+`getAUBoneBindingStates(profile, auIds)` resolves a panel's AU bone links in one
+Rust request and returns an object keyed by AU ID. It uses the existing
+`getAUBoneBindingState` semantics, including custom bone names, axis/range,
+continuum opposites and explicitly cleared bindings. Its profile input contains
+only `auToBones`, `boneNodes`, `bonePrefix`, `boneSuffix`, `suffixPattern`,
+`compositeRotations`, `continuumPairs` and `humanoidCharacterization`.
+The adapter omits unrelated morph/mesh configuration, authored vertices and saved
+clips before serialization. Mesh selection edits do not invalidate these bone
+links; hosts can cache by those bone inputs and the requested AU IDs. This is a
+read-only authoring query, with no rig replacement or playback effects.
 
 The host animation library (Three `AnimationMixer`, Unity Animator, etc.) owns
 clip playback, lerping, blending, looping, seeking, and crossfades. Rust must
@@ -54,45 +75,118 @@ disable the AU's mapped morphs or the viseme shapes.
 The TypeScript adapter is intentionally limited to operations that require
 Three.js objects: scene traversal, ClipIR ↔ `AnimationClip` conversion, frame
 application, material writes, model loading/disposal, and default scene
-construction. The annotation adapter also owns camera controls, marker scene
-objects, labels, selection, and their browser lifecycle; applications provide
-the scene/camera/DOM inputs and render controls through the public API.
+construction. Annotation adapters capture DOM input, observe native geometry,
+apply Rust camera/marker frames, render labels and release native resources.
+Camera integration, region selection and marker state belong to Rust.
 
 `ThreeFrameApplier.applyMeshMaterialConfigs(model, profile.meshes)` replays named
 mesh visibility and material overrides when a host binds or replaces a profile.
 It applies explicit `visible: false` and `visible: true` even without a material
 entry, and restores render order, opacity, transparency, depth flags and blending
 from `material`. Omitted fields leave the model's current values unchanged.
+Replaying identical material values during a mapping edit leaves the material
+version unchanged; render-order-only edits also avoid invalidating material programs.
 Polymer calls this adapter during model binding and profile replacement; hosts
 do not need a separate mesh-visibility replay loop.
 
+`MorphVertexPreview` owns the editor's affected-vertex overlay and updates from
+the existing Three scene render callback. It reuses position/color frame arrays,
+retains samples only for the active hover, and releases old GPU attributes before
+replacing differently sized geometry. Hiding or changing the hover clears its
+sample cache; an explicitly empty mesh selection produces no preview. Applications
+forward hover/show/hide events and dispose the overlay when its scene is released.
+
 ### Annotation runtime
 
-`DPthreeCameraController` and the `DPthree` convenience facade from
-`@lovelace_lol/embody/three` own the complete camera and annotation runtime.
-`DPthree3DMarkers`, `DPthreeHTMLMarkers`, and the legacy `DPthreeMarkers` adapter
-are available for hosts that need a marker-only layer. Rust owns camera
-framing/flights/orbits, viewport clipping, curves, visibility factors and
-endpoint separation. The Three adapter owns native model inspection,
-raycasting, labels, DOM controls, marker expansion/solo/style state and disposal.
+`AnnotationRuntime` in `src/annotation_runtime/` owns the annotation behavior
+and mutable state in Rust/Wasm: camera input and damping, framing and intro
+transitions, authored/runtime regions, AU/bone target selection, laterality,
+anchors, surface-query planning, expansion, solo, styles, visibility and layout.
+`AnnotationLifecycle` owns preview/reveal deadlines and the effects they emit.
+There is no TypeScript annotation state machine or OrbitControls dependency.
+
+`ThreeAnnotationController` and the `ThreeAnnotations` convenience facade from
+`@lovelace_lol/embody/three` provide native adapters. `ThreeAnnotationMarkers`,
+`HtmlAnnotationMarkers`, and its `OverlayAnnotationMarkers` alias provide
+marker-only views of the same Rust runtime. Their TypeScript code captures input,
+serializes model observations, calls native raycasts and skinned-vertex evaluation,
+applies packed Rust frames, creates labels, and owns renderer resources. Three
+continues to own scene objects and GPU operations; those APIs cannot be replaced
+by renderer-neutral Rust. Both marker styles share the same state and selection
+rules. HTML occlusion uses Rust-planned rays evaluated by Three.
+
+Rust fits marker endpoints before marker loading returns and on each update,
+including additions, endpoint separation and reveal overshoot. Clipping uses
+the displayed label dimensions and preserves the minimum leader-line length;
+temporary overshoot clipping does not restart the reveal. Sphere sizing retains
+the close-up scale and clamped distance scaling outside that range. Explicit
+`markerAnchor.projectToSurface: false` also applies to `objects: ['*']` anchors.
+HTML overlays align with the canvas rectangle inside its container, update on
+resize/rebind, and restore borrowed parent positioning when the final view is
+disposed. These coordinates assume axis-aligned CSS boxes without transforms.
+
+AU morph anchors currently sample native deformed vertices during marker
+preparation, then follow the selected object's transform. They do not yet
+resample morph weights or skinning on subsequent frames. Animated surface
+tracking requires cached vertex candidates and per-frame pose observations;
+ordinary object-transform tracking does not provide that behavior.
+
+This is a breaking replacement of the DPthree exports. Use
+`ThreeAnnotationController.create(options)` or `ThreeAnnotations.create(options)`
+to await Wasm initialization; synchronous constructors require an already initialized
+core. Replace DPthree-prefixed types with `AnnotationCharacterConfig`,
+`AnnotationRegion`, `AnnotationRegistry`, and the corresponding callback types.
+The `controls` bridge retains `target`, `enabled`, damping/distance settings,
+`update()`, and `change`/`start`/`end` listeners, but is not a Three `OrbitControls`
+instance. Region and camera snapshots are observations; mutate through controller
+methods. Explicit `undefined` fields in `updateAnnotationRegion` remove overrides.
+`getCharacterConfig()` retains snapshot identity until configuration content or
+the model changes; selection, visibility and camera input do not replace it.
+Call `clearModel()` before releasing a removed model's native resources. The
+controller retains renderer rebinding, canvas input reconnect and resource-drain
+support through the scene's rendering controller.
+Runtime preview region IDs retain the `runtime:annotation:` namespace.
+
+When the annotation controller owns the renderer loop, it advances registered
+native character mixers before observing annotation transforms and drawing the
+scene. The first frame establishes the timer origin; skipped asynchronous draws
+do not accumulate playback time. External render loops use the existing
+`createScenePlaybackFrame` integration to advance character playback.
+
+```ts
+import { ThreeAnnotations } from '@lovelace_lol/embody/three';
+
+const annotations = await ThreeAnnotations.create({ scene, camera, domElement: canvas });
+annotations.setModel(model);
+await annotations.loadCharacter({ characterId: 'character', profilePresetId: 'cc4' });
+// Host-owned render loop: call annotations.update() before renderer.render(...).
+```
 
 Applications pass `AnnotationCharacterConfig`; storage, agency, editor and
 character-asset metadata remain host concerns. `loadRegions` defaults to
 `resolveAnnotationCharacterConfig`, which resolves annotation and AU mapping
 fields from an Embody preset without serializing unrelated host metadata.
 An optional `resolveCharacterConfig` callback supports host profile intake.
+`prepareRegionsForReveal` defers native marker construction until the first
+`setMarkersVisible(true)` call. Later visibility changes reuse those resources;
+Rust's loaded state resets when the model or configuration is replaced.
 `prepareRegionsAndMarkersForReveal` accepts an already-resolved profile and
 prepares native surface queries while the model pose is still stable.
 Initial queries yield to a browser paint between meshes once a 4 ms slice is
-spent. Each native mesh raycast is indivisible; a large mesh can still cause a
-frame drop, and slicing does not reduce total raycast CPU time. Interactive
-annotation changes retain synchronous queries so a marker samples one pose.
-Replacement, clearing and disposal cancel stale loads before scene commits.
-New 3D markers and separated endpoints invalidate the cached camera layout.
-Visible markers receive the current zoom sizing and Rust viewport constraints
-before paint; hidden markers receive that layout before reveal captures label
-scales. Viewport clipping also follows the animated label size during reveal
-overshoot. Markers added during a reveal stay hidden until its layout pass resumes.
+spent. Each native mesh raycast is indivisible; slicing does not reduce total
+raycast CPU time. Interactive edits retain synchronous queries so a marker samples
+one pose. Rust generations reject stale profile, surface and reveal completions
+after replacement, clearing, region edits or disposal. Camera requests settle when
+completed or cancelled, including controller disposal.
+
+The direct Wasm boundary uses JSON commands/snapshots for configuration and
+primitive model observations with stable object IDs. Frames, vertex candidates,
+transform observations and ray results use packed typed arrays; coordinates are
+world-space, camera/visibility angles are degrees, durations are milliseconds,
+and viewport dimensions are CSS pixels. The layouts and operations are maintained
+in [the Rust runtime](src/annotation_runtime/mod.rs) and
+[marker frames](src/annotation_runtime/markers.rs); generated Wasm declarations
+remain the ABI type source. IDs are scoped to one model lifetime.
 
 For first reveal, call `controller.prepareModelForRender(model, { signal })`
 from the existing `beforeReveal` callback (or directly before attaching the
@@ -104,8 +198,14 @@ it settles, even after `controller.dispose()`. This prepares visible variants,
 not every future hidden material or animation state. See the
 [model readiness contract](docs/SCENE_READINESS.md#model-readiness).
 
-`createMarkerVisibilityLifecycle` owns automatic reveal/hide timers;
-`createRuntimeAnnotationPreviewLifecycle` owns temporary authoring previews.
+`createMarkerVisibilityLifecycle` and `createRuntimeAnnotationPreviewLifecycle`
+transport host events to `AnnotationLifecycle`; browser timers only wake Rust at
+its next deadline. Factories can queue input while Wasm initializes; `ready`
+reports the current initialization attempt. After an initialization failure,
+the next command retries or adopts a core initialized by another scene. Failed
+attempts discard their queued input. `dispose()` also discards pending input,
+cancels timers and frees the runtime, so cleanup before readiness cannot replay
+callbacks. Later calls create a fresh runtime, preserving host effect-replay cleanup.
 React hosts forward user events and subscribe to controller state. They do not
 need local copies of the camera, marker, placement or timer algorithms.
 The convenience facade delegates to one controller-owned marker layer.
@@ -178,7 +278,7 @@ controller immediately. `ready` reports the initial attempt; failure retains the
 controller for recovery through `setSettings`. `getSettings`, `getSnapshot` and
 `subscribe` expose the requested preference, actual backend, status and errors.
 Live changes prepare and replace only backend resources, preserving the character,
-scene, camera, lighting and marker state. `DPthreeCameraController({ rendering,
+scene, camera, lighting and marker state. `ThreeAnnotationController({ rendering,
 scene, camera, domElement: container })` retargets its existing loop and controls;
 hosts persist settings and display status without recreating the scene.
 
@@ -606,3 +706,15 @@ by the source model. Native overlays follow source geometry, morph weights and
 skeletons. Character rebind/disposal removes them. Direct applier consumers must
 call `clearMeshHighlights()` on disposal. Other renderers implement their own
 snapshot application; this change does not supply a second native renderer.
+
+### Character-derived studio background
+
+The Three `createCharacterHost` paints its container with soft gradients sampled
+from the selected model's material and texture colors. The studio uses the
+original visible ink strengths (24/12%, 22/10%, 18%) over a gunmetal base.
+Embody owns palette extraction and updates after successful character replacement;
+late extraction cannot repaint a newer selection or a disposed host. Disposal
+restores the container's original inline background. Explicit saved backgrounds,
+including `null` transparency, non-studio scene types and external scenes retain
+their authored appearance. Polymer forwards the host; applications do not sample
+textures or construct a second scene background.

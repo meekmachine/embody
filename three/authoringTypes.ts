@@ -14,6 +14,13 @@ export type BoneControlScope = 'Both Eyes' | 'Left Eye Only' | 'Right Eye Only';
 export type HumanoidSkeletonTemplateVec3 = readonly [number, number, number];
 export type HumanoidSkeletonTemplateBounds = readonly [number, number, number, number, number, number];
 export type MorphTargetRef = string | number;
+export interface MorphMeshSelection {
+  category: string;
+  /** Includes an explicit empty selection. */
+  hasSelection: boolean;
+  resolvedNames: string[];
+  unresolvedNames: string[];
+}
 export type MeshCategory = 'body' | 'eye' | 'eyeOcclusion' | 'tearLine' | 'teeth' | 'tongue' | 'hair' | 'eyebrow' | 'cornea' | 'eyelash';
 export type BlendingMode = 'Normal' | 'Additive' | 'Subtractive' | 'Multiply' | 'None';
 

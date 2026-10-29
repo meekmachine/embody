@@ -1,6 +1,6 @@
-//! DPthree annotation marker core.
+//! ThreeAnnotations annotation marker core.
 //!
-//! Rust port of the pure marker math from the DPthree 3D/HTML marker systems:
+//! Rust port of the pure marker math from the ThreeAnnotations 3D/HTML marker systems:
 //! camera-angle visibility gating, viewport-constrained line clipping,
 //! bezier/arc leader-line sampling, and the marker show/hide animation curves.
 //! Mesh/material/DOM work stays in the host.
@@ -424,7 +424,7 @@ fn rotate_around_axis(vector: [f32; 3], axis: [f32; 3], angle: f32) -> [f32; 3] 
 ///
 /// `starts` and `ends` are packed `[x, y, z, ...]` arrays. The output includes
 /// one endpoint for every complete start/end pair. Proximity and rotation
-/// constants match DPthree's marker layout, scaled to the current model height.
+/// constants match ThreeAnnotations's marker layout, scaled to the current model height.
 #[wasm_bindgen]
 pub fn separate_overlapping_marker_endpoints(
     starts: &[f32],

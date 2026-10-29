@@ -1,10 +1,24 @@
 import { BoxGeometry, Float32BufferAttribute, Group, Mesh } from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { initEmbodyCore, extractModelData, getPreset, resolveVisemeProfile, setAUMorphTargets, validateMappings } from '@lovelace_lol/embody';
+import { initEmbodyCore, extractModelData, getAUBoneBindingState, getAUBoneBindingStates, getPreset, resolveVisemeProfile, setAUMorphTargets, validateMappings } from '@lovelace_lol/embody';
 
 beforeAll(async () => { await initEmbodyCore(); });
 
 describe('Embody authoring API', () => {
+  it('returns the same bone links in a batch without reading unrelated character assets', () => {
+    const profile = getPreset('cc4');
+    const ids = [12, 26, 51, 61, 1001, 9999];
+    const expected = Object.fromEntries(ids.map(id => [id, getAUBoneBindingState(profile, id)]));
+    Object.defineProperty(profile, 'authoredMorphs', {
+      enumerable: true, get() { throw new Error('Vertex assets must not be serialized by a bone query'); },
+    });
+    Object.defineProperty(profile, 'importedBakedAnimations', {
+      enumerable: true, get() { throw new Error('Saved clips must not be serialized by a bone query'); },
+    });
+    expect(getAUBoneBindingStates(profile, ids)).toEqual(expected);
+    expect(getAUBoneBindingStates({}, [])).toEqual({});
+  });
+
   it('keeps selected AU edits in Rust and leaves the source profile unchanged', () => {
     const original = getPreset('cc4');
     const before = JSON.stringify(original);
