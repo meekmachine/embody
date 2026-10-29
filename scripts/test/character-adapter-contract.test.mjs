@@ -123,6 +123,7 @@ test('re-acquiring an additive slot mid-fade continues from its faded contributi
   assert.ok(faded > 0.3 && faded < 0.7, `fade is in progress (${faded})`);
   near(host.readAUContribution('fading')['200'], faded, 'semantic read reports value x weight');
   host.playSnippet('fading', curves(0, 0, 1, true), additiveHold());
+  near(host.readAUContribution('fading')['200'], faded, 'replacement retains the predecessor sample before native stop resets it');
   renderHostFrame(host, 0); near(value(), faded, 'replacement starts at the faded pose without a jump');
 });
 

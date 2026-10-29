@@ -529,6 +529,10 @@ export class Embody {
       const hairMotion = this.authoredHeadMotion(clip);
       const previous = this.current.get(source.name);
       const outgoing = previous ? connector.getAction(previous.id) : undefined;
+      // Native replacement stops the outgoing action and resets its time.
+      // Preserve its semantic sample before admitting the replacement.
+      const predecessorTime = outgoing ? outgoing.time : Number.NaN;
+      const predecessorWeightRatio = outgoing ? weightRatio(outgoing, options) : 1;
       const settings = this.nativeOptions(options, clip);
       if (previous && connector.getAction(previous.id)) settings.replace = previous.id;
       if (current) newPromise();
@@ -547,7 +551,7 @@ export class Embody {
         // slot: the predecessor's semantic keys resolve this slot's start.
         if (source.kind === 'curves') {
           this.core.record_semantic_slot(source.name, json(source.input), intensity(options), options.easing ?? 'linear',
-            outgoing ? outgoing.time : Number.NaN, outgoing ? weightRatio(outgoing, options) : 1);
+            predecessorTime, predecessorWeightRatio);
         } else this.core.release_semantic_slot(source.name);
       } catch (error) {
         connector.control(id, { type: 'stop' });
