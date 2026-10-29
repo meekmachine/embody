@@ -256,6 +256,8 @@ instance. Region and camera snapshots are observations; mutate through controlle
 methods. Explicit `undefined` fields in `updateAnnotationRegion` remove overrides.
 `getCharacterConfig()` retains snapshot identity until configuration content or
 the model changes; selection, visibility and camera input do not replace it.
+Authored intro focus targets use the same framing as manual region selection;
+extra eye padding and composition bias apply only to the default region target.
 Call `clearModel()` before releasing a removed model's native resources. The
 controller retains renderer rebinding, canvas input reconnect and resource-drain
 support through the scene's rendering controller.
