@@ -65,6 +65,172 @@ fn point_region(name: &str) -> Value {
     json!({"name":name,"markerAnchor":{"type":"point","position":{"x":0.,"y":1.,"z":0.}},"focusTarget":{"type":"point","position":{"x":1.,"y":1.,"z":0.}}})
 }
 
+fn animated_region() -> Value {
+    json!({"name":"au", "meshes":["Body"],
+        "runtimeAnnotation":{"morphNames":["Brow_Left"]}})
+}
+
+#[test]
+fn animated_morph_anchors_reuse_weights_and_preserve_marker_state() {
+    let base = [-1., 0., 0., 1., 0., 0., 0., 1., 0.];
+    let deltas = [0., 1., 0., 0., 2., 0., 0., 1., 0.];
+    let absolute = base
+        .iter()
+        .zip(deltas)
+        .map(|(p, d)| p + d)
+        .collect::<Vec<_>>();
+    for (morphs, relative) in [(&deltas[..], true), (&absolute[..], false)] {
+        let mut r = runtime(json!([animated_region()]));
+        let generation = r.generation();
+        let plan = r.prepare_morph_anchor(generation, 1, "au", &base, morphs, relative);
+        assert_eq!(&plan[1..], &[0, 1, 2]);
+        assert!(r.observe_morph_anchor(generation, plan[0], &base));
+        r.plan_markers("{}").unwrap();
+        r.finish_markers(generation);
+        assert_eq!(r.markers[0].start, [0.25, 0.25, 0.]);
+        r.current = Some("au".into());
+        r.visible = true;
+        r.markers[0].transition = Some((true, 25., 220.));
+        let id = r.markers[0].id;
+        let descriptor_revision = r.descriptor_revision;
+        let revision = r.revision;
+        assert!(r.observe_morph_anchor(generation, plan[0], &absolute));
+        assert_eq!(r.markers[0].start, [0.25, 1.75, 0.]);
+        assert_eq!(r.markers[0].id, id);
+        assert_eq!(r.markers[0].transition, Some((true, 25., 220.)));
+        assert_eq!(r.current.as_deref(), Some("au"));
+        assert_eq!(r.descriptor_revision, descriptor_revision);
+        assert_eq!(r.revision, revision);
+
+        // Native pose samples include world translation. A later marker frame
+        // must not apply the observed object matrix a second time.
+        let mut matrix = IDENTITY;
+        matrix[12] = 10.;
+        r.observe_transforms(&[&[1.][..], &matrix[..]].concat());
+        let translated = absolute
+            .chunks_exact(3)
+            .flat_map(|p| [p[0] + 10., p[1], p[2]])
+            .collect::<Vec<_>>();
+        r.observe_morph_anchor(generation, plan[0], &translated);
+        let frame = r.marker_frame(26., &IDENTITY, &IDENTITY, 800., 600.);
+        assert_eq!(&frame[2..5], &[10.25, 1.75, 0.]);
+    }
+}
+
+#[test]
+fn animated_anchor_band_stays_attached_when_the_pose_rotates() {
+    let mut r = runtime(json!([animated_region()]));
+    let base = [0., 0., 0., 0., 1., 0., 0., 2., 0., 0., 3., 0., 0., 4., 0.];
+    let morphs = [0., 0., 1.].repeat(5);
+    let generation = r.generation();
+    let plan = r.prepare_morph_anchor(generation, 1, "au", &base, &morphs, true);
+    assert_eq!(&plan[1..], &[3, 4]);
+    r.observe_morph_anchor(generation, plan[0], &[0., 3., 0., 0., 4., 0.]);
+    r.plan_markers("{}").unwrap();
+    assert_eq!(r.markers[0].start, [0., 3.5, 0.]);
+    r.observe_morph_anchor(generation, plan[0], &[0., -3., 0., 0., -4., 0.]);
+    assert_eq!(r.markers[0].start, [0., -3.5, 0.]);
+}
+
+#[test]
+fn animated_anchors_keep_mesh_precedence_and_reject_reused_plan_ids_from_old_generations() {
+    let mut r = runtime(json!([animated_region()]));
+    let mut second = r.model.as_ref().unwrap().objects[0].clone();
+    second.id = 4;
+    r.model.as_mut().unwrap().objects.push(second);
+    let generation = r.generation();
+    let first = r.prepare_morph_anchor(generation, 1, "au", &[0.; 3], &[1.; 3], true);
+    let second = r.prepare_morph_anchor(generation, 4, "au", &[0.; 3], &[1.; 3], true);
+    r.observe_morph_anchor(generation, first[0], &[1.; 3]);
+    r.observe_morph_anchor(generation, second[0], &[2.; 3]);
+    r.plan_markers("{}").unwrap();
+    r.observe_morph_anchor(generation, first[0], &[3.; 3]);
+    assert_eq!(r.markers[0].start, [2.; 3]);
+    r.observe_morph_anchor(generation, second[0], &[4.; 3]);
+    assert_eq!(r.markers[0].start, [4.; 3]);
+
+    r.execute(
+        "configure",
+        json!({"config":{"regions":[animated_region()]}}),
+        0.,
+    )
+    .unwrap();
+    let next = r.generation();
+    let replacement = r.prepare_morph_anchor(next, 1, "au", &[0.; 3], &[1.; 3], true);
+    assert_eq!(replacement[0], first[0]);
+    r.observe_morph_anchor(next, replacement[0], &[5.; 3]);
+    r.plan_markers("{}").unwrap();
+    assert!(!r.observe_morph_anchor(generation, first[0], &[9.; 3]));
+    assert_eq!(r.markers[0].start, [5.; 3]);
+}
+
+#[test]
+fn animated_anchors_reject_invalid_and_stale_observations() {
+    for operation in [
+        "beginLoad", "clear", "clearModel", "configure", "updateRegion", "removeRegion",
+        "setModel", "dispose",
+    ] {
+        let mut r = runtime(json!([animated_region()]));
+        let generation = r.generation();
+        let plan = r.prepare_morph_anchor(generation, 1, "au", &[0., 0., 0.], &[0., 1., 0.], true);
+        r.observe_morph_anchor(generation, plan[0], &[1., 2., 3.]);
+        r.plan_markers("{}").unwrap();
+        for invalid in [
+            &[1., 2.][..],
+            &[f32::NAN, 2., 3.][..],
+            &[f32::INFINITY, 2., 3.][..],
+        ] {
+            assert!(!r.observe_morph_anchor(generation, plan[0], invalid));
+            assert_eq!(r.markers[0].start, [1., 2., 3.]);
+        }
+        assert!(!r.observe_morph_anchor(generation, u32::MAX, &[9.; 3]));
+        match operation {
+            "setModel" => r.set_model(&serde_json::to_string(&model()).unwrap()).unwrap(),
+            "dispose" => r.dispose(),
+            "configure" => {
+                r.execute(operation, json!({"config":{"regions":[animated_region()]}}), 0.)
+                    .unwrap();
+            }
+            "updateRegion" => {
+                r.execute(operation, json!({"name":"au","update":{"label":"edited"}}), 0.)
+                    .unwrap();
+            }
+            _ => {
+                r.execute(operation, json!({"name":"au"}), 0.).unwrap();
+            }
+        }
+        assert!(r.morph_anchors.is_empty(), "{operation}");
+        assert!(!r.observe_morph_anchor(generation, plan[0], &[9.; 3]), "{operation}");
+        assert!(r.prepare_morph_anchor(generation, 1, "au", &[0.; 3], &[1.; 3], true).is_empty());
+    }
+}
+
+#[test]
+fn animated_anchor_plans_preserve_explicit_targets_and_static_fallbacks() {
+    for overrides in [
+        json!({"markerAnchor":{"type":"point","position":{"x":2.,"y":3.,"z":4.}}}),
+        json!({"objects":["*"],"markerAnchor":{"type":"region"}}),
+        json!({"markerAnchor":{"type":"bone","bones":["LeftEye"]}}),
+    ] {
+        let mut region = animated_region();
+        markers::merge(&mut region, &overrides);
+        let mut r = runtime(json!([region]));
+        assert_eq!(r.execute("morphRequests", json!({}), 0.).unwrap(), json!([]));
+        assert!(r.prepare_morph_anchor(r.generation(), 1, "au", &[0.; 3], &[1.; 3], true).is_empty());
+    }
+    let mut r = runtime(json!([animated_region()]));
+    r.visible = true;
+    assert!(r.prepare_morph_anchor(r.generation(), 1, "au", &[0.; 3], &[0.; 3], true).is_empty());
+    r.plan_markers("{}").unwrap();
+    assert!(r.markers[0].animated_anchor.is_none());
+    let start = r.markers[0].start;
+    let mut matrix = IDENTITY;
+    matrix[12] = 2.;
+    r.observe_transforms(&[&[1.][..], &matrix[..]].concat());
+    r.marker_frame(0., &IDENTITY, &IDENTITY, 800., 600.);
+    assert_eq!(r.markers[0].start, [start[0] + 2., start[1], start[2]]);
+}
+
 #[test]
 fn rust_resolves_independent_marker_and_focus_targets() {
     let mut r = runtime(json!([point_region("point")]));

@@ -4,6 +4,7 @@ mod camera;
 mod geometry;
 mod lifecycle;
 mod markers;
+mod morph_anchors;
 mod query;
 mod targets;
 #[cfg(test)]
@@ -14,6 +15,7 @@ pub use query::*;
 use crate::annotation_camera::{add_scaled3, distance3, normalize3, sub3};
 use geometry::*;
 use markers::{merge, Marker};
+use morph_anchors::MorphAnchorPlan;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use wasm_bindgen::prelude::*;
@@ -100,6 +102,7 @@ pub struct AnnotationRuntime {
     model: Option<Model>,
     regions: Vec<Value>,
     markers: Vec<Marker>,
+    morph_anchors: Vec<MorphAnchorPlan>,
     current: Option<String>,
     solo: Option<String>,
     hovered: Option<u32>,
@@ -190,6 +193,7 @@ impl AnnotationRuntime {
         self.markers
             .iter()
             .filter(|m| self.visible || m.current_visibility || m.transition.is_some())
+            .filter(|m| m.animated_anchor.is_none())
             .filter_map(|m| m.track)
             .collect::<BTreeSet<_>>()
             .into_iter()
@@ -213,6 +217,67 @@ impl AnnotationRuntime {
                 object.position = [entry[13], entry[14], entry[15]]
             }
         }
+    }
+    /// Prepare an attachment for this generation from mesh-space geometry.
+    /// Returns [plan id, vertex indices...] or an empty array for a fallback anchor.
+    /// Geometry is immutable within a generation; reconfigure or rebind to replace it.
+    pub fn prepare_morph_anchor(
+        &mut self,
+        generation: u32,
+        object_id: u32,
+        region_name: &str,
+        base: &[f32],
+        morphs: &[f32],
+        relative: bool,
+    ) -> Box<[u32]> {
+        if !self.is_current(generation) {
+            return Box::new([]);
+        }
+        let Some(region) = self.regions.iter().find(|r| text(r, "name") == region_name) else {
+            return Box::new([]);
+        };
+        if !self.morph_objects(region).contains(&object_id) {
+            return Box::new([]);
+        }
+        let Some(plan) = MorphAnchorPlan::new(region, base, morphs, relative) else {
+            return Box::new([]);
+        };
+        let indices = std::iter::once(self.morph_anchors.len() as u32)
+            .chain(plan.vertices.iter().map(|(index, _)| *index))
+            .collect::<Vec<_>>();
+        self.morph_anchors.push(plan);
+        indices.into_boxed_slice()
+    }
+    /// Packed world-space XYZ observations in the prepared vertex order. Stale,
+    /// incomplete or nonfinite observations leave the last valid anchor intact.
+    pub fn observe_morph_anchor(&mut self, generation: u32, plan_id: u32, positions: &[f32]) -> bool {
+        if !self.is_current(generation) {
+            return false;
+        }
+        let Some(plan) = self.morph_anchors.get_mut(plan_id as usize) else {
+            return false;
+        };
+        if !plan.observe(positions) {
+            return false;
+        }
+        let name = &self.morph_anchors[plan_id as usize].region;
+        let position = self
+            .morph_anchors
+            .iter()
+            .rev()
+            .filter(|plan| &plan.region == name)
+            .find_map(|plan| plan.position);
+        if let Some(marker) = self
+            .markers
+            .iter_mut()
+            .find(|m| text(&m.region, "name") == name.as_str())
+        {
+            marker.animated_anchor = position;
+            if let Some(position) = position {
+                marker.start = position;
+            }
+        }
+        true
     }
     /// The only camera integrator: pose observation(6), fov/aspect/viewport(4).
     /// Returns pose(6), active request id, completed request id, needs frame.
@@ -375,26 +440,30 @@ impl AnnotationRuntime {
         let left = self.left_side;
         for region in &self.regions {
             let name = text(region, "name").to_owned();
+            let animated_anchor = self.morph_anchor(&name);
             let id = *self.ids.entry(name.clone()).or_insert_with(|| {
                 let id = self.next_id;
                 self.next_id += 1;
                 id
             });
-            if let Some(marker) = previous.remove(&name) {
+            if let Some(mut marker) = previous.remove(&name) {
                 if marker.region == *region && marker.ready {
+                    marker.animated_anchor = animated_anchor;
+                    marker.observe_anchor(model);
                     self.markers.push(marker);
                     continue;
                 }
             }
-            if let Some(marker) = Marker::new(
+            if let Some(mut marker) = Marker::new(
                 id,
                 region.clone(),
                 model,
                 &self.config,
                 left,
                 self.camera.position,
-                point(&anchors[&name]),
+                animated_anchor.or_else(|| point(&anchors[&name])),
             ) {
+                marker.animated_anchor = animated_anchor;
                 self.markers.push(marker)
             }
         }
@@ -487,6 +556,7 @@ impl AnnotationRuntime {
             model: None,
             regions: Vec::new(),
             markers: Vec::new(),
+            morph_anchors: Vec::new(),
             current: None,
             solo: None,
             hovered: None,
@@ -508,11 +578,13 @@ impl AnnotationRuntime {
         })
     }
     fn invalidate(&mut self) {
+        self.clear_morph_anchors();
         self.generation = self.generation.wrapping_add(1);
         self.revision = self.revision.wrapping_add(1);
         self.camera.cancel();
     }
     fn changed_regions(&mut self) {
+        self.clear_morph_anchors();
         self.left_side = self
             .model
             .as_ref()
@@ -522,6 +594,44 @@ impl AnnotationRuntime {
         self.revision += 1;
         self.config_revision = self.config_revision.wrapping_add(1);
         self.config["regions"] = json!(self.regions)
+    }
+    fn clear_morph_anchors(&mut self) {
+        self.morph_anchors.clear();
+        for marker in &mut self.markers {
+            marker.animated_anchor = None;
+        }
+    }
+    fn morph_anchor(&self, name: &str) -> Option<Point> {
+        // Preserve the existing last-successful-mesh precedence for multi-mesh AUs.
+        self.morph_anchors
+            .iter()
+            .rev()
+            .filter(|plan| plan.region == name)
+            .find_map(|plan| plan.position)
+    }
+    fn morph_objects(&self, region: &Value) -> Vec<u32> {
+        let Some(model) = &self.model else {
+            return Vec::new();
+        };
+        let names = strings(&region["runtimeAnnotation"]["morphNames"]);
+        let resolved = anchor_region(region);
+        let anchor = &resolved["region"];
+        if names.is_empty()
+            || point(&anchor["customPosition"]).is_some()
+            || strings(&anchor["objects"]).iter().any(|name| name == "*")
+        {
+            return Vec::new();
+        }
+        model
+            .resolve(anchor, &self.config)
+            .into_iter()
+            .filter(|id| {
+                model.object(*id).is_some_and(|object| {
+                    object.kind == "Mesh"
+                        && names.iter().any(|name| object.morph_names.contains(name))
+                })
+            })
+            .collect()
     }
     fn snapshot_value(&self) -> Value {
         let descriptors = self
@@ -968,17 +1078,10 @@ impl AnnotationRuntime {
             }
             "morphRequests" => {
                 let mut requests = Vec::new();
-                if let Some(model) = &self.model {
-                    for region in &self.regions {
-                        let names = strings(&region["runtimeAnnotation"]["morphNames"]);
-                        if names.is_empty() {
-                            continue;
-                        }
-                        for id in model.resolve(region, &self.config) {
-                            requests.push(
-                                json!({"objectId": id, "region": region, "morphNames": names}),
-                            );
-                        }
+                for region in &self.regions {
+                    for id in self.morph_objects(region) {
+                        requests.push(json!({"objectId": id, "region": region,
+                            "morphNames": region["runtimeAnnotation"]["morphNames"]}));
                     }
                 }
                 json!(requests)
