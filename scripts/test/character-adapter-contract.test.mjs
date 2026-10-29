@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   AnimationClip, Bone, BufferGeometry, Group, Mesh, MeshBasicMaterial,
-  NumberKeyframeTrack, Quaternion, QuaternionKeyframeTrack, Vector3, VectorKeyframeTrack,
+  InterpolateDiscrete, NumberKeyframeTrack, Quaternion, QuaternionKeyframeTrack, Vector3, VectorKeyframeTrack,
 } from 'three';
 import {
   captureModelReferencePose, createRustEmbodyHostUnbound, getPreset,
-  resolveRegionCameraAngle, supportsRustEmbodyPreset,
+  resolveRegionCameraAngle, serializeAnimationClips, supportsRustEmbodyPreset, ThreeModelInspector,
 } from '@lovelace_lol/embody/three';
 import { initEmbodyCore } from '@lovelace_lol/embody/wasm';
 import { renderHostFrame } from './helpers/render-playback.mjs';
@@ -158,6 +158,92 @@ test('AU goal measurement uses signed continuum distance and unfinished reversal
   assert.throws(() => host.measureAUGoal('axis', { smile: 1 }), /numeric AU id/);
 });
 
+test('packed morph registration and profile replacement allocate only component-sized sample buffers', t => {
+  const widths = [];
+  class ObservedTrack extends NumberKeyframeTrack {
+    constructor(name, times, values, interpolation) {
+      super(name, times, values, interpolation);
+      widths.push(values.length);
+    }
+  }
+  const root = new Group();
+  const face = mesh('Face', Array.from({ length: 24 }, (_, index) => `Morph${index}`));
+  root.add(face);
+  const { host } = fixture(t, { rig: { root, face } });
+  const times = [0, 0.25, 0.75, 1];
+  const values = times.flatMap((_, sample) => face.morphTargetInfluences.map((_, index) => (sample + index + 1) / 100));
+  const clip = new AnimationClip('packed', 1, [
+    new ObservedTrack('Face.morphTargetInfluences', times, values, InterpolateDiscrete),
+  ]);
+  const original = AnimationClip.toJSON(clip);
+  for (const operation of [
+    () => host.registerAnimationClips([clip]),
+    () => host.setProfile({ ...profile, morphToMesh: { face: [] } }),
+  ]) {
+    widths.length = 0;
+    operation();
+    assert.ok(widths.length >= face.morphTargetInfluences.length, 'packed components were materialized');
+    assert.ok(widths.every(length => length === times.length), 'conversion never clones the full packed values per morph');
+    host.playAnimation('packed', { loopMode: 'repeat' });
+    renderHostFrame(host, 0.5);
+    near(face.morphTargetInfluences[0], 0.02, 'step sample survives conversion and replacement');
+    near(face.morphTargetInfluences[23], 0.25, 'last packed component keeps its own sample');
+  }
+  assert.deepEqual(AnimationClip.toJSON(clip), original, 'packed sources remain unchanged');
+});
+
+test('catalog serialization indexes morphs once and shares destination searches only within that call', t => {
+  const { root, face, head } = fixture(t);
+  const inspector = new ThreeModelInspector();
+  const inspection = inspector.inspectModel(root);
+  const morphBindings = inspection.morphBindings;
+  let bindingPasses = 0;
+  inspection.morphBindings = new class extends Map {
+    *[Symbol.iterator]() { bindingPasses += 1; yield* super[Symbol.iterator](); }
+  }(morphBindings);
+  const searches = [];
+  const findObject = root.getObjectByProperty;
+  root.getObjectByProperty = function (property, value) {
+    searches.push(value);
+    return findObject.call(this, property, value);
+  };
+  const clips = ['one', 'two', 'three'].map(name => new AnimationClip(name, 1, [
+    new NumberKeyframeTrack('Face.morphTargetInfluences[Smile]', [0, 1], [0.1, 0.7], InterpolateDiscrete),
+    new NumberKeyframeTrack('Face.morphTargetInfluences[1]', [0, 1], [0.2, 0.8]),
+    new QuaternionKeyframeTrack('Head.quaternion', [0, 1], [0, 0, 0, 1, 0, 0, 0, 1]),
+    new VectorKeyframeTrack('Face.position', [0, 1], [0, 0, 0, 1, 2, 3]),
+    new NumberKeyframeTrack('Face.visible', [0, 1], [1, 0]),
+    new NumberKeyframeTrack('Missing.morphTargetInfluences[0]', [0, 1], [0, 1]),
+    new NumberKeyframeTrack('Face.morphTargetInfluences[MissingMorph]', [0, 1], [0, 1]),
+    new NumberKeyframeTrack('Face.morphTargetInfluences[999]', [0, 1], [0, 1]),
+  ]));
+  const original = clips.map(clip => AnimationClip.toJSON(clip));
+  const serialized = serializeAnimationClips(root, clips, inspection);
+  assert.equal(bindingPasses, 1, 'morph inventory is indexed once for the entire catalog');
+  assert.equal(searches.length, clips[0].tracks.length, 'each repeated track destination is resolved once, including missing nodes');
+  const morphId = index => [...morphBindings].find(([, binding]) => binding.mesh === face && binding.index === index)[0];
+  const meshId = [...inspection.meshBindings].find(([, mesh]) => mesh === face)[0];
+  const boneId = [...inspection.boneBindings].find(([, bone]) => bone === head)[0];
+  const objectId = [...inspection.objectBindings].find(([, object]) => object === face)[0];
+  for (const clip of serialized) {
+    assert.deepEqual(clip.tracks.map(track => track.target), [
+      { kind: 'morphTarget', meshId, morphTargetId: morphId(0) },
+      { kind: 'morphTarget', meshId, morphTargetId: morphId(1) },
+      { kind: 'boneTransform', boneId, property: 'rotation' },
+      { kind: 'objectTransform', objectId, property: 'position' },
+      { kind: 'meshVisibility', meshId },
+    ], 'unresolved nodes, morph names and indices are omitted without changing valid destinations');
+    assert.equal(clip.tracks[0].interpolation, 'step');
+    near(clip.tracks[0].values[1], 0.7, 'serialized sample');
+  }
+  assert.deepEqual(clips.map(clip => AnimationClip.toJSON(clip)), original);
+  face.name = 'RetiredFace';
+  const secondInspection = inspector.inspectModel(root);
+  const reserialized = serializeAnimationClips(root, clips, secondInspection);
+  assert.ok(reserialized.every(clip => clip.tracks.length === 1 && clip.tracks[0].target.boneId === boneId),
+    'a subsequent call resolves renamed model nodes instead of retaining old destinations');
+});
+
 test('normal same-name replacement inherits the current rendered sample', t => {
   const { host, value } = fixture(t);
   host.playSnippet('inherited', curves(0, 1), { loop: false, blendMode: 'replace' });
@@ -226,6 +312,23 @@ test('profile mode replaces exact mappings without importing a preset', t => {
   near(face.morphTargetInfluences[1], 0.5, 'replacement mapping renders');
   assert.equal(host.getProfile().name, 'Replacement');
   assert.equal(host.getProfile().meshes, undefined);
+});
+
+test('mesh selection replacement preserves unchanged material programs and clears excluded morph output', t => {
+  const configured = { ...structuredClone(profile), meshes: { Face: { material: { opacity: 0.7, transparent: true } } } };
+  const { host, face, value } = fixture(t, { config: { profileMode: 'profile', profile: configured } });
+  const version = face.material.version;
+  host.setAU(200, 1); renderHostFrame(host, 0);
+  near(value(), 1, 'selected face receives the authored AU');
+  host.setProfile({ ...configured, morphToMesh: { face: [] } });
+  renderHostFrame(host, 0);
+  near(value(), 0, 'deselecting the face releases the previous output');
+  assert.equal(face.material.version, version, 'mapping edits do not invalidate unchanged materials');
+  host.setAU(200, 1); renderHostFrame(host, 0);
+  near(value(), 0, 'explicit empty selection stays empty');
+  host.setProfile({ ...configured, meshes: { Face: { material: { opacity: 0.4, transparent: true } } } });
+  assert.equal(face.material.opacity, 0.4);
+  assert.ok(face.material.version > version, 'authored material changes still reach the renderer');
 });
 
 test('preset selection and authored mix defaults survive profile replacement', t => {
@@ -425,4 +528,36 @@ test('explicit release and crossfade retire completed poses without implicit tra
     renderHostFrame(host, 0.02);
   }
   renderHostFrame(host, 0.2); near(value(), 0.2, 'rapid same-name replacements release every previous action');
+});
+
+test('highlight intent uses Rust snapshots on the existing render clock and clears native resources on rebind/dispose', () => {
+  const model = new Group();
+  const face = mesh('Face');
+  model.add(face);
+  const original = face.material;
+  const host = createRustEmbodyHostUnbound({ profileMode: 'profile', profile: {} });
+  try {
+    host.onReady({ model });
+    host.highlightMesh('Face');
+    const overlay = face.children.find(child => child.isMesh);
+    assert.ok(overlay);
+    near(overlay.material.opacity, 0, 'initial frame does not jump to full strength');
+    renderHostFrame(host, 0.2);
+    near(overlay.material.opacity, 0.175, 'render clock advances the Rust fade without clips');
+    host.highlightMesh(null);
+    renderHostFrame(host, 0.2);
+    near(overlay.material.opacity, 0.0875, 'interrupted fade starts from current strength');
+    renderHostFrame(host, 0.2);
+    assert.equal(face.children.length, 0);
+    assert.equal(face.material, original);
+    host.highlightMesh('Face');
+    host.bindModel();
+    assert.equal(face.children.length, 0, 'rebind clears renderer resources and Rust state');
+    host.highlightMesh('Face');
+  } finally {
+    host.dispose();
+    assert.equal(face.children.length, 0, 'disposal releases preview resources');
+    assert.equal(face.material, original);
+    face.geometry.dispose(); original.dispose();
+  }
 });
