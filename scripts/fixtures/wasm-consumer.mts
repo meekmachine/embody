@@ -106,6 +106,15 @@ controller.focusRegion(123);
 
 const core: EmbodyCore = await initEmbodyCore();
 const character = new Embody({ profileMode: 'profile', profile: {} });
+const contribution: Record<string, number> | null = character.readAUContribution('head-yaw');
+const auState: import('@lovelace_lol/embody').CharacterAUState = character.readAUState();
+const auGoal: import('@lovelace_lol/embody').CharacterAUGoalMeasurement = character.measureAUGoal('head-yaw', { 51: 0, 52: 0.5 });
+const unreadableSources: string[] = auState.unreadable;
+const remainingTravel: number = auGoal.distance;
+// @ts-expect-error Semantic reads require a named slot.
+character.readAUContribution(51);
+// @ts-expect-error AU goal destinations contain numeric values.
+character.measureAUGoal('head-yaw', { 51: 'left' });
 // Native constructors, factories and the scene host expose the same class.
 const initializedCharacter: Embody = await Embody.create({ profileMode: 'profile', profile: {} });
 const unboundCharacter: Embody = createRustEmbodyHostUnbound({ profile: { appMetadata: { owner: 'consumer' } } });
@@ -222,7 +231,11 @@ const jawScale: number = runtime.get_viseme_jaw_scale(0);
 const frame: Float32Array = runtime.evaluate_active_morph_frame();
 const clip: string = runtime.build_clip('smile', '{}', '{}');
 const live: string = runtime.build_live_clip('live', 0.2);
-const release: string = runtime.build_live_release_clip('release', live, 0.2);
+runtime.record_semantic_slot('smile', '{}', 1, 'linear', Number.NaN, 1);
+const slot: string = runtime.read_semantic_slot('smile', 0, 1);
+const state: string = runtime.read_semantic_state('[]');
+const goal: string = runtime.measure_au_goal('smile', 0, 1, '{}', false);
+const released: boolean = runtime.release_semantic_slot('smile');
 const removed: boolean = runtime.remove_animation_clip('smile');
 runtime.free();
 
