@@ -138,6 +138,7 @@ export class Embody {
   private readonly current = new Map<string, Playback>();
   private playDepth = 0;
   private readonly pendingEvents: ThreeNativePlaybackEvent[] = [];
+  private readonly pendingReleases: Playback[] = [];
   private bindingGeneration = 0;
   private disposed = false;
   private rendering = true;
@@ -254,7 +255,11 @@ export class Embody {
         },
         onRelease: (id) => {
           const playback = this.playbacks.get(id);
-          if (playback?.terminal) this.forget(playback);
+          if (!playback?.terminal) return;
+          // A held predecessor is released synchronously during replacement.
+          // Its semantic record must survive until the new slot inherits it.
+          if (this.playDepth) this.pendingReleases.push(playback);
+          else this.forget(playback);
         },
       });
     }
@@ -305,6 +310,13 @@ export class Embody {
     playback.terminal = true;
     if (!playback.connector.getAction(playback.id)) this.forget(playback);
     playback.notify({ ...event, actionId: event.handle, clipName: playback.source.name });
+  }
+  private flushPendingPlaybackEvents(): void {
+    while (!this.playDepth && this.pendingReleases.length) {
+      const playback = this.pendingReleases.shift()!;
+      if (this.playbacks.get(playback.id) === playback) this.forget(playback);
+    }
+    while (!this.playDepth && this.pendingEvents.length) this.onPlaybackEvent(this.pendingEvents.shift()!);
   }
   private compile(source: Source, options: CharacterPlaybackOptions): ClipIR {
     const buildOptions = { ...('options' in source ? source.options : {}), ...options, intensityScale: intensity(options) };
@@ -556,7 +568,7 @@ export class Embody {
       try { id = connector.playNativeClip(clip, settings); }
       catch (error) {
         this.playDepth -= 1;
-        while (!this.playDepth && this.pendingEvents.length) this.onPlaybackEvent(this.pendingEvents.shift()!);
+        this.flushPendingPlaybackEvents();
         throw error;
       }
       try {
@@ -569,7 +581,7 @@ export class Embody {
       } catch (error) {
         connector.control(id, { type: 'stop' });
         this.playDepth -= 1;
-        while (!this.playDepth && this.pendingEvents.length) this.onPlaybackEvent(this.pendingEvents.shift()!);
+        this.flushPendingPlaybackEvents();
         throw error;
       }
       const playback: Playback = {
@@ -631,7 +643,7 @@ export class Embody {
         if (finite(fade) && fade > 0) connector.fadeIn(id, fade);
       } finally {
         this.playDepth -= 1;
-        while (!this.playDepth && this.pendingEvents.length) this.onPlaybackEvent(this.pendingEvents.shift()!);
+        this.flushPendingPlaybackEvents();
       }
       if (hairMotion && connector.getAction(id)) {
         this.playHairImpulse(hairMotion.horizontal, hairMotion.vertical);

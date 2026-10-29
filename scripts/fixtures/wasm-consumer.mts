@@ -106,6 +106,15 @@ controller.focusRegion(123);
 
 const core: EmbodyCore = await initEmbodyCore();
 const character = new Embody({ profileMode: 'profile', profile: {} });
+const contribution: Record<string, number> | null = character.readAUContribution('head-yaw');
+const auState: import('@lovelace_lol/embody').CharacterAUState = character.readAUState();
+const auGoal: import('@lovelace_lol/embody').CharacterAUGoalMeasurement = character.measureAUGoal('head-yaw', { 51: 0, 52: 0.5 });
+const unreadableSources: string[] = auState.unreadable;
+const remainingTravel: number = auGoal.distance;
+// @ts-expect-error Semantic reads require a named slot.
+character.readAUContribution(51);
+// @ts-expect-error AU goal destinations contain numeric values.
+character.measureAUGoal('head-yaw', { 51: 'left' });
 // Native constructors, factories and the scene host expose the same class.
 const initializedCharacter: Embody = await Embody.create({ profileMode: 'profile', profile: {} });
 const unboundCharacter: Embody = createRustEmbodyHostUnbound({ profile: { appMetadata: { owner: 'consumer' } } });

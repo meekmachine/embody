@@ -127,6 +127,26 @@ test('re-acquiring an additive slot mid-fade continues from its faded contributi
   renderHostFrame(host, 0); near(value(), faded, 'replacement starts at the faded pose without a jump');
 });
 
+test('completed predecessor cleanup preserves the replacement slot and later non-AU replacement clears it', t => {
+  const { host } = fixture(t);
+  const completed = host.playSnippet('slot', curves(0, 0.8, 1, true), additiveHold());
+  renderHostFrame(host, 1.01);
+  const replacement = host.playSnippet('slot', curves(0, 0.2, 1, true), additiveHold());
+  completed.stop();
+  near(host.readAUContribution('slot')['200'], 0.8, 'retired predecessor cleanup cannot erase the replacement');
+  renderHostFrame(host, 0.5);
+  near(host.readAUContribution('slot')['200'], 0.5, 'replacement still travels from the inherited value');
+  replacement.stop();
+  assert.equal(host.readAUContribution('slot'), null, 'explicit release retires the new slot');
+
+  host.playSnippet('slot', curves(0, 0.6, 1, true), additiveHold());
+  renderHostFrame(host, 1.01);
+  host.registerAnimationClips([morphClip('slot', [0.1, 0.1])]);
+  host.playAnimation('slot', additiveHold());
+  assert.equal(host.readAUContribution('slot'), null, 'a native replacement cannot retain the old AU record');
+  assert.deepEqual(host.readAUState().unreadable, ['slot']);
+});
+
 test('AU state reads sum live controls and AU-curve clips and list baked clips as unreadable', t => {
   const { host } = fixture(t, { config: { profileMode: 'profile', profile: continuumProfile() } });
   host.setAU(201, 0.25);

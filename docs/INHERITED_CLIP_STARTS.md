@@ -59,6 +59,13 @@ strength/easing edits and are evaluated only when a host reads them
 not tick, sample frames or drive playback. Viseme and named-morph curves,
 typed channels and native clips have no AU identity to record.
 
+The adapter captures the predecessor's native time and weight before replacement
+stops its action. A completed held action also releases its resources
+synchronously; its semantic record stays available until the new slot is
+recorded. Deferred cleanup retires the predecessor without deleting the new
+same-name record. Explicit release and replacement by a non-AU source remove
+that record normally.
+
 ## Delayed first keys
 
 Timestamps are not rewritten. If the inherited first key is at 0.5 seconds, its
