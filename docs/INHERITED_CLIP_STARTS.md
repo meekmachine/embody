@@ -88,3 +88,28 @@ and object tracks support inherited starts through the adapter now.
 mixer, including replay from a changed pose, delayed keys, fixed starts, scaled
 endpoints, and transform interpolation. Run `npm run build` first; the smoke test
 does not rebuild the package.
+
+## Hair response during head retargeting
+
+Retargeting an inherited clip changes the native head trajectory; it does not
+restart hair or admit an automatic impulse/gravity clip. The character's
+[continuous hair response](../README.md#hair-motion) observes the fully mixed
+model-space head pose once per render step, including parent neck/spine motion.
+Rust preserves spring momentum and ambient phase across numerical tuning and
+retargets, while one native response action retains its identity until its target
+bindings change. Pausing the head lets hair settle; an explicit named hair pause
+freezes the response and survives mapping edits. Caller aggregate controls leave
+the hair owner running.
+
+`stiffness` is the unit-mass spring coefficient and `damping` is linear drag for
+continuous physics. Legacy authored curve helpers use those fields as oscillation
+frequency/decay controls; continuous physics does not promise identical motion.
+Preset values remain unchanged. The core smooths observed angular velocity over
+35 ms and integrates steps no longer than 1/120 second. The mapping has a 0.04
+neutral transition band and a soft output limit above 1.5, after shared concrete
+morph contributions add. These rules remain in Rust, not a host-side filter.
+
+Regression source covers actual CC4 tuning, abrupt turns and reversals, matched
+renderer cadences, mapping edits, explicit pause, and rebind priming. CI owns
+execution. Installed Polymer/LoomLarge consumers still need the published Embody
+package; source changes alone do not update those hosts.

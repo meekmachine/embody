@@ -43,10 +43,11 @@ wasm/                Generated-Wasm JS loader + ABI constants
 index.ts             Package re-exports only
 ```
 
-There is no parallel TypeScript hair/physics/runtime core. Hair idle, impulse,
-gravity curves and the spring solver live in `src/hair_curves.rs` /
+There is no parallel TypeScript hair/physics/runtime core. Hair idle, impulse
+and gravity curve helpers and the continuous response live in `src/hair_curves.rs` /
 `src/hair.rs` and are exported through Wasm. Hosts schedule the resulting
-ClipIR on their mixer; they must not reimplement hair sampling in TS.
+ClipIR on their mixer; they must not reimplement hair sampling in TS. See
+[Hair motion](#hair-motion) for how the character host drives them.
 
 The Rust core owns:
 
@@ -439,8 +440,61 @@ function update(dtSeconds: number) {
 }
 ```
 
-Application-facing JavaScript APIs belong in the host package. Polymer owns
-the CLJS character host used by LoomLarge and calls the Wasm exports directly.
+Embody owns the native Three character API and mixer binding. Polymer exposes
+that API through its CLJS facade for LoomLarge; the facade does not own another
+playback clock or hair simulation.
+
+### Hair motion
+
+When the profile enables `hairPhysics` and its registered hair/eyebrow meshes
+contain mapped targets, the Three character host plays one additive native action,
+`__embody_hair_response`. Rust's `HairResponse` owns velocity, spring displacement,
+ambient phase and gravity response. `RuntimeCore.build_hair_response_clip` emits
+zero-neutral morph offsets; the host replaces samples on the existing native
+action when its target bindings stay the same. Numeric tuning and head retargets
+preserve both the action identity and the simulation state.
+
+After every mixer has sampled, and before native completion releases its
+resources, `renderScenePlayback` passes the effective mixer delta to the character.
+The character observes the profile's humanoid `head` role in model space relative
+to the captured reference pose, including parent neck/spine motion. It expresses
+that delta in the bound local reference before passing primitive quaternions to
+Rust. The model root's placement rotation is excluded. Snippets, baked clips,
+live setters and external bone writers therefore drive the same response.
+A profile without a head role still supports idle and wind with no invented rig
+mapping. Rebinding primes head history only after restored live controls have
+sampled, avoiding a false rest-to-pose impulse.
+
+Rust combines observed angular velocity, idle/wind, and smoothed pitch gravity
+using `inertia`, `stiffness`, `damping`, `gravity`, `responseScale` and `direction`.
+Directional mapping approaches neutral with zero slope. Contributions sharing a
+concrete morph add before a soft limit keeps that response within `[0, 2]`.
+The next native mixer sample applies the resulting offsets, so output trails the
+observed head by one render step. There is no second mixer update or hair timer.
+Playing, replaying or retargeting a caller clip performs no hair work.
+
+`Embody.stop()` suspends response sampling with rendering. Mixer time scale zero
+freezes physics; reversed native playback still advances physics forward while
+the actual reversed pose determines motion direction. A renderer gap longer than
+250 ms re-primes head velocity and integrates at most 250 ms of settling. Numeric
+configuration edits preserve momentum and ambient phase. Clearing mappings releases
+native output without erasing simulation state; disabling hair resets dynamics.
+Registration, model rebind and profile replacement start a new response binding.
+Disposal removes its render hook and releases native output.
+
+Hair actions have explicit character ownership. `stopAllAnimations`, `crossfadeTo`,
+`pauseAllAnimations` and `resumeAllAnimations` leave them running; Stop All and
+crossfade also leave live setter targets intact. Aggregate pause/resume continues
+to pause/resume live setter transitions as well as caller playback. Explicit
+`pauseAnimation('__embody_hair_response')` freezes the simulation, and that pause
+survives cleared mappings and disable/re-enable until the matching
+`resumeAnimation` call. Profile replacement starts a new configuration.
+
+`playHairImpulse(horizontal, vertical)` retains its existing separately controllable
+one-shot native handle. It is never triggered by caller clip admission. The lower
+level `RuntimeCore.add_hair_response_impulse` instead injects velocity into the
+continuous response without creating an action; neither path replaces head history.
+Legacy idle/impulse/gravity curve exports remain available to explicit consumers.
 
 ### Direct viseme snapshots
 

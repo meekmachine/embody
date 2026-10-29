@@ -77,9 +77,16 @@ type Source =
   | { name: string; kind: 'native'; clip: AnimationClip }
   | { name: string; kind: 'curves' | 'typed'; input: any; options: CharacterPlaybackOptions }
   | { name: string; kind: 'compiled'; clip: ClipIR };
+/**
+ * Who requested a playback. Stop All and crossfade act only on `caller`
+ * playbacks. Aggregate pause/resume also controls `live` setter transitions,
+ * while `hair` actions follow explicit hair controls and the render step.
+ */
+type PlaybackOwner = 'caller' | 'live' | 'hair';
 type Playback = {
   id: string;
   source: Source;
+  owner: PlaybackOwner;
   options: CharacterPlaybackOptions;
   connector: ThreeNativePlaybackConnector;
   terminal: boolean;
@@ -111,6 +118,16 @@ const weighted = (sample: number[], neutral: number[] | undefined, ratio: number
   return sample.map((value, axis) => (neutral?.[axis] ?? 0) + (value - (neutral?.[axis] ?? 0)) * ratio);
 };
 const presetId = (value?: string): string => value?.trim().toLowerCase() || 'cc4';
+const HAIR_RESPONSE = '__embody_hair_response';
+const HAIR_IMPULSE_CLIP = '__embody_hair_impulse';
+/** Captured model-space head chain, expressed in the bound local reference for Rust. */
+type HairHeadObservation = {
+  boneName: string;
+  chain: Object3D[];
+  reference: number[];
+  modelToReference: Quaternion;
+  rotation: Quaternion;
+};
 
 export function supportsRustEmbodyPreset(value?: string): boolean {
   return requireInitializedEmbodyCore().has_preset(presetId(value));
@@ -149,6 +166,7 @@ export class Embody {
   private nextLiveTarget = 0;
   private readonly liveTargets = new Map<string, { track: ClipIRTrack; handle: CharacterPlaybackHandle; releasing: boolean }>();
   private readonly hairObjects = new Map<string, Mesh>();
+  private hairHeadObservation?: HairHeadObservation;
   private hairConfig: JsonObject = {};
   private hairAppearance: HairAppearanceState = {
     hairColor: copy(DEFAULT_HAIR_COLOR_APPEARANCE),
@@ -264,6 +282,7 @@ export class Embody {
           if (this.playDepth) this.pendingReleases.push(playback);
           else this.forget(playback);
         },
+        afterSample: (mixerDeltaSeconds) => this.sampleHairResponse(mixerDeltaSeconds, true),
       });
     }
     catch (error) { session.free(); throw error; }
@@ -272,6 +291,7 @@ export class Embody {
     this.connector.setTimeScale(this.timeScale);
     this.connector.subscribe((event) => this.onPlaybackEvent(event));
     this.hairConfig = parse(this.core.get_hair_config_json());
+    this.bindHairHead(model, inspection);
     this.registerHairObjects(inspection.allMeshes.filter((mesh) => ['hair', 'eyebrow'].includes(this.meshCategory(mesh))));
     if (preserveLiveState) this.commitLive();
   }
@@ -533,7 +553,7 @@ export class Embody {
     if (options.easing !== undefined && !['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeInOutCubic'].includes(options.easing)) throw new Error(`Unknown playback easing: ${options.easing}`);
   }
 
-  private handle(source: Source, options: CharacterPlaybackOptions, autoPlay: boolean): CharacterPlaybackHandle {
+  private handle(source: Source, options: CharacterPlaybackOptions, autoPlay: boolean, owner: PlaybackOwner = 'caller'): CharacterPlaybackHandle {
     options = { ...('options' in source ? source.options : {}), ...options };
     const listeners = new Set<(event: CharacterPlaybackEvent) => void>();
     const generation = this.bindingGeneration;
@@ -554,7 +574,8 @@ export class Embody {
       const connector = this.requireConnector();
       const inheritedStarts = new Map<string, number[]>();
       const clip = this.materialize(source, options, inheritedStarts);
-      const hairMotion = this.authoredHeadMotion(clip);
+      // Admission performs no hair work: hair observes the rendered head pose
+      // once per render step instead (sampleHairResponse).
       const previous = this.current.get(source.name);
       const outgoing = previous ? connector.getAction(previous.id) : undefined;
       // Native replacement stops the outgoing action and resets its time.
@@ -588,7 +609,7 @@ export class Embody {
         throw error;
       }
       const playback: Playback = {
-        id, source, options: { ...options, intensityScale: intensity(options) }, connector, terminal: false, inheritedStarts,
+        id, source, owner, options: { ...options, intensityScale: intensity(options) }, connector, terminal: false, inheritedStarts,
         replay: (next) => { options = next; return start(); },
         notify: (event) => {
           if (settled) return;
@@ -647,10 +668,6 @@ export class Embody {
       } finally {
         this.playDepth -= 1;
         this.flushPendingPlaybackEvents();
-      }
-      if (hairMotion && connector.getAction(id)) {
-        this.playHairImpulse(hairMotion.horizontal, hairMotion.vertical);
-        this.setHairGravity(hairMotion.pitch, clip.duration);
       }
       return result;
     };
@@ -779,7 +796,7 @@ export class Embody {
       this.core.remove_animation_clip(source.name);
     }
     this.registerAnimationClips(clips ?? []);
-    this.restartHair();
+    this.sampleHairResponse(0);
   }
   removeAnimationClip(name: string): boolean {
     this.stopAnimation(name);
@@ -792,12 +809,12 @@ export class Embody {
     if (!source) throw new Error(`Unknown animation clip: ${name}`);
     return this.handle(source, options, true);
   }
-  private build(source: Source, options: CharacterPlaybackOptions, play: boolean): CharacterPlaybackHandle {
+  private build(source: Source, options: CharacterPlaybackOptions, play: boolean, owner: PlaybackOwner = 'caller'): CharacterPlaybackHandle {
     this.requireModel();
     this.validateEasing(options);
     this.compile(source, options);
     this.sources.set(source.name, source);
-    return this.handle(source, options, play);
+    return this.handle(source, options, play, owner);
   }
   buildClip(name: string, curves: JsonObject, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
     if (options.semanticAnimation) throw new Error('Decode legacy named animation tracks to numeric AU curves before building a clip.');
@@ -816,7 +833,8 @@ export class Embody {
   supportsClipCurves(): boolean { return true; }
   cleanupSnippet(name: string): void { this.stopAnimation(name); this.sources.delete(name); this.core.cleanup_snippet(name); }
   crossfadeTo(name: string, seconds: number, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
-    const outgoing = [...this.current.values()].filter((playback) => !playback.source.name.startsWith('__embody_'));
+    // Live setter targets and hair actions are not part of a caller's crossfade.
+    const outgoing = [...this.current.values()].filter((playback) => playback.owner === 'caller');
     const handle = this.playAnimation(name, { ...options, fadeInSec: seconds });
     for (const playback of outgoing) if (playback.connector.getAction(playback.id)) playback.connector.fadeOut(playback.id, seconds);
     return handle;
@@ -827,22 +845,31 @@ export class Embody {
     if (playback.connector.getAction(playback.id)) playback.connector.control(playback.id, { type: 'stop' });
     this.forget(playback);
   }
+  /** Stop every caller playback. Live setter targets and hair actions keep running. */
   stopAllAnimations(): void {
     for (const playback of [...this.playbacks.values()]) {
-      if (playback.source.kind === 'compiled') continue;
+      if (playback.owner !== 'caller') continue;
       if (playback.connector.getAction(playback.id)) playback.connector.control(playback.id, { type: 'stop' });
       this.forget(playback);
     }
   }
-  pauseAnimation(name: string): void { const p = this.current.get(name); if (p) p.connector.control(p.id, { type: 'pause' }); }
+  pauseAnimation(name: string): void {
+    if (name === HAIR_RESPONSE) this.core.set_hair_response_paused(true);
+    const p = this.current.get(name); if (p) p.connector.control(p.id, { type: 'pause' });
+  }
   resumeAnimation(name: string): void {
+    if (name === HAIR_RESPONSE) {
+      this.core.set_hair_response_paused(false);
+      this.sampleHairResponse(0);
+    }
     const p = this.current.get(name);
     if (!p) return;
     if (p.terminal) p.replay({ ...p.options, time: p.connector.getAction(p.id)?.time ?? 0 });
     else p.connector.control(p.id, { type: 'resume' });
   }
-  pauseAllAnimations(): void { for (const p of this.playbacks.values()) if (!p.terminal) p.connector.control(p.id, { type: 'pause' }); }
-  resumeAllAnimations(): void { for (const name of [...this.current.keys()]) this.resumeAnimation(name); }
+  // Hair actions follow the hair configuration and Embody.stop()/start(), not caller pause commands.
+  pauseAllAnimations(): void { for (const p of this.playbacks.values()) if (!p.terminal && p.owner !== 'hair') p.connector.control(p.id, { type: 'pause' }); }
+  resumeAllAnimations(): void { for (const [name, p] of [...this.current]) if (p.owner !== 'hair') this.resumeAnimation(name); }
   updateClipParams(name: string, options: CharacterPlaybackOptions): void { const p = this.current.get(name); if (p) this.updatePlayback(p, options); }
   setAnimationSpeed(name: string, value: number): void { this.updateClipParams(name, { speed: value }); }
   setAnimationIntensity(name: string, value: number): void { this.updateClipParams(name, { intensityScale: value }); }
@@ -895,7 +922,7 @@ export class Embody {
       const released: ClipIRTrack = { ...previous.track, times: [0, duration], values: [...sample, ...sample], inheritStart: false };
       const releaseClip = { ...clip, name: previous.handle.name, tracks: [released] };
       const handle = this.handle({ name: releaseClip.name, kind: 'compiled', clip: releaseClip },
-        { loopMode: 'once', finalPose: 'release', mixerWeight: action.getEffectiveWeight() }, true);
+        { loopMode: 'once', finalPose: 'release', mixerWeight: action.getEffectiveWeight() }, true, 'live');
       connector.fadeOut(handle.actionId!, duration);
       const record = { track: released, handle, releasing: true };
       this.liveTargets.set(key, record);
@@ -919,7 +946,7 @@ export class Embody {
         nativeTrack = { ...track, values: [...start, ...endpoint(track)], inheritStart: false };
       }
       const targetClip = { ...clip, name, tracks: [nativeTrack] };
-      const handle = this.handle({ name, kind: 'compiled', clip: targetClip }, { loopMode: 'once', finalPose: 'hold' }, true);
+      const handle = this.handle({ name, kind: 'compiled', clip: targetClip }, { loopMode: 'once', finalPose: 'hold' }, true, 'live');
       this.liveTargets.set(key, { track, handle, releasing: false });
       handles.push(handle);
     }
@@ -1036,7 +1063,9 @@ export class Embody {
       const material: any = mesh && (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material);
       if (material) this.hairAppearance[`${category}Color`] = { ...this.hairAppearance[`${category}Color`], baseColor: material.color ? `#${material.color.getHexString()}` : '#000000', emissive: material.emissive ? `#${material.emissive.getHexString()}` : '#000000', emissiveIntensity: material.emissiveIntensity ?? 0 };
     }
-    this.restartHair();
+    for (const [name, playback] of [...this.current]) if (playback.owner === 'hair') this.stopAnimation(name);
+    this.core.reset_hair_response();
+    this.sampleHairResponse(0);
     return [...this.hairObjects.values()].map((mesh) => ({ name: mesh.name, isMesh: true, isEyebrow: this.meshCategory(mesh) === 'eyebrow' }));
   }
   getRegisteredHairObjects(): Object3D[] { return [...this.hairObjects.values()]; }
@@ -1055,17 +1084,82 @@ export class Embody {
   setHairGlow(color: string, value: number): void { this.setHairColor({ emissive: color, emissiveIntensity: value }); }
   setEyebrowGlow(color: string, value: number): void { this.setEyebrowColor({ emissive: color, emissiveIntensity: value }); }
   setHairOutline(value: { show: boolean; color?: string; opacity?: number }): void { Object.assign(this.hairAppearance, { showOutline: value.show }, value.color ? { outlineColor: value.color } : {}, value.opacity !== undefined ? { outlineOpacity: value.opacity } : {}); }
-  private restartHair(): void {
-    for (const name of [...this.current.keys()]) if (name.startsWith('__embody_hair')) this.stopAnimation(name);
-    if (!this.hairConfig.enabled || !this.hairObjects.size || !this.connector) return;
-    if (this.hairConfig.idleSwayAmount > 0 || this.hairConfig.windStrength > 0) {
-      const curves = parse(this.wasm.build_hair_idle_curves(json(this.hairConfig), this.hairConfig.idleClipDuration));
-      if (Object.keys(curves).length) this.playSnippet('__embody_hair_idle', curves, { loopMode: 'repeat', meshNames: [...this.hairObjects.keys()], source: 'hair', blendMode: 'additive' });
+  private hairClipOptions(options: CharacterPlaybackOptions): CharacterPlaybackOptions {
+    return { ...options, meshNames: [...this.hairObjects.keys()], source: 'hair', blendMode: 'additive' };
+  }
+  private bindHairHead(model: Object3D, inspection: ThreeModelInspection): void {
+    this.hairHeadObservation = undefined;
+    const binding = parse<{ boneId: number; boneName: string; reference: number[] } | null>(this.core.get_hair_head_binding_json());
+    const head = binding && inspection.boneBindings.get(binding.boneId);
+    if (!binding || !head) return;
+    const chain: Object3D[] = [];
+    for (let node: Object3D | null = head; node && node !== model; node = node.parent) chain.push(node);
+    if (!chain.length || chain[chain.length - 1].parent !== model) return;
+    const reference = new Quaternion();
+    const node = new Quaternion();
+    for (let index = chain.length - 1; index >= 0; index -= 1) {
+      const rotation = this.referenceBindings.get(chain[index])?.transform.rotation;
+      reference.multiply(rotation ? node.set(rotation.x, rotation.y, rotation.z, rotation.w) : chain[index].quaternion);
+    }
+    this.hairHeadObservation = {
+      boneName: binding.boneName, chain, reference: binding.reference,
+      modelToReference: new Quaternion().fromArray(binding.reference).multiply(reference.normalize().invert()),
+      rotation: new Quaternion(),
+    };
+  }
+  private sampleHairResponse(deltaSeconds: number, observeHead = false): void {
+    if (this.disposed || !this.connector || !this.inspection) return;
+    if (!this.hairConfig.enabled || !this.hairObjects.size) {
+      this.stopAnimation(HAIR_RESPONSE);
+      return;
+    }
+    const previous = this.current.get(HAIR_RESPONSE);
+    const action = previous?.connector.getAction(previous.id);
+    // Paused state still reconciles edited/cleared target bindings, without
+    // advancing dynamics. Pausing only the head lets the hair keep settling.
+    const head = this.hairHeadObservation;
+    // Synchronous binding/configuration may precede restored live controls'
+    // first native sample. Only a fully mixed renderer frame may prime head
+    // history, avoiding a false kick from that temporary reference pose.
+    let pose: { boneName: string; reference: number[]; current: number[] } | null = null;
+    if (observeHead && head) {
+      // localReference^-1 * current sent to Rust equals the captured model-space
+      // reference^-1 * rendered head rotation, including parent neck/spine motion.
+      const rotation = head.rotation.copy(head.modelToReference);
+      for (let index = head.chain.length - 1; index >= 0; index -= 1) rotation.multiply(head.chain[index].quaternion);
+      pose = { boneName: head.boneName, reference: head.reference, current: rotation.normalize().toArray() };
+    }
+    const ir = parse<ClipIR>(this.core.build_hair_response_clip(HAIR_RESPONSE, JSON.stringify(pose), action?.paused ? 0 : deltaSeconds,
+      json({ meshNames: [...this.hairObjects.keys()] })));
+    if (!ir.tracks.length) { this.stopAnimation(HAIR_RESPONSE); return; }
+    const clip = createAnimationClipFromClipIR(ir, this.inspection);
+    // Rust emits zero-neutral offsets, not absolute reference morph values.
+    clip.blendMode = AdditiveAnimationBlendMode;
+    const oldTracks = action?.getClip().tracks;
+    const sameBindings = oldTracks && oldTracks.length === clip.tracks.length && clip.tracks.every((track, index) => {
+      const old = oldTracks[index];
+      return old.name === track.name && old.ValueTypeName === track.ValueTypeName && old.getValueSize() === track.getValueSize();
+    });
+    if (previous && action && sameBindings) {
+      this.connector.replaceClip(previous.id, clip);
+      previous.source = { name: HAIR_RESPONSE, kind: 'native', clip };
+    } else {
+      // Binding changes alone require a new native action. Numerical edits,
+      // head retargets and ordinary frames retain both action and Rust state.
+      const handle = this.handle({ name: HAIR_RESPONSE, kind: 'native', clip }, { loopMode: 'repeat', blendMode: 'additive' }, true, 'hair');
+      if (action?.paused || this.core.is_hair_response_paused()) handle.pause();
     }
   }
   setHairPhysicsEnabled(value: boolean): void { this.setHairPhysicsConfig({ enabled: value }); }
   isHairPhysicsEnabled(): boolean { return !!this.hairConfig.enabled; }
-  setHairPhysicsConfig(value: HairPhysicsRuntimeConfigUpdate): void { this.hairConfig = parse(this.core.set_hair_config_json(json(value))); this.restartHair(); }
+  setHairPhysicsConfig(value: HairPhysicsRuntimeConfigUpdate): void {
+    this.assertAlive();
+    this.hairConfig = parse(this.core.set_hair_config_json(json(value)));
+    if (!this.hairConfig.enabled) {
+      for (const [name, playback] of [...this.current]) if (playback.owner === 'hair') this.stopAnimation(name);
+    }
+    this.sampleHairResponse(0);
+  }
   getHairPhysicsConfig(): Partial<HairPhysicsRuntimeConfig> { return copy(this.hairConfig); }
   validateHairMorphTargets(): string[] {
     return parse(this.core.get_missing_hair_morph_targets_json(json(this.getHairMorphTargets())));
@@ -1078,43 +1172,12 @@ export class Embody {
     if (state.position) mesh.position.set(state.position.x, state.position.y, state.position.z);
     if (state.color) this.applier.applyHairAppearance([mesh], state.color);
   }
-  private authoredHeadMotion(clip: AnimationClip): { horizontal: number; vertical: number; pitch: number } | undefined {
-    if (!this.hairConfig.enabled || clip.name.startsWith('__embody_hair') || !this.hairObjects.size) return undefined;
-    // Serialize native bindings and sample storage only. The core resolves the
-    // character's head role and compiles its configured hair response.
-    const tracks: Array<{ boneName: string; current: number[]; reference: number[]; samples: number[][] }> = [];
-    for (const track of clip.tracks) {
-      if (track.ValueTypeName !== 'quaternion') continue;
-      const parsed = PropertyBinding.parseTrackName(track.name);
-      let object = PropertyBinding.findNode(this.requireModel(), parsed.nodeName) as Object3D | undefined;
-      if (parsed.objectName === 'bones' && object) {
-        const skeleton = (object as Object3D & { skeleton?: { bones: Object3D[] } }).skeleton;
-        object = skeleton?.bones.find((bone) => bone.name === String(parsed.objectIndex)) ?? skeleton?.bones[Number(parsed.objectIndex)];
-      }
-      if (!object) continue;
-      const cubic = (track as NativeTrack).createInterpolant.isInterpolantFactoryMethodGLTFCubicSpline === true;
-      const stride = track.getValueSize();
-      const reference = this.restValues(track);
-      if (!reference) continue;
-      const samples: number[][] = [];
-      for (let index = 0; index < track.times.length; index += 1) {
-        const offset = index * stride + (cubic ? 4 : 0);
-        samples.push(Array.from(track.values.subarray(offset, offset + 4)));
-      }
-      tracks.push({ boneName: object.name, current: object.quaternion.toArray(), reference, samples });
-    }
-    return parse(this.core.resolve_hair_motion_json(json(tracks), clip.blendMode === AdditiveAnimationBlendMode)) ?? undefined;
-  }
-  private setHairGravity(pitch: number, durationSeconds: number): void {
-    const clip = parse<ClipIR>(this.core.build_hair_gravity_clip('__embody_hair_gravity', pitch, durationSeconds, json({ meshNames: [...this.hairObjects.keys()], source: 'hair' })));
-    if (!clip.tracks.length) return;
-    this.handle({ name: clip.name, kind: 'compiled', clip }, { loopMode: 'once', finalPose: 'hold', blendMode: 'additive' }, true);
-  }
   playHairImpulse(horizontal: number, vertical: number): CharacterPlaybackHandle | undefined {
     if (!this.hairConfig.enabled || !this.hairObjects.size) return undefined;
     const curves = parse(this.wasm.build_hair_impulse_curves(json(this.hairConfig), this.hairConfig.impulseClipDuration, horizontal, vertical));
     if (!Object.keys(curves).length) return undefined;
-    return this.playSnippet('__embody_hair_impulse', curves, { loopMode: 'once', finalPose: 'release', meshNames: [...this.hairObjects.keys()], source: 'hair', blendMode: 'additive' });
+    const options = this.hairClipOptions({ loopMode: 'once', finalPose: 'release' });
+    return this.build({ name: HAIR_IMPULSE_CLIP, kind: 'curves', input: curves, options: copy(options) }, options, true, 'hair');
   }
   start(): void { this.assertAlive(); this.rendering = true; this.connector?.setRendering(true); }
   stop(): void { this.assertAlive(); this.rendering = false; this.connector?.setRendering(false); }
@@ -1130,6 +1193,7 @@ export class Embody {
     this.sources.clear();
     this.vrmAnimations.clear();
     this.hairObjects.clear();
+    this.hairHeadObservation = undefined;
     this.meshes.length = 0;
     this.meshByName.clear();
     this.bones = {};

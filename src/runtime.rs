@@ -155,6 +155,9 @@ pub struct RuntimeCore {
     procedural_bone_flags: HashMap<u32, u32>,
     procedural_morph_targets: BTreeSet<(u32, u32)>,
     hair_config: crate::hair_curves::HairPlaybackConfig,
+    hair_head_binding: Option<crate::hair_curves::HairHeadBinding>,
+    hair_response: crate::hair::HairResponse,
+    hair_response_paused: bool,
     semantic_slots: HashMap<String, crate::semantic_slots::SemanticSlot>,
     mesh_highlight: crate::highlighting::MeshHighlightState,
 }
@@ -194,6 +197,9 @@ impl RuntimeCore {
             procedural_bone_flags: HashMap::new(),
             procedural_morph_targets: BTreeSet::new(),
             hair_config: crate::hair_curves::HairPlaybackConfig::default(),
+            hair_head_binding: None,
+            hair_response: crate::hair::HairResponse::default(),
+            hair_response_paused: false,
             semantic_slots: HashMap::new(),
             mesh_highlight: crate::highlighting::MeshHighlightState::default(),
         }
@@ -270,8 +276,13 @@ impl RuntimeCore {
             .map_err(|error| JsError::new(&format!("Invalid profile hair config: {error}")))?;
         let hair_config = crate::hair_curves::normalize_config(&crate::hair_curves::HairPlaybackConfig::default(), &hair_value)
             .map_err(|error| JsError::new(&error))?;
+        let hair_head_binding = crate::hair_curves::head_binding(&profile, &model)
+            .map_err(|error| JsError::new(&error))?;
         self.reset_procedural_frame_tracking();
         self.hair_config = hair_config;
+        self.hair_head_binding = hair_head_binding;
+        self.hair_response = crate::hair::HairResponse::default();
+        self.hair_response_paused = false;
 
         self.initial_morph_values.clear();
         self.bone_rest_scales.clear();
@@ -733,7 +744,105 @@ impl RuntimeCore {
         let next = crate::hair_curves::normalize_config(&self.hair_config, &update)
             .map_err(|error| JsError::new(&error))?;
         let serialized = serialize_runtime_json(&next, "hair config")?;
+        if !next.enabled || next.enabled != self.hair_config.enabled {
+            self.reset_hair_response();
+        }
         self.hair_config = next;
+        Ok(serialized)
+    }
+
+    /// Resolved head role and captured local reference; null leaves ambient
+    /// hair available without inventing a preset or renderer-side rig mapping.
+    #[wasm_bindgen]
+    pub fn get_hair_head_binding_json(&self) -> Result<String, JsError> {
+        serialize_runtime_json(&self.hair_head_binding, "hair head binding")
+    }
+
+    #[wasm_bindgen]
+    pub fn reset_hair_response(&mut self) {
+        self.hair_response = crate::hair::HairResponse::default();
+    }
+
+    /// Suspension intent survives empty mappings, enable changes and dynamics
+    /// resets. Profile replacement starts a new character configuration.
+    #[wasm_bindgen]
+    pub fn set_hair_response_paused(&mut self, paused: bool) {
+        if self.hair_response_paused && !paused {
+            self.hair_response.reprime_head();
+        }
+        self.hair_response_paused = paused;
+    }
+
+    #[wasm_bindgen]
+    pub fn is_hair_response_paused(&self) -> bool {
+        self.hair_response_paused
+    }
+
+    fn hair_response_delta_seconds(&self, dt_seconds: f64) -> Result<f64, String> {
+        // Validate the actual caller input before suspension substitutes zero.
+        if !dt_seconds.is_finite() || dt_seconds < 0.0 {
+            return Err("Hair response dtSeconds must be finite and nonnegative.".into());
+        }
+        Ok(if self.hair_response_paused { 0.0 } else { dt_seconds })
+    }
+
+    /// Compatibility impulses enter the same continuous state; they do not
+    /// start an independent clip, reset its phase or replace head history.
+    #[wasm_bindgen]
+    pub fn add_hair_response_impulse(&mut self, horizontal: f32, vertical: f32) -> Result<(), JsError> {
+        if !horizontal.is_finite() || !vertical.is_finite() {
+            return Err(JsError::new("Hair response impulse requires finite horizontal and vertical values."));
+        }
+        if self.hair_config.enabled {
+            self.hair_response.add_impulse(horizontal, vertical).map_err(|error| JsError::new(&error))?;
+        }
+        Ok(())
+    }
+
+    /// Advance one character-owned simulation from the renderer's delta and
+    /// actual blended local head quaternion. Constant additive morph samples
+    /// are consumed by one persistent native action on its next mixer frame.
+    /// This does not register a clip or change live AU/viseme/morph controls.
+    #[wasm_bindgen]
+    pub fn build_hair_response_clip(
+        &mut self, name: &str, head_quaternion_json: &str, dt_seconds: f64, options_json: &str,
+    ) -> Result<String, JsError> {
+        if name.trim().is_empty() { return Err(JsError::new("Hair response clip name cannot be empty.")); }
+        let dt_seconds = self.hair_response_delta_seconds(dt_seconds).map_err(|error| JsError::new(&error))?;
+        let pose: Option<crate::hair_curves::HairHeadPose> = parse_runtime_json(head_quaternion_json, "hair head pose")?;
+        let head = match (&self.hair_head_binding, pose) {
+            (Some(binding), Some(pose)) => Some(crate::hair_curves::head_pose_angles(binding, &pose)
+                .map_err(|error| JsError::new(&error))?),
+            (None, Some(_)) => return Err(JsError::new("Hair response has no configured head binding; pass null for ambient-only motion.")),
+            (_, None) => None,
+        };
+        let options: ClipBuildOptions = parse_runtime_json(options_json, "hair response options")?;
+        let scale = options.intensity_scale.unwrap_or(1.0);
+        if !scale.is_finite() || scale < 0.0 {
+            return Err(JsError::new("Hair response intensityScale must be finite and nonnegative."));
+        }
+        let mut next = self.hair_response.clone();
+        next.advance(&self.hair_config, head, dt_seconds).map_err(|error| JsError::new(&error))?;
+        let values = crate::hair_curves::response_morph_values(&self.hair_config, next.offsets());
+        let mesh_names_json = serialize_runtime_json(&options.mesh_names, "hair mesh names")?;
+        // Every output here belongs to this one response, so names resolving
+        // to the same concrete target add instead of competing native tracks.
+        let mut concrete = BTreeMap::<(u32, u32), f64>::new();
+        for (name, value) in values {
+            let targets = self.resolve_morph_targets(&name, None, &mesh_names_json).into_iter().collect::<BTreeSet<_>>();
+            for target in targets {
+                *concrete.entry(target).or_default() += value * scale;
+            }
+        }
+        let tracks = concrete.into_iter().enumerate().map(|(index, ((mesh_id, morph_target_id), value))| {
+            let value = crate::hair_curves::limit_response_morph(value);
+            scalar_track(index as u32 + 1, serde_json::json!({"kind":"morphTarget","meshId":mesh_id,"morphTargetId":morph_target_id}),
+                &[RuntimeCurvePoint { time: 0.0, intensity: value, inherit: false },
+                  RuntimeCurvePoint { time: 1.0, intensity: value, inherit: false }], 1.0)
+        }).collect();
+        let clip = clip_from_tracks(name, tracks, 1.0)?;
+        let serialized = serialize_runtime_json(&clip, "continuous hair response clip")?;
+        self.hair_response = next;
         Ok(serialized)
     }
 
@@ -2192,6 +2301,189 @@ fn clamp_signed(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn continuous_hair_core() -> RuntimeCore {
+        let mut core = RuntimeCore::new(1);
+        let profile = serde_json::json!({
+            "boneNodes":{"head":"CustomHead"},"humanoidCharacterization":{"schemaVersion":1,"standard":"VRMC_vrm-1.0","roles":{"head":{"nodeKey":"head"}}},
+            "visemeSlots":[{"id":"speech-a"}],
+            "hairPhysics":{"enabled":true,"inertia":1,"gravity":1,"idleSwayAmount":0,"stiffness":15,"damping":8,
+                "morphTargets":{"swayLeft":{"key":"L"},"swayRight":{"key":"R"},"swayFront":{"key":"F"},"fluffBottom":{"key":"L"},"headDown":{"D":{"value":1}}}}
+        });
+        let model = serde_json::json!({
+            "bones":[{"id":41,"name":"CustomHead"}],
+            "meshes":[{"id":1,"name":"Hair","morphTargetIds":[1,2,3,4]}],
+            "morphTargets":[{"id":1,"meshId":1,"name":"L","initialValue":0.35},{"id":2,"meshId":1,"name":"R"},
+                {"id":3,"meshId":1,"name":"F"},{"id":4,"meshId":1,"name":"D"}]
+        });
+        core.configure_with_profile(&profile.to_string(), &model.to_string()).unwrap();
+        core
+    }
+
+    fn continuous_head_pose(yaw: f32, pitch: f32) -> String {
+        let current = multiply_quat(quat_from_channel(1, yaw), quat_from_channel(0, pitch));
+        serde_json::json!({"boneName":"CustomHead","current":current,"reference":[0,0,0,1]}).to_string()
+    }
+
+    fn response_clip(core: &mut RuntimeCore, pose: &str, dt: f64) -> ClipIR {
+        serde_json::from_str(&core.build_hair_response_clip("continuous-hair", pose, dt, "{\"meshNames\":[\"Hair\"]}").unwrap()).unwrap()
+    }
+
+    #[test]
+    fn continuous_hair_clip_is_additive_delta_data_and_does_not_own_live_au_or_catalog_state() {
+        let mut core = continuous_hair_core();
+        core.set_au(7, 0.42, -0.2);
+        core.set_viseme(0, 0.6);
+        core.set_morph("L", 0.2, "[]");
+        let direct_morphs = core.direct_morph_values.clone();
+        let catalog = core.get_animation_clips().unwrap();
+        let binding: serde_json::Value = serde_json::from_str(&core.get_hair_head_binding_json().unwrap()).unwrap();
+        assert_eq!(binding, serde_json::json!({"boneId":41,"boneName":"CustomHead","reference":[0.0,0.0,0.0,1.0]}));
+        let neutral = response_clip(&mut core, &continuous_head_pose(0.0, 0.0), 0.0);
+        assert_eq!(neutral.duration_seconds, 1.0);
+        assert_eq!(neutral.tracks.len(), 4); // Shared L mapping has only one native channel.
+        for track in &neutral.tracks {
+            assert_eq!(track.times, vec![0.0, 1.0]);
+            assert_eq!(track.values, vec![0.0, 0.0]); // Neither original .35 nor live .2 is baked into the delta.
+            assert!(!track.inherit_start);
+        }
+        let moving = response_clip(&mut core, &continuous_head_pose(0.2, 0.0), 1.0 / 60.0);
+        assert!(moving.tracks.iter().any(|track| track.values[0] > 0.0));
+        assert!(moving.tracks.iter().all(|track| track.values[0] == track.values[1]));
+        assert_eq!(core.get_au(7), 0.42);
+        assert_eq!(core.get_au_balance(7), -0.2);
+        assert_eq!(core.viseme_values, vec![0.6]);
+        assert_eq!(core.direct_morph_values, direct_morphs);
+        assert_eq!(core.get_animation_clips().unwrap(), catalog);
+    }
+
+    #[test]
+    fn continuous_hair_limits_the_shared_native_morph_once_and_reverses_without_a_flat_clip() {
+        let mut core = continuous_hair_core();
+        core.set_hair_config_json("{\"stiffness\":0,\"damping\":0,\"inertia\":0,\"gravity\":0,\"responseScale\":1}").unwrap();
+        core.add_hair_response_impulse(8.0,0.0).unwrap();
+        let clip = response_clip(&mut core, "null", 0.25);
+        let shared = clip.tracks.iter().filter(|track| track.target["morphTargetId"] == 1).collect::<Vec<_>>();
+        assert_eq!(shared.len(), 1);
+        // Sway L plus fluff L contribute 2 + .5. One knee on their sum
+        // differs from separately limiting each source and adding afterward.
+        let expected = 2.0 - 0.5 * (-2.0_f64).exp();
+        assert!((shared[0].values[0] - expected).abs() < 1e-5);
+        assert!(shared[0].values[0] < 2.0);
+        core.add_hair_response_impulse(-10.0,0.0).unwrap();
+        let reversing = response_clip(&mut core, "null", 1.0 / 60.0);
+        let output = reversing.tracks.iter().find(|track| track.target["morphTargetId"] == 1).unwrap();
+        assert!(output.values[0] < shared[0].values[0]);
+    }
+
+    #[test]
+    fn continuous_hair_state_is_per_character_and_numerical_edits_preserve_momentum() {
+        let mut first = continuous_hair_core();
+        let mut second = continuous_hair_core();
+        let neutral = continuous_head_pose(0.0, 0.0);
+        response_clip(&mut first, &neutral, 0.0);
+        response_clip(&mut second, &neutral, 0.0);
+        first.add_hair_response_impulse(0.5, 0.25).unwrap();
+        let first_clip = response_clip(&mut first, &neutral, 1.0 / 60.0);
+        let second_clip = response_clip(&mut second, &neutral, 1.0 / 60.0);
+        assert!(first_clip.tracks.iter().any(|track| track.values[0] > 0.0));
+        assert!(second_clip.tracks.iter().all(|track| track.values[0] == 0.0));
+        let before = first.hair_response.clone();
+        first.set_hair_config_json("{\"stiffness\":22,\"damping\":4,\"inertia\":0.3,\"responseScale\":0}").unwrap();
+        assert_eq!(first.hair_response, before);
+        let muted = response_clip(&mut first, &neutral, 1.0 / 60.0);
+        assert!(muted.tracks.iter().all(|track| track.values[0] == 0.0));
+        assert_ne!(first.hair_response.offsets(), [0.0;3]);
+        first.set_hair_config_json("{\"enabled\":false}").unwrap();
+        assert_eq!(first.hair_response, crate::hair::HairResponse::default());
+        first.set_hair_config_json("{\"enabled\":true,\"responseScale\":1}").unwrap();
+        let primed = response_clip(&mut first, &continuous_head_pose(0.8, 0.0), 1.0 / 60.0);
+        assert!(primed.tracks.iter().all(|track| track.values[0] == 0.0));
+        first.add_hair_response_impulse(1.0, 0.0).unwrap();
+        first.reset_hair_response();
+        assert_eq!(first.hair_response, crate::hair::HairResponse::default());
+    }
+
+    #[test]
+    fn continuous_hair_pause_freezes_dynamics_and_ambient_and_survives_empty_or_disabled_outputs() {
+        let mut core = continuous_hair_core();
+        core.set_hair_config_json("{\"idleSwayAmount\":0.2,\"windStrength\":0.6}").unwrap();
+        let pose = continuous_head_pose(0.3, 0.2);
+        response_clip(&mut core, &pose, 0.0);
+        for _ in 0..20 { response_clip(&mut core, &pose, 1.0 / 60.0); }
+        let before = core.hair_response.clone();
+        core.set_hair_response_paused(true);
+        response_clip(&mut core, &continuous_head_pose(-0.8, -0.4), 0.1);
+        assert!(core.is_hair_response_paused());
+        assert_eq!(core.hair_response, before);
+        for invalid_dt in [-1.0, f64::NAN, f64::INFINITY] {
+            assert!(core.hair_response_delta_seconds(invalid_dt).is_err());
+            assert!(core.is_hair_response_paused());
+            assert_eq!(core.hair_response, before);
+        }
+        core.set_hair_config_json("{\"morphTargets\":{}}").unwrap();
+        assert!(response_clip(&mut core, "null", 1.0).tracks.is_empty());
+        assert_eq!(core.hair_response, before);
+        core.set_hair_config_json("{\"morphTargets\":{\"swayLeft\":\"L\"}}").unwrap();
+        assert_eq!(response_clip(&mut core, "null", 1.0).tracks.len(), 1);
+        assert!(core.is_hair_response_paused());
+        assert_eq!(core.hair_response, before);
+        core.set_hair_config_json("{\"enabled\":false}").unwrap();
+        core.reset_hair_response();
+        core.set_hair_config_json("{\"enabled\":true}").unwrap();
+        assert!(core.is_hair_response_paused());
+        let recreated = response_clip(&mut core, "null", 1.0);
+        assert_eq!(recreated.tracks.len(), 1);
+        assert!(recreated.tracks[0].values.iter().all(|value| *value == 0.0));
+        assert_eq!(core.hair_response, crate::hair::HairResponse::default());
+    }
+
+    #[test]
+    fn continuous_hair_resume_primes_the_current_head_and_preserves_momentum_and_phase() {
+        let mut core = continuous_hair_core();
+        core.set_hair_config_json("{\"idleSwayAmount\":0.2}").unwrap();
+        response_clip(&mut core, &continuous_head_pose(0.0, 0.0), 0.0);
+        core.add_hair_response_impulse(0.5, 0.25).unwrap();
+        response_clip(&mut core, &continuous_head_pose(0.0, 0.0), 1.0 / 60.0);
+        let before = core.hair_response.clone();
+        core.set_hair_response_paused(true);
+        response_clip(&mut core, &continuous_head_pose(1.2, 0.0), 0.1);
+        assert_eq!(core.hair_response, before);
+        let mut expected = before.clone();
+        expected.reprime_head();
+        core.set_hair_response_paused(false);
+        assert!(!core.is_hair_response_paused());
+        assert_eq!(core.hair_response, expected);
+        expected.advance(&core.hair_config, Some([1.2, 0.0]), 1.0 / 60.0).unwrap();
+        response_clip(&mut core, &continuous_head_pose(1.2, 0.0), 1.0 / 60.0);
+        assert_eq!(core.hair_response.offsets(), expected.offsets());
+        assert_ne!(core.hair_response.offsets(), before.offsets());
+    }
+
+    #[test]
+    fn continuous_hair_null_head_keeps_ambient_motion_and_profile_rebind_clears_layout_and_momentum() {
+        let mut core = continuous_hair_core();
+        core.set_hair_config_json("{\"idleSwayAmount\":0.2,\"idleSwaySpeed\":1,\"windStrength\":0.8,\"windDirectionZ\":1}").unwrap();
+        let mut ambient = response_clip(&mut core, "null", 0.0);
+        assert_eq!(core.hair_response, crate::hair::HairResponse::default()); // Sync must not prime a temporary head pose.
+        for _ in 0..30 { ambient = response_clip(&mut core, "null", 1.0 / 60.0); }
+        assert!(ambient.tracks.iter().any(|track| track.values[0] > 0.0));
+        let model = serde_json::to_string(core.model.as_ref().unwrap()).unwrap();
+        core.set_hair_response_paused(true);
+        core.configure_with_profile("{\"hairPhysics\":{\"enabled\":true}}", &model).unwrap();
+        assert!(!core.is_hair_response_paused());
+        assert_eq!(core.get_hair_head_binding_json().unwrap(), "null");
+        assert_eq!(core.hair_response, crate::hair::HairResponse::default());
+        let unmapped = response_clip(&mut core, "null", 1.0 / 60.0);
+        assert!(unmapped.tracks.is_empty());
+        assert_eq!(unmapped.duration_seconds, 1.0);
+        core.set_hair_config_json("{\"morphTargets\":{\"swayLeft\":\"L\"},\"idleSwayAmount\":0.2}").unwrap();
+        for _ in 0..30 { ambient = response_clip(&mut core, "null", 1.0 / 60.0); }
+        assert_eq!(ambient.tracks.len(), 1);
+        assert!(ambient.tracks[0].values[0] > 0.0);
+        core.set_hair_config_json("{\"morphTargets\":{}}").unwrap();
+        assert!(response_clip(&mut core, "null", 1.0 / 60.0).tracks.is_empty());
+    }
 
     #[test]
     fn hair_configuration_rebinds_to_the_selected_profile_and_compiles_native_targets() {

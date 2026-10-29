@@ -107,18 +107,26 @@ export class ThreeNativePlaybackConnector {
   private disposed = false;
   private readonly onError?: (error: Error) => void;
   private readonly onRelease?: (handle: string) => void;
+  private readonly afterSample?: (deltaSeconds: number) => void;
 
   constructor(
     private readonly session: NativePlaybackSession,
-    binding: ThreeNativePlaybackBinding & { onError?: (error: Error) => void; onRelease?: (handle: string) => void },
+    binding: ThreeNativePlaybackBinding & { onError?: (error: Error) => void; onRelease?: (handle: string) => void; afterSample?: (deltaSeconds: number) => void },
   ) {
     validateBinding(binding);
     this.binding = { ...binding, mixer: binding.mixer ?? new AnimationMixer(binding.model) };
     this.onError = binding.onError;
     this.onRelease = binding.onRelease;
+    this.afterSample = binding.afterSample;
     this.binding.mixer.addEventListener('finished', this.finished);
-    this.rendering = bindPlaybackRendering(binding.model, this.binding.mixer, (deltaSeconds) => { this.flushEvents(); this.binding.onFrame?.(deltaSeconds); });
+    this.rendering = bindPlaybackRendering(binding.model, this.binding.mixer,
+      this.afterFrame, this.sampleResponse);
   }
+
+  private readonly afterFrame = (deltaSeconds: number): void => {
+    this.flushEvents();
+    if (!this.disposed) this.binding.onFrame?.(deltaSeconds);
+  };
 
   /** Prepare bindings first; old actions are released before the new binding is exposed. */
   rebind(modelKey: string, profileKey: string, binding: ThreeNativePlaybackBinding = this.binding): void {
@@ -129,7 +137,8 @@ export class ThreeNativePlaybackConnector {
       this.rendering.dispose();
       this.binding = { ...binding, mixer: binding.mixer ?? new AnimationMixer(binding.model) };
       this.binding.mixer.addEventListener('finished', this.finished);
-      this.rendering = bindPlaybackRendering(binding.model, this.binding.mixer, (deltaSeconds) => { this.flushEvents(); this.binding.onFrame?.(deltaSeconds); });
+      this.rendering = bindPlaybackRendering(binding.model, this.binding.mixer,
+        this.afterFrame, this.sampleResponse);
       this.rendering.setEnabled(this.renderingEnabled);
     });
   }
@@ -220,6 +229,17 @@ export class ThreeNativePlaybackConnector {
   getAction(handle: string): AnimationAction | undefined {
     return this.resources.get(handle)?.action;
   }
+
+  private readonly sampleResponse = (deltaSeconds: number): void => {
+    if (this.disposed || !this.renderingEnabled) return;
+    try { this.afterSample?.(deltaSeconds); }
+    catch (error) {
+      // One character's invalid input must not prevent other characters from
+      // sampling, or prevent native completion from releasing resources.
+      const failure = asError(error);
+      queueMicrotask(() => { if (this.onError) this.onError(failure); else throw failure; });
+    }
+  };
 
   /** Deliver native completion after the borrowed mixer has finished sampling. */
   flushEvents(): void {

@@ -7,15 +7,21 @@ Embody's renderer-neutral runtime is Rust/Wasm. A renderer adapter may only:
    `serializeAnimationClips`);
 3. apply packed Rust **live** frame writes to engine objects;
 4. schedule ClipIR on the host animation mixer (playback/lerp/blend);
-5. perform engine-owned resource operations such as loading and disposal.
+5. perform engine-owned resource operations such as loading and disposal;
+6. observe the rendered pose once per host render step, after the mixer has
+   sampled, and pass primitive data to Rust (the Three character host does this
+   for the [continuous hair response](../README.md#hair-motion)). Observation borrows
+   the host's render step; an adapter must not start its own loop, interval or
+   animation frame request for it.
 
 An adapter must not resolve profiles, classify mesh categories, or maintain a
 second copy of AU/viseme runtime state. Clip time evaluation, blending, and
 lerping belong to the host mixer — not Rust.
 
-The current Three.js adapter is in `three/`. Polymer owns the application host
-API (including `AnimationMixer` scheduling) and calls the Wasm module
-directly; LoomLarge does not import Embody internals.
+The current Three.js adapter and native character API are in `three/`. Embody
+owns `AnimationMixer` scheduling and the character render binding. Polymer
+provides the application facade and agency intent; LoomLarge does not import
+Embody internals.
 
 VRM Animation body interchange follows the same split. Rust owns Mixamo role
 mapping, reference/hierarchy validation, rotation basis math, hip-height/unit
