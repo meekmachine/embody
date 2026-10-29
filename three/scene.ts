@@ -22,6 +22,7 @@ import type { WebGPURenderer } from 'three/webgpu';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { registerSceneRendering } from './sceneRenderingBinding';
 import { prepareModelSkinning } from './modelSkinning';
+import { disposeSceneBackground, setSceneBaseBackground } from './sceneBackground';
 
 export type DefaultCharacterLightingSettings = {
   envMapEnabled: boolean;
@@ -123,6 +124,8 @@ export interface CharacterSceneRenderingController {
   subscribe(listener: (snapshot: CharacterSceneRenderingSnapshot) => void): () => void;
   /** Borrow for capture/readback; release in finally. Unavailable during switching/loss. */
   acquireRenderer(): CharacterSceneRendererLease;
+  /** Wait for queued scene work, then atomically borrow the active renderer. Release in finally. */
+  acquireRendererAsync(): Promise<CharacterSceneRendererLease>;
   /** Drain borrowed work, then synchronously detach/free caller-owned resources, even after loss/disposal. */
   releaseSceneResources(release: () => void): Promise<void>;
 }
@@ -325,7 +328,9 @@ function constructDefaultCharacterScene<R extends CharacterSceneRenderer>(
     const ratio = () => Math.min(globalThis.devicePixelRatio || 1, options.pixelRatioCap ?? 1.5);
     renderer.setPixelRatio(ratio()); renderer.setSize(width, height, true); renderer.shadowMap.enabled = options.shadows ?? true; renderer.shadowMap.type = PCFShadowMap;
     Object.assign(renderer.domElement.style, { display: 'block', width: '100%', height: '100%' });
-    const scene = new Scene(); const background = options.background === undefined ? sceneType.background : options.background; scene.background = background == null ? null : new Color(background);
+    const scene = new Scene(); const background = options.background === undefined ? sceneType.background : options.background;
+    setSceneBaseBackground(scene, background == null ? null : new Color(background));
+    lifetime.add(() => disposeSceneBackground(scene));
     const camera = new PerspectiveCamera(options.cameraFov ?? 45, width / height, .1, 1000);
     const preset = DEFAULT_CHARACTER_LIGHTING_PRESETS[(options.lightingPreset ?? sceneType.lightingPreset) as DefaultCharacterLightingPresetId]?.settings ?? DEFAULT_CHARACTER_LIGHTING_SETTINGS;
     const lighting = createLighting(scene, { ...preset, ...options.lighting });
@@ -344,7 +349,7 @@ function constructDefaultCharacterScene<R extends CharacterSceneRenderer>(
       const type = CHARACTER_SCENE_TYPES[value.type ?? DEFAULT_CHARACTER_SCENE_TYPE_ID] ?? CHARACTER_SCENE_TYPES[DEFAULT_CHARACTER_SCENE_TYPE_ID];
       currentSceneType = type.id;
       const background = value.background === undefined ? type.background : value.background;
-      scene.background = background == null ? null : new Color(background);
+      setSceneBaseBackground(scene, background == null ? null : new Color(background));
       camera.fov = value.cameraFov ?? 45; camera.updateProjectionMatrix();
       const preset = DEFAULT_CHARACTER_LIGHTING_PRESETS[value.lightingPreset ?? type.lightingPreset] ?? DEFAULT_CHARACTER_LIGHTING_PRESETS[DEFAULT_CHARACTER_LIGHTING_PRESET_ID];
       lighting.setSettings({ ...preset.settings, ...value.lighting });
@@ -492,7 +497,8 @@ export function createDefaultCharacterSceneRuntime(
     let currentSceneType = sceneType.id;
     const scene = new Scene();
     const background = options.background === undefined ? sceneType.background : options.background;
-    scene.background = background == null ? null : new Color(background);
+    setSceneBaseBackground(scene, background == null ? null : new Color(background));
+    lifetime.add(() => disposeSceneBackground(scene));
     const camera = new PerspectiveCamera(options.cameraFov ?? 45, 1, .1, 1000);
     const preset = DEFAULT_CHARACTER_LIGHTING_PRESETS[(options.lightingPreset ?? sceneType.lightingPreset) as DefaultCharacterLightingPresetId]?.settings ?? DEFAULT_CHARACTER_LIGHTING_SETTINGS;
     const lighting = createMutableCharacterLighting(scene, { ...preset, ...options.lighting });
@@ -686,6 +692,21 @@ export function createDefaultCharacterSceneRuntime(
           if (--leaseCount === 0) { leasesReleased?.(); leasesReleased = null; leaseBarrier = null; }
         } };
       },
+      acquireRendererAsync: async () => {
+        for (;;) {
+          if (disposed) throw renderingAborted();
+          const settling = pending;
+          if (settling) {
+            // A failed replacement can retain a healthy renderer. Recheck the
+            // current owner after settlement rather than failing its borrower.
+            await settling.catch(() => undefined);
+            continue;
+          }
+          // No await separates this availability check from incrementing the
+          // lease count; later scenery work must drain this borrower first.
+          return rendering.acquireRenderer();
+        }
+      },
       releaseSceneResources: (release) => {
         // Disposal already owns the drain. A later caller can free its resources
         // once that completion settles, including when owned cleanup failed.
@@ -751,7 +772,7 @@ export function createDefaultCharacterSceneRuntime(
       const type = CHARACTER_SCENE_TYPES[value.type ?? DEFAULT_CHARACTER_SCENE_TYPE_ID] ?? CHARACTER_SCENE_TYPES[DEFAULT_CHARACTER_SCENE_TYPE_ID];
       currentSceneType = type.id;
       const background = value.background === undefined ? type.background : value.background;
-      scene.background = background == null ? null : new Color(background);
+      setSceneBaseBackground(scene, background == null ? null : new Color(background));
       camera.fov = value.cameraFov ?? 45; camera.updateProjectionMatrix();
       const preset = DEFAULT_CHARACTER_LIGHTING_PRESETS[value.lightingPreset ?? type.lightingPreset] ?? DEFAULT_CHARACTER_LIGHTING_PRESETS[DEFAULT_CHARACTER_LIGHTING_PRESET_ID];
       lighting.controller.setSettings({ ...preset.settings, ...value.lighting });

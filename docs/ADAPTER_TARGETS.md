@@ -24,6 +24,14 @@ skin bind inverses, parses FBX, releases parser resources and materializes nativ
 clips. Playback/blending remain host-owned. No Three sampling loop or alternative
 JavaScript retargeting core is introduced. See [the supported contract](ANIMATION_REFERENCE_POSES.md#mixamo-fbx-and-vrm-animation-body-interchange).
 
+`createSceneSceneryRenderer` owns native scenery model parsing, placement wrappers,
+background textures, cancellation and resource release. Applications supply a
+resolved layout and an abortable authorized byte loader. Scenery asset catalogs,
+saved layouts and Persona/Character/Interaction selection precedence remain with
+the application. The adapter does not create another renderer, animation clock,
+character binding or lighting environment. See the
+[scenery lifecycle](SCENE_READINESS.md#scenery-layouts-and-background-ownership).
+
 Annotation adapters additionally capture raw pointer/wheel input, inspect native
 bounds/vertex attributes and execute Rust-planned native raycasts. Rust's
 `AnnotationRuntime` owns camera integration, regions, target selection, marker
