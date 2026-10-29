@@ -17,6 +17,7 @@ import {
   VectorKeyframeTrack,
 } from 'three';
 export * from './annotations/index';
+export * from './vrm-animation';
 export * from './authoring';
 export * from './character';
 export * from './characterHost';

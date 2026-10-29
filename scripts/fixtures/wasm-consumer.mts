@@ -121,6 +121,16 @@ const savedPoseLabel: string = decodedSavedPose.label;
 const savedAnimationLabel: string = decodedSavedAnimation.label;
 void [savedPoseLabel, savedAnimationLabel];
 const character = new Embody({ profileMode: 'profile', profile: {} });
+const vrmaSupported: boolean = character.supportsVrmAnimation();
+const convertedVrma: import('@lovelace_lol/embody/three').VrmAnimationFile[] = character.convertMixamoFbxToVrmAnimations(new ArrayBuffer(0), { metersPerUnit: 0.01 });
+const vrmaInfo: import('@lovelace_lol/embody/three').VrmAnimationInfo = character.getVrmAnimationInfo(new Uint8Array(0));
+character.registerVrmAnimation('portable', new Uint8Array(0), { metersPerUnit: 1 });
+character.releaseVrmAnimation('portable');
+// @ts-expect-error Target units must be explicit.
+character.registerVrmAnimation('portable', new Uint8Array(0), {});
+// @ts-expect-error Registration uses the character's captured reference.
+character.registerVrmAnimation('portable', new Uint8Array(0), { metersPerUnit: 1, referencePose: {} });
+
 const contribution: Record<string, number> | null = character.readAUContribution('head-yaw');
 const auState: import('@lovelace_lol/embody').CharacterAUState = character.readAUState();
 const auGoal: import('@lovelace_lol/embody').CharacterAUGoalMeasurement = character.measureAUGoal('head-yaw', { 51: 0, 52: 0.5 });
