@@ -6,10 +6,10 @@ import {
 } from 'three';
 import {
   captureModelReferencePose, createRustEmbodyHostUnbound, getPreset,
-  resolveRegionCameraAngle, serializeAnimationClips, supportsRustEmbodyPreset, ThreeModelInspector,
+  renderScenePlayback, resolveRegionCameraAngle, serializeAnimationClips, supportsRustEmbodyPreset, ThreeModelInspector,
 } from '@lovelace_lol/embody/three';
 import { initEmbodyCore } from '@lovelace_lol/embody/wasm';
-import { renderHostFrame } from './helpers/render-playback.mjs';
+import { createPlaybackTimer, renderHostFrame } from './helpers/render-playback.mjs';
 
 await initEmbodyCore();
 
@@ -331,6 +331,384 @@ for (const preset of ['cc4', 'fish']) {
   });
 }
 
+function trackingHairFixture(t, { hairConfig = {}, headRole = true, hairInitial = 0 } = {}) {
+  const rig = model(0, 0);
+  const names = ['SwayLeft', 'SwayRight', 'SwayFront', 'FluffRight', 'FluffBottom', 'HeadUp', 'HeadDown'];
+  const hair = mesh('TrackingHair', names, hairInitial); rig.root.add(hair);
+  const savedProfile = {
+    boneNodes: { SAVED_HEAD: 'Head' },
+    humanoidCharacterization: { schemaVersion: 1, standard: 'VRMC_vrm-1.0', roles: { head: { nodeKey: 'SAVED_HEAD' } } },
+    auToBones: {
+      901: [{ node: 'SAVED_HEAD', channel: 'ry', scale: 1, maxDegrees: 30 }],
+      902: [{ node: 'SAVED_HEAD', channel: 'rx', scale: 1, maxDegrees: -30 }],
+    },
+    compositeRotations: [{ node: 'SAVED_HEAD', yaw: { aus: [901], axis: 'ry' }, pitch: { aus: [902], axis: 'rx' } }],
+    meshes: { TrackingHair: { category: 'hair' } },
+    hairPhysics: { enabled: true, inertia: 1, gravity: 1, responseScale: 1,
+      idleSwayAmount: 0.2, idleClipDuration: 2, impulseClipDuration: 0.75, stiffness: 4.25, damping: 0.8,
+      // Saved profiles retain authored target metadata; the runtime config API
+      // separately normalizes these records to names and numeric weights.
+      morphTargets: { swayLeft: { key: 'SwayLeft', axis: 'yaw' }, swayRight: { key: 'SwayRight', axis: 'yaw' },
+        swayFront: { key: 'SwayFront', axis: 'pitch' }, fluffRight: { key: 'FluffRight', axis: 'yaw' },
+        fluffBottom: { key: 'FluffBottom', axis: 'pitch' },
+        headUp: { HeadUp: { value: 1, axis: 'pitch' } }, headDown: { HeadDown: { value: 1, axis: 'pitch' } } }, ...hairConfig },
+  };
+  if (!headRole) delete savedProfile.humanoidCharacterization;
+  const f = fixture(t, { rig, config: { profileMode: 'profile', profile: savedProfile } });
+  // Only an actual post-mixer observation establishes the initial head pose.
+  renderHostFrame(f.host, 0);
+  return { ...f, hair, amount: name => hair.morphTargetInfluences[names.indexOf(name)],
+    follow(axis, destination) {
+      // Author matching constant-speed trajectories in this fixture without
+      // relying on an admission-time duration policy from another PR.
+      const current = axis === 'yaw' ? f.head.rotation.y / (Math.PI / 6) : f.head.rotation.x / (-Math.PI / 6);
+      const duration = Math.max(1e-6, Math.abs(destination - current));
+      return f.host.playSnippet(`follow-${axis}`, {
+        [axis === 'yaw' ? 901 : 902]: [{ time: 0, intensity: 0, inherit: true }, { time: duration, intensity: destination }],
+      }, { blendMode: 'additive', loopMode: 'once', finalPose: 'hold', fadeInSec: 0, fadeOutSec: 0 });
+    } };
+}
+
+const responseName = '__embody_hair_response';
+const hairValues = f => [...f.hair.morphTargetInfluences];
+const sameHair = (actual, expected, message) => actual.forEach((value, index) => near(value, expected[index], `${message}, morph ${index}`));
+function advanceHair(f, frames, seconds = 1 / 60) {
+  for (let frame = 0; frame < frames; frame++) renderHostFrame(f.host, seconds);
+}
+function responseId(f) {
+  const id = f.host.getAnimationState(responseName).actionId;
+  assert.ok(id, 'enabled mapped hair has one persistent native response action');
+  return id;
+}
+function noAutomaticHairClips(host) {
+  for (const name of ['__embody_hair_idle', '__embody_hair_impulse', '__embody_hair_gravity']) {
+    assert.equal(host.getAnimationState(name).actionId, undefined, `${name} is not a second automatic owner`);
+  }
+}
+
+function cc4HairFixture(t) {
+  // Keep the embedded preset's actual dynamics, direction and ambient tuning.
+  // Only its model-specific morph names are supplied by this small test rig.
+  const { morphTargets, ...hairConfig } = structuredClone(getPreset('cc4').hairPhysics);
+  return trackingHairFixture(t, { hairConfig });
+}
+
+function fastHairTurn(f, destination, duration, native = false) {
+  if (!native) {
+    return f.host.playSnippet('cc4-fast-yaw', {
+      901: [{ time: 0, intensity: 0, inherit: true }, { time: duration, intensity: destination }],
+    }, { blendMode: 'additive', loopMode: 'once', finalPose: 'hold', fadeInSec: 0, fadeOutSec: 0 });
+  }
+  const end = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), destination * Math.PI / 6);
+  const clip = new AnimationClip('cc4-fast-yaw', duration, [new QuaternionKeyframeTrack(
+    'Head.quaternion', [0, duration], [...f.head.quaternion.toArray(), ...end.toArray()],
+  )]);
+  f.host.registerAnimationClips([clip]);
+  return f.host.playAnimation(clip.name, { loopMode: 'once', finalPose: 'hold', fadeInSec: 0, fadeOutSec: 0 });
+}
+
+test('embedded CC4 tuning keeps fast AU and native turn/return output continuous at irregular cadence', t => {
+  const saved = cc4HairFixture(t), native = cc4HairFixture(t);
+  const ids = [saved, native].map(responseId), cadenceTicks = [1, 3, 2, 4];
+  const scale = getPreset('cc4').hairPhysics.responseScale;
+  // Rust caps spring velocity at 10; the C1 direction mapping has maximum
+  // slope 4/3, and the concrete output knee never increases that slope.
+  const maximumMorphSpeed = 10 * scale * 4 / 3;
+  let previous = hairValues(saved), largest = 0;
+  for (const destination of [0.9, 0, 0.9, 0, 0.7, 0]) {
+    fastHairTurn(saved, destination, 0.1); fastHairTurn(native, destination, 0.1, true);
+    let ticks = 0, frame = 0;
+    while (ticks < 30) {
+      const step = Math.min(cadenceTicks[frame++ % cadenceTicks.length], 30 - ticks), dt = step / 120;
+      ticks += step;
+      for (const f of [saved, native]) {
+        renderHostFrame(f.host, dt);
+        // Observe the newly staged response through its next native sample;
+        // this zero-delta sample does not advance the Rust simulation.
+        renderHostFrame(f.host, 0);
+      }
+      rotationNear(native.head.quaternion, saved.head.quaternion, 'both admissions produce the same actual head trajectory');
+      const current = hairValues(saved);
+      sameHair(hairValues(native), current, 'hair responds to actual mixed pose rather than the admission API');
+      current.forEach((value, index) => {
+        assert.ok(Number.isFinite(value) && value >= 0 && value <= 2, 'native CC4 response remains finite and bounded');
+        assert.ok(Math.abs(value - previous[index]) <= maximumMorphSpeed * dt + 2e-5,
+          'morph changes respect the continuous spring and mapping slope bound');
+      });
+      largest = Math.max(largest, ...current); previous = current;
+      [saved, native].forEach((f, index) => assert.equal(responseId(f), ids[index], 'retargeting never restarts the response action'));
+    }
+  }
+  assert.ok(largest > 0.05, 'the real preset exercises an observable response');
+  noAutomaticHairClips(saved.host); noAutomaticHairClips(native.host);
+
+  const strong = cc4HairFixture(t), strongId = responseId(strong), values = [];
+  strong.host.core.add_hair_response_impulse(4, 0);
+  for (let frame = 0; frame < 60; frame++) {
+    renderHostFrame(strong.host, 1 / 120); renderHostFrame(strong.host, 0);
+    values.push(strong.amount('SwayLeft'));
+    assert.equal(responseId(strong), strongId);
+  }
+  assert.ok(values.some(value => value > 1.5), 'moderate finite input reaches the soft output knee with actual CC4 gains');
+  assert.ok(values.every(value => Number.isFinite(value) && value >= 0 && value < 2),
+    'this finite input approaches the limit without clipping onto an exact 2 plateau');
+  assert.ok(new Set(values.filter(value => value > 1.5)).size > 5, 'output keeps changing above the knee');
+});
+
+test('CC4 response agrees at matched times across 30, 60, 120 Hz and irregular renderer cadence', t => {
+  const cadences = [[4], [2], [1], [1, 3, 2, 4]];
+  const fixtures = cadences.map(() => cc4HairFixture(t)), ids = fixtures.map(responseId);
+  let largest = 0;
+  for (let quarter = 0; quarter < 12; quarter++) {
+    if (quarter % 2 === 0) fixtures.forEach(f => fastHairTurn(f, quarter % 4 === 0 ? 0.9 : 0, 0.25));
+    fixtures.forEach((f, index) => {
+      let ticks = 0, frame = 0;
+      while (ticks < 30) {
+        const step = Math.min(cadences[index][frame++ % cadences[index].length], 30 - ticks);
+        renderHostFrame(f.host, step / 120); ticks += step;
+      }
+      renderHostFrame(f.host, 0);
+      assert.equal(responseId(f), ids[index]);
+    });
+    const reference = hairValues(fixtures[2]);
+    largest = Math.max(largest, ...reference);
+    fixtures.forEach(f => hairValues(f).forEach((value, index) => {
+      // Common command/turn boundaries and observations use 1/120-second
+      // ticks. Allow 0.25% of the output range for native Float32 samples and
+      // implicit integration partitions, not a whole-frame phase offset.
+      assert.ok(Math.abs(value - reference[index]) < 0.005, 'matched-time response is independent of renderer cadence');
+    }));
+  }
+  assert.ok(largest > 0.05, 'cadence comparison includes moving and settling hair');
+});
+
+test('tiny opposite-direction responses approach neutral with zero slope', t => {
+  const options = { hairConfig: { idleSwayAmount: 0, windStrength: 0, gravity: 0,
+    stiffness: 0, damping: 0, inertia: 0, responseScale: 1 } };
+  const full = trackingHairFixture(t, options), half = trackingHairFixture(t, options), opposite = trackingHairFixture(t, options);
+  full.host.core.add_hair_response_impulse(0.01, 0); half.host.core.add_hair_response_impulse(0.005, 0); opposite.host.core.add_hair_response_impulse(-0.01, 0);
+  for (const f of [full, half, opposite]) { advanceHair(f, 6, 1 / 120); renderHostFrame(f.host, 0); }
+  const amount = full.amount('SwayLeft'), smaller = half.amount('SwayLeft');
+  assert.ok(amount > 0 && amount < 0.00002, 'the fixture stays inside the documented 0.04 neutral transition band');
+  assert.ok(smaller > amount * 0.2 && smaller < amount * 0.3,
+    'halving tiny displacement gives approximately quarter output, rather than the old linear cusp');
+  assert.ok(Math.abs(opposite.amount('SwayRight') - amount) < amount * 1e-4, 'directional neutral shaping is symmetric');
+  assert.equal(full.amount('SwayRight'), 0); assert.equal(opposite.amount('SwayLeft'), 0);
+});
+
+test('continuous hair stages native output for the next sample and core impulses preserve one owner', t => {
+  const options = { hairConfig: { idleSwayAmount: 0, windStrength: 0, gravity: 0 } };
+  const f = trackingHairFixture(t, options), based = trackingHairFixture(t, { ...options, hairInitial: 0.2 });
+  const id = responseId(f), initial = hairValues(f);
+  assert.ok(initial.every(value => value === 0));
+  sameHair(hairValues(based), initial.map(() => 0.2), 'zero Rust output preserves nonzero captured morph baselines');
+  assert.equal(f.host.core.add_hair_response_impulse(0.8, 0.4), undefined, 'direct core impulse injects velocity into the continuous response');
+  based.host.core.add_hair_response_impulse(0.8, 0.4);
+  assert.equal(responseId(f), id);
+  renderHostFrame(f.host, 1 / 60); renderHostFrame(based.host, 1 / 60);
+  sameHair(hairValues(f), initial, 'this native sample precedes the post-mix Rust response');
+  renderHostFrame(f.host, 0); renderHostFrame(based.host, 0);
+  const staged = hairValues(f);
+  assert.ok(staged.some(value => value > 0.001), 'the next native sample applies the staged continuous response');
+  sameHair(hairValues(based).map(value => value - 0.2), staged, 'native response adds once to the reference instead of subtracting or duplicating it');
+  renderHostFrame(f.host, 0);
+  sameHair(hairValues(f), staged, 'zero-delta sampling neither advances nor accumulates the response');
+  assert.equal(responseId(f), id);
+  noAutomaticHairClips(f.host);
+  f.host.stopAllAnimations(); advanceHair(f, 3);
+  assert.equal(responseId(f), id, 'stop-all retains the persistent native response just like compiled live controls');
+  assert.ok(hairValues(f).some((value, index) => Math.abs(value - staged[index]) > 0.0001),
+    'the preserved spring continues settling after ordinary animations stop');
+});
+
+test('equivalent retargets and no-op numeric tuning preserve momentum and ambient phase', t => {
+  const hairConfig = { idleSwayAmount: 0.15, windStrength: 0.1, stiffness: 15, damping: 8 };
+  const changing = trackingHairFixture(t, { hairConfig }), uninterrupted = trackingHairFixture(t, { hairConfig });
+  const changingId = responseId(changing), uninterruptedId = responseId(uninterrupted);
+  changing.follow('yaw', 0.8); uninterrupted.follow('yaw', 0.8);
+  let largestResponse = 0;
+  for (let frame = 0; frame < 90; frame++) {
+    if (frame % 2 === 0) changing.follow('yaw', 0.8);
+    if ([12, 36, 60].includes(frame)) changing.host.setHairPhysicsConfig({ stiffness: 15, damping: 8 });
+    renderHostFrame(changing.host, 1 / 60); renderHostFrame(uninterrupted.host, 1 / 60);
+    rotationNear(changing.head.quaternion, uninterrupted.head.quaternion, 'equivalent requests retain the same observed head path');
+    sameHair(hairValues(changing), hairValues(uninterrupted), 'redundant requests and tuning do not restart spring state or idle/wind phase');
+    largestResponse = Math.max(largestResponse, ...hairValues(changing));
+    assert.equal(responseId(changing), changingId);
+    assert.equal(responseId(uninterrupted), uninterruptedId);
+  }
+  assert.ok(largestResponse > 0.001, 'comparison covers an active response rather than two static characters');
+  noAutomaticHairClips(changing.host);
+});
+
+test('saved AU, live AU and native clips drive hair from the same mixed head motion', t => {
+  const options = { hairConfig: { idleSwayAmount: 0, windStrength: 0, gravity: 0, stiffness: 15, damping: 8 } };
+  const saved = trackingHairFixture(t, options), live = trackingHairFixture(t, options), native = trackingHairFixture(t, options);
+  const ids = [saved, live, native].map(responseId);
+  const savedMove = saved.follow('yaw', 0.8);
+  const liveMove = live.host.transitionAU(901, 0.8, 800);
+  const end = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 6 * 0.8);
+  const clip = new AnimationClip('native-head-motion', 0.8, [
+    new QuaternionKeyframeTrack('Head.quaternion', [0, 0.8], [0, 0, 0, 1, ...end.toArray()]),
+  ]);
+  native.host.registerAnimationClips([clip]);
+  const nativeMove = native.host.playAnimation(clip.name, { blendMode: 'additive', loopMode: 'once', finalPose: 'hold' });
+  let largestResponse = 0;
+  for (let frame = 0; frame < 72; frame++) {
+    if (frame === 24) { savedMove.pause(); liveMove.pause(); nativeMove.pause(); }
+    for (const f of [saved, live, native]) renderHostFrame(f.host, 1 / 60);
+    rotationNear(live.head.quaternion, saved.head.quaternion, 'live AU follows the saved AU head path');
+    rotationNear(native.head.quaternion, saved.head.quaternion, 'native playback follows the saved AU head path');
+    sameHair(hairValues(live), hairValues(saved), 'live AU and saved AU share the same hair observation');
+    sameHair(hairValues(native), hairValues(saved), 'native clips and saved AU share the same hair observation');
+    largestResponse = Math.max(largestResponse, ...hairValues(saved));
+    [saved, live, native].forEach((f, index) => assert.equal(responseId(f), ids[index]));
+  }
+  assert.ok(largestResponse > 0.001, 'actual movement drives inertia while the head pause leaves hair free to settle');
+  assert.equal(clip.tracks[0].name, 'Head.quaternion', 'observing native output does not rewrite the saved clip');
+});
+
+test('continuous gravity follows held actual pitch across yaw updates and settles back to neutral', t => {
+  const options = { hairConfig: { idleSwayAmount: 0, windStrength: 0, stiffness: 15, damping: 8 } };
+  const turning = trackingHairFixture(t, options), held = trackingHairFixture(t, options);
+  const pitch = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -0.4);
+  const playPose = (f, target, duration = 0.3) => {
+    const clip = new AnimationClip('composed-head-pose', duration, [new QuaternionKeyframeTrack(
+      'Head.quaternion', [0, duration], [...f.head.quaternion.toArray(), ...target.toArray()],
+    )]);
+    f.host.registerAnimationClips([clip]);
+    return f.host.playAnimation(clip.name, { loopMode: 'once', finalPose: 'hold' });
+  };
+  playPose(turning, pitch); playPose(held, pitch);
+  for (let frame = 0; frame < 180; frame++) {
+    renderHostFrame(turning.host, 1 / 60); renderHostFrame(held.host, 1 / 60);
+  }
+  assert.ok(turning.amount('HeadUp') > 0.1, 'the observed pitched head establishes gravity');
+  const id = responseId(turning);
+  for (const yaw of [0.3, -0.2, 0.5]) {
+    // YXZ rotation preserves actual decomposed pitch as yaw changes. Separate
+    // additive pitch/yaw clips need not preserve that Euler pitch after blending.
+    playPose(turning, new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), yaw).multiply(pitch));
+    for (let frame = 0; frame < 24; frame++) {
+      renderHostFrame(turning.host, 1 / 60); renderHostFrame(held.host, 1 / 60);
+      near(turning.amount('HeadUp'), held.amount('HeadUp'), 'yaw does not reset the ongoing pitch response');
+      near(turning.amount('HeadDown'), held.amount('HeadDown'), 'yaw creates no opposite gravity');
+      assert.equal(responseId(turning), id);
+    }
+  }
+  playPose(turning, new Quaternion());
+  advanceHair(turning, 240);
+  assert.ok(turning.amount('HeadUp') < 0.001, 'continuous gravity settles after the actual head returns to neutral');
+  assert.ok(turning.amount('HeadDown') < 0.001, 'returning to neutral creates no persistent opposite response');
+});
+
+test('native pause and global time scale govern the same continuous hair simulation', t => {
+  const options = { hairConfig: { idleSwayAmount: 0.2, windStrength: 0.2, stiffness: 15, damping: 8 } };
+  const paused = trackingHairFixture(t, options), reference = trackingHairFixture(t, options);
+  const id = responseId(paused);
+  for (let frame = 0; frame < 20; frame++) {
+    renderHostFrame(paused.host, 1 / 60); renderHostFrame(reference.host, 1 / 60);
+  }
+  renderHostFrame(paused.host, 0); renderHostFrame(reference.host, 0);
+  const before = hairValues(paused);
+  paused.host.pauseAnimation(responseName); advanceHair(paused, 12);
+  sameHair(hairValues(paused), before, 'paused native response does not accumulate hidden spring or ambient time');
+  paused.host.resumeAnimation(responseName);
+  for (let frame = 0; frame < 12; frame++) {
+    renderHostFrame(paused.host, 1 / 60); renderHostFrame(reference.host, 1 / 60);
+    sameHair(hairValues(paused), hairValues(reference), 'resume continues the preserved phase');
+  }
+  renderHostFrame(paused.host, 0); renderHostFrame(reference.host, 0);
+  const frozen = hairValues(paused);
+  paused.host.setAnimationTimeScale(0); advanceHair(paused, 12);
+  sameHair(hairValues(paused), frozen, 'zero mixer time scale also freezes continuous physics');
+  paused.host.setAnimationTimeScale(2);
+  for (let frame = 0; frame < 12; frame++) {
+    renderHostFrame(paused.host, 1 / 60); renderHostFrame(reference.host, 1 / 30);
+    sameHair(hairValues(paused), hairValues(reference), 'response uses effective native mixer delta');
+  }
+  const turn = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), 0.4).toArray();
+  const forward = new AnimationClip('reverse-observed-head', 1, [
+    new QuaternionKeyframeTrack('Head.quaternion', [0, 1], [0, 0, 0, 1, ...turn]),
+  ]);
+  const reversed = new AnimationClip('reverse-observed-head', 1, [
+    new QuaternionKeyframeTrack('Head.quaternion', [0, 1], [...turn, 0, 0, 0, 1]),
+  ]);
+  paused.host.registerAnimationClips([forward]); reference.host.registerAnimationClips([reversed]);
+  for (const f of [paused, reference]) f.host.playAnimation('reverse-observed-head', { loopMode: 'repeat', time: 0.5 });
+  paused.host.setAnimationTimeScale(-1); reference.host.setAnimationTimeScale(1);
+  renderHostFrame(paused.host, 0); renderHostFrame(reference.host, 0);
+  for (let frame = 0; frame < 12; frame++) {
+    renderHostFrame(paused.host, 1 / 60); renderHostFrame(reference.host, 1 / 60);
+    rotationNear(paused.head.quaternion, reference.head.quaternion, 'reversed native time follows the equivalent forward-authored path');
+    sameHair(hairValues(paused), hairValues(reference), 'physics advances forward while observing actual reversed head movement');
+  }
+  assert.equal(responseId(paused), id);
+});
+
+test('rebinding primes the restored live head pose without creating a rest-to-pose impulse', t => {
+  const f = trackingHairFixture(t, { hairConfig: { idleSwayAmount: 0, windStrength: 0, gravity: 0 } });
+  f.host.setAU(901, 0.8); renderHostFrame(f.host, 0);
+  const held = f.head.quaternion.clone(), oldId = responseId(f);
+  f.host.bindModel();
+  assert.notEqual(responseId(f), oldId, 'a new binding owns a new native response');
+  renderHostFrame(f.host, 0);
+  rotationNear(f.head.quaternion, held, 'live AU state is restored by native playback before priming');
+  advanceHair(f, 12);
+  assert.ok(hairValues(f).every(value => value === 0), 'the first observed held pose is a baseline rather than artificial velocity');
+});
+
+test('paused response intent survives cleared mappings and disable/re-enable without a hidden restart', t => {
+  const f = trackingHairFixture(t, { hairConfig: { idleSwayAmount: 0, windStrength: 0, gravity: 0 } });
+  f.host.core.add_hair_response_impulse(0.8, 0.4); advanceHair(f, 6); renderHostFrame(f.host, 0);
+  const before = hairValues(f), mappings = f.host.getHairPhysicsConfig().morphTargets;
+  assert.ok(before.some(value => value > 0.001));
+  f.host.pauseAnimation(responseName);
+  f.host.setHairPhysicsConfig({ morphTargets: {} }); renderHostFrame(f.host, 0);
+  assert.equal(f.host.getAnimationState(responseName).actionId, undefined);
+  assert.ok(hairValues(f).every(value => value === 0), 'cleared mappings release old native targets even while paused');
+  f.host.setHairPhysicsConfig({ morphTargets: mappings });
+  assert.equal(f.host.getAnimationState(responseName).paused, true, 'rebuilt output inherits the single simulation pause intent');
+  advanceHair(f, 6);
+  sameHair(hairValues(f), before, 'mapping changes preserve paused displacement and velocity');
+  f.host.setHairPhysicsEnabled(false); f.host.setHairPhysicsEnabled(true);
+  assert.equal(f.host.getAnimationState(responseName).paused, true, 're-enable cannot clear an explicit pause');
+  advanceHair(f, 6);
+  assert.ok(hairValues(f).every(value => value === 0), 'disabled state resets and re-enable remains frozen');
+  f.host.resumeAnimation(responseName); f.host.core.add_hair_response_impulse(0.8, 0.4); advanceHair(f, 3);
+  assert.ok(hairValues(f).some(value => value > 0.001), 'explicit resume admits forward simulation again');
+});
+
+test('ambient hair without a head role stays isolated and owned output is released on disable and disposal', t => {
+  const ambient = trackingHairFixture(t, { headRole: false, hairConfig: { idleSwayAmount: 0.2, windStrength: 0.2 } });
+  const sibling = trackingHairFixture(t, { headRole: false, hairConfig: { idleSwayAmount: 0, windStrength: 0, gravity: 0 } });
+  const firstId = responseId(ambient), siblingId = responseId(sibling);
+  for (let frame = 0; frame < 30; frame++) {
+    renderHostFrame(ambient.host, 1 / 60); renderHostFrame(sibling.host, 1 / 60);
+  }
+  assert.ok(hairValues(ambient).some(value => value > 0.001), 'idle and wind run without a mapped head');
+  assert.ok(hairValues(sibling).every(value => value === 0), 'another character owns independent Rust state and settings');
+  ambient.host.setHairPhysicsEnabled(false); renderHostFrame(ambient.host, 0);
+  assert.equal(ambient.host.getAnimationState(responseName).actionId, undefined);
+  assert.ok(hairValues(ambient).every(value => value === 0), 'disabled response releases its native property contribution');
+  sibling.host.core.add_hair_response_impulse(0.8, 0.2);
+  for (let frame = 0; frame < 12; frame++) {
+    renderHostFrame(ambient.host, 1 / 60); renderHostFrame(sibling.host, 1 / 60);
+  }
+  assert.ok(hairValues(ambient).every(value => value === 0));
+  assert.ok(hairValues(sibling).some(value => value > 0.001), 'disabling one character leaves the other simulation running');
+  assert.equal(responseId(sibling), siblingId);
+  ambient.host.setHairPhysicsEnabled(true);
+  assert.notEqual(responseId(ambient), firstId, 're-enable admits a new primed response after releasing the old one');
+  advanceHair(ambient, 12);
+  assert.ok(hairValues(ambient).some(value => value > 0.001));
+  ambient.host.dispose();
+  const released = hairValues(ambient), timer = createPlaybackTimer();
+  assert.doesNotThrow(() => renderScenePlayback(ambient.root, timer.update(100)), 'disposed bindings cannot call a freed Rust core');
+  sameHair(hairValues(ambient), released, 'disposed output remains released');
+  advanceHair(sibling, 2); assert.equal(responseId(sibling), siblingId);
+});
+
 test('optional registration preserves active native, snippet, and configured hair actions', t => {
   const rig = model();
   const hair = mesh('Hair', ['Sway_Custom', 'L_Hair_Right', 'L_Hair_Front']);
@@ -348,7 +726,7 @@ test('optional registration preserves active native, snippet, and configured hai
   const native = host.playAnimation('native', { loop: true, fadeInSec: 0.5, fadeOutSec: 0.2 });
   host.playSnippet('gesture', curves(0, 1, 2), { loop: true });
   renderHostFrame(host, 0.1);
-  const names = ['native', 'gesture', '__embody_hair_idle'];
+  const names = ['native', 'gesture', '__embody_hair_response'];
   const before = names.map(name => host.getAnimationState(name));
   host.registerAnimationClips([morphClip('optional', [0.8, 0.8])]);
   names.forEach((name, index) => {

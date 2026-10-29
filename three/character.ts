@@ -94,20 +94,14 @@ const intensity = (options: CharacterPlaybackOptions, fallback = 1): number => {
   return finite(value) ? Math.max(0, Math.min(2, value)) : fallback;
 };
 const presetId = (value?: string): string => value?.trim().toLowerCase() || 'cc4';
-const HAIR_IDLE_CLIP = '__embody_hair_idle';
+const HAIR_RESPONSE = '__embody_hair_response';
 const HAIR_IMPULSE_CLIP = '__embody_hair_impulse';
-const HAIR_HEAD_RESPONSE_CLIP = '__embody_hair_head_response';
-/**
- * The held hair response action and the head chain it observes. `chain` runs
- * from the head bone up to, excluding, the model root; `reference` is the
- * head's model-space rotation in the captured reference pose.
- */
+/** Captured model-space head chain, expressed in the bound local reference for Rust. */
 type HairHeadObservation = {
-  connector: ThreeNativePlaybackConnector;
-  actionId: string;
+  boneName: string;
   chain: Object3D[];
-  reference: Float32Array;
-  head: Float32Array;
+  reference: number[];
+  modelToReference: Quaternion;
   rotation: Quaternion;
 };
 
@@ -258,7 +252,7 @@ export class Embody {
           const playback = this.playbacks.get(id);
           if (playback?.terminal) this.forget(playback);
         },
-        onRenderedFrame: (mixerDeltaSeconds) => this.observeHairHeadMotion(mixerDeltaSeconds),
+        afterSample: (mixerDeltaSeconds) => this.sampleHairResponse(mixerDeltaSeconds, true),
       });
     }
     catch (error) { session.free(); throw error; }
@@ -267,6 +261,7 @@ export class Embody {
     this.connector.setTimeScale(this.timeScale);
     this.connector.subscribe((event) => this.onPlaybackEvent(event));
     this.hairConfig = parse(this.core.get_hair_config_json());
+    this.bindHairHead(model, inspection);
     this.registerHairObjects(inspection.allMeshes.filter((mesh) => ['hair', 'eyebrow'].includes(this.meshCategory(mesh))));
     if (preserveLiveState) this.commitLive();
   }
@@ -539,7 +534,7 @@ export class Embody {
       const inheritedStarts = new Map<string, number[]>();
       const clip = this.materialize(source, options, inheritedStarts);
       // Admission performs no hair work: hair observes the rendered head pose
-      // once per render step instead (observeHairHeadMotion).
+      // once per render step instead (sampleHairResponse).
       const previous = this.current.get(source.name);
       const settings = this.nativeOptions(options, clip);
       if (previous && connector.getAction(previous.id)) settings.replace = previous.id;
@@ -704,7 +699,7 @@ export class Embody {
       this.core.remove_animation_clip(source.name);
     }
     this.registerAnimationClips(clips ?? []);
-    this.restartHair();
+    this.sampleHairResponse(0);
   }
   removeAnimationClip(name: string): boolean {
     this.stopAnimation(name);
@@ -761,8 +756,15 @@ export class Embody {
       this.forget(playback);
     }
   }
-  pauseAnimation(name: string): void { const p = this.current.get(name); if (p) p.connector.control(p.id, { type: 'pause' }); }
+  pauseAnimation(name: string): void {
+    if (name === HAIR_RESPONSE) this.core.set_hair_response_paused(true);
+    const p = this.current.get(name); if (p) p.connector.control(p.id, { type: 'pause' });
+  }
   resumeAnimation(name: string): void {
+    if (name === HAIR_RESPONSE) {
+      this.core.set_hair_response_paused(false);
+      this.sampleHairResponse(0);
+    }
     const p = this.current.get(name);
     if (!p) return;
     if (p.terminal) p.replay({ ...p.options, time: p.connector.getAction(p.id)?.time ?? 0 });
@@ -922,7 +924,9 @@ export class Embody {
       const material: any = mesh && (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material);
       if (material) this.hairAppearance[`${category}Color`] = { ...this.hairAppearance[`${category}Color`], baseColor: material.color ? `#${material.color.getHexString()}` : '#000000', emissive: material.emissive ? `#${material.emissive.getHexString()}` : '#000000', emissiveIntensity: material.emissiveIntensity ?? 0 };
     }
-    this.restartHair();
+    for (const [name, playback] of [...this.current]) if (playback.owner === 'hair') this.stopAnimation(name);
+    this.core.reset_hair_response();
+    this.sampleHairResponse(0);
     return [...this.hairObjects.values()].map((mesh) => ({ name: mesh.name, isMesh: true, isEyebrow: this.meshCategory(mesh) === 'eyebrow' }));
   }
   getRegisteredHairObjects(): Object3D[] { return [...this.hairObjects.values()]; }
@@ -944,34 +948,14 @@ export class Embody {
   private hairClipOptions(options: CharacterPlaybackOptions): CharacterPlaybackOptions {
     return { ...options, meshNames: [...this.hairObjects.keys()], source: 'hair', blendMode: 'additive' };
   }
-  private restartHair(): void {
-    for (const [name, playback] of [...this.current]) if (playback.owner === 'hair') this.stopAnimation(name);
+  private bindHairHead(model: Object3D, inspection: ThreeModelInspection): void {
     this.hairHeadObservation = undefined;
-    if (!this.hairConfig.enabled || !this.hairObjects.size || !this.connector || !this.boundModel) return;
-    if (this.hairConfig.idleSwayAmount > 0 || this.hairConfig.windStrength > 0) {
-      const curves = parse(this.wasm.build_hair_idle_curves(json(this.hairConfig), this.hairConfig.idleClipDuration));
-      const options = this.hairClipOptions({ loopMode: 'repeat' });
-      if (Object.keys(curves).length) this.build({ name: HAIR_IDLE_CLIP, kind: 'curves', input: curves, options: copy(options) }, options, true, 'hair');
-    }
-    this.startHairHeadResponse(this.boundModel, this.connector);
-  }
-  /**
-   * Play the held, additive hair response action. Its samples are rewritten
-   * from the rendered head pose once per render step; no clip admission
-   * triggers hair work. Requires a profile head role inside the bound model.
-   */
-  private startHairHeadResponse(model: Object3D, connector: ThreeNativePlaybackConnector): void {
-    const headName = this.core.hair_head_bone_name();
-    const head = headName ? model.getObjectByName(headName) : undefined;
+    const binding = parse<{ boneId: number; boneName: string; reference: number[] } | null>(this.core.get_hair_head_binding_json());
+    const head = binding && inspection.boneBindings.get(binding.boneId);
+    if (!binding || !head) return;
     const chain: Object3D[] = [];
-    for (let node: Object3D | null | undefined = head; node && node !== model; node = node.parent) chain.push(node);
+    for (let node: Object3D | null = head; node && node !== model; node = node.parent) chain.push(node);
     if (!chain.length || chain[chain.length - 1].parent !== model) return;
-    const clip = parse<ClipIR>(this.core.build_hair_head_response_clip(HAIR_HEAD_RESPONSE_CLIP, json({ meshNames: [...this.hairObjects.keys()], source: 'hair' })));
-    if (!clip.tracks.length) return;
-    const handle = this.handle({ name: clip.name, kind: 'compiled', clip }, this.hairClipOptions({ loopMode: 'once', finalPose: 'hold' }), true, 'hair');
-    if (!handle.actionId || !connector.getAction(handle.actionId)) return;
-    // Additive materialization stores -reference; start from no offset.
-    connector.setHeldSamples(handle.actionId, new Float32Array(clip.tracks.length));
     const reference = new Quaternion();
     const node = new Quaternion();
     for (let index = chain.length - 1; index >= 0; index -= 1) {
@@ -979,32 +963,64 @@ export class Embody {
       reference.multiply(rotation ? node.set(rotation.x, rotation.y, rotation.z, rotation.w) : chain[index].quaternion);
     }
     this.hairHeadObservation = {
-      connector, actionId: handle.actionId, chain,
-      reference: Float32Array.from(reference.normalize().toArray()), head: new Float32Array(4), rotation: new Quaternion(),
+      boneName: binding.boneName, chain, reference: binding.reference,
+      modelToReference: new Quaternion().fromArray(binding.reference).multiply(reference.normalize().invert()),
+      rotation: new Quaternion(),
     };
   }
-  /**
-   * Render-step hook from the native connector, called once after every mixer
-   * has sampled. Reads the head's rendered model-space rotation, whatever
-   * produced it (snippets, baked clips, tracking, live setters), advances the
-   * Rust spring response and writes the hair weights into the held action. The
-   * mixer samples them on its next update. Not called while rendering is stopped.
-   */
-  private observeHairHeadMotion(mixerDeltaSeconds: number): void {
-    const observation = this.hairHeadObservation;
-    if (!observation || this.disposed || observation.connector !== this.connector) return;
-    if (!observation.connector.getAction(observation.actionId)) { this.hairHeadObservation = undefined; return; }
-    const rotation = observation.rotation.identity();
-    for (let index = observation.chain.length - 1; index >= 0; index -= 1) rotation.multiply(observation.chain[index].quaternion);
-    rotation.normalize();
-    observation.head[0] = rotation.x; observation.head[1] = rotation.y; observation.head[2] = rotation.z; observation.head[3] = rotation.w;
-    // Hair time runs forward even when the mixer plays clips in reverse.
-    const weights = this.core.step_hair_head_response(Math.abs(mixerDeltaSeconds), observation.head, observation.reference);
-    observation.connector.setHeldSamples(observation.actionId, weights);
+  private sampleHairResponse(deltaSeconds: number, observeHead = false): void {
+    if (this.disposed || !this.connector || !this.inspection) return;
+    if (!this.hairConfig.enabled || !this.hairObjects.size) {
+      this.stopAnimation(HAIR_RESPONSE);
+      return;
+    }
+    const previous = this.current.get(HAIR_RESPONSE);
+    const action = previous?.connector.getAction(previous.id);
+    // Paused state still reconciles edited/cleared target bindings, without
+    // advancing dynamics. Pausing only the head lets the hair keep settling.
+    const head = this.hairHeadObservation;
+    // Synchronous binding/configuration may precede restored live controls'
+    // first native sample. Only a fully mixed renderer frame may prime head
+    // history, avoiding a false kick from that temporary reference pose.
+    let pose: { boneName: string; reference: number[]; current: number[] } | null = null;
+    if (observeHead && head) {
+      // localReference^-1 * current sent to Rust equals the captured model-space
+      // reference^-1 * rendered head rotation, including parent neck/spine motion.
+      const rotation = head.rotation.copy(head.modelToReference);
+      for (let index = head.chain.length - 1; index >= 0; index -= 1) rotation.multiply(head.chain[index].quaternion);
+      pose = { boneName: head.boneName, reference: head.reference, current: rotation.normalize().toArray() };
+    }
+    const ir = parse<ClipIR>(this.core.build_hair_response_clip(HAIR_RESPONSE, JSON.stringify(pose), action?.paused ? 0 : deltaSeconds,
+      json({ meshNames: [...this.hairObjects.keys()] })));
+    if (!ir.tracks.length) { this.stopAnimation(HAIR_RESPONSE); return; }
+    const clip = createAnimationClipFromClipIR(ir, this.inspection);
+    // Rust emits zero-neutral offsets, not absolute reference morph values.
+    clip.blendMode = AdditiveAnimationBlendMode;
+    const oldTracks = action?.getClip().tracks;
+    const sameBindings = oldTracks && oldTracks.length === clip.tracks.length && clip.tracks.every((track, index) => {
+      const old = oldTracks[index];
+      return old.name === track.name && old.ValueTypeName === track.ValueTypeName && old.getValueSize() === track.getValueSize();
+    });
+    if (previous && action && sameBindings) {
+      this.connector.replaceClip(previous.id, clip);
+      previous.source = { name: HAIR_RESPONSE, kind: 'native', clip };
+    } else {
+      // Binding changes alone require a new native action. Numerical edits,
+      // head retargets and ordinary frames retain both action and Rust state.
+      const handle = this.handle({ name: HAIR_RESPONSE, kind: 'native', clip }, { loopMode: 'repeat', blendMode: 'additive' }, true, 'hair');
+      if (action?.paused || this.core.is_hair_response_paused()) handle.pause();
+    }
   }
   setHairPhysicsEnabled(value: boolean): void { this.setHairPhysicsConfig({ enabled: value }); }
   isHairPhysicsEnabled(): boolean { return !!this.hairConfig.enabled; }
-  setHairPhysicsConfig(value: HairPhysicsRuntimeConfigUpdate): void { this.hairConfig = parse(this.core.set_hair_config_json(json(value))); this.restartHair(); }
+  setHairPhysicsConfig(value: HairPhysicsRuntimeConfigUpdate): void {
+    this.assertAlive();
+    this.hairConfig = parse(this.core.set_hair_config_json(json(value)));
+    if (!this.hairConfig.enabled) {
+      for (const [name, playback] of [...this.current]) if (playback.owner === 'hair') this.stopAnimation(name);
+    }
+    this.sampleHairResponse(0);
+  }
   getHairPhysicsConfig(): Partial<HairPhysicsRuntimeConfig> { return copy(this.hairConfig); }
   validateHairMorphTargets(): string[] {
     return parse(this.core.get_missing_hair_morph_targets_json(json(this.getHairMorphTargets())));

@@ -1,7 +1,6 @@
-//! Hair idle/impulse/gravity curve generation for AnimationMixer clips.
-//!
-//! Hosts only schedule the resulting curves on Three.js (or another mixer);
-//! all sampling math lives here.
+//! Hair configuration, head-role geometry and continuous morph mapping.
+//! Dynamics live in `hair.rs`; authored idle/impulse/gravity curve helpers
+//! remain available separately for explicit native animation clips.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -73,9 +72,13 @@ fn default_damping() -> f32 {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HairPlaybackConfig {
     #[serde(default)] pub enabled: bool,
+    /// Angular-velocity force gain (local radians/second, unit-mass spring).
     #[serde(default)] pub inertia: f32,
+    /// Dimensionless pitch/gravity gain; mapped pitch settles through the spring.
     #[serde(default)] pub gravity: f32,
+    /// Final additive response strength, including ambient and gravity outputs.
     #[serde(default = "default_one")] pub response_scale: f32,
+    /// Seconds for legacy authored curve helpers; continuous response has no clip cycle.
     #[serde(default = "minimum_idle_duration")] pub idle_clip_duration: f32,
     #[serde(default = "minimum_impulse_duration")] pub impulse_clip_duration: f32,
     #[serde(default)] pub direction: HairDirection,
@@ -159,6 +162,127 @@ pub(crate) fn configured_targets(config: &HairPlaybackConfig) -> std::collection
     names
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct HairHeadPose {
+    pub bone_name: String,
+    pub current: [f32; 4],
+    pub reference: [f32; 4],
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HairHeadBinding {
+    pub bone_id: u32,
+    pub bone_name: String,
+    pub reference: [f32; 4],
+}
+
+fn checked_quaternion(q: [f32; 4]) -> Result<[f32; 4], String> {
+    let length_squared = q.iter().map(|value| f64::from(*value).powi(2)).sum::<f64>();
+    if q.iter().any(|value| !value.is_finite()) || length_squared <= 1e-24 {
+        return Err("Hair response requires finite nonzero local quaternions.".into());
+    }
+    let length = length_squared.sqrt();
+    Ok(q.map(|value| (f64::from(value) / length) as f32))
+}
+
+/// A missing or unresolved head role leaves ambient hair available. Never
+/// substitute a preset bone name for a profile with no head characterization.
+pub(crate) fn head_binding(
+    profile: &crate::profile::ProfileData, model: &crate::profile::ModelData,
+) -> Result<Option<HairHeadBinding>, String> {
+    let Some(role) = profile.humanoid_characterization.as_ref().and_then(|mapping| mapping.roles.get("head")) else { return Ok(None); };
+    let resolver = crate::profile::NameResolver::new(profile, model);
+    let Some(bone) = resolver.resolve_bone(model, profile, &role.node_key) else { return Ok(None); };
+    let reference = bone.rest_transform.as_ref().and_then(|transform| transform.rotation.as_ref())
+        .map(|q| [q.x, q.y, q.z, q.w]).unwrap_or([0.0, 0.0, 0.0, 1.0]);
+    Ok(Some(HairHeadBinding { bone_id: bone.id, bone_name: bone.name.clone(), reference: checked_quaternion(reference)? }))
+}
+
+pub(crate) fn head_pose_angles(binding: &HairHeadBinding, pose: &HairHeadPose) -> Result<[f32; 2], String> {
+    if pose.bone_name != binding.bone_name {
+        return Err("Hair response pose must name the configured head bone.".into());
+    }
+    let current = checked_quaternion(pose.current)?;
+    let reference = checked_quaternion(pose.reference)?;
+    let reference_dot = reference.iter().zip(binding.reference).map(|(a, b)| a * b).sum::<f32>().abs();
+    if reference_dot < 1.0 - 1e-5 {
+        return Err("Hair response reference must match the captured local head binding.".into());
+    }
+    let (yaw, pitch) = yaw_pitch(crate::bones::multiply_quat(inverse(reference), current));
+    Ok([yaw, pitch])
+}
+
+const DIRECTION_TRANSITION_WIDTH: f64 = 0.04;
+
+// Match the authored positive direction outside a small neutral band. At zero
+// both value and slope are zero, so switching directional morphs has no cusp.
+fn positive_direction(value: f64) -> f64 {
+    if value <= 0.0 { return 0.0; }
+    if value >= DIRECTION_TRANSITION_WIDTH { return value; }
+    let normalized = value / DIRECTION_TRANSITION_WIDTH;
+    value * normalized * (2.0 - normalized)
+}
+
+/// Preserve ordinary mapped amounts through 1.5, then approach the existing
+/// maximum of 2 continuously with matching slope. Apply once, after aliases
+/// and strength have accumulated onto each concrete native morph channel.
+pub(crate) fn limit_response_morph(value: f64) -> f64 {
+    const KNEE: f64 = 1.5;
+    const SPAN: f64 = 0.5;
+    if value <= KNEE { return value.max(0.0); }
+    KNEE - SPAN * (-((value - KNEE) / SPAN)).exp_m1()
+}
+
+/// All named contributions are present, including zero releases. Contributions
+/// accumulate before model resolution and the final concrete-channel soft limit.
+pub(crate) fn response_morph_values(
+    config: &HairPlaybackConfig, offsets: [f32; 3],
+) -> std::collections::BTreeMap<String, f64> {
+    let mut values = configured_targets(config).into_iter().map(|name| (name, 0.0)).collect::<std::collections::BTreeMap<_, _>>();
+    if !config.enabled { return values; }
+    let [x, z, gravity_pitch] = offsets.map(f64::from);
+    let scale = f64::from(config.response_scale);
+    let morph = &config.curves.morph_targets;
+    let left = positive_direction(x);
+    let right = positive_direction(-x);
+    let front = positive_direction(z);
+    let back = positive_direction(-z);
+    for (name, amount) in [
+        (&morph.sway_left, left), (&morph.sway_right, right),
+        (&morph.sway_front, front), (&morph.fluff_right, right * 0.7),
+        (&morph.fluff_bottom, (left + right + front + back) * 0.25),
+    ] {
+        if let Some(value) = name.as_ref().and_then(|name| values.get_mut(name)) { *value += amount * scale; }
+    }
+    for (group, pitch) in [(&morph.head_up, positive_direction(-gravity_pitch)), (&morph.head_down, positive_direction(gravity_pitch))] {
+        if let Some(group) = group {
+            for (name, amount) in group {
+                if let Some(value) = values.get_mut(name) { *value += f64::from(*amount).min(2.0) * pitch * scale; }
+            }
+        }
+    }
+    values
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct NativeQuaternionTrack {
+    pub bone_name: String,
+    pub current: [f32; 4],
+    pub reference: [f32; 4],
+    pub samples: Vec<[f32; 4]>,
+}
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HairMotion {
+    pub horizontal: f32,
+    pub vertical: f32,
+    pub pitch: f32,
+    pub affects_pitch: bool,
+}
+
 fn inverse(q: [f32; 4]) -> [f32; 4] { [-q[0], -q[1], -q[2], q[3]] }
 fn yaw_pitch(q: [f32; 4]) -> (f32, f32) {
     // YXZ decomposition matches the authored head response convention.
@@ -171,135 +295,71 @@ fn yaw_pitch(q: [f32; 4]) -> (f32, f32) {
     (yaw, pitch)
 }
 
-/// Bone observed by the hair response: the profile's humanoid `head` role,
-/// resolved against the bound model when one is available.
-pub(crate) fn head_bone_name(profile: &crate::profile::ProfileData, model: Option<&crate::profile::ModelData>) -> Option<String> {
-    let role = profile.humanoid_characterization.as_ref().and_then(|mapping| mapping.roles.get("head"))?;
-    let resolved = model.and_then(|model| {
-        let resolver = crate::profile::NameResolver::new(profile, model);
-        resolver.resolve_bone(model, profile, &role.node_key).map(|bone| bone.name.clone())
+pub(crate) fn authored_motion(
+    config: &HairPlaybackConfig, profile: &crate::profile::ProfileData,
+    model: Option<&crate::profile::ModelData>, tracks: &[NativeQuaternionTrack], additive: bool,
+) -> Result<Option<HairMotion>, String> {
+    if !config.enabled { return Ok(None); }
+    let configured_head = profile.humanoid_characterization.as_ref().and_then(|mapping|mapping.roles.get("head"))
+        .map(|role|crate::profile_resolution::configured_bone_name(profile,&role.node_key));
+    let resolved_head = model.and_then(|model| {
+        let resolver=crate::profile::NameResolver::new(profile,model);
+        profile.humanoid_characterization.as_ref().and_then(|mapping|mapping.roles.get("head"))
+            .and_then(|role|resolver.resolve_bone(model,profile,&role.node_key)).map(|bone|bone.name.clone())
     });
-    Some(resolved.unwrap_or_else(|| crate::profile_resolution::configured_bone_name(profile, &role.node_key)))
-}
-
-/// Configured gravity weight of one head-up/head-down target at a signed
-/// head pitch in radians (negative looks up, positive looks down).
-fn gravity_amount(morph: &HairMorphTargetNames, name: &str, pitch: f32) -> f32 {
-    if pitch < 0.0 {
-        morph.head_up.as_ref().and_then(|map| map.get(name)).copied().unwrap_or(0.0).clamp(0.0, 2.0) * (-pitch).min(1.0)
-    } else {
-        morph.head_down.as_ref().and_then(|map| map.get(name)).copied().unwrap_or(0.0).clamp(0.0, 2.0) * pitch.min(1.0)
-    }
-}
-
-/// Longest render step integrated as continuous motion. A longer gap (a
-/// suspended tab, a resumed host) re-anchors the response at the observed pose.
-pub(crate) const MAX_HEAD_RESPONSE_STEP_SECONDS: f32 = 0.1;
-const MAX_HEAD_RESPONSE_SUBSTEPS: u32 = 64;
-const MAX_HEAD_LAG_RADIANS: f32 = std::f32::consts::PI;
-
-/// Hair lag behind the observed head pose, one damped spring per axis
-/// (yaw, pitch). `lag` is the head angle minus the hair angle in radians and
-/// `lag_velocity` its rate in radians per second. The host supplies the
-/// rendered head rotation once per render step; nothing here keeps a clock.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct HairHeadResponse {
-    observed: Option<[f32; 2]>,
-    head_velocity: [f32; 2],
-    lag: [f32; 2],
-    lag_velocity: [f32; 2],
-}
-
-fn wrap_angle(value: f32) -> f32 {
-    let tau = std::f32::consts::TAU;
-    let wrapped = (value + std::f32::consts::PI).rem_euclid(tau) - std::f32::consts::PI;
-    if wrapped.is_finite() { wrapped } else { 0.0 }
-}
-
-impl HairHeadResponse {
-    pub(crate) fn reset(&mut self) { *self = Self::default(); }
-
-    /// Accept `pose` as the hair's rest position without any lag or motion.
-    fn anchor(&mut self, pose: [f32; 2]) {
-        self.reset();
-        self.observed = Some(pose);
-    }
-
-    /// Advance by one render step and return the weight of every configured
-    /// hair target, in `configured_targets` order. `head` and `reference` are
-    /// the head's model-space rotation now and in the captured reference pose.
-    /// A non-positive `dt_seconds` (paused mixer) observes without advancing.
-    pub(crate) fn step(
-        &mut self, config: &HairPlaybackConfig, dt_seconds: f32, head: [f32; 4], reference: [f32; 4],
-    ) -> Result<Vec<(String, f32)>, String> {
-        if [head, reference].iter().any(|q| q.iter().any(|value| !value.is_finite()) || q.iter().map(|v| v * v).sum::<f32>() <= f32::EPSILON) {
-            return Err("Hair head response requires finite nonzero quaternions.".into());
+    let head_name=resolved_head.or(configured_head);
+    let (mut yaw, mut pitch, mut target_pitch) = (0.0_f32, 0.0_f32, 0.0_f32);
+    let mut affects_pitch = false;
+    for track in tracks.iter().filter(|track| head_name.as_deref()==Some(track.bone_name.as_str())) {
+        if std::iter::once(&track.current).chain(std::iter::once(&track.reference)).chain(&track.samples)
+            .any(|q| q.iter().any(|value| !value.is_finite()) || q.iter().map(|v| v * v).sum::<f32>() <= f32::EPSILON) {
+            return Err("Hair motion requires finite nonzero quaternions.".into());
         }
-        if !dt_seconds.is_finite() { return Err("Hair head response requires a finite step in seconds.".into()); }
-        let delta = crate::bones::multiply_quat(inverse(crate::bones::normalize_quat(reference)), crate::bones::normalize_quat(head));
-        let (yaw, pitch) = yaw_pitch(delta);
-        let pose = [yaw * config.direction.yaw_sign, pitch * config.direction.pitch_sign];
-        if config.enabled && dt_seconds > 0.0 {
-            let previous = self.observed;
-            match previous {
-                Some(previous) if dt_seconds <= MAX_HEAD_RESPONSE_STEP_SECONDS => self.integrate(config, dt_seconds, previous, pose),
-                _ => self.anchor(pose),
-            }
-        } else if self.observed.is_none() || !config.enabled {
-            self.anchor(pose);
+        let current = crate::bones::normalize_quat(track.current);
+        let reference = crate::bones::normalize_quat(track.reference);
+        let reference_inverse = inverse(reference);
+        affects_pitch |= yaw_pitch(crate::bones::multiply_quat(reference_inverse, current)).1.abs() > 1e-5;
+        for (index, sample) in track.samples.iter().enumerate() {
+            let sample = if additive { crate::bones::multiply_quat(reference, *sample) } else { crate::bones::normalize_quat(*sample) };
+            let sample_pitch = yaw_pitch(crate::bones::multiply_quat(reference_inverse, sample)).1;
+            // Include an inherited pitched start even when the goal is neutral.
+            // Yaw/roll-only contributions must not replace pitch-owned gravity.
+            affects_pitch |= sample_pitch.abs() > 1e-5;
+            if index + 1 == track.samples.len() { target_pitch = sample_pitch; }
+            let delta = yaw_pitch(crate::bones::multiply_quat(inverse(current), sample));
+            if delta.0.abs() > yaw.abs() { yaw = delta.0; }
+            if delta.1.abs() > pitch.abs() { pitch = delta.1; }
         }
-        Ok(self.weights(config, pose[1]))
     }
+    if yaw.abs() < 1e-5 && pitch.abs() < 1e-5 { return Ok(None); }
+    let motion = HairMotion {
+        horizontal: yaw * config.inertia * config.response_scale * config.direction.yaw_sign,
+        vertical: pitch * config.gravity * 0.25 * config.response_scale * config.direction.pitch_sign,
+        pitch: target_pitch * config.direction.pitch_sign,
+        affects_pitch,
+    };
+    if [motion.horizontal, motion.vertical, motion.pitch].iter().any(|value| !value.is_finite()) {
+        return Err("Configured hair response exceeds finite motion limits.".into());
+    }
+    Ok(Some(motion))
+}
 
-    fn integrate(&mut self, config: &HairPlaybackConfig, dt: f32, previous: [f32; 2], pose: [f32; 2]) {
-        // Match the impulse curve's oscillation: stiffness * 0.2 Hz, damping * 4 per second.
-        let omega = std::f32::consts::TAU * (config.curves.stiffness * 0.2).max(0.5);
-        let decay = (config.curves.damping * 4.0).max(0.1);
-        let substeps = ((dt * omega.max(2.0 * decay) / 0.5).ceil() as u32).clamp(1, MAX_HEAD_RESPONSE_SUBSTEPS);
-        let step = dt / substeps as f32;
-        for axis in 0..2 {
-            // The head moves at a constant rate within a render step, so a
-            // change of head velocity reaches the lag rate as one impulse.
-            let velocity = wrap_angle(pose[axis] - previous[axis]) / dt;
-            self.lag_velocity[axis] += velocity - self.head_velocity[axis];
-            self.head_velocity[axis] = velocity;
-            for _ in 0..substeps {
-                // Semi-implicit Euler; substeps keep omega * step <= 0.5 up to the
-                // substep cap. Beyond it, the lag clamp below keeps output bounded.
-                self.lag_velocity[axis] += (-omega * omega * self.lag[axis] - 2.0 * decay * self.lag_velocity[axis]) * step;
-                self.lag[axis] += self.lag_velocity[axis] * step;
-            }
-            if !self.lag[axis].is_finite() || !self.lag_velocity[axis].is_finite() {
-                self.lag[axis] = 0.0;
-                self.lag_velocity[axis] = 0.0;
-            }
-            self.lag[axis] = self.lag[axis].clamp(-MAX_HEAD_LAG_RADIANS, MAX_HEAD_LAG_RADIANS);
-        }
-        self.observed = Some(pose);
+pub(crate) fn gravity_pose_curves(config: &HairPlaybackConfig, pitch: f32, duration_seconds: f64) -> Result<Value, String> {
+    if !pitch.is_finite() || !duration_seconds.is_finite() || duration_seconds < 0.0 {
+        return Err("Hair gravity requires finite pitch and nonnegative durationSeconds.".into());
     }
-
-    fn weights(&self, config: &HairPlaybackConfig, pitch: f32) -> Vec<(String, f32)> {
-        let horizontal = self.lag[0] * config.inertia * config.response_scale;
-        let vertical = self.lag[1] * config.gravity * 0.25 * config.response_scale;
-        let (horizontal, vertical) = if config.enabled && horizontal.is_finite() && vertical.is_finite() { (horizontal, vertical) } else { (0.0, 0.0) };
-        let pitch = if config.enabled { pitch } else { 0.0 };
-        let morph = &config.curves.morph_targets;
-        let right = clamp01(-horizontal);
-        let sway = [
-            (&morph.sway_left, clamp01(horizontal)),
-            (&morph.sway_right, right),
-            (&morph.sway_front, clamp01(vertical)),
-            (&morph.fluff_right, clamp01(right * 0.7)),
-            (&morph.fluff_bottom, clamp01((horizontal.abs() + vertical.abs()) * 0.25)),
-        ];
-        configured_targets(config).into_iter().map(|name| {
-            let mut weight = gravity_amount(morph, &name, pitch);
-            for (target, value) in &sway {
-                if target.as_deref() == Some(name.as_str()) { weight += value; }
-            }
-            (name, weight.clamp(0.0, 2.0))
-        }).collect()
+    let morph = &config.curves.morph_targets;
+    let mut names = std::collections::BTreeSet::new();
+    for group in [&morph.head_up, &morph.head_down].into_iter().flatten() { names.extend(group.keys()); }
+    let mut curves = serde_json::Map::new();
+    for name in names {
+        let amount = if pitch < 0.0 { morph.head_up.as_ref().and_then(|map| map.get(name)).copied().unwrap_or(0.0).clamp(0.0, 2.0) * (-pitch).min(1.0) }
+            else { morph.head_down.as_ref().and_then(|map| map.get(name)).copied().unwrap_or(0.0).clamp(0.0, 2.0) * pitch.min(1.0) };
+        let points = if duration_seconds > 0.0 { json!([{ "time": 0.0, "intensity": amount, "inherit": true }, { "time": duration_seconds, "intensity": amount }]) }
+            else { json!([{ "time": 0.0, "intensity": amount }]) };
+        curves.insert(name.clone(), points);
     }
+    Ok(Value::Object(curves))
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -307,7 +367,11 @@ impl HairHeadResponse {
 struct CurvePoint {
     time: f32,
     intensity: f32,
+    #[serde(skip_serializing_if = "is_false")]
+    inherit: bool,
 }
+
+fn is_false(value: &bool) -> bool { !*value }
 
 fn push_point(
     curves: &mut std::collections::BTreeMap<String, Vec<CurvePoint>>,
@@ -322,7 +386,7 @@ fn push_point(
     curves
         .entry(key.clone())
         .or_default()
-        .push(CurvePoint { time, intensity });
+        .push(CurvePoint { time, intensity, inherit: false });
 }
 
 pub fn build_idle_wind_curves(config: &HairCurveConfig, duration_sec: f32) -> Value {
@@ -432,6 +496,11 @@ pub fn build_impulse_curves(
     }
 
     for points in curves.values_mut() {
+        // Same-name native replacement starts from this impulse's outgoing
+        // contribution, without inheriting independent hair idle or gravity.
+        if let Some(first) = points.first_mut() {
+            first.inherit = true;
+        }
         if let Some(last) = points.last_mut() {
             last.intensity = 0.0;
         }
@@ -459,14 +528,17 @@ pub fn build_gravity_curves(config: &HairCurveConfig) -> Value {
                 CurvePoint {
                     time: 0.0,
                     intensity: up,
+                    inherit: false,
                 },
                 CurvePoint {
                     time: 0.5,
                     intensity: 0.0,
+                    inherit: false,
                 },
                 CurvePoint {
                     time: 1.0,
                     intensity: down,
+                    inherit: false,
                 },
             ],
         );
@@ -547,113 +619,169 @@ mod tests {
         assert!(normalize_config(&custom, &json!({"morphTargets":{"headUp":{"bad":1e100}}})).is_err());
     }
 
-    fn response_config() -> HairPlaybackConfig {
-        normalize_config(&HairPlaybackConfig::default(), &json!({
-            "enabled":true,"inertia":2,"gravity":4,"responseScale":3,"stiffness":7.5,"damping":0.18,
-            "direction":{"yawSign":-1,"pitchSign":1},
-            "morphTargets":{"swayLeft":"L","swayRight":"R","swayFront":"F","headUp":{"Up":0.8},"headDown":{"Down":2.0}}
-        })).unwrap()
-    }
-    const IDENTITY: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-    fn weight(weights: &[(String, f32)], name: &str) -> f32 {
-        weights.iter().find(|(target, _)| target == name).map(|(_, value)| *value).unwrap()
-    }
-    fn assert_bounded(weights: &[(String, f32)]) {
-        assert!(weights.iter().all(|(_, value)| value.is_finite() && (0.0..=2.0).contains(value)), "{weights:?}");
-    }
-
     #[test]
-    fn head_bone_comes_from_the_profile_head_role() {
-        let profile: crate::profile::ProfileData = serde_json::from_value(json!({
+    fn continuous_head_binding_uses_profile_role_and_captured_local_reference() {
+        let profile = serde_json::from_value(json!({
             "boneNodes":{"head":"CustomHead"}, "humanoidCharacterization":{"schemaVersion":1,"standard":"VRMC_vrm-1.0","roles":{"head":{"nodeKey":"head"}}}
         })).unwrap();
-        assert_eq!(head_bone_name(&profile, None).as_deref(), Some("CustomHead"));
-        let unmapped: crate::profile::ProfileData = serde_json::from_value(json!({})).unwrap();
-        assert_eq!(head_bone_name(&unmapped, None), None);
+        let reference = crate::bones::quat_from_channel(2, 0.3);
+        let model = serde_json::from_value(json!({"bones":[{"id":41,"name":"CustomHead","restTransform":{"rotation":{
+            "x":reference[0],"y":reference[1],"z":reference[2],"w":reference[3]
+        }}}]})).unwrap();
+        let binding = head_binding(&profile, &model).unwrap().unwrap();
+        assert_eq!(binding.bone_id, 41);
+        assert_eq!(binding.bone_name, "CustomHead");
+        let delta = crate::bones::multiply_quat(crate::bones::quat_from_channel(1, 0.4), crate::bones::quat_from_channel(0, 0.2));
+        let current = crate::bones::multiply_quat(reference, delta).map(|value| -value * 3.0);
+        let pose = HairHeadPose { bone_name:"CustomHead".into(), current, reference };
+        let angles = head_pose_angles(&binding, &pose).unwrap();
+        assert!((angles[0] - 0.4).abs() < 1e-5);
+        assert!((angles[1] - 0.2).abs() < 1e-5);
+        let unrelated = HairHeadPose { bone_name:"Hand".into(), ..pose };
+        assert!(head_pose_angles(&binding, &unrelated).is_err());
+        let invalid = HairHeadPose { bone_name:"CustomHead".into(), current:[0.0;4], reference };
+        assert!(head_pose_angles(&binding, &invalid).is_err());
+        let wrong_reference = HairHeadPose { bone_name:"CustomHead".into(), current:reference, reference:[0.0,0.0,0.0,1.0] };
+        assert!(head_pose_angles(&binding, &wrong_reference).is_err());
+        let unmapped = serde_json::from_value(json!({})).unwrap();
+        assert!(head_binding(&unmapped, &model).unwrap().is_none());
+        let missing_bone = serde_json::from_value(json!({"bones":[{"id":42,"name":"Head"}]})).unwrap();
+        assert!(head_binding(&profile, &missing_bone).unwrap().is_none());
     }
 
     #[test]
-    fn observed_head_turn_produces_a_bounded_response_that_settles_while_the_head_holds() {
-        let config = response_config();
-        let mut response = HairHeadResponse::default();
-        let first = response.step(&config, 1.0 / 60.0, IDENTITY, IDENTITY).unwrap();
-        assert_eq!(first.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), vec!["Down", "F", "L", "R", "Up"]);
-        assert!(first.iter().all(|(_, value)| *value == 0.0), "the first observation anchors without a response");
-        let mut peak: f32 = 0.0;
+    fn continuous_morph_outputs_sum_shared_names_and_always_release_zero_channels() {
+        let mut config = normalize_config(&HairPlaybackConfig::default(), &json!({
+            "enabled":true,"responseScale":1,"morphTargets":{"swayLeft":"shared","swayRight":"right","swayFront":"front", "fluffBottom":"shared",
+                "headDown":{"shared":1.6},"headUp":{"up":1}}
+        })).unwrap();
+        let values = response_morph_values(&config, [0.2, 0.1, 0.25]);
+        assert_eq!(values.len(), 4);
+        assert!((values["shared"] - 0.675).abs() < 1e-6);
+        assert!((values["front"] - 0.1).abs() < 1e-6);
+        assert_eq!(values["right"], 0.0);
+        assert_eq!(values["up"], 0.0);
+        let neutral = response_morph_values(&config, [0.0;3]);
+        assert_eq!(neutral.keys().collect::<Vec<_>>(), values.keys().collect::<Vec<_>>());
+        assert!(neutral.values().all(|value| *value == 0.0));
+        config.response_scale = 0.0;
+        assert!(response_morph_values(&config, [1.0;3]).values().all(|value| *value == 0.0));
+        config.response_scale = f32::MAX;
+        assert!(response_morph_values(&config, [1.0;3]).values().all(|value| value.is_finite() && limit_response_morph(*value) <= 2.0));
+        config.enabled = false;
+        assert!(response_morph_values(&config, [1.0;3]).values().all(|value| *value == 0.0));
+        let cleared = normalize_config(&config, &json!({"morphTargets":{}})).unwrap();
+        assert!(response_morph_values(&cleared, [1.0;3]).is_empty());
+    }
+
+    #[test]
+    fn directional_zero_crossings_and_final_limit_have_continuous_slopes() {
+        let epsilon = 1e-6;
+        assert_eq!(positive_direction(-epsilon), 0.0);
+        assert_eq!(positive_direction(0.0), 0.0);
+        assert!(positive_direction(epsilon) / epsilon < 1e-4);
+        let width = DIRECTION_TRANSITION_WIDTH;
+        let slope_before = (positive_direction(width) - positive_direction(width - epsilon)) / epsilon;
+        let slope_after = (positive_direction(width + epsilon) - positive_direction(width)) / epsilon;
+        assert!((slope_before - slope_after).abs() < 1e-3);
+        assert_eq!(limit_response_morph(1.0), 1.0);
+        let knee_slope = (limit_response_morph(1.5 + epsilon) - limit_response_morph(1.5)) / epsilon;
+        assert!((knee_slope - 1.0).abs() < 1e-4);
         let mut previous = 0.0;
-        for frame in 1..=240 {
-            let yaw = 0.5 * (frame as f32 / 6.0).min(1.0);
-            let weights = response.step(&config, 1.0 / 60.0, crate::bones::quat_from_channel(1, yaw), IDENTITY).unwrap();
-            assert_bounded(&weights);
-            // yawSign -1 maps a positive head yaw to the right-sway target.
-            let right = weight(&weights, "R");
-            assert!((right - previous).abs() < 0.6, "frame {frame}: the response stays continuous");
-            previous = right;
-            peak = peak.max(right);
+        for amount in [0.1,1.0,1.5,1.6,2.0,3.0,5.0] {
+            let output = limit_response_morph(amount);
+            assert!(output > previous && output < 2.0);
+            previous = output;
         }
-        assert!(peak > 0.2, "the turn moves the hair: peak {peak}");
-        let mut settled = Vec::new();
-        for _ in 0..600 { settled = response.step(&config, 1.0 / 60.0, crate::bones::quat_from_channel(1, 0.5), IDENTITY).unwrap(); }
-        assert!(weight(&settled, "L") < 1e-3 && weight(&settled, "R") < 1e-3, "{settled:?}");
+        assert_eq!(limit_response_morph(f64::MAX), 2.0);
     }
 
     #[test]
-    fn a_repeatedly_observed_still_head_never_produces_an_impulse() {
-        // Replaying or retargeting a clip that holds the same pose leaves the
-        // rendered head unchanged; the response observes motion, not requests.
-        let config = response_config();
-        let mut response = HairHeadResponse::default();
-        let pose = crate::bones::quat_from_channel(1, 0.3);
-        for _ in 0..120 {
-            let weights = response.step(&config, 1.0 / 30.0, pose, IDENTITY).unwrap();
-            assert_eq!(weight(&weights, "L"), 0.0);
-            assert_eq!(weight(&weights, "R"), 0.0);
+    fn authored_response_uses_profile_head_roles_and_native_reference_transforms() {
+        let profile = serde_json::from_value(json!({
+            "boneNodes":{"head":"CustomHead"}, "humanoidCharacterization":{"schemaVersion":1,"standard":"VRMC_vrm-1.0","roles":{"head":{"nodeKey":"head"}}},
+            "auToBones":{"1":[{"node":"CustomHead","channel":"ry","scale":1}]}
+        })).unwrap();
+        let config = normalize_config(&HairPlaybackConfig::default(), &json!({"enabled":true,"inertia":2,"gravity":4,"responseScale":3,"direction":{"yawSign":-1,"pitchSign":1}})).unwrap();
+        let sample = crate::bones::quat_from_channel(1, 0.5);
+        let track = NativeQuaternionTrack { bone_name:"CustomHead".into(), current:[0.0,0.0,0.0,1.0], reference:[0.0,0.0,0.0,1.0], samples:vec![sample] };
+        let motion = authored_motion(&config, &profile, None, &[track], false).unwrap().unwrap();
+        assert!((motion.horizontal + 3.0).abs() < 1e-5);
+        assert!(!motion.affects_pitch);
+        assert_eq!(serde_json::to_value(&motion).unwrap()["affectsPitch"], false);
+        let reference = crate::bones::quat_from_channel(0, 0.3);
+        let track = NativeQuaternionTrack { bone_name:"CustomHead".into(), current:reference, reference, samples:vec![crate::bones::quat_from_channel(0, 0.2)] };
+        let motion = authored_motion(&config, &profile, None, &[track], true).unwrap().unwrap();
+        assert!((motion.vertical - 0.6).abs() < 1e-5);
+        assert!((motion.pitch - 0.2).abs() < 1e-5);
+        assert!(motion.affects_pitch);
+        let unrelated = NativeQuaternionTrack { bone_name:"Hand".into(), current:reference, reference, samples:vec![sample] };
+        assert!(authored_motion(&config, &profile, None, &[unrelated], false).unwrap().is_none());
+    }
+
+    #[test]
+    fn yaw_and_roll_contributions_do_not_claim_pitch_gravity() {
+        let profile = serde_json::from_value(json!({
+            "boneNodes":{"head":"CustomHead"}, "humanoidCharacterization":{"schemaVersion":1,"standard":"VRMC_vrm-1.0","roles":{"head":{"nodeKey":"head"}}}
+        })).unwrap();
+        let config = normalize_config(&HairPlaybackConfig::default(), &json!({"enabled":true,"inertia":1,"gravity":1})).unwrap();
+        let reference = crate::bones::quat_from_channel(0, 0.3);
+        for additive in [false, true] {
+            let yaw_start = crate::bones::quat_from_channel(1, 0.1);
+            let yaw_goal = crate::bones::quat_from_channel(1, 0.5);
+            let samples = if additive { vec![yaw_start, yaw_goal] }
+                else { vec![crate::bones::multiply_quat(reference, yaw_start), crate::bones::multiply_quat(reference, yaw_goal)] };
+            let track = NativeQuaternionTrack { bone_name:"CustomHead".into(),
+                current:crate::bones::multiply_quat(reference, yaw_start), reference, samples };
+            let motion = authored_motion(&config, &profile, None, &[track], additive).unwrap().unwrap();
+            assert!((motion.horizontal - 0.4).abs() < 1e-5);
+            assert!(!motion.affects_pitch);
+            assert!(motion.pitch.abs() < 1e-5);
+
+            let roll_start = crate::bones::quat_from_channel(2, 0.1);
+            let roll_goal = crate::bones::quat_from_channel(2, 0.5);
+            let samples = if additive { vec![roll_start, roll_goal] }
+                else { vec![crate::bones::multiply_quat(reference, roll_start), crate::bones::multiply_quat(reference, roll_goal)] };
+            let track = NativeQuaternionTrack { bone_name:"CustomHead".into(),
+                current:crate::bones::multiply_quat(reference, roll_start), reference, samples };
+            assert!(authored_motion(&config, &profile, None, &[track], additive).unwrap().is_none());
         }
     }
 
     #[test]
-    fn head_pitch_drives_configured_gravity_targets() {
-        let config = response_config();
-        let mut response = HairHeadResponse::default();
-        let down = crate::bones::quat_from_channel(0, 0.5);
-        let mut weights = Vec::new();
-        for _ in 0..600 { weights = response.step(&config, 1.0 / 60.0, down, IDENTITY).unwrap(); }
-        assert!((weight(&weights, "Down") - 1.0).abs() < 1e-4, "{weights:?}");
-        assert_eq!(weight(&weights, "Up"), 0.0);
-        let reference = crate::bones::quat_from_channel(0, 0.5);
-        let up = crate::bones::quat_from_channel(0, 0.1);
-        let weights = HairHeadResponse::default().step(&config, 1.0 / 60.0, up, reference).unwrap();
-        assert!((weight(&weights, "Up") - 0.32).abs() < 1e-4, "pitch is relative to the reference pose: {weights:?}");
+    fn pitch_return_to_neutral_claims_gravity_and_fixed_one_key_pitch_still_causes_a_response() {
+        let profile = serde_json::from_value(json!({
+            "boneNodes":{"head":"CustomHead"}, "humanoidCharacterization":{"schemaVersion":1,"standard":"VRMC_vrm-1.0","roles":{"head":{"nodeKey":"head"}}}
+        })).unwrap();
+        let config = normalize_config(&HairPlaybackConfig::default(), &json!({"enabled":true,"inertia":1,"gravity":4})).unwrap();
+        let reference = crate::bones::quat_from_channel(1, 0.2);
+        let pitched = crate::bones::quat_from_channel(0, 0.4);
+        let track = NativeQuaternionTrack { bone_name:"CustomHead".into(),
+            current:crate::bones::multiply_quat(reference, pitched), reference,
+            samples:vec![pitched, [0.0, 0.0, 0.0, 1.0]] };
+        let motion = authored_motion(&config, &profile, None, &[track], true).unwrap().unwrap();
+        assert!(motion.affects_pitch);
+        assert!(motion.pitch.abs() < 1e-5);
+        assert!((motion.vertical + 0.4).abs() < 1e-5);
+
+        let fixed = crate::bones::quat_from_channel(0, 0.25);
+        let track = NativeQuaternionTrack { bone_name:"CustomHead".into(), current:reference, reference, samples:vec![fixed] };
+        let motion = authored_motion(&config, &profile, None, &[track], true).unwrap().unwrap();
+        assert!(motion.affects_pitch);
+        assert!((motion.pitch - 0.25).abs() < 1e-5);
+        assert!((motion.vertical - 0.25).abs() < 1e-5);
     }
 
     #[test]
-    fn paused_steps_long_gaps_and_disabled_hair_do_not_advance_the_response() {
-        let config = response_config();
-        let mut response = HairHeadResponse::default();
-        response.step(&config, 1.0 / 60.0, IDENTITY, IDENTITY).unwrap();
-        let turned = crate::bones::quat_from_channel(1, 0.4);
-        let paused = response.step(&config, 0.0, IDENTITY, IDENTITY).unwrap();
-        assert_eq!(weight(&paused, "R"), 0.0);
-        let gap = response.step(&config, 1.5, turned, IDENTITY).unwrap();
-        assert_eq!(weight(&gap, "R"), 0.0, "a suspended host re-anchors instead of integrating a jump");
-        let moving = response.step(&config, 1.0 / 60.0, crate::bones::quat_from_channel(1, 0.0), IDENTITY).unwrap();
-        assert!(weight(&moving, "L") > 0.0);
-        let disabled = normalize_config(&config, &json!({"enabled":false})).unwrap();
-        let weights = response.step(&disabled, 1.0 / 60.0, turned, IDENTITY).unwrap();
-        assert!(weights.iter().all(|(_, value)| *value == 0.0));
-        assert!(response.step(&config, 1.0 / 60.0, [0.0; 4], IDENTITY).is_err());
-        assert!(response.step(&config, f32::NAN, IDENTITY, IDENTITY).is_err());
-    }
-
-    #[test]
-    fn stiff_springs_remain_stable_at_the_longest_integrated_step() {
-        let config = normalize_config(&response_config(), &json!({"stiffness":500,"damping":0})).unwrap();
-        let mut response = HairHeadResponse::default();
-        response.step(&config, MAX_HEAD_RESPONSE_STEP_SECONDS, IDENTITY, IDENTITY).unwrap();
-        for frame in 0..200 {
-            let yaw = if frame % 2 == 0 { 1.0 } else { -1.0 };
-            assert_bounded(&response.step(&config, MAX_HEAD_RESPONSE_STEP_SECONDS, crate::bones::quat_from_channel(1, yaw), IDENTITY).unwrap());
-        }
+    fn gravity_pose_is_compiled_from_configured_pitch_without_a_runtime_sampler() {
+        let config = normalize_config(&HairPlaybackConfig::default(), &json!({"morphTargets":{"headUp":{"up":{"value":0.8}},"headDown":{"down":2.0}}})).unwrap();
+        let down = gravity_pose_curves(&config, 0.5, 2.0).unwrap();
+        assert_eq!(down["down"], json!([{"time":0.0,"intensity":1.0,"inherit":true},{"time":2.0,"intensity":1.0}]));
+        assert_eq!(down["up"][1]["intensity"], 0.0);
+        let up = gravity_pose_curves(&config, -0.5, 0.0).unwrap();
+        assert!((up["up"][0]["intensity"].as_f64().unwrap() - 0.4).abs() < 1e-6);
+        assert_eq!(up["up"].as_array().unwrap().len(), 1);
+        assert!(gravity_pose_curves(&config, 0.0, -1.0).is_err());
     }
 
     #[test]
@@ -671,6 +799,51 @@ mod tests {
         let curves = build_impulse_curves(&test_config(), 0.75, 1.0, 0.0);
         let left = curves["L"].as_array().unwrap();
         assert_eq!(left[left.len() - 1]["intensity"], 0.0);
+    }
+
+    #[test]
+    fn impulse_replacement_inherits_only_its_first_key_and_retains_authored_decay() {
+        let mut config = test_config();
+        config.stiffness = 2.5;
+        config.damping = 0.25;
+        let curves = build_impulse_curves(&config, 1.0, 1.0, 0.5);
+        let object = curves.as_object().unwrap();
+        assert_eq!(object.len(), 5);
+        for points in object.values() {
+            let points = points.as_array().unwrap();
+            assert_eq!(points.len(), 31);
+            assert_eq!(points[0]["time"], 0.0);
+            assert_eq!(points[0]["inherit"], true);
+            assert!(points[1..].iter().all(|point| point.get("inherit").is_none()));
+            assert_eq!(points.last().unwrap()["time"], 1.0);
+            assert_eq!(points.last().unwrap()["intensity"], 0.0);
+        }
+        // The nominal first peak remains authored data; the native mixer alone
+        // replaces it at admission. Later oscillation and decay are unchanged.
+        assert_eq!(curves["L"][0]["intensity"], 1.0);
+        assert_eq!(curves["F"][0]["intensity"], 0.5);
+        let first_swing = 0.5_f64 * (-1.0_f64 / 3.0).exp();
+        let opposite_swing = 0.5_f64 * (-2.0_f64 / 3.0).exp();
+        assert!((curves["L"][10]["intensity"].as_f64().unwrap() - first_swing).abs() < 1e-6);
+        assert!((curves["F"][10]["intensity"].as_f64().unwrap() - first_swing * 0.5).abs() < 1e-6);
+        assert!((curves["R"][20]["intensity"].as_f64().unwrap() - opposite_swing).abs() < 1e-6);
+        assert!((curves["FR"][20]["intensity"].as_f64().unwrap() - opposite_swing * 0.7).abs() < 1e-6);
+        assert_eq!(curves["L"][20]["intensity"], 0.0);
+        assert_eq!(curves["F"][20]["intensity"], 0.0);
+    }
+
+    #[test]
+    fn idle_and_gravity_curve_serialization_remain_plain_authored_samples() {
+        let config = test_config();
+        for curves in [build_idle_wind_curves(&config, 1.0), build_gravity_curves(&config)] {
+            for points in curves.as_object().unwrap().values() {
+                for point in points.as_array().unwrap() {
+                    assert_eq!(point.as_object().unwrap().len(), 2);
+                    assert!(point.get("inherit").is_none());
+                }
+            }
+        }
+        assert_eq!(build_gravity_curves(&config)["Up"][0], json!({"time":0.0,"intensity":1.0}));
     }
 
     #[test]

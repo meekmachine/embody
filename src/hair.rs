@@ -113,6 +113,151 @@ impl HairPhysicsState {
     }
 }
 
+/// The character runtime's continuous response. This uses the same spring,
+/// damping and inertial forces as the packed compatibility solver below, but
+/// advances from renderer deltas and retains momentum across head retargets.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct HairResponse {
+    state: HairPhysicsState,
+    gravity_pitch: f32,
+    gravity_velocity: f32,
+    time: f64,
+    previous_head: Option<[f32; 2]>,
+    head_drive: [f64; 2],
+}
+
+const RESPONSE_MAX_ELAPSED: f64 = 0.25;
+const RESPONSE_SUBSTEP: f64 = 1.0 / 120.0;
+const HEAD_DRIVE_RESPONSE_SECONDS: f64 = 0.035;
+const RESPONSE_POSITION_SAFETY_LIMIT: f64 = 1e6;
+
+fn response_step_count(elapsed: f64) -> u32 {
+    // Timer roundoff near an integral tick must not change numerical damping
+    // by selecting an extra substep on alternating nominally equal frames.
+    (elapsed / RESPONSE_SUBSTEP - 1e-9).ceil().max(1.0) as u32
+}
+
+// A renderer sample describes average angular velocity over its frame. Carry
+// its response between frames and integrate the exponential mean over each
+// physics step, so force does not jump with framewise velocity estimates.
+fn smooth_head_drive(current: &mut f64, observed: f64, dt: f64) -> f64 {
+    let elapsed = dt / HEAD_DRIVE_RESPONSE_SECONDS;
+    let blend = -(-elapsed).exp_m1();
+    let average_blend = if elapsed < 1e-3 {
+        elapsed * (0.5 - elapsed * (1.0 / 6.0 - elapsed * (1.0 / 24.0 - elapsed / 120.0)))
+    } else { 1.0 - blend / elapsed };
+    let average = *current + (observed - *current) * average_blend;
+    *current += (observed - *current) * blend;
+    average
+}
+
+// Implicit spring integration remains stable for finite, nonnegative profile
+// stiffness/damping, including very large values. Dynamics use unit mass;
+// profile inertia is an angular-velocity force gain, not a second clock.
+fn response_spring_step(
+    position: &mut f32, velocity: &mut f32, target: f64, force: f64,
+    stiffness: f64, damping: f64, dt: f64,
+) {
+    let next_velocity = (f64::from(*velocity)
+        + dt * (stiffness * (target - f64::from(*position)) + force))
+        / (1.0 + damping * dt + stiffness * dt * dt);
+    *velocity = next_velocity.clamp(-f64::from(MAX_VELOCITY), f64::from(MAX_VELOCITY)) as f32;
+    let next_position = f64::from(*position) + f64::from(*velocity) * dt;
+    // Normal spring travel is unrestricted. Only pathological inputs reach
+    // this finite safety guard; output limiting belongs after morph mapping.
+    *position = next_position.clamp(-RESPONSE_POSITION_SAFETY_LIMIT, RESPONSE_POSITION_SAFETY_LIMIT) as f32;
+    if next_position.abs() > RESPONSE_POSITION_SAFETY_LIMIT && next_position.signum() == f64::from(*velocity).signum() {
+        *velocity = 0.0;
+    }
+}
+
+impl HairResponse {
+    pub(crate) fn reprime_head(&mut self) {
+        self.previous_head = None;
+        self.head_drive = [0.0; 2];
+    }
+
+    pub(crate) fn add_impulse(&mut self, horizontal: f32, vertical: f32) -> Result<(), String> {
+        if !horizontal.is_finite() || !vertical.is_finite() {
+            return Err("Hair response impulse requires finite horizontal and vertical values.".into());
+        }
+        self.state.vx = (f64::from(self.state.vx) + f64::from(horizontal))
+            .clamp(-f64::from(MAX_VELOCITY), f64::from(MAX_VELOCITY)) as f32;
+        self.state.vz = (f64::from(self.state.vz) + f64::from(vertical))
+            .clamp(-f64::from(MAX_VELOCITY), f64::from(MAX_VELOCITY)) as f32;
+        Ok(())
+    }
+
+    pub(crate) fn advance(
+        &mut self, config: &crate::hair_curves::HairPlaybackConfig,
+        head: Option<[f32; 2]>, dt_seconds: f64,
+    ) -> Result<(), String> {
+        if !dt_seconds.is_finite() || dt_seconds < 0.0 {
+            return Err("Hair response dtSeconds must be finite and nonnegative.".into());
+        }
+        if !config.enabled {
+            *self = Self::default();
+            return Ok(());
+        }
+        if dt_seconds == 0.0 {
+            // Binding may prime at zero delta. Once primed, a zero-delta frame
+            // cannot consume motion that belongs to the next advancing frame.
+            if self.previous_head.is_none() { self.previous_head = head; }
+            return Ok(());
+        }
+        let (yaw_velocity, pitch_velocity) = match (self.previous_head, head) {
+            (Some(previous), Some(current)) if dt_seconds <= RESPONSE_MAX_ELAPSED => {
+                let yaw_delta = (f64::from(current[0]) - f64::from(previous[0])
+                    + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)
+                    - std::f64::consts::PI;
+                let limit = f64::from(f32::MAX);
+                ((yaw_delta / dt_seconds).clamp(-limit, limit),
+                    (f64::from(current[1] - previous[1]) / dt_seconds).clamp(-limit, limit))
+            }
+            _ => (0.0, 0.0),
+        };
+        // A suspended renderer has no observed trajectory through its gap.
+        // Re-prime the head, retain momentum, and settle at most 250 ms; never
+        // turn that unobserved interval into a fresh angular-velocity impulse.
+        self.previous_head = head;
+        if dt_seconds > RESPONSE_MAX_ELAPSED { self.head_drive = [0.0; 2]; }
+        let elapsed = dt_seconds.min(RESPONSE_MAX_ELAPSED);
+        let steps = response_step_count(elapsed);
+        let dt = elapsed / f64::from(steps);
+        let curves = &config.curves;
+        let stiffness = f64::from(curves.stiffness);
+        let damping = f64::from(curves.damping);
+        let pitch = f64::from(head.map_or(0.0, |pose| pose[1])) * f64::from(config.direction.pitch_sign);
+        for _ in 0..steps {
+            self.time += dt;
+            let drive_x = smooth_head_drive(&mut self.head_drive[0], yaw_velocity, dt);
+            let drive_z = smooth_head_drive(&mut self.head_drive[1], pitch_velocity, dt);
+            let inertia_x = -drive_x * f64::from(config.inertia) * f64::from(config.direction.yaw_sign) * 2.0;
+            let inertia_z = -drive_z * f64::from(config.inertia) * f64::from(config.direction.pitch_sign) * 2.0;
+            let idle = (self.time * f64::from(curves.idle_sway_speed) * std::f64::consts::TAU).sin()
+                * f64::from(curves.idle_sway_amount);
+            let wind_phase = self.time * f64::from(curves.wind_frequency) * std::f64::consts::TAU;
+            let wind_wave = wind_phase.sin() + (wind_phase * 1.7).sin() * 0.3
+                + (wind_phase * 3.3).sin() * f64::from(curves.wind_turbulence) * 0.2;
+            let wind = wind_wave * f64::from(curves.wind_strength) * 0.1;
+            response_spring_step(&mut self.state.x, &mut self.state.vx,
+                idle + wind * f64::from(curves.wind_direction_x), inertia_x, stiffness, damping, dt);
+            response_spring_step(&mut self.state.z, &mut self.state.vz,
+                wind * f64::from(curves.wind_direction_z),
+                inertia_z + f64::from(config.gravity) * pitch.sin() * 0.1, stiffness, damping, dt);
+            response_spring_step(&mut self.gravity_pitch, &mut self.gravity_velocity,
+                (pitch * f64::from(config.gravity)).clamp(-1.0, 1.0), 0.0, stiffness, damping, dt);
+        }
+        Ok(())
+    }
+
+    /// Signed sway and smoothed gravity pitch; profile mapping stays in the
+    /// runtime's hair curve module rather than in a renderer adapter.
+    pub(crate) fn offsets(&self) -> [f32; 3] {
+        [self.state.x, self.state.z, self.gravity_pitch]
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct HeadState {
     yaw: f32,
@@ -283,6 +428,242 @@ impl HairPhysicsSolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn continuous_config() -> crate::hair_curves::HairPlaybackConfig {
+        crate::hair_curves::normalize_config(&crate::hair_curves::HairPlaybackConfig::default(), &serde_json::json!({
+            "enabled":true,"inertia":1,"gravity":0,"idleSwayAmount":0,"stiffness":15,"damping":8
+        })).unwrap()
+    }
+
+    #[test]
+    fn continuous_head_retargets_preserve_position_velocity_and_zero_delta_does_not_consume_motion() {
+        let config = continuous_config();
+        let mut response = HairResponse::default();
+        response.advance(&config, Some([0.6, 0.0]), 0.0).unwrap();
+        assert_eq!(response.offsets(), [0.0; 3]); // Initial nonneutral head primes, without a kick.
+        response.advance(&config, Some([0.7, 0.0]), 1.0 / 60.0).unwrap();
+        assert!(response.state.vx < 0.0);
+        let before = response.clone();
+        response.advance(&config, Some([-0.5, 0.0]), 0.0).unwrap();
+        assert_eq!(response, before);
+        response.advance(&config, Some([0.7, 0.0]), 1.0 / 60.0).unwrap();
+        assert!(response.state.x < before.state.x); // Momentum continues after head movement stops.
+        assert!(response.state.vx < 0.0);
+        let moving = response.state.x;
+        response.advance(&config, Some([0.69, 0.0]), 1.0 / 60.0).unwrap();
+        assert!(response.state.x < 0.0);
+        assert!((response.state.x - moving).abs() < 0.02); // A reversal does not replace spring state.
+    }
+
+    #[test]
+    fn continuous_response_wraps_yaw_and_suppresses_unobserved_gap_impulses() {
+        let config = continuous_config();
+        let mut wrapped = HairResponse::default();
+        let mut local = HairResponse::default();
+        wrapped.advance(&config, Some([std::f32::consts::PI - 0.01, 0.0]), 0.0).unwrap();
+        local.advance(&config, Some([0.0, 0.0]), 0.0).unwrap();
+        wrapped.advance(&config, Some([-std::f32::consts::PI + 0.01, 0.0]), 0.02).unwrap();
+        local.advance(&config, Some([0.02, 0.0]), 0.02).unwrap();
+        assert!((wrapped.state.vx - local.state.vx).abs() < 1e-5);
+        assert!(wrapped.state.vx < 0.0);
+        let mut stationary_gap = wrapped.clone();
+        stationary_gap.advance(&config, Some([-std::f32::consts::PI + 0.01, 0.0]), 10.0).unwrap();
+        wrapped.advance(&config, Some([1.0, 0.0]), 10.0).unwrap();
+        assert_eq!(wrapped.state, stationary_gap.state); // Preserve and settle existing momentum only.
+        assert_eq!(wrapped.time, stationary_gap.time);
+        assert!(wrapped.state.to_values().iter().all(|value| value.is_finite()));
+    }
+
+    #[test]
+    fn continuous_response_rejects_bad_time_atomically_and_keeps_extreme_finite_inputs_bounded() {
+        let mut config = continuous_config();
+        let mut response = HairResponse::default();
+        response.advance(&config, Some([0.0, 0.0]), 0.0).unwrap();
+        let before = response.clone();
+        for dt in [-0.01, f64::INFINITY, f64::NAN] {
+            assert!(response.advance(&config, Some([1.0, 1.0]), dt).is_err());
+            assert_eq!(response, before);
+        }
+        config.inertia = f32::MAX;
+        config.gravity = f32::MAX;
+        config.curves.stiffness = f32::MAX;
+        config.curves.damping = f32::MAX;
+        response.advance(&config, Some([1.0, 1.0]), f64::MIN_POSITIVE).unwrap();
+        response.advance(&config, Some([-1.0, -1.0]), 0.1).unwrap();
+        assert!(response.offsets().iter().all(|value| value.is_finite() && f64::from(value.abs()) <= RESPONSE_POSITION_SAFETY_LIMIT));
+        assert!(response.state.to_values().iter().all(|value| value.is_finite()));
+    }
+
+    #[test]
+    fn stationary_pitch_settles_gravity_and_ambient_motion_uses_the_same_response() {
+        let mut config = continuous_config();
+        config.gravity = 1.0;
+        let mut response = HairResponse::default();
+        response.advance(&config, Some([0.0, 0.4]), 0.0).unwrap();
+        for _ in 0..600 { response.advance(&config, Some([0.0, 0.4]), 1.0 / 120.0).unwrap(); }
+        assert!((response.gravity_pitch - 0.4).abs() < 0.001);
+        assert!(response.gravity_velocity.abs() < 0.001);
+        assert!(response.state.vx.abs() < 1e-6);
+        let pitched = response.gravity_pitch;
+        response.advance(&config, Some([0.0, 0.0]), 1.0 / 120.0).unwrap();
+        assert!(response.gravity_pitch < pitched && response.gravity_pitch > 0.3);
+
+        config.gravity = 0.0;
+        config.curves.idle_sway_amount = 0.2;
+        config.curves.idle_sway_speed = 1.0;
+        config.curves.wind_strength = 0.8;
+        config.curves.wind_direction_x = 0.0;
+        config.curves.wind_direction_z = 1.0;
+        let mut ambient = HairResponse::default();
+        for _ in 0..30 { ambient.advance(&config, None, 1.0 / 60.0).unwrap(); }
+        assert!(ambient.state.x.abs() > 0.001);
+        assert!(ambient.state.z.abs() > 0.001);
+        assert_eq!(ambient.previous_head, None);
+    }
+
+    #[test]
+    fn impulse_injection_preserves_phase_head_and_position_and_rejects_invalid_pairs() {
+        let config = continuous_config();
+        let mut response = HairResponse::default();
+        response.advance(&config, Some([0.4, 0.2]), 1.0 / 60.0).unwrap();
+        let before = response.clone();
+        for impulse in [(1.0, f32::NAN), (f32::INFINITY, 0.0)] {
+            assert!(response.add_impulse(impulse.0, impulse.1).is_err());
+            assert_eq!(response, before);
+        }
+        response.add_impulse(0.5, -0.25).unwrap();
+        assert_eq!(response.state.x, before.state.x);
+        assert_eq!(response.state.z, before.state.z);
+        assert_eq!(response.time, before.time);
+        assert_eq!(response.previous_head, before.previous_head);
+        assert_eq!((response.state.vx, response.state.vz), (0.5, -0.25));
+        response.add_impulse(f32::MAX, -f32::MAX).unwrap();
+        assert_eq!((response.state.vx, response.state.vz), (MAX_VELOCITY, -MAX_VELOCITY));
+    }
+
+    #[test]
+    fn continuous_direction_and_spring_tuning_change_response_without_restarting_it() {
+        let mut config = continuous_config();
+        config.gravity = 1.0;
+        let mut reversed_config = config.clone();
+        reversed_config.direction.yaw_sign = -1.0;
+        reversed_config.direction.pitch_sign = -1.0;
+        let mut forward = HairResponse::default();
+        let mut reversed = HairResponse::default();
+        forward.advance(&config, Some([0.0,0.0]), 0.0).unwrap();
+        reversed.advance(&reversed_config, Some([0.0,0.0]), 0.0).unwrap();
+        forward.advance(&config, Some([0.1,0.1]), 0.02).unwrap();
+        reversed.advance(&reversed_config, Some([0.1,0.1]), 0.02).unwrap();
+        for (a, b) in forward.offsets().iter().zip(reversed.offsets()) { assert!((*a + b).abs() < 1e-6); }
+        let mut free = forward.clone();
+        let mut free_config = config.clone();
+        free_config.curves.stiffness = 0.0;
+        free_config.curves.damping = 0.0;
+        for _ in 0..12 {
+            forward.advance(&config, Some([0.1,0.1]), 1.0 / 120.0).unwrap();
+            free.advance(&free_config, Some([0.1,0.1]), 1.0 / 120.0).unwrap();
+        }
+        assert!(forward.state.vx.abs() < free.state.vx.abs());
+
+        let mut wind_config = continuous_config();
+        wind_config.curves.wind_strength = 1.0;
+        wind_config.curves.wind_direction_x = -1.0;
+        wind_config.curves.wind_direction_z = 1.0;
+        let mut steady = HairResponse::default();
+        let mut turbulent = HairResponse::default();
+        let mut turbulent_config = wind_config.clone();
+        turbulent_config.curves.wind_turbulence = 2.0;
+        turbulent_config.curves.wind_frequency = 1.5;
+        for _ in 0..20 {
+            steady.advance(&wind_config, None, 1.0 / 60.0).unwrap();
+            turbulent.advance(&turbulent_config, None, 1.0 / 60.0).unwrap();
+        }
+        assert!(steady.state.x < 0.0 && steady.state.z > 0.0);
+        assert_ne!(steady.state, turbulent.state);
+    }
+
+    #[test]
+    fn head_drive_step_has_time_based_mean_and_small_deltas_never_reverse_force() {
+        let partitions = [vec![1.0 / 30.0; 3], vec![1.0 / 60.0; 6], vec![1.0 / 120.0; 12], vec![0.007,0.021,0.012,0.031,0.029]];
+        let expected_drive = 4.0 * (1.0 - (-0.1 / HEAD_DRIVE_RESPONSE_SECONDS).exp());
+        let expected_impulse = 4.0 * (0.1 - HEAD_DRIVE_RESPONSE_SECONDS * (1.0 - (-0.1 / HEAD_DRIVE_RESPONSE_SECONDS).exp()));
+        for partition in partitions {
+            let mut drive = 0.0;
+            let mut impulse = 0.0;
+            for dt in partition { impulse += smooth_head_drive(&mut drive, 4.0, dt) * dt; }
+            assert!((drive - expected_drive).abs() < 1e-12);
+            assert!((impulse - expected_impulse).abs() < 1e-12);
+        }
+        for dt in [f64::MIN_POSITIVE, 1e-20, 1e-12, 1e-6] {
+            let mut drive = 0.0;
+            let mean = smooth_head_drive(&mut drive, 1.0, dt);
+            assert!(mean > 0.0 && mean <= drive && drive <= 1.0);
+            assert!((mean / (dt / HEAD_DRIVE_RESPONSE_SECONDS) - 0.5).abs() < 1e-4);
+        }
+        let config = continuous_config();
+        let mut response = HairResponse::default();
+        response.advance(&config, Some([0.0,0.0]), 0.0).unwrap();
+        response.advance(&config, Some([0.2,0.0]), 1.0 / 60.0).unwrap();
+        assert!(response.state.vx < 0.0 && response.state.vx.abs() < 0.1);
+        assert!(response.head_drive[0] > 0.0 && response.head_drive[0] < 12.0);
+        // Assess small repeated input separately from the still-decaying force
+        // of the initial large step; its residual is legitimate momentum.
+        for _ in 0..60 { response.advance(&config, Some([0.2,0.0]), 1.0 / 60.0).unwrap(); }
+        for frame in 0..120 {
+            let before = response.state.vx;
+            response.advance(&config, Some([if frame % 2 == 0 { 0.21 } else { 0.19 },0.0]), 1.0 / 60.0).unwrap();
+            assert!((response.state.vx - before).abs() < 0.1);
+        }
+    }
+
+    #[test]
+    fn spring_crosses_former_position_wall_and_reverses_without_a_pinned_interval() {
+        let mut config = continuous_config();
+        config.curves.stiffness = 0.0;
+        config.curves.damping = 0.0;
+        let mut response = HairResponse::default();
+        response.add_impulse(4.0,0.0).unwrap();
+        for _ in 0..60 { response.advance(&config, None, 1.0 / 120.0).unwrap(); }
+        assert!((response.state.x - 2.0).abs() < 1e-5);
+        assert_eq!(response.state.vx, 4.0);
+        let before = response.state.x;
+        let displayed = crate::hair_curves::limit_response_morph(f64::from(before));
+        response.add_impulse(-8.0,0.0).unwrap();
+        response.advance(&config, None, 1.0 / 120.0).unwrap();
+        assert!(response.state.x < before);
+        assert!(crate::hair_curves::limit_response_morph(f64::from(response.state.x)) < displayed);
+    }
+
+    #[test]
+    fn continuous_motion_agrees_across_regular_and_irregular_renderer_deltas() {
+        for ticks in [1_u32,2,4,30] {
+            for noise in [-1e-12,0.0,1e-12] {
+                assert_eq!(response_step_count(RESPONSE_SUBSTEP * (f64::from(ticks) + noise)), ticks);
+            }
+        }
+        fn trajectory(partition: &[f64]) -> HairResponse {
+            let mut config = continuous_config();
+            config.curves.stiffness = 7.5;
+            config.curves.damping = 0.18;
+            config.inertia = 3.5;
+            let mut response = HairResponse::default();
+            response.advance(&config, Some([0.0,0.0]), 0.0).unwrap();
+            let mut time = 0.0_f64;
+            for &dt in partition {
+                time += dt;
+                let yaw = if time <= 0.5 { 0.8 * time } else { 0.4 - 0.8 * (time - 0.5) };
+                response.advance(&config, Some([yaw as f32,0.0]), dt).unwrap();
+            }
+            response
+        }
+        let reference = trajectory(&vec![1.0 / 120.0; 120]);
+        for partition in [vec![1.0 / 30.0;30], vec![1.0 / 60.0;60], [0.011,0.019,0.007,0.013].repeat(20)] {
+            let candidate = trajectory(&partition);
+            assert!((candidate.state.x - reference.state.x).abs() < 0.02);
+            assert!((candidate.state.vx - reference.state.vx).abs() < 0.05);
+            assert!((candidate.head_drive[0] - reference.head_drive[0]).abs() < 1e-5);
+        }
+    }
 
     #[test]
     fn exposes_hair_strides() {

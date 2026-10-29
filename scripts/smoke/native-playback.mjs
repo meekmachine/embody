@@ -158,3 +158,64 @@ try {
 }
 assert.equal(mixer.stats.actions.inUse, 0);
 assert.equal(mixer.stats.actions.total, 0, 'replacement and disposal release owned native actions');
+
+// Post-mix physics shares the renderer clock and cannot prevent another
+// character's sample or native completion when its own input fails.
+{
+  const scene = new Group(), frameTimer = createPlaybackTimer();
+  const entries = [], order = [], observations = [], failures = [];
+  let disposeSibling = false, rejectFirst = false;
+  for (let index = 0; index < 2; index++) {
+    const root = new Group(), object = new Object3D();
+    object.name = 'Moving'; root.add(object); scene.add(root);
+    const nativeMixer = new AnimationMixer(root), update = nativeMixer.update.bind(nativeMixer);
+    nativeMixer.update = delta => { order.push(`mix-${index}`); return update(delta); };
+    const playback = new ThreeNativePlaybackConnector(new wasm.NativePlaybackSession(), {
+      model: root, mixer: nativeMixer, inspection: new ThreeModelInspector().inspectModel(root),
+      onError: error => failures.push(error),
+      afterSample: elapsed => {
+        order.push(`sample-${index}`);
+        observations.push({ index, elapsed, positions: entries.map(entry => entry.object.position.x) });
+        if (index === 0 && disposeSibling) entries[1].playback.dispose();
+        if (index === 0 && rejectFirst) throw new Error('invalid simulated hair input');
+      },
+    });
+    playback.rebind(root.uuid, 'post-mix');
+    playback.subscribe(event => order.push(`${event.type}-${index}`));
+    entries.push({ object, playback, nativeMixer });
+  }
+  const move = new AnimationClip('observed-motion', 1, [new VectorKeyframeTrack('Moving.position', [0, 1], [0, 0, 0, 1, 0, 0])]);
+  try {
+    for (const entry of entries) entry.playback.playNativeClip(move);
+    renderScenePlayback(scene, frameTimer.update(250));
+    assert.deepEqual(order, ['mix-0', 'mix-1', 'sample-0', 'sample-1']);
+    for (const sample of observations) {
+      close(sample.elapsed, 0.25);
+      sample.positions.forEach(value => close(value, 0.25));
+    }
+    order.length = 0; observations.length = 0; rejectFirst = true;
+    renderScenePlayback(scene, frameTimer.update(1100));
+    assert.deepEqual(order, ['mix-0', 'mix-1', 'sample-0', 'sample-1', 'completed-0', 'completed-1']);
+    await Promise.resolve();
+    assert.equal(failures.length, 1);
+    assert.match(failures[0].message, /invalid simulated hair input/);
+    for (const entry of entries) assert.equal(entry.nativeMixer.stats.actions.inUse, 0, 'sample failure does not prevent native release');
+
+    order.length = 0; observations.length = 0; rejectFirst = false;
+    entries[0].playback.setTimeScale(-2);
+    renderScenePlayback(scene, frameTimer.update(1200));
+    close(observations[0].elapsed, 0.2);
+    close(observations[1].elapsed, 0.1);
+
+    order.length = 0; observations.length = 0; disposeSibling = true;
+    renderScenePlayback(scene, frameTimer.update(1300));
+    assert.deepEqual(order, ['mix-0', 'mix-1', 'sample-0'], 'a disposed binding in the frame snapshot cannot call its freed owner');
+    order.length = 0;
+    entries[0].playback.setRendering(false);
+    renderScenePlayback(scene, frameTimer.update(1400));
+    assert.deepEqual(order, [], 'suspended bindings have neither a second clock nor a response callback');
+  } finally {
+    for (const entry of entries) entry.playback.dispose();
+    frameTimer.dispose();
+  }
+}
