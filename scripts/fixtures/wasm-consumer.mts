@@ -13,9 +13,36 @@ import {
 } from '@lovelace_lol/embody/wasm';
 import { Object3D, type WebGLRenderer } from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
+import { inspectActorModel, prepareActorModel, type PreparedActorModel } from '@lovelace_lol/embody/model-tools';
+declare const actorSource: Uint8Array;
+const actorInspection = await inspectActorModel(actorSource);
+const actorBytes: number = actorInspection.byteLength;
+const actorPreparation: PreparedActorModel = await prepareActorModel(actorSource, { kind: 'low-resolution', targetRatio: 0.5 });
+// @ts-expect-error Model preparation uses byte buffers, not network URLs.
+inspectActorModel('https://example.com/model.glb');
+// @ts-expect-error Actor preparation kinds are an explicit public union.
+prepareActorModel(actorSource, { kind: 'guess-clothes' });
 import {
   getAUDescriptors as threeAUDescriptors,
   getAUBoneBindingStates,
+  getAUBoneBindingState,
+  getBoneAxisBindingState,
+  getBilateralAxisBindingState,
+  buildBoneAuOptions,
+  findNodeKeyForBone,
+  ensureBilateralBoneNodeKeys,
+  applyBoneAxisBindingUpdate,
+  applyBilateralAxisBindingUpdate,
+  createBoneAxisAu,
+  createBilateralBoneAxisAu,
+  setAUMorphTargets,
+  getMeshNamesForAUProfile,
+  hasLeftRightMorphs,
+  isMixedAU,
+  resolveContinuumDisplayLabel,
+  resolveHumanoidCharacterization,
+  setHumanoidRoleBinding,
+  validateHumanoidCharacterization,
   type AUBoneBindingState,
   type AUDescriptor as ThreeAUDescriptor,
   bindModelReferencePose,
@@ -24,6 +51,8 @@ import {
   createDefaultCharacterScene,
   createDefaultCharacterSceneAsync,
   createCharacterHost,
+  createRustEmbodyHost,
+  createRustEmbodyHostUnbound,
   type CharacterHost,
   type CharacterHostOptions,
   type DefaultCharacterScene,
@@ -34,6 +63,17 @@ import {
   type CharacterSceneRendererPreference,
   type ThreeModelReferencePose,
   Embody,
+  type Profile,
+  type ProfileInput,
+  type MeshInfo,
+  type MeshCategory,
+  type HairAppearanceState,
+  type HairPhysicsRuntimeConfig,
+  type ThreeResolvedMaterialConfig,
+  type AnimationClipInfo,
+  type BakedClipChannelInfo,
+  type CharacterPlaybackHandle,
+  type CharacterPlaybackEvent,
   ThreeNativePlaybackConnector,
   ThreeAnnotations,
   ThreeAnnotationController,
@@ -75,6 +115,94 @@ controller.focusRegion(123);
 
 const core: EmbodyCore = await initEmbodyCore();
 const character = new Embody({ profileMode: 'profile', profile: {} });
+const contribution: Record<string, number> | null = character.readAUContribution('head-yaw');
+const auState: import('@lovelace_lol/embody').CharacterAUState = character.readAUState();
+const auGoal: import('@lovelace_lol/embody').CharacterAUGoalMeasurement = character.measureAUGoal('head-yaw', { 51: 0, 52: 0.5 });
+const unreadableSources: string[] = auState.unreadable;
+const remainingTravel: number = auGoal.distance;
+// @ts-expect-error Semantic reads require a named slot.
+character.readAUContribution(51);
+// @ts-expect-error AU goal destinations contain numeric values.
+character.measureAUGoal('head-yaw', { 51: 'left' });
+// Native constructors, factories and the scene host expose the same class.
+const initializedCharacter: Embody = await Embody.create({ profileMode: 'profile', profile: {} });
+const unboundCharacter: Embody = createRustEmbodyHostUnbound({ profile: { appMetadata: { owner: 'consumer' } } });
+const boundCharacter: Embody = await createRustEmbodyHost(new Object3D(), { profileMode: 'profile', profile: {} });
+const acceptedProfile: Partial<Profile> = character.getProfile();
+character.setProfile({ ...acceptedProfile, appMetadata: { owner: 'consumer' } });
+declare const namedProfile: Profile;
+character.setProfile(namedProfile);
+const namedProfileInput: ProfileInput = namedProfile;
+createRustEmbodyHostUnbound({ profile: namedProfile });
+character.setProfile({ appMetadata: { owner: 'consumer' } });
+const mappingInput: Omit<Partial<Profile>, 'annotationRegions'> = { boneNodes: { HEAD: 'Head' } };
+const mappedHead: string | undefined = mappingInput.boneNodes?.HEAD;
+// @ts-expect-error Omit must preserve known mapping value types.
+const wrongMapping: Omit<Partial<Profile>, 'annotationRegions'> = { boneNodes: { HEAD: 1 } };
+const bilateral: boolean = hasLeftRightMorphs(acceptedProfile, 12);
+const mixed: boolean = isMixedAU(acceptedProfile, 12);
+const continuumLabel: string = resolveContinuumDisplayLabel(acceptedProfile, 51, 52);
+const sparseCharacterization = resolveHumanoidCharacterization(acceptedProfile);
+const sparseValidation = validateHumanoidCharacterization(new Object3D(), acceptedProfile);
+const roleEditedProfile: Partial<Profile> = setHumanoidRoleBinding({}, 'head', 'Head');
+// @ts-expect-error Rust omits empty tables from a role mutation's result.
+const completeRoleProfile: Profile = setHumanoidRoleBinding({}, 'head', null);
+// Bone/morph editors can chain native sparse reads through the owning helpers.
+const nodeKey: string | null = findNodeKeyForBone('Head', acceptedProfile);
+const boneAUOptions: Array<{ value: string; label: string; detail?: string }> = buildBoneAuOptions(acceptedProfile);
+const auBinding = getAUBoneBindingState(acceptedProfile, 51);
+const axisBinding = getBoneAxisBindingState(acceptedProfile, 'Head', 'yaw');
+const bilateralBinding = getBilateralAxisBindingState(acceptedProfile, 'LeftEye', 'yaw');
+const pairedNodes: Partial<Profile> = ensureBilateralBoneNodeKeys(acceptedProfile, 'LeftEye', 'RightEye');
+const axisCreated = createBoneAxisAu(acceptedProfile, 'Head', 'yaw', 'positive');
+const bilateralCreated = createBilateralBoneAxisAu(pairedNodes, 'LeftEye', 'yaw', 'shared', 'positive');
+const axisUpdated: Partial<Profile> = applyBoneAxisBindingUpdate(axisCreated.profile, 'Head', 'yaw', { positiveAuId: axisCreated.auId });
+const bilateralUpdated: Partial<Profile> = applyBilateralAxisBindingUpdate(bilateralCreated.profile, 'LeftEye', 'yaw', 'shared', { positiveAuId: bilateralCreated.auId });
+const morphEdited = setAUMorphTargets(acceptedProfile, 12, 'center', ['Smile']);
+const editedMorphs: Array<string | number> = morphEdited.auToMorphs[12].center;
+const unmappedMeshes: string[] = getMeshNamesForAUProfile({}, 12);
+const editedMeshNames: string[] = getMeshNamesForAUProfile(morphEdited, 12);
+// @ts-expect-error Mesh routing queries retain numeric AU ids with sparse profiles.
+getMeshNamesForAUProfile(morphEdited, '12');
+// @ts-expect-error Bone authoring results do not invent absent mapping tables.
+const completeAxisProfile: Profile = axisCreated.profile;
+const meshEntries: MeshInfo[] = character.getMeshList();
+const unassignedCategory: MeshCategory = 'other';
+const appearance: HairAppearanceState = character.getHairAppearance();
+const hairConfig: Partial<HairPhysicsRuntimeConfig> = character.getHairPhysicsConfig();
+const stiffness: number | undefined = hairConfig.stiffness;
+character.setHairPhysicsConfig({ stiffness: 7.5, morphTargets: { swayLeft: { key: 'HairLeft', axis: 'yaw' } } });
+character.setHairPhysicsConfig({ morphTargets: { swayLeft: 'HairLeft', headUp: { HairUp: 1 } } });
+character.setHairColor({ baseColor: appearance.hairColor.baseColor });
+const material: ThreeResolvedMaterialConfig | null = character.getMeshMaterialConfig('Hair');
+character.setMeshMaterialConfig('Hair', { opacity: material?.opacity ?? 1, blending: 'Normal' });
+const clipCatalog: AnimationClipInfo[] = character.getAnimationClips();
+const clipChannels: BakedClipChannelInfo[] = clipCatalog[0].channels;
+const nativeHandle: CharacterPlaybackHandle = character.playSnippet('smile', { 12: [{ time: 0, intensity: 0 }, { time: 1, intensity: 0.5 }] });
+const nativeCompletion: Promise<CharacterPlaybackEvent> = nativeHandle.pause().resume().setIntensity(0.5).seek(0.2).finished;
+character.pauseAllAnimations();
+character.resumeAllAnimations();
+character.updateClipParams('smile', { speed: 0.5 });
+// @ts-expect-error Sparse resolved profiles do not acquire missing mappings.
+const completeProfile: Profile = character.getProfile();
+// @ts-expect-error An unbound character's hair config is empty until binding.
+const completeHairConfig: HairPhysicsRuntimeConfig = unboundCharacter.getHairPhysicsConfig();
+// @ts-expect-error Known profile fields retain their canonical shape alongside extensions.
+character.setProfile({ boneNodes: 'Head' });
+// @ts-expect-error Hair tuning uses numeric values.
+character.setHairPhysicsConfig({ stiffness: 'soft' });
+// @ts-expect-error Material results retain numeric opacity.
+const wrongOpacity: string = material!.opacity;
+// @ts-expect-error Clip catalog entries retain channel playability.
+const wrongPlayability: string = clipChannels[0].playable;
+// @ts-expect-error Native characters have no arbitrary operations.
+character.missingCharacterOperation();
+// @ts-expect-error Factories retain that same native member contract.
+unboundCharacter.missingCharacterOperation();
+void [initializedCharacter, boundCharacter, namedProfileInput, mappedHead, bilateral, mixed, continuumLabel,
+  sparseCharacterization, sparseValidation, roleEditedProfile, nodeKey, boneAUOptions, auBinding, axisBinding,
+  bilateralBinding, axisUpdated, bilateralUpdated, editedMorphs, unmappedMeshes, editedMeshNames,
+  meshEntries, unassignedCategory, stiffness, nativeCompletion];
 const rootAUs: RootAUDescriptor[] = rootAUDescriptors({});
 const wasmAUs: WasmAUDescriptor[] = wasmAUDescriptors({}, { bones: [] });
 const threeAUs: ThreeAUDescriptor[] = threeAUDescriptors({});
@@ -112,7 +240,11 @@ const jawScale: number = runtime.get_viseme_jaw_scale(0);
 const frame: Float32Array = runtime.evaluate_active_morph_frame();
 const clip: string = runtime.build_clip('smile', '{}', '{}');
 const live: string = runtime.build_live_clip('live', 0.2);
-const release: string = runtime.build_live_release_clip('release', live, 0.2);
+runtime.record_semantic_slot('smile', '{}', 1, 'linear', Number.NaN, 1);
+const slot: string = runtime.read_semantic_slot('smile', 0, 1);
+const state: string = runtime.read_semantic_state('[]');
+const goal: string = runtime.measure_au_goal('smile', 0, 1, '{}', false);
+const released: boolean = runtime.release_semantic_slot('smile');
 const removed: boolean = runtime.remove_animation_clip('smile');
 runtime.free();
 
@@ -222,8 +354,14 @@ const pendingHost: Promise<CharacterHost> = createCharacterHost({
   },
 });
 const loadedHost = await pendingHost;
+const canonicalHostEngine: Embody = loadedHost.engine;
+const hostEngineType: CharacterHost['engine'] = character;
+const hostProfile: Partial<Profile> = loadedHost.engine.getProfile();
+const hostClips: AnimationClipInfo[] = loadedHost.engine.getAnimationClips();
+// @ts-expect-error The host engine is the native API, not an arbitrary method bag.
+loadedHost.engine.missingCharacterOperation();
 const hostAnnotations: ThreeAnnotationController | null = loadedHost.cameraController;
-void [legacyPositiveAU, hostAnnotations];
+void [legacyPositiveAU, hostAnnotations, canonicalHostEngine, hostEngineType, hostProfile, hostClips];
 const sceneOptions: DefaultCharacterSceneAsyncOptions = {
   type: 'studio', renderer: 'webgpu', signal: new AbortController().signal, lighting: { envMapEnabled: true },
   onDeviceLost: (error: Error) => { console.error(error.message); },

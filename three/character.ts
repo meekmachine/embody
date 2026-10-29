@@ -2,7 +2,7 @@ import {
   AdditiveAnimationBlendMode, AnimationClip, AnimationUtils, LoopOnce, LoopPingPong,
   NormalAnimationBlendMode, PropertyBinding, Quaternion, Euler, InterpolateDiscrete, InterpolateLinear,
 } from 'three';
-import type { KeyframeTrack, Mesh, Object3D } from 'three';
+import type { AnimationAction, KeyframeTrack, Mesh, Object3D } from 'three';
 import type { AUDescriptor } from '@lovelace_lol/embody/wasm';
 import { initEmbodyCore, requireInitializedEmbodyCore, DEFAULT_HAIR_COLOR_APPEARANCE } from '@lovelace_lol/embody/wasm';
 import type { RuntimeCore } from '@lovelace_lol/embody/wasm';
@@ -18,6 +18,11 @@ import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './referenc
 import { ThreeNativePlaybackConnector } from './nativePlayback';
 import { withComponentTracks } from './clipBindings';
 import type { ThreeNativePlaybackControl, ThreeNativePlaybackEvent, ThreeNativePlaybackOptions } from './nativePlayback';
+import type {
+  AnimationClipInfo, HairAppearanceState, HairColorAppearance,
+  HairPhysicsRuntimeConfig, HairPhysicsRuntimeConfigUpdate, MeshCategory,
+  MeshInfo, Profile, ProfileInput, ThreeResolvedMaterialConfig,
+} from './authoringTypes';
 
 type JsonObject = Record<string, any>;
 type NativeTrack = KeyframeTrack & { createInterpolant: ((result?: Float32Array) => { evaluate(time: number): ArrayLike<number> }) & { isInterpolantFactoryMethodGLTFCubicSpline?: boolean } };
@@ -25,11 +30,19 @@ export type RustEmbodyHostConfig = {
   profileMode?: 'preset' | 'profile';
   presetId?: string;
   presetType?: string;
-  profile?: JsonObject;
+  profile?: ProfileInput;
   meshes?: Mesh[];
   referencePose?: ThreeModelReferencePose;
 };
 export type CharacterPlaybackOptions = JsonObject;
+/** Semantic AU values keyed by numeric AU id. */
+export type CharacterAUState = {
+  live: Record<string, number>;
+  animated: Record<string, number>;
+  total: Record<string, number>;
+  unreadable: string[];
+};
+export type CharacterAUGoalMeasurement = { distance: number; reversal: boolean; current: Record<string, number> };
 export type CharacterPlaybackEvent = ThreeNativePlaybackEvent & { actionId: string; clipName: string };
 export interface CharacterPlaybackHandle {
   readonly name: string;
@@ -81,6 +94,20 @@ const intensity = (options: CharacterPlaybackOptions, fallback = 1): number => {
   const value = options.intensityScale ?? options.intensity ?? options.weight;
   return finite(value) ? Math.max(0, Math.min(2, value)) : fallback;
 };
+/** An outgoing action's effective weight relative to the incoming action's. */
+const weightRatio = (outgoing: AnimationAction, options: CharacterPlaybackOptions): number =>
+  outgoing.getEffectiveWeight() / (finite(options.mixerWeight) && options.mixerWeight > 0 ? options.mixerWeight : 1);
+/**
+ * A partially weighted sample's contribution, expressed at the incoming
+ * action's weight: the outgoing value moved toward `neutral` by `ratio`.
+ * A fading action contributes value x weight, so inheriting the raw track
+ * value would jump back up to the unfaded pose.
+ */
+const weighted = (sample: number[], neutral: number[] | undefined, ratio: number, quaternion: boolean): number[] => {
+  if (ratio === 1) return sample;
+  if (quaternion) return new Quaternion().fromArray(neutral ?? [0, 0, 0, 1]).slerp(new Quaternion().fromArray(sample), ratio).toArray();
+  return sample.map((value, axis) => (neutral?.[axis] ?? 0) + (value - (neutral?.[axis] ?? 0)) * ratio);
+};
 const presetId = (value?: string): string => value?.trim().toLowerCase() || 'cc4';
 
 export function supportsRustEmbodyPreset(value?: string): boolean {
@@ -111,6 +138,7 @@ export class Embody {
   private readonly current = new Map<string, Playback>();
   private playDepth = 0;
   private readonly pendingEvents: ThreeNativePlaybackEvent[] = [];
+  private readonly pendingReleases: Playback[] = [];
   private bindingGeneration = 0;
   private disposed = false;
   private rendering = true;
@@ -119,7 +147,7 @@ export class Embody {
   private readonly liveTargets = new Map<string, { track: ClipIRTrack; handle: CharacterPlaybackHandle; releasing: boolean }>();
   private readonly hairObjects = new Map<string, Mesh>();
   private hairConfig: JsonObject = {};
-  private hairAppearance: JsonObject = {
+  private hairAppearance: HairAppearanceState = {
     hairColor: copy(DEFAULT_HAIR_COLOR_APPEARANCE),
     eyebrowColor: copy(DEFAULT_HAIR_COLOR_APPEARANCE),
     showOutline: false, outlineColor: '#000000', outlineOpacity: 1,
@@ -227,7 +255,11 @@ export class Embody {
         },
         onRelease: (id) => {
           const playback = this.playbacks.get(id);
-          if (playback?.terminal) this.forget(playback);
+          if (!playback?.terminal) return;
+          // A held predecessor is released synchronously during replacement.
+          // Its semantic record must survive until the new slot inherits it.
+          if (this.playDepth) this.pendingReleases.push(playback);
+          else this.forget(playback);
         },
       });
     }
@@ -256,7 +288,7 @@ export class Embody {
     this.bind(model, reference, inspection, this.profileSource, this.profile);
     return reference;
   }
-  setProfile(value: JsonObject): void {
+  setProfile(value: ProfileInput): void {
     this.assertAlive();
     const source = this.validateProfile(value);
     const profile = this.resolveProfile(source);
@@ -266,7 +298,7 @@ export class Embody {
     const inspection = this.inspector.inspectModel(this.boundModel, { profile, referencePose: reference });
     this.bind(this.boundModel, reference, inspection, source, profile, false);
   }
-  getProfile(): JsonObject { return this.profile; }
+  getProfile(): Partial<Profile> { return this.profile; }
   getProfileMode(): 'preset' | 'profile' { return this.profileMode; }
   getPresetId(): string | null { return this.profileMode === 'preset' ? this.preset : null; }
   supportsPreset(value?: string): boolean { return supportsRustEmbodyPreset(value); }
@@ -276,11 +308,15 @@ export class Embody {
     const playback = this.playbacks.get(event.handle);
     if (!playback) return;
     playback.terminal = true;
-    if (!playback.connector.getAction(playback.id)) {
-      this.playbacks.delete(playback.id);
-      if (this.current.get(playback.source.name) === playback) this.current.delete(playback.source.name);
-    }
+    if (!playback.connector.getAction(playback.id)) this.forget(playback);
     playback.notify({ ...event, actionId: event.handle, clipName: playback.source.name });
+  }
+  private flushPendingPlaybackEvents(): void {
+    while (!this.playDepth && this.pendingReleases.length) {
+      const playback = this.pendingReleases.shift()!;
+      if (this.playbacks.get(playback.id) === playback) this.forget(playback);
+    }
+    while (!this.playDepth && this.pendingEvents.length) this.onPlaybackEvent(this.pendingEvents.shift()!);
   }
   private compile(source: Source, options: CharacterPlaybackOptions): ClipIR {
     const buildOptions = { ...('options' in source ? source.options : {}), ...options, intensityScale: intensity(options) };
@@ -349,7 +385,14 @@ export class Embody {
           const candidates = outgoing?.getClip().tracks;
           const oldTrack = candidates?.[index]?.name === track.name ? candidates[index] : candidates?.find((candidate) => candidate.name === track.name);
           if (oldTrack && outgoing) {
-            previous = Array.from((oldTrack as NativeTrack).createInterpolant().evaluate(outgoing.time));
+            const sample = Array.from((oldTrack as NativeTrack).createInterpolant().evaluate(outgoing.time));
+            const quaternion = track.ValueTypeName === 'quaternion';
+            const ratio = weightRatio(outgoing, options);
+            // Additive samples are offsets from neutral; normal samples are
+            // absolute and fade toward the captured reference.
+            previous = outgoing.blendMode === AdditiveAnimationBlendMode
+              ? weighted(sample, undefined, ratio, quaternion)
+              : weighted(sample, rest, ratio, quaternion);
             if (outgoing.blendMode === AdditiveAnimationBlendMode && rest) {
               previous = track.ValueTypeName === 'quaternion'
                 ? new Quaternion().fromArray(rest).multiply(new Quaternion().fromArray(previous)).toArray()
@@ -510,6 +553,11 @@ export class Embody {
       const clip = this.materialize(source, options, inheritedStarts);
       const hairMotion = this.authoredHeadMotion(clip);
       const previous = this.current.get(source.name);
+      const outgoing = previous ? connector.getAction(previous.id) : undefined;
+      // Native replacement stops the outgoing action and resets its time.
+      // Preserve its semantic sample before admitting the replacement.
+      const predecessorTime = outgoing ? outgoing.time : Number.NaN;
+      const predecessorWeightRatio = outgoing ? weightRatio(outgoing, options) : 1;
       const settings = this.nativeOptions(options, clip);
       if (previous && connector.getAction(previous.id)) settings.replace = previous.id;
       if (current) newPromise();
@@ -520,7 +568,20 @@ export class Embody {
       try { id = connector.playNativeClip(clip, settings); }
       catch (error) {
         this.playDepth -= 1;
-        while (!this.playDepth && this.pendingEvents.length) this.onPlaybackEvent(this.pendingEvents.shift()!);
+        this.flushPendingPlaybackEvents();
+        throw error;
+      }
+      try {
+        // Record before the replaced action's deferred events can forget its
+        // slot: the predecessor's semantic keys resolve this slot's start.
+        if (source.kind === 'curves') {
+          this.core.record_semantic_slot(source.name, json(source.input), intensity(options), options.easing ?? 'linear',
+            predecessorTime, predecessorWeightRatio);
+        } else this.core.release_semantic_slot(source.name);
+      } catch (error) {
+        connector.control(id, { type: 'stop' });
+        this.playDepth -= 1;
+        this.flushPendingPlaybackEvents();
         throw error;
       }
       const playback: Playback = {
@@ -554,7 +615,9 @@ export class Embody {
         if (this.connector !== connector || !connector.getAction(id)) return result;
         ensure();
         const seconds = finite(playback.options.fadeOutSec) ? playback.options.fadeOutSec : 0;
-        if (seconds > 0 && !playback.terminal) connector.fadeOut(id, seconds);
+        // A held, completed action still contributes its final pose; fading
+        // it is the native way to release that pose without a jump.
+        if (seconds > 0) connector.fadeOut(id, seconds);
         else control({ type: 'stop' });
         return result;
       };
@@ -580,7 +643,7 @@ export class Embody {
         if (finite(fade) && fade > 0) connector.fadeIn(id, fade);
       } finally {
         this.playDepth -= 1;
-        while (!this.playDepth && this.pendingEvents.length) this.onPlaybackEvent(this.pendingEvents.shift()!);
+        this.flushPendingPlaybackEvents();
       }
       if (hairMotion && connector.getAction(id)) {
         this.playHairImpulse(hairMotion.horizontal, hairMotion.vertical);
@@ -619,7 +682,10 @@ export class Embody {
 
   private forget(playback: Playback): void {
     this.playbacks.delete(playback.id);
-    if (this.current.get(playback.source.name) === playback) this.current.delete(playback.source.name);
+    if (this.current.get(playback.source.name) === playback) {
+      this.current.delete(playback.source.name);
+      this.core.release_semantic_slot(playback.source.name);
+    }
   }
   private updatePlayback(playback: Playback, patch: CharacterPlaybackOptions): void {
     this.validateEasing(patch);
@@ -635,6 +701,7 @@ export class Embody {
     if (['weight', 'intensity', 'intensityScale', 'blendMode', 'easing', 'balance', 'balanceMap', 'mixWeights'].some((key) => key in patch)) {
       const clip = this.materialize(playback.source, options, playback.inheritedStarts);
       connector.replaceClip(playback.id, clip);
+      if (playback.source.kind === 'curves') this.core.restyle_semantic_slot(playback.source.name, intensity(options), options.easing ?? 'linear');
       if ('blendMode' in patch) connector.control(playback.id, { type: 'setBlendMode', blendMode: clip.blendMode === AdditiveAnimationBlendMode ? 'additive' : 'normal' });
     }
     if ('mixerWeight' in patch) connector.control(playback.id, { type: 'setWeight', weight: patch.mixerWeight });
@@ -684,7 +751,7 @@ export class Embody {
     this.sources.delete(name);
     return this.core.remove_animation_clip(name);
   }
-  getAnimationClips(): any[] { return parse(this.core.get_animation_clips()); }
+  getAnimationClips(): AnimationClipInfo[] { return parse(this.core.get_animation_clips()); }
   playAnimation(name: string, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
     const source = this.sources.get(name);
     if (!source) throw new Error(`Unknown animation clip: ${name}`);
@@ -810,7 +877,10 @@ export class Embody {
       const outgoing = previous?.handle.actionId && connector.getAction(previous.handle.actionId);
       let nativeTrack = track;
       if (duration > 0 && outgoing) {
-        const start = Array.from((outgoing.getClip().tracks[0] as NativeTrack).createInterpolant().evaluate(outgoing.time));
+        const outgoingTrack = outgoing.getClip().tracks[0] as NativeTrack;
+        // Continue from this target's own (possibly fading) contribution.
+        const start = weighted(Array.from(outgoingTrack.createInterpolant().evaluate(outgoing.time)),
+          this.restValues(outgoingTrack), outgoing.getEffectiveWeight(), outgoingTrack.ValueTypeName === 'quaternion');
         nativeTrack = { ...track, values: [...start, ...endpoint(track)], inheritStart: false };
       }
       const targetClip = { ...clip, name, tracks: [nativeTrack] };
@@ -847,6 +917,45 @@ export class Embody {
   getAUDescriptors(): AUDescriptor[] { return parse(this.core.get_au_descriptors_json()); }
   setContinuum(negative: number, positive: number, value: number, balance = NaN): void { this.mutateLive(() => this.core.set_continuum(negative, positive, value, balance)); }
   getContinuum(negative: number, positive: number): number { return this.core.get_continuum(negative, positive); }
+  /**
+   * One clip slot's own semantic AU contribution right now (`{auId: value}`),
+   * evaluated in Rust at the native action's time and effective weight.
+   * Null when the slot is not playing or was not an AU-curve clip.
+   */
+  readAUContribution(name: string): Record<string, number> | null {
+    const playback = this.current.get(name);
+    const action = playback?.connector.getAction(playback.id);
+    return playback && action ? parse(this.core.read_semantic_slot(name, action.time, action.getEffectiveWeight())) : null;
+  }
+  /**
+   * On-demand AU state: live control values, active AU-curve clip
+   * contributions and their sum. Baked/native and typed clips cannot be
+   * inverted to AU values and are listed as `unreadable`, never estimated.
+   */
+  readAUState(): CharacterAUState {
+    const active: Array<{ name: string; time: number; weight: number }> = [];
+    const unreadable: string[] = [];
+    for (const [name, playback] of this.current) {
+      const action = playback.connector.getAction(playback.id);
+      if (!action) continue;
+      if (playback.source.kind === 'curves') active.push({ name, time: action.time, weight: action.getEffectiveWeight() });
+      // Compiled sources are Embody's own live-control and hair tracks.
+      else if (playback.source.kind !== 'compiled') unreadable.push(name);
+    }
+    return { ...parse<Omit<CharacterAUState, 'unreadable'>>(this.core.read_semantic_state(json(active))), unreadable };
+  }
+  /**
+   * Distance from a slot's current contribution to AU destinations, measured
+   * along profile continuum pairs, and whether it reverses unfinished travel.
+   * A slot that is not playing is at zero. Callers choose any timing policy.
+   */
+  measureAUGoal(name: string, destinations: Record<string, number>): CharacterAUGoalMeasurement {
+    const playback = this.current.get(name);
+    const action = playback?.connector.getAction(playback.id);
+    const unfinished = !!playback && !!action && !playback.terminal && action.time < action.getClip().duration;
+    return parse(this.core.measure_au_goal(name, action?.time ?? Number.NaN, action?.getEffectiveWeight() ?? Number.NaN,
+      json(destinations), unfinished));
+  }
   transitionAU(id: number, value: number, durationMs = 200, balance = this.core.get_au_balance(id)): CharacterTransitionHandle { return this.transition(this.mutateLive(() => this.core.set_au_signed(id, value, balance), durationMs)); }
   setViseme(index: number, value: number, jawScale = 1): void { this.mutateLive(() => { this.core.set_viseme(index, value); this.core.set_viseme_jaw_scale(index, jawScale); }); }
   getViseme(index: number): number { return this.core.get_viseme(index); }
@@ -871,8 +980,8 @@ export class Embody {
   getMorphTargetIndices(): Record<string, { name: string; index: number }[]> { return Object.fromEntries(this.meshes.map((mesh) => [mesh.name, Object.entries(mesh.morphTargetDictionary ?? {}).map(([name, index]) => ({ name, index })).sort((a, b) => a.index - b.index)])); }
   addMorphTarget(target: Parameters<ThreeFrameApplier['addMorphTarget']>[1], options?: Parameters<ThreeFrameApplier['addMorphTarget']>[2]): number { const index = this.applier.addMorphTarget(this.requireModel(), target, options); this.bindModel(); return index; }
   addMorphTargets(targets: Parameters<ThreeFrameApplier['addMorphTargets']>[1], options?: Parameters<ThreeFrameApplier['addMorphTargets']>[2]): Record<string, number> { const result = this.applier.addMorphTargets(this.requireModel(), targets, options); this.bindModel(); return result; }
-  private meshCategory(mesh: Object3D): string { return this.profile.meshes?.[mesh.name]?.category ?? 'other'; }
-  getMeshList(): JsonObject[] { return (this.inspection?.allMeshes ?? []).map((mesh) => ({ name: mesh.name, visible: mesh.visible, morphCount: mesh.morphTargetInfluences?.length ?? 0, category: this.meshCategory(mesh) })); }
+  private meshCategory(mesh: Object3D): MeshCategory { return this.profile.meshes?.[mesh.name]?.category ?? 'other'; }
+  getMeshList(): MeshInfo[] { return (this.inspection?.allMeshes ?? []).map((mesh) => ({ name: mesh.name, visible: mesh.visible, morphCount: mesh.morphTargetInfluences?.length ?? 0, category: this.meshCategory(mesh) })); }
   getBones(): ThreeModelInspection['bones'] { return this.bones; }
   private meshProfile(name: string): JsonObject { return (this.profile.meshes ??= {})[name] ??= { category: 'other' }; }
   setMeshVisible(name: string, visible: boolean): void { this.applier.setMeshVisible(this.requireModel(), name, visible); this.meshProfile(name).visible = visible; }
@@ -881,13 +990,13 @@ export class Embody {
     this.core.request_mesh_highlight(name ?? undefined, color, value);
     this.applier.applyMeshHighlightFrame(parse(this.core.evaluate_mesh_highlight_frame()));
   }
-  getMeshMaterialConfig(name: string): Record<string, unknown> | null { return this.applier.getMeshMaterialConfig(this.requireModel(), name); }
+  getMeshMaterialConfig(name: string): ThreeResolvedMaterialConfig | null { return this.applier.getMeshMaterialConfig(this.requireModel(), name); }
   setMeshMaterialConfig(name: string, value: Parameters<ThreeFrameApplier['setMeshMaterialConfig']>[2]): void { this.applier.setMeshMaterialConfig(this.requireModel(), name, value); const entry = this.meshProfile(name); entry.material = { ...entry.material, ...value }; }
 
   registerHairObjects(objects: Object3D[]): { name: string; isMesh: boolean; isEyebrow: boolean }[] {
     this.hairObjects.clear();
     for (const object of objects) if ((object as Mesh).isMesh) this.hairObjects.set(object.name, object as Mesh);
-    for (const category of ['hair', 'eyebrow']) {
+    for (const category of ['hair', 'eyebrow'] as const) {
       const mesh = [...this.hairObjects.values()].find((object) => this.meshCategory(object) === category);
       const material: any = mesh && (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material);
       if (material) this.hairAppearance[`${category}Color`] = { ...this.hairAppearance[`${category}Color`], baseColor: material.color ? `#${material.color.getHexString()}` : '#000000', emissive: material.emissive ? `#${material.emissive.getHexString()}` : '#000000', emissiveIntensity: material.emissiveIntensity ?? 0 };
@@ -897,15 +1006,15 @@ export class Embody {
   }
   getRegisteredHairObjects(): Object3D[] { return [...this.hairObjects.values()]; }
   getHairMorphTargets(name?: string): string[] { const meshes = name ? [this.hairObjects.get(name)] : [...this.hairObjects.values()]; return [...new Set(meshes.flatMap((mesh) => Object.keys(mesh?.morphTargetDictionary ?? {})))].sort(); }
-  getHairAppearance(): JsonObject { return copy(this.hairAppearance); }
-  private setHairAppearance(category: 'hair' | 'eyebrow', value: string | JsonObject): void {
-    const key = `${category}Color`;
+  getHairAppearance(): HairAppearanceState { return copy(this.hairAppearance); }
+  private setHairAppearance(category: 'hair' | 'eyebrow', value: string | Partial<HairColorAppearance>): void {
+    const key = `${category}Color` as const;
     const next = parse(this.wasm.normalize_hair_color_appearance_json(json(value), json(this.hairAppearance[key])));
     this.hairAppearance[key] = next;
     this.applier.applyHairAppearance([...this.hairObjects.values()].filter((mesh) => this.meshCategory(mesh) === category), next);
   }
-  setHairColor(value: string | JsonObject): void { this.setHairAppearance('hair', value); }
-  setEyebrowColor(value: string | JsonObject): void { this.setHairAppearance('eyebrow', value); }
+  setHairColor(value: string | Partial<HairColorAppearance>): void { this.setHairAppearance('hair', value); }
+  setEyebrowColor(value: string | Partial<HairColorAppearance>): void { this.setHairAppearance('eyebrow', value); }
   setHairBaseColor(value: string): void { this.setHairColor({ baseColor: value }); }
   setEyebrowBaseColor(value: string): void { this.setEyebrowColor({ baseColor: value }); }
   setHairGlow(color: string, value: number): void { this.setHairColor({ emissive: color, emissiveIntensity: value }); }
@@ -921,8 +1030,8 @@ export class Embody {
   }
   setHairPhysicsEnabled(value: boolean): void { this.setHairPhysicsConfig({ enabled: value }); }
   isHairPhysicsEnabled(): boolean { return !!this.hairConfig.enabled; }
-  setHairPhysicsConfig(value: JsonObject): void { this.hairConfig = parse(this.core.set_hair_config_json(json(value))); this.restartHair(); }
-  getHairPhysicsConfig(): JsonObject { return copy(this.hairConfig); }
+  setHairPhysicsConfig(value: HairPhysicsRuntimeConfigUpdate): void { this.hairConfig = parse(this.core.set_hair_config_json(json(value))); this.restartHair(); }
+  getHairPhysicsConfig(): Partial<HairPhysicsRuntimeConfig> { return copy(this.hairConfig); }
   validateHairMorphTargets(): string[] {
     return parse(this.core.get_missing_hair_morph_targets_json(json(this.getHairMorphTargets())));
   }
