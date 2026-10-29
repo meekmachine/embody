@@ -244,6 +244,17 @@ not implement. It also does not implement IK, foot locking, root-motion
 extraction or collision correction. Required roles must exist even for a
 single-bone clip.
 
+The native `Embody` character provides the same conversion and inspection entry
+points plus `registerVrmAnimation(name, bytes, { metersPerUnit })`. These operations
+require a bound character. Registration uses its captured model reference and
+resolved profile; caller-supplied model/profile/reference fields cannot override
+that context. It registers the native clip without starting or stopping playback.
+Polymer forwards this API and sends later playback through Animation.
+`releaseVrmAnimation(name)` removes only the accepted native clip on the original
+model. Native replacement, model replacement and disposal make old cleanup inert;
+a failed conversion/registration leaves the prior accepted source owned. Editors
+stop playback through Animation before releasing their registered source.
+
 Rust test source covers basis conversion, unit/height scaling, binary round trips
 and invalid inputs. Three test source covers GLTFLoader intake, host mixer
 sampling, profile resolution, reference reuse and FBX temporary-resource

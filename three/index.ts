@@ -25,6 +25,7 @@ export { renderScenePlayback, createScenePlaybackFrame } from './playbackRenderi
 import { bindModelReferencePose } from './reference-pose';
 import { concreteTrackName, withComponentTracks } from './clipBindings';
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
+import type { BlendingMode, MeshMaterialSettings, ThreeResolvedMaterialConfig } from './authoringTypes';
 
 export { captureModelReferencePose, bindModelReferencePose, extendModelReferencePose } from './reference-pose';
 export type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
@@ -540,14 +541,7 @@ export function serializeAnimationClips(
   });
 }
 
-type MaterialConfig = {
-  renderOrder?: number;
-  transparent?: boolean;
-  opacity?: number;
-  depthWrite?: boolean;
-  depthTest?: boolean;
-  blending?: keyof typeof THREE_BLENDING_MODES;
-};
+type MaterialConfig = MeshMaterialSettings;
 
 const materials = (value: Material | Material[] | undefined): Material[] =>
   value ? (Array.isArray(value) ? value : [value]) : [];
@@ -618,12 +612,12 @@ export class ThreeFrameApplier {
     });
   }
 
-  getMeshMaterialConfig(root: Object3D, name: string) {
-    let result: Record<string, unknown> | null = null;
+  getMeshMaterialConfig(root: Object3D, name: string): ThreeResolvedMaterialConfig | null {
+    let result: ThreeResolvedMaterialConfig | null = null;
     this.visitMesh(root, name, (mesh) => {
       const material: any = materials((mesh as any).material)[0];
       if (!material) return;
-      const blending = Object.entries(THREE_BLENDING_MODES).find(([, value]) => value === material.blending)?.[0] ?? 'Normal';
+      const blending = (Object.keys(THREE_BLENDING_MODES) as BlendingMode[]).find(key => THREE_BLENDING_MODES[key] === material.blending) ?? 'Normal';
       result = { renderOrder: mesh.renderOrder, transparent: material.transparent, opacity: material.opacity, depthWrite: material.depthWrite, depthTest: material.depthTest, blending };
     });
     return result;

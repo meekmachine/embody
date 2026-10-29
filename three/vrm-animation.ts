@@ -20,6 +20,10 @@ type AnimationTrack = { node: string; path: 'rotation' | 'translation' | 'scale'
 export type VrmAnimationDocument = {
   version: 1; name: string; durationSeconds: number; rig: Rig; tracks: AnimationTrack[];
 };
+/** Metres represented by one model coordinate unit; always supplied by the caller. */
+export type VrmAnimationUnits = { metersPerUnit: number };
+export type VrmAnimationFile = { name: string; bytes: Uint8Array };
+export type VrmAnimationInfo = { name: string; durationSeconds: number; trackCount: number };
 export type MixamoVrmAnimationOptions = {
   /** Mixamo FBX generally uses centimeters (0.01); this is explicit, never inferred. */
   metersPerUnit: number;
@@ -187,7 +191,7 @@ export function createAnimationClipFromVrmAnimation(bytes: Uint8Array, target: O
 }
 
 /** Browser FBX boundary: textures are never fetched; temporary parser objects are released. */
-export function convertMixamoFbxToVrmAnimations(bytes: ArrayBuffer, options: { metersPerUnit: number }): Array<{ name: string; bytes: Uint8Array }> {
+export function convertMixamoFbxToVrmAnimations(bytes: ArrayBuffer, options: VrmAnimationUnits): VrmAnimationFile[] {
   requireInitializedEmbodyCore();
   if (!bytes.byteLength || bytes.byteLength > MAX_BYTES) throw new Error('FBX must be between 1 byte and 64 MiB');
   const textures = new Set<Texture>();

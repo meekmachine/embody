@@ -6,6 +6,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { expect, it, vi } from 'vitest';
 import { captureModelReferencePose } from '../reference-pose';
+import { Embody } from '../character';
+import type { ProfileInput } from '../authoringTypes';
 import {
   convertMixamoToVrmAnimation, convertMixamoFbxToVrmAnimations,
   createAnimationClipFromVrmAnimation, inspectVrmAnimation,
@@ -131,4 +133,84 @@ it('file conversion owns temporary FBX resources on both success and conversion 
     expect(() => convertMixamoFbxToVrmAnimations(new ArrayBuffer(8), { metersPerUnit: 0.01 })).toThrow(/uniquely/);
     expect(disposeGeometry).toHaveBeenCalledTimes(2); expect(disposeMaterial).toHaveBeenCalledTimes(2);
   } finally { parse.mockRestore(); }
+});
+
+
+function characterFixture() {
+  const target = fixture();
+  const profile: ProfileInput = { boneNodes: target.humanoidBones, humanoidCharacterization: {
+    schemaVersion: 1, standard: 'VRMC_vrm-1.0', status: 'characterized',
+    roles: Object.fromEntries(Object.keys(target.humanoidBones).map((role) => [role, { nodeKey: role }])),
+  } };
+  const character = new Embody({ profileMode: 'profile', profile });
+  const referencePose = captureModelReferencePose(target.model);
+  character.onReady({ model: target.model, referencePose });
+  const bytes = convertMixamoToVrmAnimation(target.model, target.clip, { metersPerUnit: 0.01, referencePose });
+  return { ...target, character, bytes, profile, referencePose };
+}
+
+it('registers VRMA with the captured character reference without playing or trusting caller reference fields', () => {
+  const { character, model, bones, bytes, profile, referencePose } = characterFixture();
+  try {
+    bones.leftUpperArm.rotation.z = -0.7;
+    const before = bones.leftUpperArm.quaternion.clone();
+    const options = { metersPerUnit: 0.01, referencePose: {}, profile: {}, model: new Group() };
+    expect(character.supportsVrmAnimation()).toBe(true);
+    expect(character.getVrmAnimationInfo(bytes)).toEqual({ name: 'Raised arm', durationSeconds: 1, trackCount: 2 });
+    const registration = vi.spyOn(character, 'registerAnimationClips');
+    character.registerVrmAnimation('preview', bytes, options);
+    const expected = createAnimationClipFromVrmAnimation(bytes, model, { name: 'preview', metersPerUnit: 0.01, profile, referencePose });
+    expect(registration.mock.calls[0][0][0].tracks.map(track => Array.from(track.values))).toEqual(expected.tracks.map(track => Array.from(track.values)));
+    registration.mockRestore();
+    expect(character.model).toBe(model);
+    expect(bones.leftUpperArm.quaternion.equals(before)).toBe(true);
+    expect(character.getAnimationClips().map(clip => clip.name)).toContain('preview');
+    expect(character.getAnimationState('preview').playing).toBe(false);
+    character.releaseVrmAnimation('preview');
+    character.releaseVrmAnimation('preview');
+    expect(character.getAnimationClips().some(clip => clip.name === 'preview')).toBe(false);
+  } finally { character.dispose(); }
+});
+
+it('keeps accepted VRMA ownership when conversion or native registration fails', () => {
+  const { character, bytes } = characterFixture();
+  try {
+    character.registerVrmAnimation('preview', bytes, { metersPerUnit: 0.01 });
+    expect(() => character.registerVrmAnimation('preview', new Uint8Array(0), { metersPerUnit: 0.01 })).toThrow();
+    const reject = vi.spyOn(character, 'registerAnimationClips').mockImplementationOnce(() => { throw new Error('Clip rejected'); });
+    expect(() => character.registerVrmAnimation('preview', bytes, { metersPerUnit: 0.01 })).toThrow('Clip rejected');
+    reject.mockRestore();
+    expect(character.getAnimationClips().some(clip => clip.name === 'preview')).toBe(true);
+    character.releaseVrmAnimation('preview');
+    expect(character.getAnimationClips().some(clip => clip.name === 'preview')).toBe(false);
+  } finally { character.dispose(); }
+});
+
+it.each(['native replacement', 'model replacement', 'native reload', 'disposal'])('does not remove later sources after %s', (change) => {
+  const { character, bytes, clip } = characterFixture();
+  try {
+    character.registerVrmAnimation('preview', bytes, { metersPerUnit: 0.01 });
+    const replacement = clip.clone(); replacement.name = 'preview';
+    if (change === 'native replacement') character.registerAnimationClips([replacement]);
+    if (change === 'native reload') character.loadAnimationClips([replacement]);
+    if (change === 'model replacement') {
+      const next = fixture();
+      const nextClip = next.clip.clone(); nextClip.name = 'preview';
+      character.onReady({ model: next.model, animations: [nextClip] });
+    }
+    if (change === 'disposal') character.dispose();
+    expect(() => character.releaseVrmAnimation('preview')).not.toThrow();
+    if (change !== 'disposal') expect(character.getAnimationClips().some(clip => clip.name === 'preview')).toBe(true);
+    else expect(() => character.registerVrmAnimation('preview', bytes, { metersPerUnit: 0.01 })).toThrow(/disposed/);
+  } finally { character.dispose(); }
+});
+
+it('requires a bound character before VRMA inspection, conversion or registration', () => {
+  const character = new Embody({ profileMode: 'profile', profile: {} });
+  try {
+    expect(() => character.getVrmAnimationInfo(new Uint8Array(0))).toThrow(/Bind a character/);
+    expect(() => character.convertMixamoFbxToVrmAnimations(new ArrayBuffer(0), { metersPerUnit: 1 })).toThrow(/Bind a character/);
+    expect(() => character.registerVrmAnimation('preview', new Uint8Array(0), { metersPerUnit: 1 })).toThrow(/Bind a character/);
+    expect(() => character.releaseVrmAnimation('preview')).not.toThrow();
+  } finally { character.dispose(); }
 });

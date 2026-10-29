@@ -15,9 +15,16 @@ import {
   bindModelReferencePose, captureModelReferencePose, extendModelReferencePose,
 } from './reference-pose';
 import type { ThreeModelReferencePose, ThreeReferencePoseNode } from './reference-pose';
+import { convertMixamoFbxToVrmAnimations, createAnimationClipFromVrmAnimation, inspectVrmAnimation } from './vrm-animation';
+import type { VrmAnimationFile, VrmAnimationInfo, VrmAnimationUnits } from './vrm-animation';
 import { ThreeNativePlaybackConnector } from './nativePlayback';
 import { withComponentTracks } from './clipBindings';
 import type { ThreeNativePlaybackControl, ThreeNativePlaybackEvent, ThreeNativePlaybackOptions } from './nativePlayback';
+import type {
+  AnimationClipInfo, HairAppearanceState, HairColorAppearance,
+  HairPhysicsRuntimeConfig, HairPhysicsRuntimeConfigUpdate, MeshCategory,
+  MeshInfo, Profile, ProfileInput, ThreeResolvedMaterialConfig,
+} from './authoringTypes';
 
 type JsonObject = Record<string, any>;
 type NativeTrack = KeyframeTrack & { createInterpolant: ((result?: Float32Array) => { evaluate(time: number): ArrayLike<number> }) & { isInterpolantFactoryMethodGLTFCubicSpline?: boolean } };
@@ -25,7 +32,7 @@ export type RustEmbodyHostConfig = {
   profileMode?: 'preset' | 'profile';
   presetId?: string;
   presetType?: string;
-  profile?: JsonObject;
+  profile?: ProfileInput;
   meshes?: Mesh[];
   referencePose?: ThreeModelReferencePose;
 };
@@ -107,6 +114,7 @@ export class Embody {
   private readonly profileMode: 'preset' | 'profile';
   private readonly preset: string;
   private readonly sources = new Map<string, Source>();
+  private readonly vrmAnimations = new Map<string, { model: Object3D; clip: AnimationClip }>();
   private readonly playbacks = new Map<string, Playback>();
   private readonly current = new Map<string, Playback>();
   private playDepth = 0;
@@ -119,7 +127,7 @@ export class Embody {
   private readonly liveTargets = new Map<string, { track: ClipIRTrack; handle: CharacterPlaybackHandle; releasing: boolean }>();
   private readonly hairObjects = new Map<string, Mesh>();
   private hairConfig: JsonObject = {};
-  private hairAppearance: JsonObject = {
+  private hairAppearance: HairAppearanceState = {
     hairColor: copy(DEFAULT_HAIR_COLOR_APPEARANCE),
     eyebrowColor: copy(DEFAULT_HAIR_COLOR_APPEARANCE),
     showOutline: false, outlineColor: '#000000', outlineOpacity: 1,
@@ -201,7 +209,7 @@ export class Embody {
     catch (error) { core.free(); throw error; }
     this.core.free();
     this.core = core;
-    if (replacingModel) this.sources.clear();
+    if (replacingModel) { this.sources.clear(); this.vrmAnimations.clear(); }
     this.boundModel = model;
     this.inspection = inspection;
     this.referenceBindings = referenceBindings;
@@ -256,7 +264,7 @@ export class Embody {
     this.bind(model, reference, inspection, this.profileSource, this.profile);
     return reference;
   }
-  setProfile(value: JsonObject): void {
+  setProfile(value: ProfileInput): void {
     this.assertAlive();
     const source = this.validateProfile(value);
     const profile = this.resolveProfile(source);
@@ -266,7 +274,7 @@ export class Embody {
     const inspection = this.inspector.inspectModel(this.boundModel, { profile, referencePose: reference });
     this.bind(this.boundModel, reference, inspection, source, profile, false);
   }
-  getProfile(): JsonObject { return this.profile; }
+  getProfile(): Partial<Profile> { return this.profile; }
   getProfileMode(): 'preset' | 'profile' { return this.profileMode; }
   getPresetId(): string | null { return this.profileMode === 'preset' ? this.preset : null; }
   supportsPreset(value?: string): boolean { return supportsRustEmbodyPreset(value); }
@@ -661,6 +669,37 @@ export class Embody {
     if (!connector.getAction(playback.id)) this.forget(playback);
   }
 
+  supportsVrmAnimation(): boolean { return true; }
+  convertMixamoFbxToVrmAnimations(bytes: ArrayBuffer, options: VrmAnimationUnits): VrmAnimationFile[] {
+    this.requireModel();
+    return convertMixamoFbxToVrmAnimations(bytes, options);
+  }
+  getVrmAnimationInfo(bytes: Uint8Array): VrmAnimationInfo {
+    this.requireModel();
+    const document = inspectVrmAnimation(bytes);
+    return { name: document.name, durationSeconds: document.durationSeconds, trackCount: document.tracks.length };
+  }
+  /** Registers a source; Animation owns the later playback request. */
+  registerVrmAnimation(name: string, bytes: Uint8Array, options: VrmAnimationUnits): void {
+    if (typeof name !== 'string' || !name.trim()) throw new Error('VRM Animation requires a nonempty clip name.');
+    const model = this.requireModel();
+    const clip = createAnimationClipFromVrmAnimation(bytes, model, {
+      name, metersPerUnit: options.metersPerUnit,
+      referencePose: this.references.get(model)!, profile: this.profile,
+    });
+    // Save ownership only after native registration accepts the complete clip.
+    this.registerAnimationClips([clip]);
+    this.vrmAnimations.set(name, { model, clip });
+  }
+  /** Stale editor cleanup must not remove a later same-name native source. */
+  releaseVrmAnimation(name: string): void {
+    const registered = this.vrmAnimations.get(name);
+    const source = this.sources.get(name);
+    if (registered && !this.disposed && registered.model === this.boundModel &&
+        source?.kind === 'native' && source.clip === registered.clip) this.removeAnimationClip(name);
+    this.vrmAnimations.delete(name);
+  }
+
   registerAnimationClips(clips: AnimationClip[]): void {
     const model = this.requireModel();
     for (const clip of clips) {
@@ -672,6 +711,7 @@ export class Embody {
   }
   loadAnimationClips(clips: AnimationClip[]): void {
     this.stopAllAnimations();
+    this.vrmAnimations.clear();
     for (const source of [...this.sources.values()]) if (source.kind === 'native') {
       this.sources.delete(source.name);
       this.core.remove_animation_clip(source.name);
@@ -684,7 +724,7 @@ export class Embody {
     this.sources.delete(name);
     return this.core.remove_animation_clip(name);
   }
-  getAnimationClips(): any[] { return parse(this.core.get_animation_clips()); }
+  getAnimationClips(): AnimationClipInfo[] { return parse(this.core.get_animation_clips()); }
   playAnimation(name: string, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
     const source = this.sources.get(name);
     if (!source) throw new Error(`Unknown animation clip: ${name}`);
@@ -871,8 +911,8 @@ export class Embody {
   getMorphTargetIndices(): Record<string, { name: string; index: number }[]> { return Object.fromEntries(this.meshes.map((mesh) => [mesh.name, Object.entries(mesh.morphTargetDictionary ?? {}).map(([name, index]) => ({ name, index })).sort((a, b) => a.index - b.index)])); }
   addMorphTarget(target: Parameters<ThreeFrameApplier['addMorphTarget']>[1], options?: Parameters<ThreeFrameApplier['addMorphTarget']>[2]): number { const index = this.applier.addMorphTarget(this.requireModel(), target, options); this.bindModel(); return index; }
   addMorphTargets(targets: Parameters<ThreeFrameApplier['addMorphTargets']>[1], options?: Parameters<ThreeFrameApplier['addMorphTargets']>[2]): Record<string, number> { const result = this.applier.addMorphTargets(this.requireModel(), targets, options); this.bindModel(); return result; }
-  private meshCategory(mesh: Object3D): string { return this.profile.meshes?.[mesh.name]?.category ?? 'other'; }
-  getMeshList(): JsonObject[] { return (this.inspection?.allMeshes ?? []).map((mesh) => ({ name: mesh.name, visible: mesh.visible, morphCount: mesh.morphTargetInfluences?.length ?? 0, category: this.meshCategory(mesh) })); }
+  private meshCategory(mesh: Object3D): MeshCategory { return this.profile.meshes?.[mesh.name]?.category ?? 'other'; }
+  getMeshList(): MeshInfo[] { return (this.inspection?.allMeshes ?? []).map((mesh) => ({ name: mesh.name, visible: mesh.visible, morphCount: mesh.morphTargetInfluences?.length ?? 0, category: this.meshCategory(mesh) })); }
   getBones(): ThreeModelInspection['bones'] { return this.bones; }
   private meshProfile(name: string): JsonObject { return (this.profile.meshes ??= {})[name] ??= { category: 'other' }; }
   setMeshVisible(name: string, visible: boolean): void { this.applier.setMeshVisible(this.requireModel(), name, visible); this.meshProfile(name).visible = visible; }
@@ -881,13 +921,13 @@ export class Embody {
     this.core.request_mesh_highlight(name ?? undefined, color, value);
     this.applier.applyMeshHighlightFrame(parse(this.core.evaluate_mesh_highlight_frame()));
   }
-  getMeshMaterialConfig(name: string): Record<string, unknown> | null { return this.applier.getMeshMaterialConfig(this.requireModel(), name); }
+  getMeshMaterialConfig(name: string): ThreeResolvedMaterialConfig | null { return this.applier.getMeshMaterialConfig(this.requireModel(), name); }
   setMeshMaterialConfig(name: string, value: Parameters<ThreeFrameApplier['setMeshMaterialConfig']>[2]): void { this.applier.setMeshMaterialConfig(this.requireModel(), name, value); const entry = this.meshProfile(name); entry.material = { ...entry.material, ...value }; }
 
   registerHairObjects(objects: Object3D[]): { name: string; isMesh: boolean; isEyebrow: boolean }[] {
     this.hairObjects.clear();
     for (const object of objects) if ((object as Mesh).isMesh) this.hairObjects.set(object.name, object as Mesh);
-    for (const category of ['hair', 'eyebrow']) {
+    for (const category of ['hair', 'eyebrow'] as const) {
       const mesh = [...this.hairObjects.values()].find((object) => this.meshCategory(object) === category);
       const material: any = mesh && (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material);
       if (material) this.hairAppearance[`${category}Color`] = { ...this.hairAppearance[`${category}Color`], baseColor: material.color ? `#${material.color.getHexString()}` : '#000000', emissive: material.emissive ? `#${material.emissive.getHexString()}` : '#000000', emissiveIntensity: material.emissiveIntensity ?? 0 };
@@ -897,15 +937,15 @@ export class Embody {
   }
   getRegisteredHairObjects(): Object3D[] { return [...this.hairObjects.values()]; }
   getHairMorphTargets(name?: string): string[] { const meshes = name ? [this.hairObjects.get(name)] : [...this.hairObjects.values()]; return [...new Set(meshes.flatMap((mesh) => Object.keys(mesh?.morphTargetDictionary ?? {})))].sort(); }
-  getHairAppearance(): JsonObject { return copy(this.hairAppearance); }
-  private setHairAppearance(category: 'hair' | 'eyebrow', value: string | JsonObject): void {
-    const key = `${category}Color`;
+  getHairAppearance(): HairAppearanceState { return copy(this.hairAppearance); }
+  private setHairAppearance(category: 'hair' | 'eyebrow', value: string | Partial<HairColorAppearance>): void {
+    const key = `${category}Color` as const;
     const next = parse(this.wasm.normalize_hair_color_appearance_json(json(value), json(this.hairAppearance[key])));
     this.hairAppearance[key] = next;
     this.applier.applyHairAppearance([...this.hairObjects.values()].filter((mesh) => this.meshCategory(mesh) === category), next);
   }
-  setHairColor(value: string | JsonObject): void { this.setHairAppearance('hair', value); }
-  setEyebrowColor(value: string | JsonObject): void { this.setHairAppearance('eyebrow', value); }
+  setHairColor(value: string | Partial<HairColorAppearance>): void { this.setHairAppearance('hair', value); }
+  setEyebrowColor(value: string | Partial<HairColorAppearance>): void { this.setHairAppearance('eyebrow', value); }
   setHairBaseColor(value: string): void { this.setHairColor({ baseColor: value }); }
   setEyebrowBaseColor(value: string): void { this.setEyebrowColor({ baseColor: value }); }
   setHairGlow(color: string, value: number): void { this.setHairColor({ emissive: color, emissiveIntensity: value }); }
@@ -921,8 +961,8 @@ export class Embody {
   }
   setHairPhysicsEnabled(value: boolean): void { this.setHairPhysicsConfig({ enabled: value }); }
   isHairPhysicsEnabled(): boolean { return !!this.hairConfig.enabled; }
-  setHairPhysicsConfig(value: JsonObject): void { this.hairConfig = parse(this.core.set_hair_config_json(json(value))); this.restartHair(); }
-  getHairPhysicsConfig(): JsonObject { return copy(this.hairConfig); }
+  setHairPhysicsConfig(value: HairPhysicsRuntimeConfigUpdate): void { this.hairConfig = parse(this.core.set_hair_config_json(json(value))); this.restartHair(); }
+  getHairPhysicsConfig(): Partial<HairPhysicsRuntimeConfig> { return copy(this.hairConfig); }
   validateHairMorphTargets(): string[] {
     return parse(this.core.get_missing_hair_morph_targets_json(json(this.getHairMorphTargets())));
   }
@@ -984,6 +1024,7 @@ export class Embody {
     this.playbacks.clear();
     this.current.clear();
     this.sources.clear();
+    this.vrmAnimations.clear();
     this.hairObjects.clear();
     this.meshes.length = 0;
     this.meshByName.clear();
