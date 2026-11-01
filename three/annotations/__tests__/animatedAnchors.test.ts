@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ThreeAnnotationMarkers } from '../ThreeAnnotationMarkers';
 import { HtmlAnnotationMarkers } from '../HtmlAnnotationMarkers';
+import { getRuntimeAUMorphAnchorPoint } from '../runtimeAnnotationSidePreview';
 import type { CharacterConfig } from '../types';
 import { installAnnotationDom } from './annotationDom';
 
@@ -104,6 +105,37 @@ describe.each([false, true])('animated anchors (html=%s)', html => {
     f.parent.scale.set(2, 3, 1);
     f.view.update();
     f.position(new THREE.Vector3(0.4, 1 / 3 + 0.3, 0).applyMatrix4(f.mesh.matrixWorld));
+    f.position(getRuntimeAUMorphAnchorPoint(config.regions![0], f.mesh)!);
+  });
+
+  it('uses the same mesh-space semantic band for the helper and live anchors after rotation', async () => {
+    const f = fixture(html, false);
+    const geometry = f.mesh.geometry;
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0, 4, 0], 3));
+    geometry.morphAttributes.position = [new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], 3)];
+    f.mesh.morphTargetDictionary = { Brow: 0 };
+    const region = { ...config.regions![0], runtimeAnnotation: { targetType: 'au' as const, target: '1', morphNames: ['Brow'] } };
+    await f.view.loadRegions({ ...config, regions: [region] });
+    f.position(new THREE.Vector3(0, 3.5, 0));
+    f.parent.rotation.z = Math.PI;
+    f.mesh.morphTargetInfluences![0] = 0.5;
+    const helper = getRuntimeAUMorphAnchorPoint(region, f.mesh)!;
+    expect(helper.distanceTo(new THREE.Vector3(0, -3.5, 0.5))).toBeLessThan(1e-5);
+    f.view.update();
+    f.position(helper);
+  });
+
+  it('samples sibling skeleton bones before the renderer updates their matrices', async () => {
+    const f = fixture(html, true);
+    f.parent.add(f.bone);
+    f.view.setModel(f.parent);
+    await f.view.loadRegions(config);
+    f.bone.position.x = 0.7;
+    f.mesh.morphTargetInfluences![0] = 0.5;
+    const helper = getRuntimeAUMorphAnchorPoint(config.regions![0], f.mesh)!;
+    expect(helper.distanceTo(new THREE.Vector3(0.7, 1 / 3 + 0.15, 0))).toBeLessThan(1e-5);
+    f.view.update();
+    f.position(helper);
   });
 
   it('drops cached observations when a region becomes an explicit point', async () => {
@@ -138,22 +170,86 @@ describe.each([false, true])('animated anchors (html=%s)', html => {
     expect(newPose).not.toHaveBeenCalled();
   });
 
-  it('rebuilds the candidate plan when regions are reloaded after geometry changes', async () => {
+  it('rebuilds changed attributes on update without reloading regions or views', async () => {
     const f = fixture(html, false);
     await f.view.loadRegions(config);
+    f.view.setCurrentRegion('animated');
+    f.view.setSoloMarker('animated');
     f.view.setVisible(false);
+    const objects = [...f.scene.children];
+    const elements = [...f.host.children];
     const original = f.mesh.geometry.getAttribute('position');
     f.mesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute([2, 0, 0, 4, 0, 0, 3, 1, 0], 3));
     f.mesh.geometry.morphAttributes.position = [new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3)];
     f.mesh.geometry.boundingBox = null;
     f.mesh.geometry.boundingSphere = null;
-    const sample = vi.spyOn(f.mesh, 'getVertexPosition');
-    f.view.update();
-    expect(sample).not.toHaveBeenCalled();
-    await f.view.loadRegions(config);
     expect(f.mesh.geometry.getAttribute('position')).not.toBe(original);
     f.mesh.morphTargetInfluences![0] = 0.5;
     f.view.update();
     f.position(new THREE.Vector3(3, 1 / 3 + 0.5, 0));
+    expect(f.view.getSoloedMarker()).toBe('animated');
+    expect(f.scene.children).toEqual(objects);
+    expect(f.host.children).toEqual(elements);
+  });
+
+  it.each([false, true])('reselects vertices after in-place morph edits (interleaved=%s)', async interleaved => {
+    const f = fixture(html, false);
+    const attribute = interleaved
+      ? new THREE.InterleavedBufferAttribute(new THREE.InterleavedBuffer(new Float32Array([0, 0.2, 0, 7, 0, 0, 0, 7, 0, 0, 0, 7]), 4), 3, 0)
+      : new THREE.Float32BufferAttribute([0, 0.2, 0, 0, 0, 0, 0, 0, 0], 3);
+    f.mesh.geometry.morphAttributes.position = [attribute];
+    f.mesh.morphTargetInfluences![0] = 1;
+    await f.view.loadRegions(config);
+    f.position(new THREE.Vector3(-1, 0.2, 0));
+    attribute.setY(0, 0);
+    attribute.setY(1, 0.4);
+    attribute.needsUpdate = true;
+    f.view.update();
+    f.position(new THREE.Vector3(1, 0.4, 0));
+    const scan = vi.spyOn(attribute, 'getComponent');
+    f.mesh.morphTargetInfluences![0] = 0.5;
+    f.view.update();
+    f.position(new THREE.Vector3(1, 0.2, 0));
+    expect(scan).not.toHaveBeenCalled();
+  });
+
+  it('observes morph dictionary remapping and relative/absolute interpretation', async () => {
+    const f = fixture(html, false);
+    f.mesh.geometry.morphAttributes.position = [
+      new THREE.Float32BufferAttribute([0, 0.2, 0, 0, 0, 0, 0, 0, 0], 3),
+      new THREE.Float32BufferAttribute([0, 0, 0, 0, 0.4, 0, 0, 0, 0], 3),
+    ];
+    f.mesh.morphTargetInfluences = [0, 0];
+    await f.view.loadRegions(config);
+    f.position(new THREE.Vector3(-1, 0, 0));
+    f.mesh.morphTargetDictionary!.Raise = 1;
+    f.view.update();
+    f.position(new THREE.Vector3(1, 0, 0));
+    // Absolute targets now also differ from the base at vertices 0 and 2.
+    f.mesh.geometry.morphTargetsRelative = false;
+    f.view.update();
+    const weight = Math.sqrt(1 + 0.4 ** 2);
+    f.position(new THREE.Vector3((weight - 1) / (weight + 2), 1 / (weight + 2), 0));
+    f.position(getRuntimeAUMorphAnchorPoint(config.regions![0], f.mesh)!);
+  });
+
+  it('hides an invalidated anchor and recovers when valid topology returns', async () => {
+    const f = fixture(html, false);
+    await f.view.loadRegions(config);
+    f.view.setVisible(false); // Exclude HTML occlusion rays from vertex sampling.
+    const sample = vi.spyOn(f.mesh, 'getVertexPosition');
+    const position = f.mesh.geometry.getAttribute('position');
+    f.mesh.geometry.deleteAttribute('position');
+    f.view.update();
+    expect(sample).not.toHaveBeenCalled();
+    expect(f.view.getMarkerPosition('animated')).toBeNull();
+    f.mesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3));
+    f.view.update(); // A position/morph count mismatch cannot sample stale indices.
+    expect(sample).not.toHaveBeenCalled();
+    expect(f.view.getMarkerPosition('animated')).toBeNull();
+    f.mesh.geometry.setAttribute('position', position);
+    f.mesh.morphTargetInfluences![0] = 1;
+    f.view.update();
+    f.position(new THREE.Vector3(0, 1 / 3 + 0.3, 0));
   });
 });

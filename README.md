@@ -282,8 +282,23 @@ current native pose and supplies packed world-space positions; Rust updates the
 existing anchors without restarting reveal or rebuilding marker resources.
 Explicit point and whole-model anchors retain their existing behavior. Model or
 region changes invalidate the plans, and stale or invalid pose observations are
-ignored. Geometry is immutable within a plan: after replacing topology or morph
-attributes, rebind the model or reload regions to select vertices again.
+ignored. Geometry replacement, attribute replacement, morph dictionary edits and
+relative/absolute mode changes are observed on `update()`. For in-place attribute
+edits, set the Three attribute's `needsUpdate = true` (including interleaved
+attributes). Rust retires the affected plans and selects replacements without
+reloading regions or replacing marker resources. When a previously valid
+attachment loses usable position or morph data, its marker becomes hidden and
+`getMarkerPosition()` returns `null` until that data returns. Other attachments
+and current selection remain intact.
+
+`getRuntimeAUMorphAnchorPoint` uses the same Rust mesh-space selection and weighted
+pose reduction as live attachments, including rotated and skinned meshes. Native
+adapters only report geometry identities/versions and evaluate selected vertices;
+they do not choose semantic bands or compute attachment weights. Other adapters
+can report monotonically increasing per-object revisions with
+`observe_morph_geometry` before preparing replacement plans, then submit packed
+world-space XYZ samples to `observe_morph_anchor`. Plan IDs are scoped to the
+runtime generation; retired IDs and older geometry revisions are rejected.
 
 This is a breaking replacement of the DPthree exports. Use
 `ThreeAnnotationController.create(options)` or `ThreeAnnotations.create(options)`

@@ -321,6 +321,42 @@ fn model_query(op: &str, p: &Value) -> Result<Value, String> {
 pub fn annotation_morph_candidates(base: &[f32], morphs: &[f32], relative: bool) -> Box<[f32]> {
     markers::morph_candidates(base, morphs, relative).into_boxed_slice()
 }
+/// Final mesh-space attachment vertices as [index, influence] pairs. The same
+/// selection is used by AnnotationRuntime; native adapters only evaluate poses.
+#[wasm_bindgen]
+pub fn annotation_morph_anchor_candidates(
+    region_json: &str,
+    base: &[f32],
+    morphs: &[f32],
+    relative: bool,
+) -> Result<Box<[f32]>, JsError> {
+    let region = super::parse(region_json).map_err(super::error)?;
+    Ok(
+        super::morph_anchors::MorphAnchorPlan::new(&region, base, morphs, relative)
+            .map(|plan| {
+                plan.vertices
+                    .into_iter()
+                    .flat_map(|(index, weight)| [index as f32, weight])
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+            .into_boxed_slice(),
+    )
+}
+/// Reduce packed [world x, world y, world z, influence] observations without
+/// selecting vertices again. Invalid/incomplete observations return no point.
+#[wasm_bindgen]
+pub fn annotation_weighted_anchor(samples: &[f32]) -> Box<[f32]> {
+    if samples.len() % 4 != 0 {
+        return Box::new([]);
+    }
+    super::morph_anchors::weighted_center(
+        samples.chunks_exact(4).map(|p| ([p[0], p[1], p[2]], p[3])),
+    )
+    .map(|point| point.to_vec())
+    .unwrap_or_default()
+    .into_boxed_slice()
+}
 #[wasm_bindgen]
 pub fn annotation_morph_center(
     region_json: &str,

@@ -197,7 +197,6 @@ export class ThreeAnnotationController {
     if (this.disposed || !this.observer) return;
     const observer = this.observer; const generation = this.runtime.generation();
     observer.observe(this.runtime);
-    observer.prepareMorphAnchors(this.runtime);
     observer.observeMorphAnchors(this.runtime);
     const queries = JSON.parse(this.runtime.plan_markers('{}')) as SurfaceQuery[];
     for (const initial of queries) {

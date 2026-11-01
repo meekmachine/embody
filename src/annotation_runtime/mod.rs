@@ -102,7 +102,9 @@ pub struct AnnotationRuntime {
     model: Option<Model>,
     regions: Vec<Value>,
     markers: Vec<Marker>,
-    morph_anchors: Vec<MorphAnchorPlan>,
+    morph_anchors: BTreeMap<u32, MorphAnchorPlan>,
+    morph_geometry_revisions: BTreeMap<u32, u32>,
+    next_morph_anchor_id: u32,
     current: Option<String>,
     solo: Option<String>,
     hovered: Option<u32>,
@@ -152,7 +154,11 @@ impl AnnotationRuntime {
     }
     pub fn needs_frame(&self) -> bool {
         !self.disposed
-            && (self.camera.moving() || self.markers.iter().any(|m| m.transition.is_some()))
+            && (self.camera.moving()
+                || self
+                    .markers
+                    .iter()
+                    .any(|m| m.anchor_resolved && m.transition.is_some()))
     }
     pub fn is_current(&self, generation: u32) -> bool {
         !self.disposed && self.generation == generation
@@ -193,7 +199,7 @@ impl AnnotationRuntime {
         self.markers
             .iter()
             .filter(|m| self.visible || m.current_visibility || m.transition.is_some())
-            .filter(|m| m.animated_anchor.is_none())
+            .filter(|m| m.anchor_resolved && m.animated_anchor.is_none())
             .filter_map(|m| m.track)
             .collect::<BTreeSet<_>>()
             .into_iter()
@@ -220,7 +226,7 @@ impl AnnotationRuntime {
     }
     /// Prepare an attachment for this generation from mesh-space geometry.
     /// Returns [plan id, vertex indices...] or an empty array for a fallback anchor.
-    /// Geometry is immutable within a generation; reconfigure or rebind to replace it.
+    /// Report geometry changes with observe_morph_geometry before preparing replacements.
     pub fn prepare_morph_anchor(
         &mut self,
         generation: u32,
@@ -239,14 +245,63 @@ impl AnnotationRuntime {
         if !self.morph_objects(region).contains(&object_id) {
             return Box::new([]);
         }
-        let Some(plan) = MorphAnchorPlan::new(region, base, morphs, relative) else {
+        let Some(mut plan) = MorphAnchorPlan::new(region, base, morphs, relative) else {
             return Box::new([]);
         };
-        let indices = std::iter::once(self.morph_anchors.len() as u32)
+        plan.object_id = object_id;
+        let id = self.next_morph_anchor_id;
+        self.next_morph_anchor_id = self.next_morph_anchor_id.wrapping_add(1);
+        let indices = std::iter::once(id)
             .chain(plan.vertices.iter().map(|(index, _)| *index))
             .collect::<Vec<_>>();
-        self.morph_anchors.push(plan);
+        self.morph_anchors.insert(id, plan);
         indices.into_boxed_slice()
+    }
+    /// Native geometry identities/versions advance this per-object revision.
+    /// Returns true when new geometry must be supplied. Retires old plan IDs
+    /// without changing the region generation, marker IDs or reveal state.
+    pub fn observe_morph_geometry(
+        &mut self,
+        generation: u32,
+        object_id: u32,
+        revision: u32,
+        morph_names_json: &str,
+    ) -> Result<bool, JsError> {
+        if !self.is_current(generation)
+            || self
+                .morph_geometry_revisions
+                .get(&object_id)
+                .is_some_and(|seen| revision <= *seen)
+            || !self.model.as_ref().is_some_and(|model| {
+                model
+                    .object(object_id)
+                    .is_some_and(|object| object.kind == "Mesh")
+            })
+        {
+            return Ok(false);
+        }
+        let names: Vec<String> =
+            serde_json::from_str(morph_names_json).map_err(|e| error(e.to_string()))?;
+        let affected = self
+            .morph_anchors
+            .values()
+            .filter(|plan| plan.object_id == object_id)
+            .map(|plan| plan.region.clone())
+            .collect::<BTreeSet<_>>();
+        self.morph_anchors
+            .retain(|_, plan| plan.object_id != object_id);
+        self.morph_geometry_revisions.insert(object_id, revision);
+        if let Some(object) = self
+            .model
+            .as_mut()
+            .and_then(|model| model.objects.iter_mut().find(|object| object.id == object_id))
+        {
+            object.morph_names = names;
+        }
+        for name in affected {
+            self.refresh_morph_anchor(&name);
+        }
+        Ok(true)
     }
     /// Packed world-space XYZ observations in the prepared vertex order. Stale,
     /// incomplete or nonfinite observations leave the last valid anchor intact.
@@ -254,29 +309,14 @@ impl AnnotationRuntime {
         if !self.is_current(generation) {
             return false;
         }
-        let Some(plan) = self.morph_anchors.get_mut(plan_id as usize) else {
+        let Some(plan) = self.morph_anchors.get_mut(&plan_id) else {
             return false;
         };
         if !plan.observe(positions) {
             return false;
         }
-        let name = &self.morph_anchors[plan_id as usize].region;
-        let position = self
-            .morph_anchors
-            .iter()
-            .rev()
-            .filter(|plan| &plan.region == name)
-            .find_map(|plan| plan.position);
-        if let Some(marker) = self
-            .markers
-            .iter_mut()
-            .find(|m| text(&m.region, "name") == name.as_str())
-        {
-            marker.animated_anchor = position;
-            if let Some(position) = position {
-                marker.start = position;
-            }
-        }
+        let name = plan.region.clone();
+        self.refresh_morph_anchor(&name);
         true
     }
     /// The only camera integrator: pose observation(6), fov/aspect/viewport(4).
@@ -396,7 +436,7 @@ impl AnnotationRuntime {
         };
         let mut values = Vec::new();
         for marker in &mut self.markers {
-            if !marker.ready {
+            if !marker.ready || !marker.anchor_resolved {
                 continue;
             }
             marker.observe_anchor(model);
@@ -556,7 +596,9 @@ impl AnnotationRuntime {
             model: None,
             regions: Vec::new(),
             markers: Vec::new(),
-            morph_anchors: Vec::new(),
+            morph_anchors: BTreeMap::new(),
+            morph_geometry_revisions: BTreeMap::new(),
+            next_morph_anchor_id: 0,
             current: None,
             solo: None,
             hovered: None,
@@ -597,17 +639,45 @@ impl AnnotationRuntime {
     }
     fn clear_morph_anchors(&mut self) {
         self.morph_anchors.clear();
+        self.morph_geometry_revisions.clear();
+        self.next_morph_anchor_id = 0;
         for marker in &mut self.markers {
             marker.animated_anchor = None;
+            marker.anchor_resolved = true;
         }
     }
     fn morph_anchor(&self, name: &str) -> Option<Point> {
-        // Preserve the existing last-successful-mesh precedence for multi-mesh AUs.
-        self.morph_anchors
+        // Geometry replacement changes plan IDs, never configured mesh precedence.
+        let region = self
+            .regions
             .iter()
+            .find(|region| text(region, "name") == name)?;
+        self.morph_objects(region)
+            .into_iter()
             .rev()
-            .filter(|plan| plan.region == name)
-            .find_map(|plan| plan.position)
+            .find_map(|object_id| {
+                self.morph_anchors
+                    .values()
+                    .rev()
+                    .find(|plan| {
+                        plan.object_id == object_id && plan.region == name && plan.position.is_some()
+                    })
+                    .and_then(|plan| plan.position)
+            })
+    }
+    fn refresh_morph_anchor(&mut self, name: &str) {
+        let position = self.morph_anchor(name);
+        if let Some(marker) = self
+            .markers
+            .iter_mut()
+            .find(|m| text(&m.region, "name") == name)
+        {
+            marker.animated_anchor = position;
+            marker.anchor_resolved = position.is_some();
+            if let Some(position) = position {
+                marker.start = position;
+            }
+        }
     }
     fn morph_objects(&self, region: &Value) -> Vec<u32> {
         let Some(model) = &self.model else {
@@ -979,7 +1049,7 @@ impl AnnotationRuntime {
             "markerPosition" => self
                 .markers
                 .iter()
-                .find(|m| text(&m.region, "name") == name)
+                .find(|m| text(&m.region, "name") == name && m.anchor_resolved)
                 .map(|m| point_json(m.start))
                 .unwrap_or(Value::Null),
             "runtimeBone" | "runtimeAU" => {

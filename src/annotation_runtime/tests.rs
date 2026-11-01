@@ -133,6 +133,108 @@ fn animated_anchor_band_stays_attached_when_the_pose_rotates() {
 }
 
 #[test]
+fn one_shot_and_live_anchors_share_selection_and_weighted_pose_reduction() {
+    let mut r = runtime(json!([animated_region()]));
+    let base = [0., 0., 0., 0., 1., 0., 0., 2., 0., 0., 3., 0., 0., 4., 0.];
+    let morphs = [0., 0., 1.].repeat(5);
+    let generation = r.generation();
+    let plan = r.prepare_morph_anchor(generation, 1, "au", &base, &morphs, true);
+    let candidates =
+        annotation_morph_anchor_candidates(&animated_region().to_string(), &base, &morphs, true)
+            .unwrap();
+    assert_eq!(&candidates[..], &[3., 1., 4., 1.]);
+    assert_eq!(&plan[1..], &[3, 4]);
+    r.observe_morph_anchor(generation, plan[0], &[0., -3., 0., 0., -4., 0.]);
+    r.plan_markers("{}").unwrap();
+    let point = annotation_weighted_anchor(&[0., -3., 0., 1., 0., -4., 0., 1.]);
+    assert_eq!(&point[..], &r.markers[0].start);
+    assert!(annotation_weighted_anchor(&[1., 2., 3.]).is_empty());
+    assert!(annotation_weighted_anchor(&[f32::NAN, 2., 3., 1.]).is_empty());
+}
+
+#[test]
+fn geometry_revisions_retire_stale_plans_without_recreating_markers() {
+    let mut r = runtime(json!([animated_region()]));
+    let generation = r.generation();
+    assert!(r
+        .observe_morph_geometry(generation, 1, 1, "[\"Brow_Left\"]")
+        .unwrap());
+    let plan = r.prepare_morph_anchor(generation, 1, "au", &[0.; 3], &[1.; 3], true);
+    r.observe_morph_anchor(generation, plan[0], &[1.; 3]);
+    r.plan_markers("{}").unwrap();
+    r.visible = true;
+    r.current = Some("au".into());
+    r.markers[0].transition = Some((true, 10., 220.));
+    assert!(r.needs_frame());
+    let id = r.markers[0].id;
+    let descriptors = r.descriptor_revision;
+
+    assert!(!r
+        .observe_morph_geometry(generation, 1, 1, "[\"Brow_Left\"]")
+        .unwrap());
+    assert!(r.observe_morph_geometry(generation, 1, 2, "[]").unwrap());
+    assert_eq!(
+        r.execute("markerPosition", json!({"name":"au"}), 0.).unwrap(),
+        Value::Null
+    );
+    let frame = r.marker_frame(15., &IDENTITY, &IDENTITY, 800., 600.);
+    assert_eq!(frame[1], 0.);
+    assert!(!r.needs_frame());
+    assert!(!r.observe_morph_anchor(generation, plan[0], &[9.; 3]));
+    assert!(!r
+        .observe_morph_geometry(generation, 1, 1, "[\"Brow_Left\"]")
+        .unwrap());
+    assert_eq!(
+        r.execute("morphRequests", json!({}), 0.).unwrap(),
+        json!([])
+    );
+
+    assert!(r
+        .observe_morph_geometry(generation, 1, 3, "[\"Brow_Left\"]")
+        .unwrap());
+    let replacement = r.prepare_morph_anchor(generation, 1, "au", &[0.; 3], &[1.; 3], true);
+    assert_ne!(replacement[0], plan[0]);
+    r.observe_morph_anchor(generation, replacement[0], &[2.; 3]);
+    assert_eq!(r.markers[0].start, [2.; 3]);
+    assert!(r.markers[0].anchor_resolved);
+    assert!(r.needs_frame());
+    assert_eq!(r.markers[0].id, id);
+    assert_eq!(r.markers[0].transition, Some((true, 10., 220.)));
+    assert_eq!(r.current.as_deref(), Some("au"));
+    assert_eq!(r.descriptor_revision, descriptors);
+    assert_eq!(r.generation(), generation);
+    assert_eq!(r.morph_anchors.len(), 1);
+    r.execute("clear", json!({}), 0.).unwrap();
+    assert!(!r
+        .observe_morph_geometry(generation, 1, 4, "[\"Brow_Left\"]")
+        .unwrap());
+}
+
+#[test]
+fn geometry_replacement_preserves_mesh_precedence() {
+    let mut r = runtime(json!([animated_region()]));
+    let mut second = r.model.as_ref().unwrap().objects[0].clone();
+    second.id = 4;
+    r.model.as_mut().unwrap().objects.push(second);
+    let generation = r.generation();
+    for id in [1, 4] {
+        r.observe_morph_geometry(generation, id, 1, "[\"Brow_Left\"]")
+            .unwrap();
+        let plan = r.prepare_morph_anchor(generation, id, "au", &[0.; 3], &[1.; 3], true);
+        r.observe_morph_anchor(generation, plan[0], &[id as f32; 3]);
+    }
+    r.plan_markers("{}").unwrap();
+    assert_eq!(r.markers[0].start, [4.; 3]);
+    r.observe_morph_geometry(generation, 1, 2, "[\"Brow_Left\"]")
+        .unwrap();
+    let plan = r.prepare_morph_anchor(generation, 1, "au", &[0.; 3], &[1.; 3], true);
+    r.observe_morph_anchor(generation, plan[0], &[9.; 3]);
+    assert_eq!(r.markers[0].start, [4.; 3]);
+    r.observe_morph_geometry(generation, 4, 2, "[]").unwrap();
+    assert_eq!(r.markers[0].start, [9.; 3]);
+}
+
+#[test]
 fn animated_anchors_keep_mesh_precedence_and_reject_reused_plan_ids_from_old_generations() {
     let mut r = runtime(json!([animated_region()]));
     let mut second = r.model.as_ref().unwrap().objects[0].clone();
