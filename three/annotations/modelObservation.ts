@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { requireInitializedEmbodyCore } from '@lovelace_lol/embody/wasm';
 import type { NativeAnnotationRuntime } from './runtime';
+import { MorphGeometryObservation, readAttribute, readMorphGeometry, sampleMorphVertices, updateAnnotationWorldMatrices } from './morphGeometry';
+export { readAttribute } from './morphGeometry';
 
 type Bounds = { min: number[]; max: number[] };
 export interface AnnotationModelObservation {
@@ -9,17 +11,11 @@ export interface AnnotationModelObservation {
   inverse: number[];
   objects: { id: number; name: string; kind: string; parent: number | null; position: number[]; bounds: Bounds | null; matrix: number[]; inverse: number[]; morphNames: string[] }[];
 }
-export function readAttribute(attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): Float32Array {
-  const values = new Float32Array(attribute.count * attribute.itemSize);
-  for (let index = 0; index < attribute.count; index++) for (let axis = 0; axis < attribute.itemSize; axis++) values[index * attribute.itemSize + axis] = attribute.getComponent(index, axis);
-  return values;
-}
 const bounds = (box: THREE.Box3): Bounds | null => box.isEmpty() ? null : { min: box.min.toArray(), max: box.max.toArray() };
 type MorphObservation = {
   planId: number;
+  objectId: number;
   mesh: THREE.Mesh;
-  geometry: THREE.BufferGeometry;
-  position: THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
   indices: Uint32Array;
   samples: Float32Array;
 };
@@ -31,6 +27,7 @@ export class AnnotationModelObserver {
   private readonly ids = new Map<THREE.Object3D, number>();
   private morphGeneration: number | null = null;
   private morphObservations: MorphObservation[] = [];
+  private readonly morphGeometry = new Map<number, MorphGeometryObservation>();
   private readonly vertex = new THREE.Vector3();
   constructor(readonly model: THREE.Object3D) {
     model.traverse(object => {
@@ -41,10 +38,7 @@ export class AnnotationModelObserver {
   }
   id(object: THREE.Object3D): number | undefined { return this.ids.get(object); }
   private updateWorldMatrices(): void {
-    this.model.parent?.updateWorldMatrix(true, false);
-    // SkinnedMesh updates its bind inverse in updateMatrixWorld. Bypassing that
-    // override would apply a moved mesh's transform twice during CPU skinning.
-    this.model.updateMatrixWorld(true);
+    updateAnnotationWorldMatrices(this.model);
   }
   capture(): AnnotationModelObservation {
     this.updateWorldMatrices();
@@ -69,34 +63,37 @@ export class AnnotationModelObserver {
     ids.forEach((id, index) => { const object = this.objects.get(id); if (object) { values[index * 17] = id; values.set(object.matrixWorld.elements, index * 17 + 1); } });
     return values;
   }
-  prepareMorphAnchors(runtime: NativeAnnotationRuntime): void {
+  private prepareMorphAnchors(runtime: NativeAnnotationRuntime): void {
     const generation = runtime.generation();
-    if (this.morphGeneration === generation || !runtime.is_current(generation)) return;
+    if (!runtime.is_current(generation)) return;
+    if (this.morphGeneration !== generation) this.morphObservations = [];
     this.morphGeneration = generation;
-    this.morphObservations = [];
+    const changed = new Set<number>();
+    for (const mesh of this.meshes) {
+      const id = this.ids.get(mesh)!;
+      let observation = this.morphGeometry.get(id);
+      if (!observation) { observation = new MorphGeometryObservation(); this.morphGeometry.set(id, observation); }
+      observation.observe(mesh);
+      if (runtime.observe_morph_geometry(generation, id, observation.revision, observation.namesJson)) changed.add(id);
+    }
+    if (!changed.size) return;
+    this.morphObservations = this.morphObservations.filter(observation => !changed.has(observation.objectId));
     const requests = JSON.parse(runtime.command('morphRequests', '{}', performance.now())) as { objectId: number; region: { name: string }; morphNames: string[] }[];
     for (const request of requests) {
+      if (!changed.has(request.objectId)) continue;
       const mesh = this.objects.get(request.objectId) as THREE.Mesh | undefined;
       if (!mesh?.isMesh) continue;
-      const position = mesh.geometry.getAttribute('position');
-      if (!position || position.itemSize !== 3) continue;
-      const attributes = request.morphNames.flatMap(name => {
-        const index = mesh.morphTargetDictionary?.[name];
-        const attribute = index == null ? undefined : mesh.geometry.morphAttributes.position?.[index];
-        return attribute ? [attribute] : [];
-      });
-      if (!attributes.length || attributes.some(attribute => attribute.count !== position.count || attribute.itemSize !== 3)) continue;
-      const base = readAttribute(position);
-      const morphs = new Float32Array(attributes.length * base.length);
-      attributes.forEach((attribute, index) => morphs.set(readAttribute(attribute), index * base.length));
-      const plan = runtime.prepare_morph_anchor(generation, request.objectId, request.region.name, base, morphs, mesh.geometry.morphTargetsRelative);
+      const geometry = readMorphGeometry(mesh, request.morphNames);
+      if (!geometry) continue;
+      const plan = runtime.prepare_morph_anchor(generation, request.objectId, request.region.name, geometry.base, geometry.morphs, geometry.relative);
       if (plan.length < 2) continue;
       const indices = plan.slice(1);
-      this.morphObservations.push({ planId: plan[0], mesh, geometry: mesh.geometry, position, indices, samples: new Float32Array(indices.length * 3) });
+      this.morphObservations.push({ planId: plan[0], objectId: request.objectId, mesh, indices, samples: new Float32Array(indices.length * 3) });
     }
   }
   /** Transport only: Rust owns the vertex selection, weights and live anchor. */
   observeMorphAnchors(runtime: NativeAnnotationRuntime): void {
+    this.prepareMorphAnchors(runtime);
     if (this.morphGeneration === null || !runtime.is_current(this.morphGeneration)) {
       this.morphObservations = [];
       this.morphGeneration = null;
@@ -104,18 +101,8 @@ export class AnnotationModelObserver {
     }
     if (!this.morphObservations.length) return;
     this.updateWorldMatrices();
-    for (const { planId, mesh, geometry, position, indices, samples } of this.morphObservations) {
-      // A topology replacement requires setModel/loadRegions; never sample old
-      // vertex indices against a different native attribute in the meantime.
-      if (mesh.geometry !== geometry || geometry.getAttribute('position') !== position) continue;
-      const skinned = mesh as THREE.SkinnedMesh;
-      if (skinned.isSkinnedMesh) skinned.skeleton.update();
-      indices.forEach((index, offset) => {
-        mesh.getVertexPosition(index, this.vertex).applyMatrix4(mesh.matrixWorld);
-        samples[offset * 3] = this.vertex.x;
-        samples[offset * 3 + 1] = this.vertex.y;
-        samples[offset * 3 + 2] = this.vertex.z;
-      });
+    for (const { planId, mesh, indices, samples } of this.morphObservations) {
+      sampleMorphVertices(mesh, indices, samples, this.vertex);
       runtime.observe_morph_anchor(this.morphGeneration, planId, samples);
     }
   }

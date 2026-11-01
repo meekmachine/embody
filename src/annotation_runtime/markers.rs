@@ -19,6 +19,7 @@ pub struct Marker {
     pub track: Option<u32>,
     pub local: Point,
     pub animated_anchor: Option<Point>,
+    pub anchor_resolved: bool,
     pub ready: bool,
     pub project: bool,
     pub label_aspect: f32,
@@ -356,6 +357,7 @@ impl Marker {
             track,
             local,
             animated_anchor: None,
+            anchor_resolved: true,
             ready: !project,
             project,
             label_aspect: 3.,
@@ -456,6 +458,11 @@ impl Marker {
         html: bool,
         animate_structural: bool,
     ) -> [f32; FRAME_STRIDE] {
+        if !self.anchor_resolved {
+            let mut hidden = [0.; FRAME_STRIDE];
+            hidden[0] = self.id as f32;
+            return hidden;
+        }
         self.observe_anchor(model);
         let distance = distance3(camera, model.bounds.center());
         let height = model.bounds.size()[1].max(1e-5);
