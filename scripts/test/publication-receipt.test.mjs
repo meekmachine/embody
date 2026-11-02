@@ -82,6 +82,14 @@ test('a stale index does not reupload an existing source even when rebuilding ch
   assert.equal(versionReads, 1);
 });
 
+test('a same-source release with different runtime dependencies cannot issue a receipt', async () => {
+  for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
+    await assert.rejects(publishAndConfirm({ ...options(),
+      readVersion: async () => ({ ...record(), [field]: { unexpected: '1.0.0' } }),
+      publish: () => { throw new Error('must not upload a conflicting immutable release'); } }), new RegExp(`different ${field}`));
+  }
+});
+
 test('an uncertain exact-version lookup fails before uploading', async () => {
   await assert.rejects(publishAndConfirm({ ...options(),
     readVersion: async () => { throw new Error('HTTP 401'); },

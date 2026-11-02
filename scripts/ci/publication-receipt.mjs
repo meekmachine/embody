@@ -51,6 +51,15 @@ export async function readNpmVersion(packageName, version, fetchMetadata = fetch
   return record;
 }
 
+function assertReleaseDependencies(record, pkg) {
+  for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
+    const sorted = (value) => Object.entries(value ?? {}).sort(([left], [right]) => left.localeCompare(right));
+    if (JSON.stringify(sorted(record[field])) !== JSON.stringify(sorted(pkg[field]))) {
+      throw new Error(`npm version ${pkg.version} has different ${field} than the verified package; downstream notification is blocked.`);
+    }
+  }
+}
+
 export async function publishAndConfirm({ pkg, archive, integrity, sourceSha, publisher, readMetadata, readVersion, publish }) {
   const expectedName = publisher.packageName;
   const repository = typeof pkg.repository === 'string' ? pkg.repository : pkg.repository?.url;
@@ -66,6 +75,7 @@ export async function publishAndConfirm({ pkg, archive, integrity, sourceSha, pu
   }
   const before = existing ? { ...index, versions: { ...index.versions, [pkg.version]: existing } } : index;
   const needsPublish = shouldPublishRelease(before, pkg, expectedName, sourceSha);
+  if (existing) assertReleaseDependencies(existing, pkg);
   if (needsPublish) {
     // An explicit local path prevents npm interpreting owner/file as Git shorthand.
     // This is the one publication attempt; no lifecycle scripts rebuild the tarball.
@@ -78,6 +88,7 @@ export async function publishAndConfirm({ pkg, archive, integrity, sourceSha, pu
   if (shouldPublishRelease(confirmed, pkg, expectedName, sourceSha)) {
     throw new Error('npm returned success but the expected stable source/version is absent from the registry. Retry the main release after investigating; downstream notification is blocked.');
   }
+  assertReleaseDependencies(record, pkg);
   const registryIntegrity = record.dist?.integrity;
   if (typeof registryIntegrity !== 'string' || !registryIntegrity.startsWith('sha512-')) {
     throw new Error('The registry release has no SHA-512 archive integrity; downstream notification is blocked.');
