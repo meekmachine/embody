@@ -2895,18 +2895,86 @@ mod tests {
     }
 
     #[test]
-    fn legacy_custom_action_metadata_survives_config_override_export_and_reload() {
-        let authored=json!({"2":{"id":"2","name":"My fin","category":"body",
-            "section":"Fins","order":8,"controlLabel":"Fin sweep","customNote":"retain"}});
-        for config in [json!({"auPresetType":"cc4","actionInfo":authored}),
-            json!({"auPresetType":"cc4","profile":{"actionInfo":authored}})] {
+    fn legacy_fish_metadata_overrides_inherited_descriptors_across_preset_reload() {
+        let authored=json!({"2":{"id":"2","name":"My fin","category":"custom",
+            "section":"Fins","controlLabel":"Fin sweep","customNote":"retain"}});
+        let preset=request("preset.get",json!({"id":"fish"}));
+        for config in [json!({"auPresetType":"fish","actionInfo":authored}),
+            json!({"auPresetType":"fish","profile":{"actionInfo":authored}})] {
             let expanded=request("profile.extendConfig",json!({"config":config}));
             assert_eq!(expanded["actionInfo"]["2"]["name"],"My fin");
             assert_eq!(expanded["actionInfo"]["2"]["customNote"],"retain");
-            let saved=request("profile.extractOverrides",json!({"config":expanded}));
+            let mut saved=request("profile.extractOverrides",json!({"config":expanded}));
+            saved["auPresetType"]=json!("fish");
             let reloaded=request("profile.extendConfig",json!({"config":saved}));
             assert_eq!(reloaded["actionInfo"]["2"],expanded["actionInfo"]["2"]);
-            assert_eq!(reloaded["actionInfo"]["2"]["category"],"body");
+            for profile in [&expanded,&reloaded] {
+                let rows=request("profile.getAUDescriptors",json!({"profile":profile}));
+                let row=rows.as_array().unwrap().iter().find(|row|row["auId"]==2).unwrap();
+                assert_eq!(row["label"],"My fin");
+                assert_eq!(row["category"],"custom");
+                assert_eq!(row["section"],"Fins");
+                assert_eq!(row["controlLabel"],"Fin sweep");
+                assert_eq!(row["order"].as_f64(),preset["auInfo"]["2"]["order"].as_f64());
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_fish_presentation_inherits_omitted_fields_and_preserves_null_clears() {
+        let preset=request("preset.get",json!({"id":"fish"}));
+        for presentation in [json!({}),json!({"category":null,"section":null,"order":null,"controlLabel":null})] {
+            let mut info=presentation.clone();
+            info["name"]=json!("Saved turn");
+            let expanded=request("profile.extendConfig",json!({"config":{
+                "auPresetType":"fish","actionInfo":{"2":info}
+            }}));
+            let mut saved=request("profile.extractOverrides",json!({"config":expanded}));
+            saved["auPresetType"]=json!("fish");
+            let reloaded=request("profile.extendConfig",json!({"config":saved}));
+            for profile in [&expanded,&reloaded] {
+                let rows=request("profile.getAUDescriptors",json!({"profile":profile}));
+                let row=rows.as_array().unwrap().iter().find(|row|row["auId"]==2).unwrap();
+                assert_eq!(row["label"],"Saved turn");
+                if presentation.get("category").is_some() {
+                    assert_eq!(row["category"],"custom");
+                    for field in ["category","section","order","controlLabel"] {
+                        assert_eq!(profile["auInfo"]["2"].get(field),Some(&Value::Null));
+                    }
+                } else {
+                    assert_eq!(row["category"],"body");
+                    assert_eq!(row["section"],preset["auInfo"]["2"]["section"]);
+                    assert_eq!(row["order"].as_f64(),preset["auInfo"]["2"]["order"].as_f64());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_canonical_fish_metadata_wins_over_authored_legacy_metadata() {
+        let preset=request("preset.get",json!({"id":"fish"}));
+        for canonical in [json!({"name":"Canonical turn","category":"bone","section":"Authored axes"}),Value::Null] {
+            let expanded=request("profile.extendConfig",json!({"config":{
+                "auPresetType":"fish","auInfo":{"2":canonical},
+                "actionInfo":{"2":{"name":"Legacy fin","category":"custom","section":"Legacy fins"}}
+            }}));
+            let mut saved=request("profile.extractOverrides",json!({"config":expanded}));
+            saved["auPresetType"]=json!("fish");
+            let reloaded=request("profile.extendConfig",json!({"config":saved}));
+            for profile in [&expanded,&reloaded] {
+                let rows=request("profile.getAUDescriptors",json!({"profile":profile}));
+                let row=rows.as_array().unwrap().iter().find(|row|row["auId"]==2).unwrap();
+                if canonical.is_null() {
+                    assert_eq!(row["label"],preset["auInfo"]["2"]["name"]);
+                    assert_eq!(row["category"],"body");
+                    assert_eq!(row["section"],preset["auInfo"]["2"]["section"]);
+                } else {
+                    assert_eq!(row["label"],"Canonical turn");
+                    assert_eq!(row["category"],"bone");
+                    assert_eq!(row["section"],"Authored axes");
+                }
+                assert_eq!(row["order"].as_f64(),preset["auInfo"]["2"]["order"].as_f64());
+            }
         }
     }
 

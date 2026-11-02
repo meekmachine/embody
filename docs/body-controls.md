@@ -59,6 +59,14 @@ explicitly empty morph-side arrays and an explicit empty composite rotation
 table remain authoritative. A nullable morph-map entry retains the existing
 preset-merge semantics; use empty side arrays to clear inherited morph targets.
 Sparse custom profiles acquire no CC4 data.
+During preset composition, an authored legacy `actionInfo` entry also supplies
+its canonical `auInfo` override when that ID has no authored canonical entry.
+An explicitly authored `auInfo` key always wins, including its existing null-entry
+inheritance behavior. This keeps legacy saved names and presentation effective
+without reversing descriptor precedence between the two metadata spellings.
+Sparse legacy entries inherit omitted canonical names and routing fields, so a
+category-only legacy edit cannot erase existing morph routing or compiler
+classification. Authored legacy routing fields remain overrides.
 
 Bone authoring APIs save new joint-axis controls with category `bone`.
 `isJointControlAuInfo` follows the resolved category and its legacy fallback.

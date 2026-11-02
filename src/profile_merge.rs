@@ -194,7 +194,24 @@ pub(crate) fn extend_preset_with_profile(
     );
     merge_map(&mut merged.morph_to_mesh, extension.morph_to_mesh);
     replace_vec(&mut merged.mapping_sections, extension.mapping_sections);
-    merge_au_info(&mut merged.au_info, extension.au_info);
+    let mut canonical_au_info = extension.au_info.unwrap_or_default();
+    // Legacy authored metadata must override the inherited canonical entry,
+    // while any authored canonical key (including null) keeps its precedence.
+    for (id, info) in extension.action_info.as_ref().into_iter().flatten() {
+        canonical_au_info.entry(id.clone()).or_insert_with(|| {
+            let mut normalized=info.clone();
+            if let (Some(normalized),Some(inherited))=(normalized.as_mut(),base.au_info.get(id)) {
+                // A sparse legacy presentation edit must not remove inherited
+                // routing or compiler classification while entering auInfo.
+                if normalized.face_area.is_none() {normalized.face_area=inherited.face_area.clone();}
+                if normalized.face_part.is_none() {normalized.face_part=inherited.face_part.clone();}
+                if normalized.id.is_none() {normalized.id=inherited.id.clone();}
+                if normalized.name.is_none() {normalized.name=inherited.name.clone();}
+            }
+            normalized
+        });
+    }
+    merge_au_info(&mut merged.au_info, Some(canonical_au_info));
     merge_au_info(&mut merged.action_info, extension.action_info);
     merge_map(
         &mut merged.au_face_part_to_mesh_category,
@@ -684,6 +701,28 @@ mod tests {
         assert_eq!(rows[0]["category"],"body");
         assert_eq!(rows[0]["section"],"Fins");
         assert_eq!(rows[0]["hasConfiguredBones"],true);
+    }
+
+    #[test]
+    fn sparse_legacy_category_override_keeps_inherited_cc4_routing_and_morph_weighting() {
+        let base=serde_json::to_value(crate::presets::load_profile("cc4").unwrap()).unwrap();
+        let merged=merge(base.clone(),json!({
+            "actionInfo":{"1001":{"category":"custom","section":"My arm controls"}},
+            "auToBones":{"1001":[]},"compositeRotations":[],"auMixDefaults":{"1001":0.25}
+        }));
+        for field in ["id","name","faceArea","facePart"] {
+            assert_eq!(merged["auInfo"]["1001"][field],base["auInfo"]["1001"][field]);
+        }
+        let profile:ProfileData=serde_json::from_value(merged).unwrap();
+        assert!(crate::profile::is_body_action(&profile,1001));
+        let tables=crate::profile::compile_tables(&profile,&crate::profile::ModelData::default());
+        assert!(tables.mixed_aus.contains(&1001));
+        let rows=crate::au_descriptors::resolve(&profile,None);
+        let row=rows.as_array().unwrap().iter().find(|row|row["auId"]==1001).unwrap();
+        assert_eq!(row["category"],"custom");
+        assert_eq!(row["section"],"My arm controls");
+        assert_eq!(row["morphStrength"],0.25);
+        assert_eq!(row["label"],base["auInfo"]["1001"]["name"]);
     }
 
     #[test]
