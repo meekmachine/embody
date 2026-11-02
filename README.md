@@ -736,7 +736,14 @@ a push to `main`, or a manual run on `main` with the `ref` input left empty.
 It chooses the next patch version, records the source commit in `gitHead`, and
 builds and validates once. Stable version selection reads public metadata from
 `registry.npmjs.org` anonymously; redirects and failed lookups stop the release.
-Metadata reads never transmit publishing credentials. The separate
+Metadata reads request cache revalidation and never transmit publishing credentials.
+Before building, version selection checks its candidate once at the exact-version
+endpoint. An upload missing from the package index is incorporated into selection
+and source-history checks: the same source reuses that version; a newer source
+selects the next version before the build. Conflicting records or failed reads stop
+preparation. This is a bounded reconciliation, not polling or a guarantee that every
+registry replica has caught up; the independent publication check still rejects an
+occupied or uncertain version without changing the verified tarball. The separate
 publish job first requires the npm visibility endpoint (the endpoint used by
 `npm access get status`) to report the existing package as public. It reads this
 anonymously without npm token configuration, then uses GitHub OIDC trusted

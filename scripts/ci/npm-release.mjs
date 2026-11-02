@@ -33,7 +33,7 @@ export async function readNpmMetadata(packageName, fetchMetadata = fetch) {
   // npm packages are public even though the source repository is private.
   // Metadata reads never consume or transmit publishing credentials.
   const response = await fetchMetadata(`https://registry.npmjs.org/${encodeURIComponent(packageName)}`, {
-    headers: { accept: 'application/json' },
+    headers: { accept: 'application/json', 'cache-control': 'no-cache' },
     redirect: 'error',
     signal: AbortSignal.timeout(30_000),
   });
@@ -82,6 +82,30 @@ export function selectRelease(metadata, manifestVersion, sourceSha, headTags = [
   const highest = [...versions, manifestVersion].sort(compareVersions).at(-1);
   const [major, minor, patch] = parseVersion(highest);
   return { version: `${major}.${minor}.${patch + 1}`, exists: false };
+}
+
+export async function selectReleaseWithExactVersion(metadata, manifestVersion, sourceSha, headTags, readVersion) {
+  const candidate = selectRelease(metadata, manifestVersion, sourceSha, headTags);
+  // A successful upload can precede its package-index entry. Reconcile the
+  // selected version once before building, using the same exact identity read
+  // as publication. Never poll or renumber an already-built package.
+  const existing = await readVersion(metadata.name, candidate.version);
+  if (metadata.versions[candidate.version] && !existing) {
+    throw new Error('npm package index and exact-version lookup disagree before release preparation.');
+  }
+  if (!existing) return { release: candidate, metadata };
+  if (existing.name !== metadata.name || existing.version !== candidate.version) {
+    throw new Error('npm returned a different exact package/version during release preparation.');
+  }
+  const indexed = metadata.versions[candidate.version];
+  if (indexed && indexed.gitHead !== existing.gitHead) {
+    throw new Error('npm package index and exact-version source identities disagree before release preparation.');
+  }
+  const reconciled = { ...metadata, versions: { ...metadata.versions, [candidate.version]: existing } };
+  return {
+    release: selectRelease(reconciled, manifestVersion, sourceSha, headTags),
+    metadata: reconciled,
+  };
 }
 
 export function assertNewReleaseDescendsFromPublished(metadata, sourceSha, isAncestor) {
