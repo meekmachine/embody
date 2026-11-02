@@ -530,6 +530,10 @@ playback clock or hair simulation.
 
 ### Hair motion
 
+The CC4 preset does not map `Length_Short` to hair physics: head movement
+should animate hair direction without changing its authored length. Saved
+profiles with an explicit length mapping must clear it or set its strength to zero.
+
 When the profile enables `hairPhysics` and its registered hair/eyebrow meshes
 contain mapped targets, the Three character host plays one additive native action,
 `__embody_hair_response`. Rust's `HairResponse` owns velocity, spring displacement,

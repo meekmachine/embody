@@ -128,6 +128,33 @@ mod tests {
     }
 
     #[test]
+    fn cc4_head_motion_does_not_drive_hair_length() {
+        use crate::hair_curves::{normalize_config, response_morph_values, HairPlaybackConfig};
+
+        let profile: serde_json::Value =
+            serde_json::from_str(&merge_preset_with_override_json("cc4", "").unwrap()).unwrap();
+        let targets = &profile["hairPhysics"]["morphTargets"];
+        assert!(targets["headUp"].get("Length_Short").is_none());
+        let config = normalize_config(
+            &HairPlaybackConfig::default(),
+            &serde_json::json!({
+                "enabled": true,
+                "morphTargets": targets,
+            }),
+        )
+        .unwrap();
+        for pitch in [-1.0, 0.0, 1.0] {
+            let values = response_morph_values(&config, [0.0, 0.0, pitch]);
+            assert!(!values.contains_key("Length_Short"));
+        }
+        let values = response_morph_values(&config, [0.0, 0.0, 1.0]);
+        assert!(
+            values["L_Hair_Front"] > 0.0,
+            "directional hair motion remains mapped"
+        );
+    }
+
+    #[test]
     fn typed_round_trip_preserves_three_adapter_and_legacy_fish_metadata() {
         let cc4: serde_json::Value =
             serde_json::from_str(&merge_preset_with_override_json("cc4", "").unwrap()).unwrap();
