@@ -71,8 +71,8 @@ export const applyBilateralAxisBindingUpdate = (profile: Types.ProfileInput, bon
 export const applyAUBoneBindingUpdate = (profile: Types.Profile, auId: number, update: { boneName: string | null; axis: Types.BoneAxisKey; direction: Types.BoneAxisDirection; maxDegrees: number | null }): Types.Profile => request('bone.applyAUBindingUpdate', { profile, auId, update });
 export const createBoneAxisAu = (profile: Types.ProfileInput, boneName: string, axis: Types.BoneAxisKey, direction: Types.BoneAxisDirection, options: { name?: string } = {}): Types.CreatedBoneAxisAu => request('bone.createAxisAU', { profile, boneName, axis, direction, name: options.name });
 export const createBilateralBoneAxisAu = (profile: Types.ProfileInput, boneName: string, axis: Types.BoneAxisKey, scope: Types.BilateralBoneAxisScope, direction: Types.BoneAxisDirection, options: { name?: string } = {}): Types.CreatedBoneAxisAu => request('bone.createBilateralAxisAU', { profile, boneName, axis, scope, direction, name: options.name });
-export const buildBoneAuOptions = (profile: Partial<Types.Profile>): Array<{ value: string; label: string; detail?: string }> => request('bone.buildAUOptions', { profile });
-export const isJointControlAuInfo = (info?: Pick<Types.AUInfo, 'facePart'> | null): boolean => request('bone.isJointControlInfo', { info });
+export const buildBoneAuOptions = (profile: Partial<Types.Profile>): Array<{ value: string; label: string; detail?: string; category?: import('@lovelace_lol/embody/wasm').ControlCategory; section?: string | null; order?: number | null }> => request('bone.buildAUOptions', { profile });
+export const isJointControlAuInfo = (info?: Pick<Types.AUInfo, 'facePart' | 'category'> | null): boolean => request('bone.isJointControlInfo', { info });
 export const classifyAuAsJointControl = (profile: Types.Profile, auId: number, options: { boneName?: string | null; nodeKey?: string | null } = {}): Types.Profile => request('bone.classifyJointControl', { profile, auId, boneName: options.boneName, nodeKey: options.nodeKey });
 export const resolveContinuumDisplayLabel = (profile: Partial<Pick<Types.Profile, 'continuumPairs' | 'continuumLabels' | 'auInfo' | 'boneNodes' | 'bonePrefix' | 'boneSuffix'>>, negativeAuId: number, positiveAuId: number): string => request<string | null>('bone.resolveContinuumLabel', { profile, negativeAuId, positiveAuId }) ?? `AU ${negativeAuId} <-> AU ${positiveAuId}`;
 
@@ -131,4 +131,4 @@ export function extractHumanoidSkeletonTemplateFromModel(model: Object3D, option
   return JSON.parse(requireInitializedEmbodyCore().extract_humanoid_skeleton_template_json(json(inspectModel(model).descriptor), json(options)));
 }
 
-export type { AUDescriptor } from '@lovelace_lol/embody/wasm';
+export type { AUDescriptor, ControlCategory } from '@lovelace_lol/embody/wasm';

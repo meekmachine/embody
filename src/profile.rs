@@ -37,6 +37,12 @@ where
     Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
+/// Preserve an authored clear separately from an omitted inherited field.
+fn optional_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where D: serde::Deserializer<'de>, T: Deserialize<'de> {
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum MorphRef {
@@ -187,8 +193,47 @@ pub struct AuInfoData {
     pub face_area: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub face_part: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "optional_nullable")]
+    pub category: Option<Option<ControlCategory>>,
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "optional_nullable")]
+    pub section: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "optional_nullable")]
+    pub order: Option<Option<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "optional_nullable")]
+    pub control_label: Option<Option<String>>,
     #[serde(flatten)]
     pub extensions: Map<String, Value>,
+}
+
+/// Semantic presentation is independent of a control's bone/morph outputs.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ControlCategory {
+    Au,
+    Body,
+    Bone,
+    Custom,
+}
+
+impl AuInfoData {
+    pub(crate) fn control_category(&self) -> ControlCategory {
+        match self.category {
+            Some(Some(category)) => category,
+            Some(None) => ControlCategory::Custom,
+            None => {
+                if self.face_part.as_deref() == Some("Joint Controls") {
+                    ControlCategory::Bone
+                } else if self.face_area.as_deref() == Some("Body")
+                    || self.face_part.as_deref() == Some("Body") {
+                    ControlCategory::Body
+                } else if matches!(self.face_area.as_deref(), Some("Upper" | "Lower")) {
+                    ControlCategory::Au
+                } else {
+                    ControlCategory::Custom
+                }
+            }
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -1357,6 +1402,8 @@ fn viseme_binding_targets(
 }
 
 pub(crate) fn is_body_action(profile: &ProfileData, au_id: u32) -> bool {
+    // Historical routing/compiler classification is deliberately independent
+    // of presentation categories: relabeling a control must not change output.
     profile.au_info.get(&au_id.to_string()).or_else(|| profile.action_info.get(&au_id.to_string()))
         .is_some_and(|info| info.face_area.as_deref() == Some("Body") || info.face_part.as_deref() == Some("Body"))
 }

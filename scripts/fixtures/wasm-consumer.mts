@@ -1,6 +1,6 @@
 // This fixture is copied into an isolated consumer of the packed package.
 // The error assertions below fail if the public loader regresses to `any`.
-import { initEmbodyCore as initFromRoot, getAUDescriptors as rootAUDescriptors, LEGACY_BODY_CONTROL_AUS, decodeLegacyPose, type AUDescriptor as RootAUDescriptor } from '@lovelace_lol/embody';
+import { initEmbodyCore as initFromRoot, getAUDescriptors as rootAUDescriptors, LEGACY_BODY_CONTROL_AUS, decodeLegacyPose, type AUDescriptor as RootAUDescriptor, type ControlCategory } from '@lovelace_lol/embody';
 import {
   getAUDescriptors as wasmAUDescriptors,
   type AUDescriptor as WasmAUDescriptor,
@@ -228,6 +228,12 @@ const legacyPositiveAU: number = LEGACY_BODY_CONTROL_AUS['body.elbowFlex'].posit
 LEGACY_BODY_CONTROL_AUS['body.elbowFlex'].positiveAuId = 42;
 const sideSelection: boolean = rootAUs[0].bilateral;
 const actualSides: Array<'left' | 'right' | 'center'> = rootAUs[0].availableSides;
+const category: ControlCategory = rootAUs[0].category;
+const configuredBoneSupport: boolean = rootAUs[0].hasConfiguredBones;
+const configuredMorphSupport: boolean = rootAUs[0].hasConfiguredMorphs;
+// @ts-expect-error Visemes have their own slot API, outside the AU descriptor category vocabulary.
+const invalidCategory: 'viseme' = rootAUs[0].category;
+void [category, configuredBoneSupport, configuredMorphSupport];
 void [wasmAUs, threeAUs, characterAUs, sideSelection, actualSides];
 // @ts-expect-error Available sides must keep their explicit side vocabulary.
 const invalidSide: 'both' = rootAUs[0].availableSides[0];

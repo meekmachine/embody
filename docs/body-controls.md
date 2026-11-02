@@ -15,6 +15,56 @@ and morphs. `bilateral` indicates side-selectable output even on a partial rig;
 AU retains its valid negative balance without advertising an absent right side.
 There is no `body.*` identity or separate active catalog.
 
+### Categories and anatomical presentation
+
+Each descriptor has a `category`: `au` for facial/FACS controls, `body` for
+semantic skeletal movements, `bone` for authored direct joint-axis controls,
+or `custom` for other profile-defined controls. Visemes retain their separate
+slot/binding API. The existing numeric ID remains the input to `setAU` and the
+clip compiler in every category; changing presentation never changes its bone
+or morph outputs, mesh routing, balance or morph-strength behavior.
+
+Profiles author optional `category`, `section`, `order` and `controlLabel` on
+their existing `auInfo` or legacy `actionInfo` entry. `controlLabel` names the
+combined movement of a continuum; `name` remains the individual direction's
+label. CC4 restores the historical presentation on all 58 movement equivalents:
+51 Body movements under Whole body, Torso, Head, Arms, Hands, Legs and Feet,
+and seven canonical head/eye/jaw movements in AU/FACS. The latter retain their
+existing AU identities and outputs rather than duplicate Body controls. Fish
+keeps its own anatomical sections and movements despite sharing numeric IDs
+with human profiles.
+Body `order` values encode that anatomical section order and preserve the
+historical movement order within each section; hosts can sort without a
+second rig-specific section list.
+
+Without explicit category metadata, legacy `Joint Controls` entries resolve to
+`bone`, legacy Body area/part entries to `body`, Upper/Lower area entries to
+`au`, and other entries to `custom`. Numeric ranges and resolved target support
+never determine category. Hosts must only combine paired directions when both
+descriptors have the same category; profile pairs remain evaluator inputs even
+if their presentation categories differ.
+
+`hasConfiguredBones` and `hasConfiguredMorphs` describe authored bindings,
+independently of the existing `hasBones`, `hasMorphs` and `available` support
+fields. An unavailable configured bone remains in `boneBindings` with diagnostics;
+its category and presentation remain intact. Hosts can display that movement
+disabled with the cause instead of hiding it. Explicitly cleared bindings have
+no configured support even when their metadata retains a visible row.
+
+Preset composition preserves inherited presentation when an older saved metadata
+entry omits those fields; saved names and routing retain their existing replacement
+semantics. Explicit `null` presentation fields clear inherited values and survive
+export/reload. A cleared category resolves to `custom`. Empty `auToBones` arrays,
+explicitly empty morph-side arrays and an explicit empty composite rotation
+table remain authoritative. A nullable morph-map entry retains the existing
+preset-merge semantics; use empty side arrays to clear inherited morph targets.
+Sparse custom profiles acquire no CC4 data.
+
+Bone authoring APIs save new joint-axis controls with category `bone`.
+`isJointControlAuInfo` follows the resolved category and its legacy fallback.
+`buildBoneAuOptions` labels choices as FACS, Body, Bone rotation or Custom and
+returns category, section and order alongside its existing option fields.
+
 Each descriptor's `auId` identifies that AU, including a continuum's negative
 member. For a paired AU, use `negativeAuId` and `positiveAuId` as the signed
 continuum inputs. Reciprocal `continuumPairs` entries report the same direction

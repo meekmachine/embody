@@ -1,7 +1,7 @@
 //! Read-only descriptors of actual AU metadata and mapped outputs, never a second control catalog.
 use std::collections::BTreeSet;
 use serde_json::{json, Value};
-use crate::profile::{AuMorphEntry, AuSelector, ModelData, NameResolver, ProfileData};
+use crate::profile::{AuMorphEntry, AuSelector, ControlCategory, ModelData, NameResolver, ProfileData};
 
 pub(crate) fn resolve(profile: &ProfileData, model: Option<&ModelData>) -> Value {
     let resolver = model.map(|model|NameResolver::new(profile,model));
@@ -12,9 +12,11 @@ pub(crate) fn resolve(profile: &ProfileData, model: Option<&ModelData>) -> Value
     Value::Array(ids.into_iter().map(|au| {
         let key=au.to_string();
         let info=profile.au_info.get(&key).or_else(||profile.action_info.get(&key));
+        let category=info.map(|info|info.control_category()).unwrap_or(ControlCategory::Custom);
+        let configured_bones=profile.au_to_bones.get(&key).or_else(||profile.bone_bindings.get(&key));
         let mut bones=Vec::new();let mut bone_names=BTreeSet::new();let mut morph_names=BTreeSet::new();
         let mut sides=BTreeSet::new();let mut diagnostics=Vec::new();let mut has_bones=false;let mut has_morphs=false;
-        for binding in profile.au_to_bones.get(&key).or_else(||profile.bone_bindings.get(&key)).into_iter().flatten() {
+        for binding in configured_bones.into_iter().flatten() {
             let resolved=model.zip(resolver.as_ref()).and_then(|(model,resolver)|resolver.resolve_bone(model,profile,&binding.node));
             let name=resolved.map(|bone|bone.name.clone()).unwrap_or_else(||crate::profile_resolution::configured_bone_name(profile,&binding.node));
             let rotational=matches!(binding.channel.as_str(),"rx"|"ry"|"rz");
@@ -29,6 +31,7 @@ pub(crate) fn resolve(profile: &ProfileData, model: Option<&ModelData>) -> Value
             let mut row=serde_json::to_value(binding).unwrap();row["auId"]=json!(au);row["boneName"]=json!(name);bones.push(row);
         }
         let morphs=profile.au_to_morphs.get(&key).and_then(Option::as_ref).cloned().unwrap_or_else(AuMorphEntry::default);
+        let has_configured_morphs=!morphs.left.is_empty()||!morphs.right.is_empty()||!morphs.center.is_empty();
         for (side,targets) in [("left",&morphs.left),("right",&morphs.right),("center",&morphs.center)] {
             for target in targets {
                 let resolved=resolver.as_ref().map(|resolver|resolver.resolve_au_morph(profile,au,target));
@@ -46,10 +49,15 @@ pub(crate) fn resolve(profile: &ProfileData, model: Option<&ModelData>) -> Value
         // availableSides distinguishes that support from a complete bilateral rig.
         let bilateral=sides.contains("left")||sides.contains("right");
         json!({"auId":au,"label":info.and_then(|info|info.name.as_deref()).unwrap_or(&key),
+            "category":category,"section":info.and_then(|info|info.section.as_ref()).and_then(Option::as_ref),
+            "order":info.and_then(|info|info.order).flatten(),
+            "controlLabel":info.and_then(|info|info.control_label.as_ref()).and_then(Option::as_ref),
             "faceArea":info.and_then(|info|info.face_area.as_deref()),"facePart":info.and_then(|info|info.face_part.as_deref()),
             "negativeAuId":negative,"positiveAuId":positive,"bilateral":bilateral,
             "boneBindings":bones,"boneNames":bone_names,"morphBindings":morphs,"morphNames":morph_names,
             "morphStrength":profile.au_mix_defaults.get(&key).copied().unwrap_or(1.0),"availableSides":sides,
+            "hasConfiguredBones":configured_bones.is_some_and(|bindings|!bindings.is_empty()),
+            "hasConfiguredMorphs":has_configured_morphs,
             "hasBones":has_bones,"hasMorphs":has_morphs,"available":has_bones||has_morphs,"diagnostics":diagnostics})
     }).collect())
 }
@@ -58,6 +66,97 @@ pub(crate) fn resolve(profile: &ProfileData, model: Option<&ModelData>) -> Value
 mod tests {
     use super::*;
     use crate::runtime::RuntimeCore;
+    #[test]
+    fn real_cc4_retains_every_historical_movement_without_duplicate_face_identities() {
+        let profile=crate::presets::load_profile("cc4").unwrap();
+        let rows=resolve(&profile,Some(&ModelData::default()));
+        // Historical expected presentation is a regression fixture only. The
+        // active source remains each existing AU's authored preset metadata.
+        let expected: &[(u32, Option<u32>, &str, u32, &str, &str)]=&[
+            (1001, None, "Arms", 3010, "Elbow flex / biceps", "body"),
+            (1002, None, "Legs", 5020, "Knee bend", "body"),
+            (1004, Some(1003), "Torso", 1030, "Torso twist", "body"),
+            (1011, Some(1010), "Whole body", 40, "Whole body bend", "body"),
+            (1013, Some(1012), "Whole body", 50, "Whole body twist", "body"),
+            (1015, Some(1014), "Whole body", 60, "Whole body side bend", "body"),
+            (1017, Some(1016), "Torso", 1070, "Lower spine bend", "body"),
+            (1019, Some(1018), "Torso", 1080, "Lower spine twist", "body"),
+            (1021, Some(1020), "Torso", 1090, "Lower spine side bend", "body"),
+            (1023, Some(1022), "Torso", 1100, "Chest bend", "body"),
+            (1025, Some(1024), "Torso", 1110, "Chest side bend", "body"),
+            (1027, Some(1026), "Torso", 1120, "Upper chest bend", "body"),
+            (1029, Some(1028), "Torso", 1130, "Upper chest twist", "body"),
+            (1031, Some(1030), "Torso", 1140, "Upper chest side bend", "body"),
+            (1033, Some(1032), "Head", 2150, "Neck bend", "body"),
+            (1035, Some(1034), "Head", 2160, "Neck twist", "body"),
+            (1037, Some(1036), "Head", 2170, "Neck side bend", "body"),
+            (1039, Some(1038), "Arms", 3180, "Shoulder raise", "body"),
+            (1041, Some(1040), "Arms", 3190, "Shoulder forward/back", "body"),
+            (1043, Some(1042), "Arms", 3200, "Arm forward/back", "body"),
+            (1045, Some(1044), "Arms", 3210, "Arm raise/lower", "body"),
+            (1047, Some(1046), "Arms", 3220, "Upper arm twist", "body"),
+            (1049, Some(1048), "Arms", 3230, "Forearm rotation", "body"),
+            (1051, Some(1050), "Hands", 4240, "Wrist bend", "body"),
+            (1053, Some(1052), "Hands", 4250, "Wrist side bend", "body"),
+            (1055, Some(1054), "Legs", 5260, "Hip forward/back", "body"),
+            (1057, Some(1056), "Legs", 5270, "Hip outward/inward", "body"),
+            (1059, Some(1058), "Legs", 5280, "Hip rotation", "body"),
+            (1061, Some(1060), "Feet", 6290, "Ankle bend", "body"),
+            (1063, Some(1062), "Feet", 6300, "Foot tilt", "body"),
+            (1065, Some(1064), "Feet", 6310, "Toe bend", "body"),
+            (1066, None, "Hands", 4320, "Thumb metacarpal curl", "body"),
+            (1067, None, "Hands", 4330, "Thumb proximal curl", "body"),
+            (1068, None, "Hands", 4340, "Thumb distal curl", "body"),
+            (1070, Some(1069), "Hands", 4350, "Thumb spread", "body"),
+            (1071, None, "Hands", 4360, "Index proximal curl", "body"),
+            (1072, None, "Hands", 4370, "Index intermediate curl", "body"),
+            (1073, None, "Hands", 4380, "Index distal curl", "body"),
+            (1075, Some(1074), "Hands", 4390, "Index spread", "body"),
+            (1076, None, "Hands", 4400, "Middle proximal curl", "body"),
+            (1077, None, "Hands", 4410, "Middle intermediate curl", "body"),
+            (1078, None, "Hands", 4420, "Middle distal curl", "body"),
+            (1080, Some(1079), "Hands", 4430, "Middle spread", "body"),
+            (1081, None, "Hands", 4440, "Ring proximal curl", "body"),
+            (1082, None, "Hands", 4450, "Ring intermediate curl", "body"),
+            (1083, None, "Hands", 4460, "Ring distal curl", "body"),
+            (1085, Some(1084), "Hands", 4470, "Ring spread", "body"),
+            (1086, None, "Hands", 4480, "Little proximal curl", "body"),
+            (1087, None, "Hands", 4490, "Little intermediate curl", "body"),
+            (1088, None, "Hands", 4500, "Little distal curl", "body"),
+            (1090, Some(1089), "Hands", 4510, "Little spread", "body"),
+            (52, Some(51), "Head", 520, "Head turn", "au"),
+            (53, Some(54), "Head", 530, "Head nod", "au"),
+            (56, Some(55), "Head", 540, "Head tilt", "au"),
+            (62, Some(61), "Head", 550, "Eyes turn", "au"),
+            (63, Some(64), "Head", 560, "Eyes up/down", "au"),
+            (26, None, "Head", 570, "Jaw open", "au"),
+            (35, Some(30), "Head", 580, "Jaw sideways", "au"),
+        ];
+        let descriptors=rows.as_array().unwrap();
+        let mut body_controls=BTreeSet::new();
+        let mut face_controls=BTreeSet::new();
+        for &(positive,negative,section,order,label,category) in expected {
+            for id in std::iter::once(positive).chain(negative) {
+                let row=descriptors.iter().find(|row|row["auId"]==id).unwrap();
+                assert_eq!(row["category"],category,"{label}/{id} category");
+                assert_eq!(row["section"],section,"{label}/{id} section");
+                assert_eq!(row["order"].as_f64(),Some(order as f64),"{label}/{id} order");
+                assert_eq!(row["controlLabel"],label,"{label}/{id} label");
+                assert_eq!(row["hasConfiguredBones"],true,"{label}/{id} configured bindings");
+                assert_eq!(row["hasBones"],false,"an absent rig must not hide configured controls");
+                if let Some(negative)=negative {
+                    assert_eq!(row["negativeAuId"],negative);
+                    assert_eq!(row["positiveAuId"],positive);
+                }
+            }
+            if category=="body" {body_controls.insert(label);} else {face_controls.insert(label);}
+        }
+        assert_eq!(body_controls.len(),51);
+        assert_eq!(face_controls.len(),7);
+        assert_eq!(descriptors.iter().filter(|row|!row["controlLabel"].is_null())
+            .map(|row|row["controlLabel"].as_str().unwrap()).collect::<BTreeSet<_>>().len(),58);
+    }
+
     fn fixture()->(ProfileData,ModelData) {
         (serde_json::from_value(json!({"auInfo":{"8001":{"name":"Authored flex","faceArea":"Body","facePart":"Body"}},
             "auToBones":{"8001":[{"node":"ArmL","channel":"rx","scale":1,"maxDegrees":90,"side":"left"},
@@ -83,6 +182,57 @@ mod tests {
         assert_eq!(row["hasBones"],true);assert_eq!(row["hasMorphs"],true);
         let absent=resolve(&profile,Some(&ModelData::default()));assert_eq!(absent[0]["available"],false);
         assert!(!absent[0]["diagnostics"].as_array().unwrap().is_empty());
+    }
+    #[test]
+    fn classification_uses_profile_meaning_and_keeps_unavailable_configured_outputs() {
+        let cc4=crate::presets::load_profile("cc4").unwrap();
+        let fish=crate::presets::load_profile("fish").unwrap();
+        for (profile,category) in [(&cc4,"au"),(&fish,"body")] {
+            let rows=resolve(profile,None);
+            assert_eq!(rows.as_array().unwrap().iter().find(|row|row["auId"]==2).unwrap()["category"],category);
+        }
+        let profile:ProfileData=serde_json::from_value(json!({
+            "auInfo":{"8002":{"name":"Authored axis","facePart":"Joint Controls"},
+                "8003":{"name":"Deliberately custom","faceArea":"Body","category":"custom"}},
+            "auToBones":{"2":[{"node":"Missing","channel":"rx","scale":1}]},
+            "auToMorphs":{"2":{"center":["MissingShape"]}}
+        })).unwrap();
+        let rows=resolve(&profile,Some(&ModelData::default()));
+        assert_eq!(rows[0]["auId"],2);
+        assert_eq!(rows[0]["category"],"custom","numeric IDs do not establish FACS semantics");
+        assert_eq!(rows[0]["hasConfiguredBones"],true);
+        assert_eq!(rows[0]["hasConfiguredMorphs"],true);
+        assert_eq!(rows[0]["available"],false);
+        assert_eq!(rows[0]["boneBindings"][0]["node"],"Missing");
+        assert_eq!(rows[1]["category"],"bone");
+        assert_eq!(rows[2]["category"],"custom");
+    }
+
+    #[test]
+    fn category_presentation_does_not_change_live_or_compiled_bone_and_morph_output() {
+        let (profile,model)=fixture();
+        for clear_bones in [false,true] {
+            let mut profile=profile.clone();
+            if clear_bones {
+                profile.au_to_bones.insert("8001".into(),Vec::new());
+                profile.composite_rotations=Vec::new().into();
+            }
+            let mut expected=None;
+            for category in [Some(ControlCategory::Au),Some(ControlCategory::Body),Some(ControlCategory::Bone),Some(ControlCategory::Custom),None] {
+                let info=profile.au_info.get_mut("8001").unwrap();
+                info.category=Some(category);
+                info.section=Some(Some("Authored section".into()));
+                info.control_label=Some(Some("Authored movement".into()));
+                let mut core=RuntimeCore::new(0);
+                core.configure_with_profile(&serde_json::to_string(&profile).unwrap(),&serde_json::to_string(&model).unwrap()).unwrap();
+                core.set_au(8001,0.8,-1.0);
+                let clip=core.build_clip("category-independent",r#"{"8001":[{"time":0,"intensity":0},{"time":1,"intensity":0.8}]}"#,
+                    r#"{"balanceMap":{"8001":-1},"mixWeights":{"8001":0.25}}"#).unwrap();
+                let output=(core.evaluate_active_bone_frame(),core.evaluate_active_morph_frame(),clip);
+                if let Some(expected)=&expected {assert_eq!(&output,expected);} else {expected=Some(output);}
+                assert_eq!(resolve(&profile,Some(&model))[0]["category"],serde_json::to_value(category.unwrap_or(ControlCategory::Custom)).unwrap());
+            }
+        }
     }
     #[test]
     fn partial_left_rig_keeps_balance_selection_without_advertising_missing_right() {
