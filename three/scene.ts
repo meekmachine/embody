@@ -23,6 +23,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { registerSceneRendering } from './sceneRenderingBinding';
 import { prepareModelSkinning } from './modelSkinning';
 import { disposeSceneBackground, setSceneBaseBackground } from './sceneBackground';
+import { endCharacterSceneVideoCaptures } from './sceneVideoCapture';
 
 export type DefaultCharacterLightingSettings = {
   envMapEnabled: boolean;
@@ -731,6 +732,8 @@ export function createDefaultCharacterSceneRuntime(
         // Serialize release with replacement so a recovery requested during the
         // drain cannot compile resources that the callback is about to free.
         pending = operation;
+        // Admission is closed and retirement is queued before ended listeners can reenter.
+        endCharacterSceneVideoCaptures(rendering);
         void operation.then(() => { if (pending === operation) pending = null; }, () => { if (pending === operation) pending = null; });
         return operation.then(() => undefined);
       },

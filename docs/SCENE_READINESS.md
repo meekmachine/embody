@@ -204,6 +204,27 @@ option when supplied. No host renderer-switch hook or page reload is required.
 
 ## Borrowing renderer and character resources
 
+`acquireCharacterSceneVideoCapture(rendering, { fps: 30 })` returns a live
+`{ stream, release }` from the managed renderer's existing canvas. It borrows the
+renderer synchronously and owns only its captured tracks and lease. There is no
+additional draw loop, canvas resize or output composition. Switching, loss,
+disposal, replacement and canvas width/height changes terminate the capture and
+synchronously release the renderer before notifying track consumers with `ended`.
+Native track termination also releases the capture. Consumers should finish or
+cancel their recorder when the source ends. Manual `release()` is idempotent and
+stops the tracks without synthesizing an `ended` event.
+Scene resource retirement ends registered live video sources synchronously before
+waiting for leases, so replacing a model or scenery cannot wait for a long-lived
+recording to finish. Other borrowers, including pixel readback, still drain normally.
+
+Capture keeps the canvas's current dimensions; it deliberately ends on resize
+instead of changing the encoder's input dimensions mid-session. Appearance inside
+the renderer is captured; CSS backdrops and DOM overlays are outside the stream.
+Hosts own user permission, audio mixing, encoding, saving and provider delivery.
+Acquire only once the renderer is available; switching/lost/disposed owners reject
+acquisition rather than queueing a capture. The optional frame rate must be finite
+and between 1 and 60. Canvas streaming and mutation observation are required.
+
 `rendering.acquireRenderer()` returns `{ renderer, release }`. Release in a
 `finally` block after asynchronous readback, recording or a character-resource
 mutation finishes. New leases are rejected while switching, lost or disposed.
