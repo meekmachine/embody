@@ -2930,7 +2930,8 @@
         "https://en.wikipedia.org/wiki/Frontalis_muscle"
       ],
       "faceArea": "Upper",
-      "facePart": "Forehead"
+      "facePart": "Forehead",
+      "category": "au"
     },
     "2": {
       "id": "2",
@@ -2940,7 +2941,8 @@
         "https://en.wikipedia.org/wiki/Frontalis_muscle"
       ],
       "faceArea": "Upper",
-      "facePart": "Forehead"
+      "facePart": "Forehead",
+      "category": "au"
     },
     "4": {
       "id": "4",
@@ -2950,7 +2952,8 @@
         "https://en.wikipedia.org/wiki/Corrugator_supercilii"
       ],
       "faceArea": "Upper",
-      "facePart": "Forehead"
+      "facePart": "Forehead",
+      "category": "au"
     },
     "5": {
       "id": "5",
@@ -2960,7 +2963,8 @@
         "https://en.wikipedia.org/wiki/Levator_palpebrae_superioris"
       ],
       "faceArea": "Upper",
-      "facePart": "Eyelids"
+      "facePart": "Eyelids",
+      "category": "au"
     },
     "6": {
       "id": "6",
@@ -2970,7 +2974,8 @@
         "https://en.wikipedia.org/wiki/Orbicularis_oculi"
       ],
       "faceArea": "Upper",
-      "facePart": "Cheeks"
+      "facePart": "Cheeks",
+      "category": "au"
     },
     "7": {
       "id": "7",
@@ -2980,7 +2985,8 @@
         "https://en.wikipedia.org/wiki/Orbicularis_oculi"
       ],
       "faceArea": "Upper",
-      "facePart": "Eyelids"
+      "facePart": "Eyelids",
+      "category": "au"
     },
     "8": {
       "id": "8",
@@ -2990,7 +2996,8 @@
         "https://en.wikipedia.org/wiki/Orbicularis_oris"
       ],
       "faceArea": "Lower",
-      "facePart": "Mouth"
+      "facePart": "Mouth",
+      "category": "au"
     },
     "9": {
       "id": "9",
@@ -3000,7 +3007,8 @@
         "https://en.wikipedia.org/wiki/Levator_labii_superioris_alaeque_nasi"
       ],
       "faceArea": "Upper",
-      "facePart": "Nose"
+      "facePart": "Nose",
+      "category": "au"
     },
     "10": {
       "id": "10",
@@ -3010,7 +3018,8 @@
         "https://en.wikipedia.org/wiki/Levator_labii_superioris"
       ],
       "faceArea": "Lower",
-      "facePart": "Mouth"
+      "facePart": "Mouth",
+      "category": "au"
     },
     "11": {
       "id": "11",
@@ -3020,7 +3029,8 @@
         "https://en.wikipedia.org/wiki/Zygomaticus_minor"
       ],
       "faceArea": "Lower",
-      "facePart": "Cheeks"
+      "facePart": "Cheeks",
+      "category": "au"
     },
     "12": {
       "id": "12",
@@ -3030,7 +3040,8 @@
         "https://en.wikipedia.org/wiki/Zygomaticus_major"
       ],
       "faceArea": "Lower",
-      "facePart": "Mouth"
+      "facePart": "Mouth",
+      "category": "au"
     },
     "13": {
       "id": "13",
@@ -3040,7 +3051,8 @@
         "https://en.wikipedia.org/wiki/Levator_anguli_oris"
       ],
       "faceArea": "Lower",
-      "facePart": "Mouth"
+      "facePart": "Mouth",
+      "category": "au"
     },
     "14": {
       "id": "14",
@@ -3050,7 +3062,8 @@
         "https://en.wikipedia.org/wiki/Buccinator"
       ],
       "faceArea": "Lower",
-      "facePart": "Cheeks"
+      "facePart": "Cheeks",
+      "category": "au"
     },
     "15": {
       "id": "15",
@@ -3060,7 +3073,8 @@
         "https://en.wikipedia.org/wiki/Depressor_anguli_oris"
       ],
       "faceArea": "Lower",
-      "facePart": "Mouth"
+      "facePart": "Mouth",
+      "category": "au"
     },
     "16": {
       "id": "16",
@@ -3070,7 +3084,8 @@
         "https://en.wikipedia.org/wiki/Depressor_labii_inferioris"
       ],
       "faceArea": "Lower",
-      "facePart": "Mouth"
+      "facePart": "Mouth",
+      "category": "au"
     },
     "17": {
       "id": "17",
@@ -3080,19 +3095,22 @@
         "https://en.wikipedia.org/wiki/Mentalis"
       ],
       "faceArea": "Lower",
-      "facePart": "Chin"
+      "facePart": "Chin",
+      "category": "au"
     },
     "18": {
       "id": "18",
       "name": "Lip Pucker",
       "faceArea": "Lower",
-      "facePart": "Mouth"
+      "facePart": "Mouth",
+      "category": "au"
     },
     "19": {
       "id": "19",
       "name": "Tongue Show",
       "faceArea": "Lower",
-      "facePart": "Tongue"
+      "facePart": "Tongue",
+      "category": "au"
     },
     "20": {
       "id": "20",
@@ -3103,7 +3121,8 @@
         "https://en.wikipedia.org/wiki/Platysma"
       ],
       "faceArea": "Lower",
-      "facePart": "Mouth"
+      "facePart": "Mouth",
+      "category": "au"
     },
     "22": {
       "id": "22",
@@ -3113,27 +3132,31 @@
         "https://en.wikipedia.org/wiki/Orbicularis_oris"
       ],
       "faceArea": "Lower",
-      "facePart": "Mouth"
+      "facePart": "Mouth",
+      "category": "au"
     },
     "23": {
       "id": "23",
       "name": "Lip Tightener",
       "muscularBasis": "orbicularis oris",
       "faceArea": "Lower",
-      "facePart": "Mouth"
+      "facePart": "Mouth",
+      "category": "au"
     },
     "24": {
       "id": "24",
       "name": "Lip Presser",
       "muscularBasis": "orbicularis oris",
       "faceArea": "Lower",
-      "facePart": "Mouth"
+      "facePart": "Mouth",
+      "category": "au"
     },
     "25": {
       "id": "25",
       "name": "Lips Part",
       "faceArea": "Lower",
-      "facePart": "Mouth"
+      "facePart": "Mouth",
+      "category": "au"
     },
     "26": {
       "id": "26",
@@ -3143,7 +3166,11 @@
         "https://en.wikipedia.org/wiki/Masseter_muscle"
       ],
       "faceArea": "Lower",
-      "facePart": "Jaw"
+      "facePart": "Jaw",
+      "category": "au",
+      "section": "Head",
+      "order": 570,
+      "controlLabel": "Jaw open"
     },
     "27": {
       "id": "27",
@@ -3154,94 +3181,115 @@
         "https://en.wikipedia.org/wiki/Digastric_muscle"
       ],
       "faceArea": "Lower",
-      "facePart": "Mouth"
+      "facePart": "Mouth",
+      "category": "au"
     },
     "28": {
       "id": "28",
       "name": "Lip Suck",
       "muscularBasis": "orbicularis oris",
       "faceArea": "Lower",
-      "facePart": "Mouth"
+      "facePart": "Mouth",
+      "category": "au"
     },
     "29": {
       "id": "29",
       "name": "Jaw Thrust",
       "faceArea": "Lower",
-      "facePart": "Jaw"
+      "facePart": "Jaw",
+      "category": "au"
     },
     "30": {
       "id": "30",
       "name": "Jaw Left",
       "faceArea": "Lower",
-      "facePart": "Jaw"
+      "facePart": "Jaw",
+      "category": "au",
+      "section": "Head",
+      "order": 580,
+      "controlLabel": "Jaw sideways"
     },
     "31": {
       "id": "31",
       "name": "Jaw Clencher",
       "muscularBasis": "masseter + temporalis",
       "faceArea": "Lower",
-      "facePart": "Jaw"
+      "facePart": "Jaw",
+      "category": "au"
     },
     "32": {
       "id": "32",
       "name": "Lip Bite",
       "muscularBasis": "orbicularis oris",
       "faceArea": "Lower",
-      "facePart": "Mouth"
+      "facePart": "Mouth",
+      "category": "au"
     },
     "34": {
       "id": "34",
       "name": "Cheek Puff",
       "faceArea": "Lower",
-      "facePart": "Cheeks"
+      "facePart": "Cheeks",
+      "category": "au"
     },
     "35": {
       "id": "35",
       "name": "Jaw Right",
       "faceArea": "Lower",
-      "facePart": "Jaw"
+      "facePart": "Jaw",
+      "category": "au",
+      "section": "Head",
+      "order": 580,
+      "controlLabel": "Jaw sideways"
     },
     "36": {
       "id": "36",
       "name": "Tongue Bulge",
       "faceArea": "Lower",
-      "facePart": "Tongue"
+      "facePart": "Tongue",
+      "category": "au"
     },
     "37": {
       "id": "37",
       "name": "Tongue Up",
       "faceArea": "Lower",
-      "facePart": "Tongue"
+      "facePart": "Tongue",
+      "category": "au"
     },
     "38": {
       "id": "38",
       "name": "Tongue Down",
       "faceArea": "Lower",
-      "facePart": "Tongue"
+      "facePart": "Tongue",
+      "category": "au"
     },
     "39": {
       "id": "39",
       "name": "Tongue Left",
       "faceArea": "Lower",
-      "facePart": "Tongue"
+      "facePart": "Tongue",
+      "category": "au"
     },
     "40": {
       "id": "40",
       "name": "Tongue Right",
       "faceArea": "Lower",
-      "facePart": "Tongue"
+      "facePart": "Tongue",
+      "category": "au"
     },
     "41": {
       "id": "41",
       "name": "Tongue Tilt Left",
       "faceArea": "Lower",
-      "facePart": "Tongue"
+      "facePart": "Tongue",
+      "category": "au"
     },
     "42": {
       "id": "42",
       "name": "Tongue Tilt Right",
       "faceArea": "Lower",
-      "facePart": "Tongue"
+      "facePart": "Tongue",
+      "category": "au"
     },
     "43": {
       "id": "43",
@@ -3251,7 +3299,8 @@
         "https://en.wikipedia.org/wiki/Orbicularis_oculi_muscle"
       ],
       "faceArea": "Upper",
-      "facePart": "Eyelids"
+      "facePart": "Eyelids",
+      "category": "au"
     },
     "45": {
       "id": "45",
@@ -3261,793 +3310,1210 @@
         "https://en.wikipedia.org/wiki/Orbicularis_oculi_muscle"
       ],
       "faceArea": "Upper",
-      "facePart": "Eyelids"
+      "facePart": "Eyelids",
+      "category": "au"
     },
     "51": {
       "id": "51",
       "name": "Head Turn Left",
       "faceArea": "Upper",
-      "facePart": "Head"
+      "facePart": "Head",
+      "category": "au",
+      "section": "Head",
+      "order": 520,
+      "controlLabel": "Head turn"
     },
     "52": {
       "id": "52",
       "name": "Head Turn Right",
       "faceArea": "Upper",
-      "facePart": "Head"
+      "facePart": "Head",
+      "category": "au",
+      "section": "Head",
+      "order": 520,
+      "controlLabel": "Head turn"
     },
     "53": {
       "id": "53",
       "name": "Head Up",
       "faceArea": "Upper",
-      "facePart": "Head"
+      "facePart": "Head",
+      "category": "au",
+      "section": "Head",
+      "order": 530,
+      "controlLabel": "Head nod"
     },
     "54": {
       "id": "54",
       "name": "Head Down",
       "faceArea": "Upper",
-      "facePart": "Head"
+      "facePart": "Head",
+      "category": "au",
+      "section": "Head",
+      "order": 530,
+      "controlLabel": "Head nod"
     },
     "55": {
       "id": "55",
       "name": "Head Tilt Left",
       "faceArea": "Upper",
-      "facePart": "Head"
+      "facePart": "Head",
+      "category": "au",
+      "section": "Head",
+      "order": 540,
+      "controlLabel": "Head tilt"
     },
     "56": {
       "id": "56",
       "name": "Head Tilt Right",
       "faceArea": "Upper",
-      "facePart": "Head"
+      "facePart": "Head",
+      "category": "au",
+      "section": "Head",
+      "order": 540,
+      "controlLabel": "Head tilt"
     },
     "61": {
       "id": "61",
       "name": "Eyes Turn Left",
       "faceArea": "Upper",
-      "facePart": "Eyes"
+      "facePart": "Eyes",
+      "category": "au",
+      "section": "Head",
+      "order": 550,
+      "controlLabel": "Eyes turn"
     },
     "62": {
       "id": "62",
       "name": "Eyes Turn Right",
       "faceArea": "Upper",
-      "facePart": "Eyes"
+      "facePart": "Eyes",
+      "category": "au",
+      "section": "Head",
+      "order": 550,
+      "controlLabel": "Eyes turn"
     },
     "63": {
       "id": "63",
       "name": "Eyes Up",
       "faceArea": "Upper",
-      "facePart": "Eyes"
+      "facePart": "Eyes",
+      "category": "au",
+      "section": "Head",
+      "order": 560,
+      "controlLabel": "Eyes up/down"
     },
     "64": {
       "id": "64",
       "name": "Eyes Down",
       "faceArea": "Upper",
-      "facePart": "Eyes"
+      "facePart": "Eyes",
+      "category": "au",
+      "section": "Head",
+      "order": 560,
+      "controlLabel": "Eyes up/down"
     },
     "65": {
       "id": "65",
       "name": "Left Eye Look Left",
       "faceArea": "Upper",
-      "facePart": "Eyes"
+      "facePart": "Eyes",
+      "category": "au"
     },
     "66": {
       "id": "66",
       "name": "Left Eye Look Right",
       "faceArea": "Upper",
-      "facePart": "Eyes"
+      "facePart": "Eyes",
+      "category": "au"
     },
     "67": {
       "id": "67",
       "name": "Left Eye Look Up",
       "faceArea": "Upper",
-      "facePart": "Eyes"
+      "facePart": "Eyes",
+      "category": "au"
     },
     "68": {
       "id": "68",
       "name": "Left Eye Look Down",
       "faceArea": "Upper",
-      "facePart": "Eyes"
+      "facePart": "Eyes",
+      "category": "au"
     },
     "69": {
       "id": "69",
       "name": "Right Eye Look Left",
       "faceArea": "Upper",
-      "facePart": "Eyes"
+      "facePart": "Eyes",
+      "category": "au"
     },
     "70": {
       "id": "70",
       "name": "Right Eye Look Right",
       "faceArea": "Upper",
-      "facePart": "Eyes"
+      "facePart": "Eyes",
+      "category": "au"
     },
     "71": {
       "id": "71",
       "name": "Right Eye Look Up",
       "faceArea": "Upper",
-      "facePart": "Eyes"
+      "facePart": "Eyes",
+      "category": "au"
     },
     "72": {
       "id": "72",
       "name": "Right Eye Look Down",
       "faceArea": "Upper",
-      "facePart": "Eyes"
+      "facePart": "Eyes",
+      "category": "au"
     },
     "73": {
       "id": "73",
       "name": "Tongue Narrow",
       "faceArea": "Lower",
-      "facePart": "Tongue"
+      "facePart": "Tongue",
+      "category": "au"
     },
     "74": {
       "id": "74",
       "name": "Tongue Wide",
       "faceArea": "Lower",
-      "facePart": "Tongue"
+      "facePart": "Tongue",
+      "category": "au"
     },
     "75": {
       "id": "75",
       "name": "Tongue Roll",
       "faceArea": "Lower",
-      "facePart": "Tongue"
+      "facePart": "Tongue",
+      "category": "au"
     },
     "76": {
       "id": "76",
       "name": "Tongue Tip Up",
       "faceArea": "Lower",
-      "facePart": "Tongue"
+      "facePart": "Tongue",
+      "category": "au"
     },
     "77": {
       "id": "77",
       "name": "Tongue Tip Down",
       "faceArea": "Lower",
-      "facePart": "Tongue"
+      "facePart": "Tongue",
+      "category": "au"
     },
     "80": {
       "id": "80",
       "name": "Eye Bulge",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "81": {
       "id": "81",
       "name": "Eye Depth",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "82": {
       "id": "82",
       "name": "Eye Inner Depth",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "83": {
       "id": "83",
       "name": "Eye Inner Height",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "84": {
       "id": "84",
       "name": "Eye Inner Width",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "85": {
       "id": "85",
       "name": "Eye Outer Depth",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "86": {
       "id": "86",
       "name": "Eye Outer Height",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "87": {
       "id": "87",
       "name": "Eye Outer Width",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "88": {
       "id": "88",
       "name": "Eye Upper Depth",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "89": {
       "id": "89",
       "name": "Eye Lower Depth",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "90": {
       "id": "90",
       "name": "Eye Center Upper Depth",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "91": {
       "id": "91",
       "name": "Eye Center Upper Height",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "92": {
       "id": "92",
       "name": "Eye Center Lower Depth",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "93": {
       "id": "93",
       "name": "Eye Center Lower Height",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "94": {
       "id": "94",
       "name": "Eye Inner Upper Depth",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "95": {
       "id": "95",
       "name": "Eye Inner Upper Height",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "96": {
       "id": "96",
       "name": "Eye Inner Lower Depth",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "97": {
       "id": "97",
       "name": "Eye Inner Lower Height",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "98": {
       "id": "98",
       "name": "Eye Outer Upper Depth",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "99": {
       "id": "99",
       "name": "Eye Outer Upper Height",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "100": {
       "id": "100",
       "name": "Eye Outer Lower Depth",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "101": {
       "id": "101",
       "name": "Eye Outer Lower Height",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "102": {
       "id": "102",
       "name": "Eye Duct Depth",
       "faceArea": "Upper",
-      "facePart": "Eye"
+      "facePart": "Eye",
+      "category": "au"
     },
     "1001": {
       "id": "1001",
       "name": "Elbow flex / biceps",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Arms",
+      "order": 3010,
+      "controlLabel": "Elbow flex / biceps"
     },
     "1002": {
       "id": "1002",
       "name": "Knee bend",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Legs",
+      "order": 5020,
+      "controlLabel": "Knee bend"
     },
     "1003": {
       "id": "1003",
       "name": "Torso twist right",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1030,
+      "controlLabel": "Torso twist"
     },
     "1004": {
       "id": "1004",
       "name": "Torso twist left",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1030,
+      "controlLabel": "Torso twist"
     },
     "1011": {
       "id": "1011",
       "name": "Whole body bend — Forward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Whole body",
+      "order": 40,
+      "controlLabel": "Whole body bend"
     },
     "1010": {
       "id": "1010",
       "name": "Whole body bend — Back",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Whole body",
+      "order": 40,
+      "controlLabel": "Whole body bend"
     },
     "1013": {
       "id": "1013",
       "name": "Whole body twist — Left",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Whole body",
+      "order": 50,
+      "controlLabel": "Whole body twist"
     },
     "1012": {
       "id": "1012",
       "name": "Whole body twist — Right",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Whole body",
+      "order": 50,
+      "controlLabel": "Whole body twist"
     },
     "1015": {
       "id": "1015",
       "name": "Whole body side bend — Right",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Whole body",
+      "order": 60,
+      "controlLabel": "Whole body side bend"
     },
     "1014": {
       "id": "1014",
       "name": "Whole body side bend — Left",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Whole body",
+      "order": 60,
+      "controlLabel": "Whole body side bend"
     },
     "1017": {
       "id": "1017",
       "name": "Lower spine bend — Forward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1070,
+      "controlLabel": "Lower spine bend"
     },
     "1016": {
       "id": "1016",
       "name": "Lower spine bend — Back",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1070,
+      "controlLabel": "Lower spine bend"
     },
     "1019": {
       "id": "1019",
       "name": "Lower spine twist — Left",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1080,
+      "controlLabel": "Lower spine twist"
     },
     "1018": {
       "id": "1018",
       "name": "Lower spine twist — Right",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1080,
+      "controlLabel": "Lower spine twist"
     },
     "1021": {
       "id": "1021",
       "name": "Lower spine side bend — Right",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1090,
+      "controlLabel": "Lower spine side bend"
     },
     "1020": {
       "id": "1020",
       "name": "Lower spine side bend — Left",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1090,
+      "controlLabel": "Lower spine side bend"
     },
     "1023": {
       "id": "1023",
       "name": "Chest bend — Forward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1100,
+      "controlLabel": "Chest bend"
     },
     "1022": {
       "id": "1022",
       "name": "Chest bend — Back",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1100,
+      "controlLabel": "Chest bend"
     },
     "1025": {
       "id": "1025",
       "name": "Chest side bend — Right",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1110,
+      "controlLabel": "Chest side bend"
     },
     "1024": {
       "id": "1024",
       "name": "Chest side bend — Left",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1110,
+      "controlLabel": "Chest side bend"
     },
     "1027": {
       "id": "1027",
       "name": "Upper chest bend — Forward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1120,
+      "controlLabel": "Upper chest bend"
     },
     "1026": {
       "id": "1026",
       "name": "Upper chest bend — Back",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1120,
+      "controlLabel": "Upper chest bend"
     },
     "1029": {
       "id": "1029",
       "name": "Upper chest twist — Left",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1130,
+      "controlLabel": "Upper chest twist"
     },
     "1028": {
       "id": "1028",
       "name": "Upper chest twist — Right",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1130,
+      "controlLabel": "Upper chest twist"
     },
     "1031": {
       "id": "1031",
       "name": "Upper chest side bend — Right",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1140,
+      "controlLabel": "Upper chest side bend"
     },
     "1030": {
       "id": "1030",
       "name": "Upper chest side bend — Left",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Torso",
+      "order": 1140,
+      "controlLabel": "Upper chest side bend"
     },
     "1033": {
       "id": "1033",
       "name": "Neck bend — Forward",
       "faceArea": "Body",
-      "facePart": "Head"
+      "facePart": "Head",
+      "category": "body",
+      "section": "Head",
+      "order": 2150,
+      "controlLabel": "Neck bend"
     },
     "1032": {
       "id": "1032",
       "name": "Neck bend — Back",
       "faceArea": "Body",
-      "facePart": "Head"
+      "facePart": "Head",
+      "category": "body",
+      "section": "Head",
+      "order": 2150,
+      "controlLabel": "Neck bend"
     },
     "1035": {
       "id": "1035",
       "name": "Neck twist — Left",
       "faceArea": "Body",
-      "facePart": "Head"
+      "facePart": "Head",
+      "category": "body",
+      "section": "Head",
+      "order": 2160,
+      "controlLabel": "Neck twist"
     },
     "1034": {
       "id": "1034",
       "name": "Neck twist — Right",
       "faceArea": "Body",
-      "facePart": "Head"
+      "facePart": "Head",
+      "category": "body",
+      "section": "Head",
+      "order": 2160,
+      "controlLabel": "Neck twist"
     },
     "1037": {
       "id": "1037",
       "name": "Neck side bend — Right",
       "faceArea": "Body",
-      "facePart": "Head"
+      "facePart": "Head",
+      "category": "body",
+      "section": "Head",
+      "order": 2170,
+      "controlLabel": "Neck side bend"
     },
     "1036": {
       "id": "1036",
       "name": "Neck side bend — Left",
       "faceArea": "Body",
-      "facePart": "Head"
+      "facePart": "Head",
+      "category": "body",
+      "section": "Head",
+      "order": 2170,
+      "controlLabel": "Neck side bend"
     },
     "1039": {
       "id": "1039",
       "name": "Shoulder raise — Raise",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Arms",
+      "order": 3180,
+      "controlLabel": "Shoulder raise"
     },
     "1038": {
       "id": "1038",
       "name": "Shoulder raise — Lower",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Arms",
+      "order": 3180,
+      "controlLabel": "Shoulder raise"
     },
     "1041": {
       "id": "1041",
       "name": "Shoulder forward/back — Forward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Arms",
+      "order": 3190,
+      "controlLabel": "Shoulder forward/back"
     },
     "1040": {
       "id": "1040",
       "name": "Shoulder forward/back — Back",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Arms",
+      "order": 3190,
+      "controlLabel": "Shoulder forward/back"
     },
     "1043": {
       "id": "1043",
       "name": "Arm forward/back — Forward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Arms",
+      "order": 3200,
+      "controlLabel": "Arm forward/back"
     },
     "1042": {
       "id": "1042",
       "name": "Arm forward/back — Back",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Arms",
+      "order": 3200,
+      "controlLabel": "Arm forward/back"
     },
     "1045": {
       "id": "1045",
       "name": "Arm raise/lower — Raise",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Arms",
+      "order": 3210,
+      "controlLabel": "Arm raise/lower"
     },
     "1044": {
       "id": "1044",
       "name": "Arm raise/lower — Lower",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Arms",
+      "order": 3210,
+      "controlLabel": "Arm raise/lower"
     },
     "1047": {
       "id": "1047",
       "name": "Upper arm twist — Rotate outward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Arms",
+      "order": 3220,
+      "controlLabel": "Upper arm twist"
     },
     "1046": {
       "id": "1046",
       "name": "Upper arm twist — Rotate inward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Arms",
+      "order": 3220,
+      "controlLabel": "Upper arm twist"
     },
     "1049": {
       "id": "1049",
       "name": "Forearm rotation — Rotate outward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Arms",
+      "order": 3230,
+      "controlLabel": "Forearm rotation"
     },
     "1048": {
       "id": "1048",
       "name": "Forearm rotation — Rotate inward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Arms",
+      "order": 3230,
+      "controlLabel": "Forearm rotation"
     },
     "1051": {
       "id": "1051",
       "name": "Wrist bend — Flex",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4240,
+      "controlLabel": "Wrist bend"
     },
     "1050": {
       "id": "1050",
       "name": "Wrist bend — Extend",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4240,
+      "controlLabel": "Wrist bend"
     },
     "1053": {
       "id": "1053",
       "name": "Wrist side bend — Flex",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4250,
+      "controlLabel": "Wrist side bend"
     },
     "1052": {
       "id": "1052",
       "name": "Wrist side bend — Extend",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4250,
+      "controlLabel": "Wrist side bend"
     },
     "1055": {
       "id": "1055",
       "name": "Hip forward/back — Forward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Legs",
+      "order": 5260,
+      "controlLabel": "Hip forward/back"
     },
     "1054": {
       "id": "1054",
       "name": "Hip forward/back — Back",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Legs",
+      "order": 5260,
+      "controlLabel": "Hip forward/back"
     },
     "1057": {
       "id": "1057",
       "name": "Hip outward/inward — Outward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Legs",
+      "order": 5270,
+      "controlLabel": "Hip outward/inward"
     },
     "1056": {
       "id": "1056",
       "name": "Hip outward/inward — Inward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Legs",
+      "order": 5270,
+      "controlLabel": "Hip outward/inward"
     },
     "1059": {
       "id": "1059",
       "name": "Hip rotation — Rotate outward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Legs",
+      "order": 5280,
+      "controlLabel": "Hip rotation"
     },
     "1058": {
       "id": "1058",
       "name": "Hip rotation — Rotate inward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Legs",
+      "order": 5280,
+      "controlLabel": "Hip rotation"
     },
     "1061": {
       "id": "1061",
       "name": "Ankle bend — Flex",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Feet",
+      "order": 6290,
+      "controlLabel": "Ankle bend"
     },
     "1060": {
       "id": "1060",
       "name": "Ankle bend — Extend",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Feet",
+      "order": 6290,
+      "controlLabel": "Ankle bend"
     },
     "1063": {
       "id": "1063",
       "name": "Foot tilt — Rotate outward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Feet",
+      "order": 6300,
+      "controlLabel": "Foot tilt"
     },
     "1062": {
       "id": "1062",
       "name": "Foot tilt — Rotate inward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Feet",
+      "order": 6300,
+      "controlLabel": "Foot tilt"
     },
     "1065": {
       "id": "1065",
       "name": "Toe bend — Flex",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Feet",
+      "order": 6310,
+      "controlLabel": "Toe bend"
     },
     "1064": {
       "id": "1064",
       "name": "Toe bend — Extend",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Feet",
+      "order": 6310,
+      "controlLabel": "Toe bend"
     },
     "1066": {
       "id": "1066",
       "name": "Thumb metacarpal curl positive",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4320,
+      "controlLabel": "Thumb metacarpal curl"
     },
     "1067": {
       "id": "1067",
       "name": "Thumb proximal curl positive",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4330,
+      "controlLabel": "Thumb proximal curl"
     },
     "1068": {
       "id": "1068",
       "name": "Thumb distal curl positive",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4340,
+      "controlLabel": "Thumb distal curl"
     },
     "1070": {
       "id": "1070",
       "name": "Thumb spread — Outward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4350,
+      "controlLabel": "Thumb spread"
     },
     "1069": {
       "id": "1069",
       "name": "Thumb spread — Inward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4350,
+      "controlLabel": "Thumb spread"
     },
     "1071": {
       "id": "1071",
       "name": "Index proximal curl positive",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4360,
+      "controlLabel": "Index proximal curl"
     },
     "1072": {
       "id": "1072",
       "name": "Index intermediate curl positive",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4370,
+      "controlLabel": "Index intermediate curl"
     },
     "1073": {
       "id": "1073",
       "name": "Index distal curl positive",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4380,
+      "controlLabel": "Index distal curl"
     },
     "1075": {
       "id": "1075",
       "name": "Index spread — Outward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4390,
+      "controlLabel": "Index spread"
     },
     "1074": {
       "id": "1074",
       "name": "Index spread — Inward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4390,
+      "controlLabel": "Index spread"
     },
     "1076": {
       "id": "1076",
       "name": "Middle proximal curl positive",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4400,
+      "controlLabel": "Middle proximal curl"
     },
     "1077": {
       "id": "1077",
       "name": "Middle intermediate curl positive",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4410,
+      "controlLabel": "Middle intermediate curl"
     },
     "1078": {
       "id": "1078",
       "name": "Middle distal curl positive",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4420,
+      "controlLabel": "Middle distal curl"
     },
     "1080": {
       "id": "1080",
       "name": "Middle spread — Outward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4430,
+      "controlLabel": "Middle spread"
     },
     "1079": {
       "id": "1079",
       "name": "Middle spread — Inward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4430,
+      "controlLabel": "Middle spread"
     },
     "1081": {
       "id": "1081",
       "name": "Ring proximal curl positive",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4440,
+      "controlLabel": "Ring proximal curl"
     },
     "1082": {
       "id": "1082",
       "name": "Ring intermediate curl positive",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4450,
+      "controlLabel": "Ring intermediate curl"
     },
     "1083": {
       "id": "1083",
       "name": "Ring distal curl positive",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4460,
+      "controlLabel": "Ring distal curl"
     },
     "1085": {
       "id": "1085",
       "name": "Ring spread — Outward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4470,
+      "controlLabel": "Ring spread"
     },
     "1084": {
       "id": "1084",
       "name": "Ring spread — Inward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4470,
+      "controlLabel": "Ring spread"
     },
     "1086": {
       "id": "1086",
       "name": "Little proximal curl positive",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4480,
+      "controlLabel": "Little proximal curl"
     },
     "1087": {
       "id": "1087",
       "name": "Little intermediate curl positive",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4490,
+      "controlLabel": "Little intermediate curl"
     },
     "1088": {
       "id": "1088",
       "name": "Little distal curl positive",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4500,
+      "controlLabel": "Little distal curl"
     },
     "1090": {
       "id": "1090",
       "name": "Little spread — Outward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4510,
+      "controlLabel": "Little spread"
     },
     "1089": {
       "id": "1089",
       "name": "Little spread — Inward",
       "faceArea": "Body",
-      "facePart": "Body"
+      "facePart": "Body",
+      "category": "body",
+      "section": "Hands",
+      "order": 4510,
+      "controlLabel": "Little spread"
     }
   },
   "eyeMeshNodes": {

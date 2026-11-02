@@ -1,9 +1,17 @@
 import legacyBodyControlAUs from '../assets/legacy/body-control-aus.json';
 import { requireInitializedEmbodyCore } from './index';
 
+export type ControlCategory = 'au' | 'body' | 'bone' | 'custom';
+
 export interface AUDescriptor {
   auId: number;
   label: string;
+  /** Semantic category, independent of whether configured output targets resolve. */
+  category: ControlCategory;
+  section?: string | null;
+  order?: number | null;
+  /** A combined movement label shared by the two directions of a continuum. */
+  controlLabel?: string | null;
   faceArea?: string | null;
   facePart?: string | null;
   negativeAuId?: number | null;
@@ -18,6 +26,8 @@ export interface AUDescriptor {
   availableSides: Array<'left' | 'right' | 'center'>;
   hasBones: boolean;
   hasMorphs: boolean;
+  hasConfiguredBones: boolean;
+  hasConfiguredMorphs: boolean;
   available: boolean;
   diagnostics: string[];
 }

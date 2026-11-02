@@ -62,6 +62,7 @@ const PROFILE_OVERRIDE_KEYS: &[&str] = &[
     "visemeTongueTargets",
     "auMixDefaults",
     "auInfo",
+    "actionInfo",
     "eyeMeshNodes",
     "compositeRotations",
     "meshes",
@@ -1170,6 +1171,10 @@ fn create_axis_au(
             links: Vec::new(),
             face_area: Some(area.to_string()),
             face_part: Some(authoring_defaults().joint_control_section.clone()),
+            category: Some(Some(crate::profile::ControlCategory::Bone)),
+            section: None,
+            order: None,
+            control_label: None,
             extensions: Map::new(),
         },
     );
@@ -1740,24 +1745,42 @@ fn remove_au_rotation_bindings(profile: &mut ProfileData, au_id: u32) {
 }
 
 fn bone_au_options(profile: &ProfileData) -> Vec<Value> {
-    let mut ids = profile
+    let ids = profile
         .au_to_bones
         .keys()
         .chain(profile.au_info.keys())
+        .chain(profile.action_info.keys())
+        .chain(profile.au_to_morphs.keys())
+        .chain(profile.bone_bindings.keys())
         .chain(profile.continuum_pairs.keys())
         .filter_map(|id| id.parse::<u32>().ok())
         .collect::<BTreeSet<_>>();
+    let mut ids = ids.into_iter().collect::<Vec<_>>();
+    let info_for = |id: u32| profile.au_info.get(&id.to_string())
+        .or_else(|| profile.action_info.get(&id.to_string()));
+    let category_for = |id| info_for(id).map(|info|info.control_category())
+        .unwrap_or(crate::profile::ControlCategory::Custom);
+    let category_rank = |id| match category_for(id) {
+        crate::profile::ControlCategory::Au => 0,
+        crate::profile::ControlCategory::Body => 1,
+        crate::profile::ControlCategory::Bone => 2,
+        crate::profile::ControlCategory::Custom => 3,
+    };
+    ids.sort_by(|a, b| category_rank(*a).cmp(&category_rank(*b))
+        .then_with(|| {
+            let order = |id| info_for(id).and_then(|info|info.order).flatten().unwrap_or(f64::INFINITY);
+            order(*a).total_cmp(&order(*b))
+        }).then_with(||a.cmp(b)));
     let mut result = vec![json!({ "value": "", "label": "Unassigned" })];
-    for id in std::mem::take(&mut ids) {
-        let info = profile.au_info.get(&id.to_string());
-        let joint = info.and_then(|info| info.face_part.as_deref())
-            == Some(authoring_defaults().joint_control_section.as_str());
+    for id in ids {
+        let info = info_for(id);
+        let category = category_for(id);
         let pair = profile
             .continuum_pairs
             .get(&id.to_string())
             .and_then(|entry| entry.as_ref());
         let original_name = info.and_then(|info| info.name.clone()).unwrap_or_default();
-        let display = if let Some(pair) = pair {
+        let display = if let Some(pair) = pair.filter(|pair|category_for(pair.pair_id)==category) {
             let (negative, positive) = if pair.is_negative {
                 (id, pair.pair_id)
             } else {
@@ -1780,7 +1803,12 @@ fn bone_au_options(profile: &ProfileData) -> Vec<Value> {
         }
         .or_else(|| (!original_name.is_empty()).then(|| original_name.clone()))
         .unwrap_or_default();
-        let prefix = if joint { "Joint" } else { "AU" };
+        let prefix = match category {
+            crate::profile::ControlCategory::Au => "FACS",
+            crate::profile::ControlCategory::Body => "Body",
+            crate::profile::ControlCategory::Bone => "Bone rotation",
+            crate::profile::ControlCategory::Custom => "Custom",
+        };
         let label = if display.is_empty() {
             format!("{prefix} {id}")
         } else {
@@ -1790,13 +1818,14 @@ fn bone_au_options(profile: &ProfileData) -> Vec<Value> {
         if pair.is_some() && !original_name.is_empty() && original_name != display {
             detail_parts.push(original_name);
         }
-        if joint {
-            detail_parts.push(authoring_defaults().joint_control_section.clone());
-        } else if let Some(face_part) = info.and_then(|info| info.face_part.clone()) {
-            detail_parts.push(face_part);
+        let section = info.and_then(|info|info.section.as_ref()).and_then(Option::as_ref);
+        if let Some(section) = section.cloned().or_else(||info.and_then(|info|info.face_part.clone())) {
+            detail_parts.push(section);
         }
         let detail = (!detail_parts.is_empty()).then(|| detail_parts.join(" · "));
-        result.push(json!({ "value": id.to_string(), "label": label, "detail": detail }));
+        result.push(json!({ "value": id.to_string(), "label": label, "detail": detail,
+            "category": category, "section": section,
+            "order": info.and_then(|info|info.order).flatten() }));
     }
     result
 }
@@ -2564,6 +2593,10 @@ fn execute(request: Request) -> Result<Value, String> {
                     links: Vec::new(),
                     face_area: Some("Upper".to_string()),
                     face_part: Some(authoring_defaults().joint_control_section.clone()),
+                    category: Some(Some(crate::profile::ControlCategory::Bone)),
+                    section: None,
+                    order: None,
+                    control_label: None,
                     extensions: Map::new(),
                 },
             );
@@ -2576,9 +2609,10 @@ fn execute(request: Request) -> Result<Value, String> {
         "bone.isJointControlInfo" => Ok(json!(
             payload
                 .get("info")
-                .and_then(|info| info.get("facePart"))
-                .and_then(Value::as_str)
-                == Some(authoring_defaults().joint_control_section.as_str())
+                .filter(|info|!info.is_null())
+                .map(|info|serde_json::from_value::<AuInfoData>(info.clone()))
+                .transpose().map_err(|error|error.to_string())?
+                .is_some_and(|info|info.control_category()==crate::profile::ControlCategory::Bone)
         )),
         "bone.resolveContinuumLabel" => {
             let profile = profile_field(&payload)?;
@@ -2593,6 +2627,7 @@ fn execute(request: Request) -> Result<Value, String> {
             let mut info = profile.au_info.get(&key).cloned().unwrap_or_default();
             info.id.get_or_insert_with(|| key.clone());
             info.face_part = Some(authoring_defaults().joint_control_section.clone());
+            info.category = Some(Some(crate::profile::ControlCategory::Bone));
             profile.au_info.insert(key, info);
             serde_json::to_value(profile).map_err(|error| error.to_string())
         }
@@ -2828,6 +2863,119 @@ mod tests {
         let descriptors=request("profile.getAUDescriptors",json!({"profile":expanded}));
         assert!(descriptors.as_array().unwrap().iter().any(|entry|entry["auId"]==1001));
         assert!(expanded["auToBones"]["1001"].is_array());
+    }
+
+    #[test]
+    fn bone_authoring_and_option_labels_respect_control_categories() {
+        let created=request("bone.createAxisAU",json!({"profile":{},"boneName":"CustomBone",
+            "axis":"pitch","direction":"positive"}));
+        let id=created["auId"].as_u64().unwrap().to_string();
+        assert_eq!(created["profile"]["auInfo"][id.as_str()]["category"],"bone");
+        for (info,expected) in [(json!({"facePart":"Joint Controls"}),true),
+            (json!({"category":"bone"}),true),
+            (json!({"facePart":"Joint Controls","category":"custom"}),false),
+            (json!({"facePart":"Joint Controls","category":null}),false)] {
+            assert_eq!(request("bone.isJointControlInfo",json!({"info":info})),expected);
+        }
+        let profile=json!({"auInfo":{
+            "1":{"name":"Brow","category":"au"},
+            "7001":{"name":"Arm","category":"body","section":"Arms","order":20},
+            "7002":{"name":"Hip","category":"body","section":"Legs","order":10},
+            "8001":{"name":"Axis","category":"bone"},
+            "9001":{"name":"Custom","category":"custom"}
+        }});
+        let options=request("bone.buildAUOptions",json!({"profile":profile}));
+        assert_eq!(options[0]["label"],"Unassigned");
+        assert_eq!(options[1]["label"],"FACS 1 - Brow");
+        assert_eq!(options[2]["value"],"7002");
+        assert_eq!(options[3]["label"],"Body 7001 - Arm");
+        assert_eq!(options[3]["section"],"Arms");
+        assert_eq!(options[4]["label"],"Bone rotation 8001 - Axis");
+        assert_eq!(options[5]["label"],"Custom 9001 - Custom");
+    }
+
+    #[test]
+    fn legacy_fish_metadata_overrides_inherited_descriptors_across_preset_reload() {
+        let authored=json!({"2":{"id":"2","name":"My fin","category":"custom",
+            "section":"Fins","controlLabel":"Fin sweep","customNote":"retain"}});
+        let preset=request("preset.get",json!({"id":"fish"}));
+        for config in [json!({"auPresetType":"fish","actionInfo":authored}),
+            json!({"auPresetType":"fish","profile":{"actionInfo":authored}})] {
+            let expanded=request("profile.extendConfig",json!({"config":config}));
+            assert_eq!(expanded["actionInfo"]["2"]["name"],"My fin");
+            assert_eq!(expanded["actionInfo"]["2"]["customNote"],"retain");
+            let mut saved=request("profile.extractOverrides",json!({"config":expanded}));
+            saved["auPresetType"]=json!("fish");
+            let reloaded=request("profile.extendConfig",json!({"config":saved}));
+            assert_eq!(reloaded["actionInfo"]["2"],expanded["actionInfo"]["2"]);
+            for profile in [&expanded,&reloaded] {
+                let rows=request("profile.getAUDescriptors",json!({"profile":profile}));
+                let row=rows.as_array().unwrap().iter().find(|row|row["auId"]==2).unwrap();
+                assert_eq!(row["label"],"My fin");
+                assert_eq!(row["category"],"custom");
+                assert_eq!(row["section"],"Fins");
+                assert_eq!(row["controlLabel"],"Fin sweep");
+                assert_eq!(row["order"].as_f64(),preset["auInfo"]["2"]["order"].as_f64());
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_fish_presentation_inherits_omitted_fields_and_preserves_null_clears() {
+        let preset=request("preset.get",json!({"id":"fish"}));
+        for presentation in [json!({}),json!({"category":null,"section":null,"order":null,"controlLabel":null})] {
+            let mut info=presentation.clone();
+            info["name"]=json!("Saved turn");
+            let expanded=request("profile.extendConfig",json!({"config":{
+                "auPresetType":"fish","actionInfo":{"2":info}
+            }}));
+            let mut saved=request("profile.extractOverrides",json!({"config":expanded}));
+            saved["auPresetType"]=json!("fish");
+            let reloaded=request("profile.extendConfig",json!({"config":saved}));
+            for profile in [&expanded,&reloaded] {
+                let rows=request("profile.getAUDescriptors",json!({"profile":profile}));
+                let row=rows.as_array().unwrap().iter().find(|row|row["auId"]==2).unwrap();
+                assert_eq!(row["label"],"Saved turn");
+                if presentation.get("category").is_some() {
+                    assert_eq!(row["category"],"custom");
+                    for field in ["category","section","order","controlLabel"] {
+                        assert_eq!(profile["auInfo"]["2"].get(field),Some(&Value::Null));
+                    }
+                } else {
+                    assert_eq!(row["category"],"body");
+                    assert_eq!(row["section"],preset["auInfo"]["2"]["section"]);
+                    assert_eq!(row["order"].as_f64(),preset["auInfo"]["2"]["order"].as_f64());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_canonical_fish_metadata_wins_over_authored_legacy_metadata() {
+        let preset=request("preset.get",json!({"id":"fish"}));
+        for canonical in [json!({"name":"Canonical turn","category":"bone","section":"Authored axes"}),Value::Null] {
+            let expanded=request("profile.extendConfig",json!({"config":{
+                "auPresetType":"fish","auInfo":{"2":canonical},
+                "actionInfo":{"2":{"name":"Legacy fin","category":"custom","section":"Legacy fins"}}
+            }}));
+            let mut saved=request("profile.extractOverrides",json!({"config":expanded}));
+            saved["auPresetType"]=json!("fish");
+            let reloaded=request("profile.extendConfig",json!({"config":saved}));
+            for profile in [&expanded,&reloaded] {
+                let rows=request("profile.getAUDescriptors",json!({"profile":profile}));
+                let row=rows.as_array().unwrap().iter().find(|row|row["auId"]==2).unwrap();
+                if canonical.is_null() {
+                    assert_eq!(row["label"],preset["auInfo"]["2"]["name"]);
+                    assert_eq!(row["category"],"body");
+                    assert_eq!(row["section"],preset["auInfo"]["2"]["section"]);
+                } else {
+                    assert_eq!(row["label"],"Canonical turn");
+                    assert_eq!(row["category"],"bone");
+                    assert_eq!(row["section"],"Authored axes");
+                }
+                assert_eq!(row["order"].as_f64(),preset["auInfo"]["2"]["order"].as_f64());
+            }
+        }
     }
 
     #[test]

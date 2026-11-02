@@ -810,6 +810,13 @@ no named body-control catalog or fixed control count. `engine.getAUDescriptors()
 and initialized `getAUDescriptors(profile, modelDescriptor?)` return per-AU
 metadata and resolved output support, including labels, signed pair IDs,
 bilateral sides, saved morph strength and resolved bone/morph names.
+Descriptors separate AU/FACS (`au`), semantic Body (`body`), authored joint-axis
+rotations (`bone`) and other profile controls (`custom`). Optional `section`,
+`order` and `controlLabel` metadata organizes those same numeric identities.
+Classification is independent of output availability and morph routing;
+`hasConfiguredBones`/`hasConfiguredMorphs` retain evidence of unavailable authored
+outputs. Visemes keep their own slot API. See [Body controls](docs/body-controls.md#categories-and-anatomical-presentation)
+for preset inheritance, explicit clears and anatomical presentation.
 
 Use `setAU`/`transitionAU`, `setContinuum`, `getAUBalance` and
 `setAUMixWeight` for live controls. `buildClip`/`playSnippet` compile numeric

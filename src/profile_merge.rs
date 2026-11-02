@@ -38,6 +38,7 @@ pub(crate) struct ProfilePatch {
     morph_to_mesh: Option<HashMap<String, Option<Vec<String>>>>,
     mapping_sections: Option<Vec<MappingSectionData>>,
     au_info: Option<HashMap<String, Option<AuInfoData>>>,
+    action_info: Option<HashMap<String, Option<AuInfoData>>>,
     au_face_part_to_mesh_category: Option<HashMap<String, Option<String>>>,
     au_mix_defaults: Option<HashMap<String, Option<f64>>>,
     composite_rotations: Option<Vec<CompositeRotationData>>,
@@ -193,7 +194,25 @@ pub(crate) fn extend_preset_with_profile(
     );
     merge_map(&mut merged.morph_to_mesh, extension.morph_to_mesh);
     replace_vec(&mut merged.mapping_sections, extension.mapping_sections);
-    merge_map(&mut merged.au_info, extension.au_info);
+    let mut canonical_au_info = extension.au_info.unwrap_or_default();
+    // Legacy authored metadata must override the inherited canonical entry,
+    // while any authored canonical key (including null) keeps its precedence.
+    for (id, info) in extension.action_info.as_ref().into_iter().flatten() {
+        canonical_au_info.entry(id.clone()).or_insert_with(|| {
+            let mut normalized=info.clone();
+            if let (Some(normalized),Some(inherited))=(normalized.as_mut(),base.au_info.get(id)) {
+                // A sparse legacy presentation edit must not remove inherited
+                // routing or compiler classification while entering auInfo.
+                if normalized.face_area.is_none() {normalized.face_area=inherited.face_area.clone();}
+                if normalized.face_part.is_none() {normalized.face_part=inherited.face_part.clone();}
+                if normalized.id.is_none() {normalized.id=inherited.id.clone();}
+                if normalized.name.is_none() {normalized.name=inherited.name.clone();}
+            }
+            normalized
+        });
+    }
+    merge_au_info(&mut merged.au_info, Some(canonical_au_info));
+    merge_au_info(&mut merged.action_info, extension.action_info);
     merge_map(
         &mut merged.au_face_part_to_mesh_category,
         extension.au_face_part_to_mesh_category,
@@ -295,6 +314,21 @@ where
         if let Some(value) = value {
             base.insert(key, value);
         }
+    }
+}
+
+fn merge_au_info(base: &mut HashMap<String, AuInfoData>, extension: Option<HashMap<String, Option<AuInfoData>>>) {
+    for (key, value) in extension.into_iter().flatten() {
+        let Some(mut value) = value else { continue; };
+        if let Some(inherited) = base.get(&key) {
+            // Saved snapshots predate presentation metadata. They still own
+            // their names/routing, but omitted presentation must inherit.
+            if value.category.is_none() { value.category = inherited.category; }
+            if value.section.is_none() { value.section = inherited.section.clone(); }
+            if value.order.is_none() { value.order = inherited.order; }
+            if value.control_label.is_none() { value.control_label = inherited.control_label.clone(); }
+        }
+        base.insert(key, value);
     }
 }
 
@@ -620,6 +654,75 @@ mod tests {
                 assert_eq!(disabled["compositeRotations"], json!([]));
             }
         }
+    }
+
+    #[test]
+    fn old_cc4_metadata_inherits_presentation_but_saved_names_and_cleared_outputs_win() {
+        let base=serde_json::to_value(crate::presets::load_profile("cc4").unwrap()).unwrap();
+        assert!(!base["auToMorphs"]["1001"]["left"].as_array().unwrap().is_empty());
+        let merged=merge(base.clone(),json!({
+            "auInfo":{"1001":{"name":"My elbow","faceArea":"Body","facePart":"Body"}},
+            "auToBones":{"1001":[]},"auToMorphs":{"1001":{"left":[],"right":[],"center":[]}},
+            "compositeRotations":[]
+        }));
+        assert_eq!(merged["auInfo"]["1001"]["name"],"My elbow");
+        assert_eq!(merged["auInfo"]["1001"]["category"],"body");
+        assert_eq!(merged["auInfo"]["1001"]["section"],"Arms");
+        assert_eq!(merged["auInfo"]["1001"]["controlLabel"],"Elbow flex / biceps");
+        assert_eq!(merged["auInfo"]["1001"]["order"],3010.0);
+        let profile:ProfileData=serde_json::from_value(merged).unwrap();
+        let rows=crate::au_descriptors::resolve(&profile,None);
+        let row=rows.as_array().unwrap().iter().find(|row|row["auId"]==1001).unwrap();
+        assert_eq!(row["category"],"body");
+        assert_eq!(row["hasConfiguredBones"],false);
+        assert_eq!(row["hasConfiguredMorphs"],false);
+        assert_eq!(row["available"],false);
+        assert!(profile.composite_rotations.is_empty());
+
+        let cleared=merge(base.clone(),json!({"auInfo":{"1001":{
+            "name":"Custom elbow","category":null,"section":null,"order":null,"controlLabel":null
+        }}}));
+        let reloaded=merge(base,serde_json::from_str(&cleared.to_string()).unwrap());
+        for field in ["category","section","order","controlLabel"] {
+            assert_eq!(reloaded["auInfo"]["1001"].get(field),Some(&Value::Null));
+        }
+        let profile:ProfileData=serde_json::from_value(reloaded).unwrap();
+        assert_eq!(profile.au_info["1001"].control_category(),crate::profile::ControlCategory::Custom);
+    }
+
+    #[test]
+    fn sparse_legacy_action_metadata_keeps_custom_profile_identity_and_presentation() {
+        let merged=merge(json!({}),json!({"actionInfo":{"2":{
+            "name":"Custom fin","category":"body","section":"Fins","order":3,"controlLabel":"Fin sweep"
+        }},"auToBones":{"2":[{"node":"Fin","channel":"rz","scale":1}]}}));
+        let profile:ProfileData=serde_json::from_value(merged).unwrap();
+        let rows=crate::au_descriptors::resolve(&profile,None);
+        assert_eq!(rows[0]["label"],"Custom fin");
+        assert_eq!(rows[0]["category"],"body");
+        assert_eq!(rows[0]["section"],"Fins");
+        assert_eq!(rows[0]["hasConfiguredBones"],true);
+    }
+
+    #[test]
+    fn sparse_legacy_category_override_keeps_inherited_cc4_routing_and_morph_weighting() {
+        let base=serde_json::to_value(crate::presets::load_profile("cc4").unwrap()).unwrap();
+        let merged=merge(base.clone(),json!({
+            "actionInfo":{"1001":{"category":"custom","section":"My arm controls"}},
+            "auToBones":{"1001":[]},"compositeRotations":[],"auMixDefaults":{"1001":0.25}
+        }));
+        for field in ["id","name","faceArea","facePart"] {
+            assert_eq!(merged["auInfo"]["1001"][field],base["auInfo"]["1001"][field]);
+        }
+        let profile:ProfileData=serde_json::from_value(merged).unwrap();
+        assert!(crate::profile::is_body_action(&profile,1001));
+        let tables=crate::profile::compile_tables(&profile,&crate::profile::ModelData::default());
+        assert!(tables.mixed_aus.contains(&1001));
+        let rows=crate::au_descriptors::resolve(&profile,None);
+        let row=rows.as_array().unwrap().iter().find(|row|row["auId"]==1001).unwrap();
+        assert_eq!(row["category"],"custom");
+        assert_eq!(row["section"],"My arm controls");
+        assert_eq!(row["morphStrength"],0.25);
+        assert_eq!(row["label"],base["auInfo"]["1001"]["name"]);
     }
 
     #[test]

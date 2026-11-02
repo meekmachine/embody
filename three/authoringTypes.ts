@@ -1,5 +1,6 @@
 // Authoring data exchanged with the Rust profile APIs; renderer objects stay in the adapter.
 import type { Region, MarkerStyle, MarkerGroup, LineConfig, MarkerStyleOverrides } from './annotations/types';
+import type { ControlCategory } from '@lovelace_lol/embody/wasm';
 export interface AuthoringVector3 { x: number; y: number; z: number; }
 export interface AuthoringQuaternion extends AuthoringVector3 { w: number; }
 
@@ -46,6 +47,10 @@ export interface AUInfo {
   links?: string[];
   faceArea?: 'Upper' | 'Lower' | 'Body';
   facePart?: string;
+  category?: ControlCategory | null;
+  section?: string | null;
+  order?: number | null;
+  controlLabel?: string | null;
 }
 
 export interface RotationAxis {
@@ -263,6 +268,8 @@ export interface Profile {
   visemeTongueTargets?: VisemeTongueTarget[];
   auMixDefaults?: Record<number, number>;
   auInfo?: Record<string, AUInfo>;
+  /** Legacy metadata spelling retained for authored custom profiles. */
+  actionInfo?: Record<string, AUInfo>;
   eyeMeshNodes?: { LEFT: string; RIGHT: string };
   compositeRotations?: CompositeRotation[];
   meshes?: Record<string, MeshInfo>;
