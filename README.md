@@ -669,8 +669,8 @@ builds and validates once. Stable version selection reads public metadata from
 `registry.npmjs.org` anonymously; redirects and failed lookups stop the release.
 Metadata reads never transmit publishing credentials. The separate
 publish job first requires `npm access get status` to report the existing package
-as public, then uses the `npm` environment's `NPM_KEY` to publish the packed
-output with public access and creates its Git tag and GitHub release. Stable
+as public, then uses GitHub OIDC trusted publishing in the `npm` environment
+to publish the packed output with public access and create its Git tag and GitHub release. Stable
 releases are serialized through version selection and publication. Provenance
 remains disabled for the private source repository. Retrying a published commit
 reuses its existing version, and an older unpublished commit cannot replace a
@@ -715,13 +715,60 @@ release-stack PR's first preview remains usable by its immutable URL before
 that bootstrap merge; subsequent successful publications notify automatically.
 
 Before enabling stable releases, the existing npm package must have public
-visibility and `NPM_KEY` must permit publishing it. No npm read token is required.
+visibility and its npm trusted publisher must match the configuration below.
+No npm publishing secret or read token is required.
 Configure both the `npm` and `release-coordination` GitHub
 environments to allow deployments from `main` only. Store `CROSS_REPO_CI_TOKEN`
 only in `release-coordination`, with permission to dispatch to LoomLarge. These
 account, environment protection, and secret settings are prerequisites; source
 changes do not configure them. Existing versions are never republished or
 overwritten.
+
+### Configure and recover stable publication
+
+The npm package settings must register this GitHub Actions trusted publisher:
+
+| Setting | Value |
+| --- | --- |
+| Package | `@lovelace_lol/embody` |
+| Organization or user | `meekmachine` |
+| Repository | `embody` |
+| Workflow filename | `pr-checks.yml` |
+| Environment | `npm` |
+| Publishing permission | **Allow npm publish** |
+
+New npm trusted publishers default to staging only; explicitly allow publishing.
+The package's `repository.url` must match `git+https://github.com/meekmachine/embody.git`.
+These settings live on npm and cannot be configured by merging workflow YAML.
+Retain account 2FA and GitHub environment protections. The job uses Node 24 and
+requires npm >=11.5.1 (with Node >=22.14.0), publishes without `NPM_KEY` or
+`NODE_AUTH_TOKEN`, and never grants an OIDC token to PR or preview jobs.
+Provenance remains disabled for this private source repository.
+
+A green `pkg.pr.new` preview confirms a preview, not stable publication. The
+main-only publish job writes a **Stable npm publication confirmed** summary only
+after an anonymous exact-version registry read confirms the version and `gitHead`, and
+records the release's SHA-512 integrity. New uploads must match the verified
+tarball's integrity. Retries confirm an existing immutable release without
+assuming that rebuilding the same source reproduces every archive byte. A failed publish or conflicting registry result
+fails the job and blocks downstream notification. npm authentication failures show
+the error code and exact publisher settings to repair, without echoing raw npm
+output or tokens. The publisher checks the exact-version endpoint before any
+upload, with `Cache-Control: no-cache`, so a stale package index cannot cause a
+duplicate upload. Only HTTP 404 means absent; other lookup failures stop publication.
+A new upload gets one exact-version confirmation lookup, without polling. A transient registry failure can leave an upload present
+but unconfirmed; rerun the main release after investigation rather than upload a
+replacement version blindly.
+
+After repairing configuration, run this workflow on current `main` with its `ref`
+input empty. A successful current-main stable release contains all source changes
+already merged into that repository; individual failed intermediate releases do
+not need replaying. Explicit refs and preview dispatches publish previews only.
+An existing matching release is confirmed without publishing it again; source or
+dependency conflicts and new-upload archive conflicts stop instead of overwriting it. The receipt
+establishes npm publication, while the LoomLarge coordinator separately opens or
+updates reviewed stable dependency PRs and lockfiles. It does not establish that
+Polymer or the application adopted the release or deployed it.
 
 ## Development
 

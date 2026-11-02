@@ -115,6 +115,10 @@ jobs:
         if: hashFiles('scripts/test/npm-release.test.mjs') != ''
         run: node --test scripts/test/npm-release.test.mjs
 
+      - name: Test stable publication confirmation and failures
+        if: hashFiles('scripts/test/publication-receipt.test.mjs') != ''
+        run: node --test scripts/test/publication-receipt.test.mjs
+
       - name: Test package publication notifications
         if: hashFiles('scripts/test/package-publication.test.mjs') != ''
         run: node --test scripts/test/package-publication.test.mjs
@@ -183,6 +187,7 @@ jobs:
     environment: npm
     permissions:
       contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v5
         with:
@@ -191,6 +196,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
+          package-manager-cache: false
           registry-url: "https://registry.npmjs.org"
 
       - uses: actions/download-artifact@v4
@@ -200,15 +206,9 @@ jobs:
 
       - name: Publish the tarball without rebuilding
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_KEY }}
           RELEASE_COMMIT: ${{ needs.verify.outputs.release_commit }}
           RELEASE_VERSION: ${{ needs.verify.outputs.version }}
-        run: |
-          if [[ -z "${NODE_AUTH_TOKEN}" ]]; then
-            echo "::error::NPM_KEY is not configured in the npm environment."
-            exit 1
-          fi
-          node scripts/ci/publish-npm-release.mjs release-package/*.tgz
+        run: node scripts/ci/publish-npm-release.mjs release-package/*.tgz
 
       - name: Record the published source commit
         env:
