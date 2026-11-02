@@ -20,9 +20,13 @@ export function npmFailure(error, publisher) {
   // Inspect npm diagnostics only for a known code. Never print captured output,
   // request headers, bearer tokens, or npm's credential-bearing environment.
   const diagnostic = `${error.stderr ?? ''} ${error.stdout ?? ''} ${error.message ?? ''}`;
-  const code = diagnostic.match(/\b(EOTP|ENEEDAUTH|E401|E403|E404)\b/)?.[1];
+  const code = diagnostic.match(/\b(EOTP|ENEEDAUTH|E401|E403|E404|EPUBLISHCONFLICT|E409|E429|E500|E502|E503|ETIMEDOUT|ECONNRESET|ENOTFOUND|ENETUNREACH|EINTEGRITY)\b/)?.[1];
+  const prefix = `npm command failed${code ? ` (${code})` : ''}.`;
+  if (!['EOTP', 'ENEEDAUTH', 'E401', 'E403', 'E404'].includes(code)) {
+    return new Error(`${prefix} Check registry availability, network access and release identity before retrying the main release. Captured npm output is omitted to protect credentials. No stable publication receipt was issued.`);
+  }
   const identity = `${publisher.repository}, workflow ${publisher.workflow}, environment npm`;
-  return new Error(`npm publication failed${code ? ` (${code})` : ''}. Check the npm trusted publisher for ${identity}, enable "Allow npm publish", and keep id-token: write on the main-only publish job. Do not supply an OTP or weaken account 2FA. No stable publication receipt was issued.`);
+  return new Error(`${prefix} Check the npm trusted publisher for ${identity}, enable "Allow npm publish", and keep id-token: write on the main-only publish job. Do not supply an OTP or weaken account 2FA. No stable publication receipt was issued.`);
 }
 
 export function runNpm(args, publisher) {

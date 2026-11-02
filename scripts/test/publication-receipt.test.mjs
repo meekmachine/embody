@@ -142,3 +142,11 @@ test('authentication diagnostics identify the configured trust without exposing 
     assert.doesNotMatch(error.message, /secret-token|secret-id-token|raw-private-output/);
   }
 });
+
+test('network and unknown npm failures do not prescribe changing publisher authentication', () => {
+  for (const diagnostic of ['ENOTFOUND registry unavailable private-token', 'unclassified private-token']) {
+    const error = npmFailure({ stderr: diagnostic }, publisher);
+    assert.match(error.message, /registry availability, network access and release identity/);
+    assert.doesNotMatch(error.message, /trusted publisher|Allow npm publish|private-token/);
+  }
+});
