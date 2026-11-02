@@ -858,17 +858,24 @@ mod tests {
         let preset_hair = serde_json::to_value(&base.hair_physics).unwrap();
         for group in ["headUp", "headDown"] {
             let targets = preset_hair["morphTargets"][group].as_object().unwrap();
-            let mut names = targets.keys();
-            let removed = names.next().unwrap();
-            let retained = names.next().unwrap();
+            let removed = targets.keys().next().unwrap();
+            // Supply a sibling explicitly: the CC4 headUp group has only one
+            // target now that hair length is no longer driven by head motion.
+            let retained = "AuthoredHairLift";
+            let fixture = json!({"hairPhysics":{"morphTargets":{(group):{
+                (retained): {"value": 0.5, "axis": "pitch"}
+            }}}});
+            let base_with_sibling = extend_preset_with_profile(
+                base, parse_profile_patch(&fixture.to_string()).unwrap()
+            );
             let patch = json!({"hairPhysics":{"morphTargets":{(group):{(removed):null}}}});
-            let merged = extend_preset_with_profile(base, parse_profile_patch(&patch.to_string()).unwrap());
+            let merged = extend_preset_with_profile(&base_with_sibling, parse_profile_patch(&patch.to_string()).unwrap());
             let saved = serde_json::to_string(&merged).unwrap();
             let mut core = crate::runtime::RuntimeCore::new(0);
             core.configure_with_preset("cc4", &saved, "{}").unwrap();
             let normalized: Value = serde_json::from_str(&core.get_hair_config_json().unwrap()).unwrap();
             assert!(normalized["morphTargets"][group].get(removed).is_none());
-            assert!(normalized["morphTargets"][group].get(retained).is_some());
+            assert_eq!(normalized["morphTargets"][group][retained], 0.5);
         }
     }
 
