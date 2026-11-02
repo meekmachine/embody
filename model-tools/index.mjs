@@ -1,5 +1,8 @@
 import { WebIO } from '@gltf-transform/core';
 import { MeshoptSimplifier } from 'meshoptimizer/simplifier';
+import { readGlbSource as readSource } from './glb-source.mjs';
+
+export { extractGarmentModel } from './extract-garment.mjs';
 
 const KINDS = new Set(['original', 'optimized', 'low-resolution', 'miniature', 'bust', 'outfit']);
 
@@ -14,35 +17,6 @@ function abortIfNeeded(signal) {
 async function yieldToCaller(signal) {
   await new Promise((resolve) => setTimeout(resolve, 0));
   abortIfNeeded(signal);
-}
-
-function readSource(source) {
-  if (!(source instanceof Uint8Array)) throw new TypeError('Actor Model source must be a Uint8Array.');
-  // Own both JSON and binary data before any asynchronous work can observe caller mutations.
-  const bytes = new Uint8Array(source);
-  if (bytes.byteLength < 20) throw new Error('Actor Model must be a glTF 2.0 binary (.glb).');
-  const view = new DataView(bytes.buffer);
-  if (view.getUint32(0, true) !== 0x46546c67 || view.getUint32(4, true) !== 2
-    || view.getUint32(8, true) !== bytes.byteLength) {
-    throw new Error('Actor Model has an invalid GLB header or length.');
-  }
-  let json;
-  let chunkCount = 0;
-  for (let offset = 12; offset < bytes.byteLength;) {
-    if (offset + 8 > bytes.byteLength) throw new Error('Actor Model has an incomplete GLB chunk.');
-    const length = view.getUint32(offset, true);
-    const type = view.getUint32(offset + 4, true);
-    if (length % 4 || offset + 8 + length > bytes.byteLength) throw new Error('Actor Model has an invalid GLB chunk length.');
-    if (chunkCount === 0 && type === 0x4e4f534a) {
-      json = JSON.parse(new TextDecoder().decode(bytes.subarray(offset + 8, offset + 8 + length)));
-    } else if (chunkCount !== 1 || type !== 0x004e4942) {
-      throw new Error('Actor Model must contain only the GLB JSON and optional binary chunks.');
-    }
-    offset += 8 + length;
-    chunkCount++;
-  }
-  if (!json || json.asset?.version !== '2.0') throw new Error('Actor Model must declare glTF version 2.0.');
-  return { bytes, json };
 }
 
 function inspectionOf(json, byteLength) {

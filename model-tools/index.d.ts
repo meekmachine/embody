@@ -55,3 +55,24 @@ export function inspectActorModel(source: Uint8Array, options?: { signal?: Abort
 
 /** Prepare a new GLB. The caller retains ownership of source and persists the returned bytes separately. */
 export function prepareActorModel(source: Uint8Array, options: PrepareActorModelOptions): Promise<PreparedActorModel>;
+
+export interface ExtractGarmentModelOptions {
+  /** Exact source JSON node indices and primitive indices within each node's mesh. */
+  selections: Array<{ nodeIndex: number; primitiveIndices: number[] }>;
+  /** Source node indices for garment-owned skin joints, with a shared parent joint. */
+  ownedBoneNodeIndices?: number[];
+  signal?: AbortSignal;
+}
+
+export interface ExtractedGarmentModel {
+  bytes: Uint8Array;
+  /** Animation clips are deliberately omitted; warnings identify that exclusion. */
+  warnings: string[];
+}
+
+/**
+ * Extract selected source-file primitives as a self-contained GLB, preserving accessor order,
+ * skin bind matrices, morph streams, original images, material texture settings, and extras.
+ * Does not optimize, resize, capture a live pose, persist files, or initialize the runtime.
+ */
+export function extractGarmentModel(source: Uint8Array, options: ExtractGarmentModelOptions): Promise<ExtractedGarmentModel>;

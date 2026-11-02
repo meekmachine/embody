@@ -245,6 +245,75 @@ JSON report after creating the new file. In a source checkout, invoke
 `node model-tools/prepare-actor.mjs` with the same arguments. CI runs the
 `test:model-tools` regression source as part of the existing package checks.
 
+#### Extracting reusable garment files
+
+`extractGarmentModel(source, options)` extracts explicitly selected source-file
+node primitives as a separate self-contained GLB. It is the shared file operation
+for browser and backend-worker consumers; it does not depend on a Three scene,
+initialize the animation runtime, persist a wardrobe item, or attach it to a rig.
+LoomLarge owns mesh selection, storage and the preview/save workflow. Embody's
+Runtime garment attachment and removal belong to the renderer adapter and need
+separate implementation; this file API does not provide that lifecycle.
+
+```js
+import { extractGarmentModel } from '@lovelace_lol/embody/model-tools';
+
+const garment = await extractGarmentModel(originalFileBytes, {
+  selections: [{ nodeIndex: 12, primitiveIndices: [0, 2] }],
+  ownedBoneNodeIndices: [31, 32], // Optional explicitly garment-owned skin joints.
+  signal: abortController.signal,
+});
+// Persist garment.bytes separately only after extraction succeeds.
+```
+
+Indices refer to the original GLB JSON: each selection identifies a node and the
+primitive indices within that node's mesh. They are not the `mesh:N` selectors
+used by `prepareActorModel`, live-scene child paths, or names. Selecting one
+instance of a shared mesh does not include another instance. Duplicate node or
+primitive selections and invalid indices are errors. Output indices are remapped;
+inspect each new file before selecting from it again.
+
+Extraction preserves retained vertex/index/morph accessor values and order,
+including unused vertices within a selected accessor, skin joint palette order,
+inverse bind matrices, mesh weights, ancestor transforms, material settings,
+texture transforms, original embedded image bytes, and retained `extras`.
+Unselected primitives and unreferenced file resources are excluded. Shared or
+interleaved views are repacked per accessor so unrelated streams are excluded;
+when primitives share an accessor, its unused vertex values deliberately remain
+to preserve vertex numbering. Texture atlases remain whole. There is no triangle
+reduction, vertex compaction, texture resizing, image decoding/re-encoding, or
+live-pose capture. Animation clips are deliberately omitted with a warning;
+cameras and unrelated scene objects are not garment dependencies.
+
+`ownedBoneNodeIndices` marks only explicit joints with
+`extras.loomlargeGarmentBone: true`. Each owned branch must move a selected
+primitive, have a shared parent joint, include its complete descendant joint
+chain, and have no positive influence on unselected primitives or instances.
+Validation reads every `JOINTS_n`/`WEIGHTS_n` set and the vertices actually
+referenced by each primitive. Transform-only helper nodes between joints retain
+their source transforms. Existing ownership flags on shared source nodes are
+ignored; they cannot grant ownership. Required skin palettes and their ancestor
+nodes are retained even when some joints have no selected positive weights.
+
+Inputs must be embedded GLB 2.0 with PNG, JPEG, or WebP images. In addition to core
+PBR materials, extraction preserves `KHR_texture_transform`,
+`KHR_mesh_quantization`, `EXT_texture_webp`, `EXT_materials_bump`, and the
+`KHR_materials_` extensions `unlit`, `clearcoat`, `emissive_strength`, `ior`,
+`iridescence`, `sheen`, `specular`, `transmission`, `volume`, `anisotropy`, and
+`dispersion`. Unsupported or undeclared extensions, including compression, VRM,
+and scene lights, fail before output. Buffer/accessor bounds, alignment, sparse
+indices, primitive indices and skin influences are validated. Resource URIs are
+rejected rather than fetched. Both source bytes and selection lists are copied
+before asynchronous stages; cancellation rejects without returning partial
+output. Use a worker for large inputs when synchronous validation/copy stages
+must not occupy the UI thread.
+
+This lossless extraction stage is separate from `prepareActorModel`'s existing
+compaction/reduction behavior and its extension-free input policy. Future texture
+processing and geometry variants should build on the same file boundary with
+explicit processing options; extracting clothing does not implicitly lower its
+quality.
+
 ### Annotation runtime
 
 `AnnotationRuntime` in `src/annotation_runtime/` owns the annotation behavior
