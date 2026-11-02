@@ -73,7 +73,7 @@ mod tests {
         // Historical expected presentation is a regression fixture only. The
         // active source remains each existing AU's authored preset metadata.
         let expected: &[(u32, Option<u32>, &str, u32, &str, &str)]=&[
-            (1001, None, "Arms", 3010, "Elbow flex / biceps", "body"),
+            (1001, None, "Arms", 3010, "Elbow flex", "body"),
             (1002, None, "Legs", 5020, "Knee bend", "body"),
             (1004, Some(1003), "Torso", 1030, "Torso twist", "body"),
             (1011, Some(1010), "Whole body", 40, "Whole body bend", "body"),
@@ -155,6 +155,38 @@ mod tests {
         assert_eq!(face_controls.len(),7);
         assert_eq!(descriptors.iter().filter(|row|!row["controlLabel"].is_null())
             .map(|row|row["controlLabel"].as_str().unwrap()).collect::<BTreeSet<_>>().len(),58);
+    }
+
+    #[test]
+    fn cc4_elbow_moves_bones_without_implicitly_mapping_muscle_morphs() {
+        let mut profile=crate::presets::load_profile("cc4").unwrap();
+        // Even a model containing the old example names must not acquire an
+        // elbow-to-muscle link without an authored profile assignment.
+        let model:ModelData=serde_json::from_value(json!({
+            "bones":[{"id":1,"name":"CC_Base_L_Forearm"},{"id":2,"name":"CC_Base_R_Forearm"}],
+            "meshes":[{"id":3,"name":"CC_Base_Body","morphTargetIds":[10,11]}],
+            "morphTargets":[{"id":10,"meshId":3,"name":"LL_Body_Bicep_Flex_L","hostIndex":0},
+                {"id":11,"meshId":3,"name":"LL_Body_Bicep_Flex_R","hostIndex":1}]
+        })).unwrap();
+        let rows=resolve(&profile,Some(&model));
+        let elbow=rows.as_array().unwrap().iter().find(|row|row["auId"]==1001).unwrap();
+        assert_eq!(elbow["label"],"Elbow flex");
+        assert_eq!(elbow["hasBones"],true);
+        assert_eq!(elbow["available"],true);
+        assert_eq!(elbow["hasConfiguredMorphs"],false);
+        assert_eq!(elbow["hasMorphs"],false);
+        assert!(elbow["diagnostics"].as_array().unwrap().is_empty());
+
+        // Existing explicit character mappings, including those same names,
+        // remain authoritative when their targets really exist.
+        profile.au_to_morphs.insert("1001".into(),Some(serde_json::from_value(json!({
+            "left":["LL_Body_Bicep_Flex_L"],"right":["LL_Body_Bicep_Flex_R"],"center":[]
+        })).unwrap()));
+        let rows=resolve(&profile,Some(&model));
+        let mapped=rows.as_array().unwrap().iter().find(|row|row["auId"]==1001).unwrap();
+        assert_eq!(mapped["hasConfiguredMorphs"],true);
+        assert_eq!(mapped["hasMorphs"],true);
+        assert_eq!(mapped["boneBindings"],elbow["boneBindings"]);
     }
 
     fn fixture()->(ProfileData,ModelData) {

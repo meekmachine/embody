@@ -37,6 +37,16 @@ Body `order` values encode that anatomical section order and preserve the
 historical movement order within each section; hosts can sort without a
 second rig-specific section list.
 
+The CC4 elbow control is labelled `Elbow flex` and maps the forearm bones by
+default. It has no default muscle morph targets. The former
+`LL_Body_Bicep_Flex_L`/`_R` entries were example names, not morph geometry supplied
+with a CC4 character, and are no longer assigned by the preset. Importing a model
+does not implicitly link its muscle shapes to elbow motion. Morphs can be
+previewed directly; linking one to a movement requires an explicit character
+`auToMorphs` assignment to an existing target. Existing explicit saved mappings
+retain their names and missing-target diagnostics; this is a preset correction,
+not a filter that deletes character-authored mappings.
+
 Without explicit category metadata, legacy `Joint Controls` entries resolve to
 `bone`, legacy Body area/part entries to `body`, Upper/Lower area entries to
 `au`, and other entries to `custom`. Numeric ranges and resolved target support

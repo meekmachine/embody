@@ -14,6 +14,9 @@ try {
   core.configure_with_preset('cc4','{}',JSON.stringify({bones:[{id:1,name:'CC_Base_L_Forearm'},{id:2,name:'CC_Base_R_Forearm'}]}));
   const elbow=JSON.parse(core.get_au_descriptors_json()).find(row=>row.auId===1001);
   assert.equal(elbow.hasBones,true);assert.equal(elbow.bilateral,true);
+  assert.equal(elbow.label,'Elbow flex');
+  assert.equal(elbow.hasConfiguredMorphs,false);assert.equal(elbow.hasMorphs,false);
+  assert.deepEqual(elbow.diagnostics,[]);
   core.set_au(1001,.5,-1);core.set_au(12,.8,0);core.set_au_mix_weight(1001,.25);
   const frame=Array.from(core.evaluate_active_bone_frame());
   assert(frame.some(value=>Math.abs(value)>0));

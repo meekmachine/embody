@@ -76,11 +76,13 @@ async function bodyFixture() {
   const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
   mesh.name = 'CC_Base_Body';
   mesh.morphTargetDictionary = {
-    LL_Body_Bicep_Flex_L: 0, LL_Body_Bicep_Flex_R: 1, Mouth_Smile_L: 2, Mouth_Smile_R: 3,
+    Authored_Elbow_Flex_L: 0, Authored_Elbow_Flex_R: 1, Mouth_Smile_L: 2, Mouth_Smile_R: 3,
   };
   mesh.morphTargetInfluences = [0, 0, 0, 0];
   model.add(left, right, mesh);
-  const host = await createRustEmbodyHost(model, { presetId: 'cc4' });
+  const host = await createRustEmbodyHost(model, { presetId: 'cc4', profile: {
+    auToMorphs: { 1001: { left: ['Authored_Elbow_Flex_L'], right: ['Authored_Elbow_Flex_R'], center: [] } },
+  } });
   return {
     host, mesh, left, right,
     dispose() { host.dispose(); mesh.geometry.dispose(); mesh.material.dispose(); },
@@ -619,7 +621,7 @@ test('a semantic body command reclaims a canceled direct morph action with the s
   const { host, mesh } = rig;
   try {
     host.setAU(12, 0.3);
-    const handle = host.transitionMorph('LL_Body_Bicep_Flex_L', 1, 200);
+    const handle = host.transitionMorph('Authored_Elbow_Flex_L', 1, 200);
     const done = observe(handle);
     renderHostFrame(host, 0.1);
     near(mesh.morphTargetInfluences[0], 0.5, 'direct body morph reaches its midpoint');
