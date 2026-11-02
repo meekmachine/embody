@@ -37,6 +37,21 @@ export function runNpm(args, publisher) {
   }
 }
 
+export async function readNpmPublicStatus(packageName, fetchMetadata = fetch) {
+  // This is the same endpoint used by npm access get status. Read it directly
+  // so npm config cannot attach a token to an anonymous visibility check.
+  const response = await fetchMetadata(`https://registry.npmjs.org/-/package/${encodeURIComponent(packageName)}/visibility`, {
+    headers: { accept: 'application/json' },
+    redirect: 'error',
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (response.redirected) throw new Error('npm visibility redirects are not permitted.');
+  if (!response.ok) throw new Error(`Cannot read npm package visibility: HTTP ${response.status}`);
+  const visibility = await response.json();
+  if (typeof visibility?.public !== 'boolean') throw new Error('npm visibility response must explicitly identify public or private status.');
+  return { [packageName]: visibility.public ? 'public' : 'private' };
+}
+
 export async function readNpmVersion(packageName, version, fetchMetadata = fetch) {
   const response = await fetchMetadata(`https://registry.npmjs.org/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`, {
     headers: { accept: 'application/json', 'cache-control': 'no-cache' },

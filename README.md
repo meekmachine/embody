@@ -668,8 +668,10 @@ It chooses the next patch version, records the source commit in `gitHead`, and
 builds and validates once. Stable version selection reads public metadata from
 `registry.npmjs.org` anonymously; redirects and failed lookups stop the release.
 Metadata reads never transmit publishing credentials. The separate
-publish job first requires `npm access get status` to report the existing package
-as public, then uses GitHub OIDC trusted publishing in the `npm` environment
+publish job first requires the npm visibility endpoint (the endpoint used by
+`npm access get status`) to report the existing package as public. It reads this
+anonymously without npm token configuration, then uses GitHub OIDC trusted
+publishing in the `npm` environment
 to publish the packed output with public access and create its Git tag and GitHub release. Stable
 releases are serialized through version selection and publication. Provenance
 remains disabled for the private source repository. Retrying a published commit

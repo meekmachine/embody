@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { isAbsolute, relative } from 'node:path';
 import test from 'node:test';
-import { assertTrustedPublishingToolchain, formatPublicationReceipt, npmFailure, publishAndConfirm, readNpmVersion } from '../ci/publication-receipt.mjs';
+import { assertTrustedPublishingToolchain, formatPublicationReceipt, npmFailure, publishAndConfirm, readNpmPublicStatus, readNpmVersion } from '../ci/publication-receipt.mjs';
 
 const publisher = { packageName: '@lovelace_lol/embody', repository: 'meekmachine/embody', workflow: 'pr-checks.yml' };
 const sourceSha = 'b'.repeat(40);
@@ -149,4 +149,20 @@ test('network and unknown npm failures do not prescribe changing publisher authe
     assert.match(error.message, /registry availability, network access and release identity/);
     assert.doesNotMatch(error.message, /trusted publisher|Allow npm publish|private-token/);
   }
+});
+
+test('public visibility is confirmed anonymously without npm token configuration', async () => {
+  const status = await readNpmPublicStatus(pkg.name, async (url, config) => {
+    assert.equal(url, `https://registry.npmjs.org/-/package/${encodeURIComponent(pkg.name)}/visibility`);
+    assert.deepEqual(config.headers, { accept: 'application/json' });
+    assert.equal(config.redirect, 'error');
+    return { ok: true, json: async () => ({ public: true }) };
+  });
+  assert.deepEqual(status, { [pkg.name]: 'public' });
+  assert.deepEqual(await readNpmPublicStatus(pkg.name, async () => ({ ok: true, json: async () => ({ public: false }) })), { [pkg.name]: 'private' });
+  for (const code of [401, 403, 404, 500]) {
+    await assert.rejects(readNpmPublicStatus(pkg.name, async () => ({ ok: false, status: code })), new RegExp(`HTTP ${code}`));
+  }
+  await assert.rejects(readNpmPublicStatus(pkg.name, async () => ({ ok: true, redirected: true })), /redirect/);
+  await assert.rejects(readNpmPublicStatus(pkg.name, async () => ({ ok: true, json: async () => ({}) })), /explicitly identify/);
 });

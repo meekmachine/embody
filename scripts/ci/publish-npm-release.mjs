@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { assertPublicPackageStatus, readNpmMetadata } from './npm-release.mjs';
-import { assertTrustedPublishingToolchain, formatPublicationReceipt, publishAndConfirm, readNpmVersion, runNpm } from './publication-receipt.mjs';
+import { assertTrustedPublishingToolchain, formatPublicationReceipt, publishAndConfirm, readNpmPublicStatus, readNpmVersion, runNpm } from './publication-receipt.mjs';
 
 const publisher = { packageName: '@lovelace_lol/embody', repository: 'meekmachine/embody', workflow: 'pr-checks.yml' };
 const summary = (content) => {
@@ -17,7 +17,7 @@ try {
   if (pkg.version !== process.env.RELEASE_VERSION) throw new Error('Packed npm version differs from the verified release version.');
   summary(`### Stable npm publication attempt\n\nPackage: \`${publisher.packageName}@${process.env.RELEASE_VERSION}\`\n\nVerified source: \`${process.env.RELEASE_COMMIT}\`\n\nThis is a stable npm attempt, separate from pkg.pr.new preview publication.\n`);
   assertTrustedPublishingToolchain(process.versions.node, runNpm(['--version'], publisher).trim());
-  const status = JSON.parse(runNpm(['access', 'get', 'status', publisher.packageName, '--json', '--registry=https://registry.npmjs.org'], publisher));
+  const status = await readNpmPublicStatus(publisher.packageName);
   assertPublicPackageStatus(status, publisher.packageName);
   const integrity = `sha512-${createHash('sha512').update(readFileSync(archive)).digest('base64')}`;
   const receipt = await publishAndConfirm({ pkg, archive, integrity, sourceSha: process.env.RELEASE_COMMIT,
