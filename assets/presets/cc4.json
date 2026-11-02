@@ -5359,10 +5359,6 @@
         "Hairline_High_ALL": {
           "value": 0.45,
           "axis": "pitch"
-        },
-        "Length_Short": {
-          "value": 0.65,
-          "axis": "pitch"
         }
       },
       "headDown": {
