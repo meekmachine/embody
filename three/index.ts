@@ -915,6 +915,8 @@ export const collectMorphMeshes = (root: Object3D) => {
 
 export * from './model';
 export * from './scene';
+export { acquireCharacterSceneVideoCapture } from './sceneVideoCapture';
+export type { CharacterSceneVideoCapture, CharacterSceneVideoCaptureOptions } from './sceneVideoCapture';
 export * from './scenery';
 
 export * from './editor/SkeletonOverlay';

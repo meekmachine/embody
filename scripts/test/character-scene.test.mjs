@@ -8,6 +8,8 @@ const fixture = new URL('../fixtures/character-scene/three.mjs', import.meta.url
 register('../fixtures/character-scene/loader.mjs', import.meta.url, { data: { entry: entry.href, fixture: fixture.href } });
 const { control } = await import(fixture.href);
 const { createDefaultCharacterScene, createDefaultCharacterSceneAsync, createDefaultCharacterSceneRuntime } = await import(entry.href);
+const captureEntry = new URL(process.env.EMBODY_SCENE_SOURCE === '1' ? '../../three/sceneVideoCapture.ts' : '../../dist/three.js', import.meta.url);
+const { acquireCharacterSceneVideoCapture } = await import(captureEntry.href);
 
 beforeEach(() => control.reset());
 
@@ -726,6 +728,34 @@ test('capture leases delay replacement and equal preference joins the pending re
   assert.equal(renderer.disposeCount, 0); assert.equal(runtime.scene.environment, runtime.lighting.getEnvironmentTexture());
   lease.release(); lease.release(); await switching;
   assert.equal(renderer.disposeCount, 1); await runtime.dispose(); assertReleased(host, callbacks);
+});
+
+test('resource retirement ends long-lived video synchronously but still drains readback leases', async (t) => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'MutationObserver');
+  Object.defineProperty(globalThis, 'MutationObserver', { configurable: true, value: class { observe() {} disconnect() {} } });
+  t.after(() => { if (previous) Object.defineProperty(globalThis, 'MutationObserver', previous); else delete globalThis.MutationObserver; });
+  const host = container(), callbacks = resizeEvents(t);
+  const runtime = createDefaultCharacterSceneRuntime(host, { renderer: 'webgl' }); await runtime.ready;
+  const makeTrack = () => Object.assign(new EventTarget(), { readyState: 'live', stop() { this.readyState = 'ended'; } });
+  const oldTrack = makeTrack(), track = makeTrack();
+  let currentTrack = oldTrack;
+  runtime.renderer.domElement.captureStream = () => ({ getTracks: () => [currentTrack], getVideoTracks: () => [currentTrack] });
+  const readback = runtime.rendering.acquireRenderer();
+  const previousVideo = acquireCharacterSceneVideoCapture(runtime.rendering); previousVideo.release();
+  currentTrack = track;
+  const video = acquireCharacterSceneVideoCapture(runtime.rendering);
+  previousVideo.release();
+  let ended = 0; track.addEventListener('ended', () => {
+    ended++;
+    assert.throws(() => runtime.rendering.acquireRenderer(), /not available/);
+  });
+  let retired = false;
+  const retirement = runtime.rendering.releaseSceneResources(() => { retired = true; });
+  assert.equal(track.readyState, 'ended'); assert.equal(ended, 1);
+  await Promise.resolve(); assert.equal(retired, false);
+  readback.release(); await retirement; assert.equal(retired, true);
+  video.release(); assert.equal(ended, 1);
+  await runtime.dispose(); assertReleased(host, callbacks);
 });
 
 test('async renderer admission drains queued scenery changes before borrowing and protects its granted lease', async (t) => {

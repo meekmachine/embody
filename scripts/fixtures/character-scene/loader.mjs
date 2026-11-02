@@ -16,7 +16,7 @@ export async function resolve(specifier, context, nextResolve) {
   if (specifier === 'three/webgpu' && context.parentURL === entry) {
     return { url: new URL('./webgpu.mjs', fixture).href, shortCircuit: true };
   }
-  if (entry.endsWith('.ts') && context.parentURL === entry && ['sceneRenderingBinding', 'sceneBackground'].some(name => specifier === `./${name}`)) {
+  if (entry.endsWith('.ts') && context.parentURL === entry && ['sceneRenderingBinding', 'sceneBackground', 'sceneVideoCapture'].some(name => specifier === `./${name}`)) {
     return { url: new URL(`${specifier}.ts`, entry).href, shortCircuit: true };
   }
   return nextResolve(specifier, context);
@@ -24,7 +24,7 @@ export async function resolve(specifier, context, nextResolve) {
 
 export async function load(url, context, nextLoad) {
   // A source-only review can run the same cases before the one package build.
-  if ((url === entry || ['sceneRenderingBinding', 'sceneBackground'].some(name => url === new URL(`./${name}.ts`, entry).href)) && url.endsWith('.ts')) {
+  if ((url === entry || ['sceneRenderingBinding', 'sceneBackground', 'sceneVideoCapture'].some(name => url === new URL(`./${name}.ts`, entry).href)) && url.endsWith('.ts')) {
     const source = ts.transpileModule(await readFile(new URL(url), 'utf8'), {
       compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext },
     }).outputText;
