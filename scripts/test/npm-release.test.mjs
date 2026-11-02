@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertNewReleaseDescendsFromPublished, assertPublicPackageStatus, readNpmMetadata, selectRelease, shouldPublishRelease } from '../ci/npm-release.mjs';
+import { assertNewReleaseDescendsFromPublished, assertPublicPackageStatus, readNpmMetadata, selectRelease, selectReleaseWithExactVersion, shouldPublishRelease } from '../ci/npm-release.mjs';
 
 const name = '@lovelace_lol/embody';
 const oldSha = 'a'.repeat(40);
@@ -57,7 +57,7 @@ test('registry errors never become a new package or a reset version', async () =
 test('public registry metadata uses the fixed npm origin without credentials and refuses redirects', async () => {
   const result = await readMetadata(async (url, options) => {
     assert.equal(url, 'https://registry.npmjs.org/%40lovelace_lol%2Fembody');
-    assert.deepEqual(options.headers, { accept: 'application/json' });
+    assert.deepEqual(options.headers, { accept: 'application/json', 'cache-control': 'no-cache' });
     assert.equal(options.redirect, 'error');
     return { ok: true, json: async () => old() };
   });
@@ -77,7 +77,7 @@ test('metadata reads work without a token and never transmit an ambient publishi
       else process.env.NODE_AUTH_TOKEN = token;
       await readMetadata(async (_url, options) => {
         calls += 1;
-        assert.deepEqual(options.headers, { accept: 'application/json' });
+        assert.deepEqual(options.headers, { accept: 'application/json', 'cache-control': 'no-cache' });
         return { ok: true, json: async () => old() };
       });
     }
@@ -127,4 +127,56 @@ test('retrying an older unpublished main commit cannot make it the newest releas
   });
   assert.throws(() => assertNewReleaseDescendsFromPublished(metadata(['0.0.6', undefined]), newSha, () => true), /full gitHead/);
   assert.throws(() => assertNewReleaseDescendsFromPublished(old(), newSha, () => { throw new Error('history unavailable'); }), /history unavailable/);
+});
+
+test('release preparation advances past one upload missing from the package index before building', async () => {
+  const priorSha = 'c'.repeat(40);
+  const index = old();
+  let reads = 0;
+  const resolved = await selectReleaseWithExactVersion(index, '0.0.0', newSha, [], async (packageName, version) => {
+    reads += 1;
+    assert.equal(packageName, name);
+    assert.equal(version, '0.0.7');
+    return { name, version, gitHead: priorSha };
+  });
+  assert.equal(reads, 1);
+  assert.deepEqual(resolved.release, { version: '0.0.8', exists: false });
+  assert.equal(index.versions['0.0.7'], undefined);
+  assertNewReleaseDescendsFromPublished(resolved.metadata, newSha, (ancestor, descendant) => {
+    assert.equal(ancestor, priorSha);
+    assert.equal(descendant, newSha);
+    return true;
+  });
+  assert.throws(() => assertNewReleaseDescendsFromPublished(resolved.metadata, newSha, () => false), /refusing an older/);
+});
+
+test('release preparation reuses an exact same-source upload missing from the index', async () => {
+  const resolved = await selectReleaseWithExactVersion(old(), '0.0.0', newSha, [], async (_name, version) => ({
+    name, version, gitHead: newSha,
+  }));
+  assert.deepEqual(resolved.release, { version: '0.0.7', exists: true });
+});
+
+test('release preparation keeps an absent candidate and never treats lookup errors as absence', async () => {
+  const index = old();
+  const resolved = await selectReleaseWithExactVersion(index, '0.0.0', newSha, [], async () => undefined);
+  assert.deepEqual(resolved.release, { version: '0.0.7', exists: false });
+  assert.equal(resolved.metadata, index);
+  await assert.rejects(selectReleaseWithExactVersion(index, '0.0.0', newSha, [], async () => {
+    throw new Error('HTTP 500');
+  }), /HTTP 500/);
+});
+
+test('release preparation rejects uncertain registry identity and reserved-tag conflicts', async () => {
+  await assert.rejects(selectReleaseWithExactVersion(old(), '0.0.0', oldSha, [], async () => undefined), /disagree/);
+  await assert.rejects(selectReleaseWithExactVersion(old(), '0.0.0', oldSha, [], async () => ({
+    name, version: '0.0.6', gitHead: newSha,
+  })), /source identities disagree/);
+  for (const record of [{ name: 'another-package', version: '0.0.7', gitHead: oldSha },
+    { name, version: '0.0.8', gitHead: oldSha }]) {
+    await assert.rejects(selectReleaseWithExactVersion(old(), '0.0.0', newSha, [], async () => record), /different exact package/);
+  }
+  await assert.rejects(selectReleaseWithExactVersion(old(), '0.0.0', newSha, ['v0.0.7'], async () => ({
+    name, version: '0.0.7', gitHead: oldSha,
+  })), /another source/);
 });

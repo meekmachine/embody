@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { assertNewReleaseDescendsFromPublished, readNpmMetadata, selectRelease } from './npm-release.mjs';
+import { assertNewReleaseDescendsFromPublished, readNpmMetadata, selectReleaseWithExactVersion } from './npm-release.mjs';
+import { readNpmVersion } from './publication-receipt.mjs';
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
 const sourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const tags = execFileSync('git', ['tag', '--points-at', 'HEAD', '--list', 'v*'], {
   encoding: 'utf8',
 }).trim().split('\n').filter(Boolean);
-const metadata = await readNpmMetadata(pkg.name);
-const release = selectRelease(metadata, pkg.version, sourceSha, tags);
+const index = await readNpmMetadata(pkg.name);
+const { release, metadata } = await selectReleaseWithExactVersion(
+  index, pkg.version, sourceSha, tags, readNpmVersion,
+);
 if (!release.exists) {
   assertNewReleaseDescendsFromPublished(metadata, sourceSha, (ancestor, descendant) => {
     try {
