@@ -591,6 +591,9 @@ fn au_previews_hide_other_markers_and_restore_saved_visibility_and_selection() {
             let before_failure = r.snapshot_value();
             assert!(r.execute("runtimeAU", json!({"target":"99","profile":{},"options":{"replaceExisting":true}}), 303.).is_err());
             assert_eq!(r.snapshot_value(), before_failure);
+            r.camera.position = [0., 1., 6.];
+            r.marker_frame(303., &IDENTITY, &IDENTITY, 800., 600.);
+            assert_eq!(r.expanded.get("head"), Some(&true));
             r.execute("clearRuntime", json!({}), 304.).unwrap();
             r.marker_frame(600., &IDENTITY, &IDENTITY, 800., 600.);
             assert_eq!(r.visible, initially_visible);

@@ -380,11 +380,13 @@ impl AnnotationRuntime {
             return Box::new([]);
         };
         let left = self.left_side;
+        let au_preview = self.has_au_preview();
         let distance = distance3(self.camera.position, model.bounds.center());
         let threshold = model.bounds.size()[1] * if self.style == "html" { 2.5 } else { 2. };
-        if self
-            .last_distance
-            .is_some_and(|previous| previous <= threshold)
+        if !au_preview
+            && self
+                .last_distance
+                .is_some_and(|previous| previous <= threshold)
             && distance > threshold
         {
             for expanded in self.expanded.values_mut() {
@@ -394,7 +396,6 @@ impl AnnotationRuntime {
             self.descriptor_revision += 1;
         }
         self.last_distance = Some(distance);
-        let au_preview = self.has_au_preview();
         // Recompute morph leaders from the current pose/view, then retain the
         // existing endpoint separation among the callouts that can be shown.
         let mut morph_indices = Vec::new();
