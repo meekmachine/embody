@@ -1,6 +1,6 @@
 use super::geometry::*;
 use crate::annotation_camera::{
-    add_scaled3, distance3, normalize3, quat_or_identity, rotate_by_quat, sub3,
+    add_scaled3, distance3, dot3, normalize3, quat_or_identity, rotate_by_quat, sub3,
 };
 use crate::annotation_markers as math;
 use serde_json::{json, Value};
@@ -63,6 +63,18 @@ fn outward(
     left: f32,
     camera: Point,
 ) -> Point {
+    let view = sub3(camera, model.bounds.center());
+    if let Some(direction) = morph_outward(
+        region,
+        style,
+        anchor,
+        model,
+        left,
+        camera,
+        [view[2], 0., -view[0]],
+    ) {
+        return direction;
+    }
     if let Some(p) = point(&style["lineDirection"]) {
         return normalize3(p);
     }
@@ -143,6 +155,57 @@ fn outward(
     } else {
         normalize3(delta)
     }
+}
+
+/// Morph callouts leave the character's projected center horizontally. A small
+/// camera-facing component lifts front-side labels off the surface without
+/// sending a rear-side leader through the character.
+pub fn morph_outward(
+    region: &Value,
+    style: &Value,
+    anchor: Point,
+    model: &Model,
+    left: f32,
+    camera: Point,
+    camera_right: Point,
+) -> Option<Point> {
+    if strings(&region["runtimeAnnotation"]["morphNames"]).is_empty()
+        || text(style, "lineDirection") != "radial"
+    {
+        return None;
+    }
+    let mut right = camera_right;
+    if distance3(right, [0.; 3]) < 0.001 {
+        right = model.direction([1., 0., 0.]);
+    }
+    let right = normalize3(right);
+    let radial = sub3(anchor, model.bounds.center());
+    let horizontal = dot3(radial, right);
+    let sign = if horizontal.abs() > model.bounds.size()[1] * 0.0001 {
+        horizontal.signum()
+    } else {
+        // Centered anchors still need a visible leader. Prefer the authored
+        // side when it has a horizontal projection; use screen-right otherwise.
+        let projected_side = side(text(&region["runtimeAnnotation"], "side"))
+            .map(|s| dot3(model.direction([side_sign(s, left), 0., 0.]), right))
+            .unwrap_or(0.);
+        if projected_side < -0.001 {
+            -1.
+        } else {
+            1.
+        }
+    };
+    let toward_camera = normalize3(sub3(camera, anchor));
+    let lift = if dot3(radial, toward_camera) >= 0. {
+        0.35
+    } else {
+        0.
+    };
+    Some(normalize3(add_scaled3(
+        right.map(|v| v * sign),
+        toward_camera,
+        lift,
+    )))
 }
 pub fn mesh_side_offset(region: &Value, sign: f32, size: Point) -> Option<Point> {
     let metadata = &region["runtimeAnnotation"];

@@ -186,6 +186,10 @@ pub fn make_region(
     }
     region["markerAnchor"] = anchor;
     let mut style = json!({});
+    if mesh.is_some() && !morphs.is_empty() {
+        // Generic region defaults must not point a transient morph callout inward.
+        style["lineDirection"] = json!("radial");
+    }
     for key in [
         "markerColor",
         "lineColor",

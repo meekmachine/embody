@@ -168,6 +168,26 @@ Controls the annotation line direction for marker placement.
 
 Controls line style, curve, arrow head, thickness, and length for marker rendering.
 
+### Transient AU morph callouts
+
+`showRuntimeAUAnnotations()` gives generated morph callouts a radial leader even
+when general marker defaults specify another direction. Rust recomputes the
+leader on each update from the posed anchor and camera view. It extends toward
+the outside of the character's horizontal projection; centered targets use the
+mapped side when available, otherwise screen-right. Explicit directions on
+authored regions retain their meaning. Label fitting still respects the viewport
+and minimum leader length, so a callout can hide when there is insufficient room.
+
+While runtime AU annotations exist, only those AU annotations are shown. Saved
+regions and other runtime bone annotations hide immediately. Saved selection,
+solo and expansion settings remain intact and do not suppress the AU preview.
+`clearRuntimeAnnotations()` removes the temporary regions and restores the
+visibility setting from before the first AU preview. Visibility changes made
+during a preview become the setting restored on cleanup. Switching AU sides or
+refreshing the preview does not overwrite that setting. Clearing/replacing the
+model or configuration also releases the preview state. An unmapped AU error
+leaves the current preview unchanged.
+
 ## Geometry Target Fields
 
 ### `bones`
