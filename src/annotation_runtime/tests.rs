@@ -486,6 +486,139 @@ fn unmapped_au_fails_without_removing_existing_preview() {
         .is_err());
     assert_eq!(r.snapshot_value(), before);
 }
+
+#[test]
+fn morph_leaders_leave_the_character_in_front_rear_and_side_views() {
+    let model = model();
+    for camera in [[0., 1., 3.], [0., 1., -3.], [3., 1., 0.], [-3., 1., 0.]] {
+        let view = sub3(camera, model.bounds.center());
+        let right = normalize3([view[2], 0., -view[0]]);
+        for anchor in [[-0.2, 1.6, 0.1], [0.2, 1.6, 0.1], [0., 1.6, 0.1]] {
+            let region = targets::make_region(
+                "au", "1", None, Some("Body"), &["Brow_Left".into()], Some("left"), &json!({}),
+            );
+            let marker = Marker::new(1, region, &model, &json!({
+                "markerDefaults":{"lineDirection":"down"}
+            }), -1., camera, Some(anchor)).unwrap();
+            let radial = sub3(anchor, model.bounds.center());
+            let horizontal = crate::annotation_camera::dot3(radial, right);
+            let projected = crate::annotation_camera::dot3(marker.direction, right);
+            assert!(projected.abs() > 0.5, "leader must extend across the view");
+            if horizontal.abs() > 0.001 {
+                assert!(horizontal * projected > 0., "leader must leave the character");
+            }
+            assert!(crate::annotation_camera::dot3(radial, marker.direction) >= -1e-6);
+        }
+    }
+}
+
+#[test]
+fn morph_leaders_refresh_with_animated_anchors_and_camera_orbits() {
+    let mut r = runtime(json!([animated_region()]));
+    let generation = r.generation();
+    let base = [-0.2, 1.5, 0.1, -0.2, 1.6, 0.1, -0.2, 1.7, 0.1];
+    let deltas = [0., 0.1, 0.].repeat(3);
+    let plan = r.prepare_morph_anchor(generation, 1, "au", &base, &deltas, true);
+    assert!(plan.len() > 1);
+    let samples = |position: Point| position.repeat(plan.len() - 1);
+    r.observe_morph_anchor(generation, plan[0], &samples([-0.2, 1.6, 0.1]));
+    r.plan_markers("{}").unwrap();
+    r.visible = true;
+    r.camera.position = [0., 1., 3.];
+    r.marker_frame(0., &IDENTITY, &IDENTITY, 800., 600.);
+    assert!(r.markers[0].direction[0] < -0.5);
+    let id = r.markers[0].id;
+    r.observe_morph_anchor(generation, plan[0], &samples([0.2, 1.6, 0.1]));
+    r.marker_frame(1., &IDENTITY, &IDENTITY, 800., 600.);
+    assert!(r.markers[0].direction[0] > 0.5);
+    r.camera.position = [3., 1., 0.];
+    let mut side_view = IDENTITY;
+    side_view[0] = 0.;
+    side_view[8] = -1.;
+    side_view[2] = 1.;
+    side_view[10] = 0.;
+    r.marker_frame(2., &IDENTITY, &side_view, 800., 600.);
+    assert!(r.markers[0].direction[2] > 0.5);
+    assert_eq!(r.markers[0].id, id);
+}
+
+#[test]
+fn au_previews_hide_other_markers_and_restore_saved_visibility_and_selection() {
+    for style in ["3d", "html"] {
+        for initially_visible in [false, true] {
+            let mut parent = point_region("head");
+            parent["children"] = json!(["saved"]);
+            let mut child = point_region("saved");
+            child["parent"] = json!("head");
+            for region in [&mut parent, &mut child] {
+                region["markerAnchor"]["position"] = json!({"x":0.,"y":0.,"z":0.});
+                region["style"] = json!({"lineDirection":{"x":1.,"y":0.,"z":0.}});
+            }
+            let saved = json!([parent, child]);
+            let mut r = runtime(saved.clone());
+            for object in &mut r.model.as_mut().unwrap().objects {
+                if object.kind == "Bone" { object.position[1] = 0.1; }
+            }
+            r.execute("style", json!({"style":style}), 0.).unwrap();
+            r.execute("expand", json!({"name":"head","duration":0}), 0.).unwrap();
+            r.execute("solo", json!({"name":"saved"}), 0.).unwrap();
+            r.execute("select", json!({"name":"saved"}), 0.).unwrap();
+            r.execute("runtimeBone", json!({"target":"LeftEye","options":{"projectToSurface":false}}), 0.).unwrap();
+            r.execute("visibility", json!({"visible":true}), 0.).unwrap();
+            r.plan_markers("{}").unwrap();
+            r.marker_frame(0., &IDENTITY, &IDENTITY, 800., 600.);
+            r.marker_frame(300., &IDENTITY, &IDENTITY, 800., 600.);
+            if !initially_visible {
+                r.execute("visibility", json!({"visible":false}), 300.).unwrap();
+                r.marker_frame(300., &IDENTITY, &IDENTITY, 800., 600.);
+            }
+            assert_eq!(r.markers.iter().find(|m| m.region["name"] == "saved").unwrap().current_visibility, initially_visible);
+
+            let profile = json!({"auToBones":{"1":[{"node":"LeftEye"},{"node":"RightEye"}]}});
+            for side in ["left", "right"] {
+                let generated = r.execute("runtimeAU", json!({"target":"1","profile":profile,
+                    "options":{"targetSide":side,"projectToSurface":false}}), 301.).unwrap();
+                let name = generated[0]["name"].as_str().unwrap();
+                r.plan_markers("{}").unwrap();
+                let frame = r.marker_frame(302., &IDENTITY, &IDENTITY, 800., 600.);
+                for (marker, record) in r.markers.iter().zip(frame.chunks_exact(markers::FRAME_STRIDE)) {
+                    assert_eq!(marker.current_visibility, text(&marker.region, "name") == name);
+                    if text(&marker.region, "name") != name {
+                        assert_eq!(record[1], 0., "other markers must hide immediately");
+                    }
+                }
+            }
+            let before_failure = r.snapshot_value();
+            assert!(r.execute("runtimeAU", json!({"target":"99","profile":{},"options":{"replaceExisting":true}}), 303.).is_err());
+            assert_eq!(r.snapshot_value(), before_failure);
+            r.execute("clearRuntime", json!({}), 304.).unwrap();
+            r.marker_frame(600., &IDENTITY, &IDENTITY, 800., 600.);
+            assert_eq!(r.visible, initially_visible);
+            assert_eq!(r.regions, saved.as_array().unwrap().clone());
+            assert_eq!(r.current.as_deref(), Some("saved"));
+            assert_eq!(r.solo.as_deref(), Some("saved"));
+            assert_eq!(r.expanded.get("head"), Some(&true));
+            assert_eq!(r.markers.iter().find(|m| m.region["name"] == "saved").unwrap().current_visibility, initially_visible);
+        }
+    }
+}
+
+#[test]
+fn au_preview_cleanup_respects_visibility_edits_and_character_replacement() {
+    for end in ["clearRuntime", "clearModel", "configure"] {
+        let mut r = runtime(json!([point_region("saved")]));
+        r.execute("runtimeAU", json!({"target":"1","profile":{"auToBones":{"1":["LeftEye"]}}}), 0.).unwrap();
+        assert!(r.visible);
+        r.execute(end, json!({"config":{"characterId":"replacement","regions":[]}}), 1.).unwrap();
+        assert!(!r.visible);
+        assert!(r.au_preview_visibility.is_none());
+    }
+    let mut r = runtime(json!([]));
+    r.execute("runtimeAU", json!({"target":"1","profile":{"auToBones":{"1":["LeftEye"]}}}), 0.).unwrap();
+    r.execute("visibility", json!({"visible":true}), 1.).unwrap();
+    r.execute("clearRuntime", json!({}), 2.).unwrap();
+    assert!(r.visible);
+}
 #[test]
 fn html_and_three_share_expansion_solo_style_and_marker_identity() {
     let mut parent = point_region("head");

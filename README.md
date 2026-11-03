@@ -344,6 +344,13 @@ resize/rebind, and restore borrowed parent positioning when the final view is
 disposed. These coordinates assume axis-aligned CSS boxes without transforms.
 
 AU morph anchors follow morph and skeletal animation on each annotation update.
+Their default radial leaders also refresh with the posed anchor and camera,
+extending horizontally away from the character's projected center. Runtime AU
+previews temporarily hide saved regions and other runtime annotations, then
+restore the preceding visibility setting on cleanup without changing saved
+selection, solo or expansion settings. See the
+[callout configuration contract](ANNOTATION_CONFIGURATION.md#transient-au-morph-callouts)
+for centered anchors, authored directions and viewport limits.
 Rust selects and caches affected vertices and their influence weights during
 marker preparation, using mesh-space geometry so rotating a character cannot
 change the selected semantic band. The adapter evaluates those vertices in the

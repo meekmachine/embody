@@ -110,6 +110,7 @@ pub struct AnnotationRuntime {
     hovered: Option<u32>,
     expanded: BTreeMap<String, bool>,
     runtime_names: BTreeSet<String>,
+    au_preview_visibility: Option<bool>,
     ids: BTreeMap<String, u32>,
     next_id: u32,
     visible: bool,
@@ -175,6 +176,7 @@ impl AnnotationRuntime {
         self.config = json!({});
         self.config_revision = self.config_revision.wrapping_add(1);
         self.runtime_names.clear();
+        self.restore_au_preview_visibility();
         self.current = None;
         self.expanded.clear();
         self.solo = None;
@@ -392,6 +394,59 @@ impl AnnotationRuntime {
             self.descriptor_revision += 1;
         }
         self.last_distance = Some(distance);
+        let au_preview = self.has_au_preview();
+        // Recompute morph leaders from the current pose/view, then retain the
+        // existing endpoint separation among the callouts that can be shown.
+        let mut morph_indices = Vec::new();
+        for (index, marker) in self.markers.iter_mut().enumerate() {
+            let name = text(&marker.region, "name");
+            if au_preview
+                && (!self.runtime_names.contains(name)
+                    || text(&marker.region["runtimeAnnotation"], "targetType") != "au")
+            {
+                continue;
+            }
+            marker.observe_anchor(model);
+            if let Some(direction) = markers::morph_outward(
+                &marker.region,
+                &marker.style,
+                marker.start,
+                model,
+                left,
+                self.camera.position,
+                [0, 4, 8].map(|i| view_projection.get(i).copied().unwrap_or(0.)),
+            ) {
+                marker.direction = direction;
+                morph_indices.push(index);
+            }
+        }
+        if morph_indices.len() > 1 {
+            let starts = morph_indices
+                .iter()
+                .flat_map(|i| self.markers[*i].start)
+                .collect::<Vec<_>>();
+            let ends = morph_indices
+                .iter()
+                .flat_map(|i| {
+                    let marker = &self.markers[*i];
+                    add_scaled3(marker.start, marker.direction, marker.length)
+                })
+                .collect::<Vec<_>>();
+            let adjusted = crate::annotation_markers::separate_overlapping_marker_endpoints(
+                &starts,
+                &ends,
+                &model.bounds.center(),
+                model.bounds.size()[1],
+            );
+            for (index, end) in morph_indices.into_iter().zip(adjusted.chunks_exact(3)) {
+                let marker = &mut self.markers[index];
+                let direction = normalize3(sub3([end[0], end[1], end[2]], marker.start));
+                // Endpoint separation must not turn a leader back into the model.
+                if crate::annotation_camera::dot3(direction, marker.direction) > 0.5 {
+                    marker.direction = direction;
+                }
+            }
+        }
         let mut values = Vec::with_capacity(self.markers.len() * markers::FRAME_STRIDE);
         for marker in &mut self.markers {
             let name = text(&marker.region, "name").to_owned();
@@ -404,9 +459,20 @@ impl AnnotationRuntime {
             let expanded = parent
                 .map(|p| self.expanded.get(p) == Some(&true))
                 .unwrap_or(true);
+            let included = if au_preview {
+                self.runtime_names.contains(&name)
+                    && text(&marker.region["runtimeAnnotation"], "targetType") == "au"
+            } else {
+                expanded && self.solo.as_ref().map(|s| s == &name).unwrap_or(true)
+            };
+            if au_preview && !included {
+                // Cancel even an already-running hide animation: no other
+                // labels may remain onscreen underneath a slider preview.
+                marker.current_visibility = false;
+                marker.transition = None;
+            }
             let structural = self.visible
-                && expanded
-                && self.solo.as_ref().map(|s| s == &name).unwrap_or(true)
+                && included
                 && marker.region["isFallback"] != true;
             values.extend_from_slice(&marker.frame(
                 now_ms,
@@ -604,6 +670,7 @@ impl AnnotationRuntime {
             hovered: None,
             expanded: BTreeMap::new(),
             runtime_names: BTreeSet::new(),
+            au_preview_visibility: None,
             ids: BTreeMap::new(),
             next_id: 1,
             visible: false,
@@ -752,6 +819,7 @@ impl AnnotationRuntime {
         self.markers.retain(|m| text(&m.region, "name") != name);
         self.expanded.remove(name);
         self.runtime_names.remove(name);
+        self.restore_au_preview_visibility();
         if self.current.as_deref() == Some(name) {
             self.current = None
         }
@@ -760,6 +828,19 @@ impl AnnotationRuntime {
         }
         self.changed_regions();
         self.descriptor_revision += 1
+    }
+    fn has_au_preview(&self) -> bool {
+        self.regions.iter().any(|region| {
+            self.runtime_names.contains(text(region, "name"))
+                && text(&region["runtimeAnnotation"], "targetType") == "au"
+        })
+    }
+    fn restore_au_preview_visibility(&mut self) {
+        if !self.has_au_preview() {
+            if let Some(visible) = self.au_preview_visibility.take() {
+                self.visible = visible;
+            }
+        }
     }
     fn execute(&mut self, op: &str, p: Value, now: f64) -> Result<Value, String> {
         if !now.is_finite() {
@@ -805,6 +886,7 @@ impl AnnotationRuntime {
                 self.config = config;
                 self.regions = regions;
                 self.runtime_names.clear();
+                self.restore_au_preview_visibility();
                 self.expanded.clear();
                 self.solo = None;
                 self.hovered = None;
@@ -827,6 +909,7 @@ impl AnnotationRuntime {
                 }
                 self.regions.clear();
                 self.runtime_names.clear();
+                self.restore_au_preview_visibility();
                 self.expanded.clear();
                 self.current = None;
                 self.solo = None;
@@ -977,6 +1060,9 @@ impl AnnotationRuntime {
                 self.visible = p["visible"]
                     .as_bool()
                     .ok_or("Marker visibility must be boolean")?;
+                if self.au_preview_visibility.is_some() {
+                    self.au_preview_visibility = Some(self.visible);
+                }
                 Value::Null
             }
             "style" => {
@@ -1108,6 +1194,9 @@ impl AnnotationRuntime {
                     }
                 }
                 validate_regions(&regions)?;
+                if op == "runtimeAU" && self.au_preview_visibility.is_none() {
+                    self.au_preview_visibility = Some(self.visible);
+                }
                 if self.regions != regions {
                     self.regions = regions;
                     self.markers
@@ -1132,6 +1221,7 @@ impl AnnotationRuntime {
                     self.descriptor_revision += 1;
                 }
                 self.runtime_names.extend(wanted);
+                self.restore_au_preview_visibility();
                 self.visible = true;
                 if op == "runtimeBone" {
                     targets::summary(&generated[0])
