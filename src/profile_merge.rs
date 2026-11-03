@@ -658,8 +658,9 @@ mod tests {
 
     #[test]
     fn old_cc4_metadata_inherits_presentation_but_saved_names_and_cleared_outputs_win() {
-        let base=serde_json::to_value(crate::presets::load_profile("cc4").unwrap()).unwrap();
-        assert!(!base["auToMorphs"]["1001"]["left"].as_array().unwrap().is_empty());
+        let mut base=serde_json::to_value(crate::presets::load_profile("cc4").unwrap()).unwrap();
+        // Exercise clearing an authored mapping, not an assumed preset shape.
+        base["auToMorphs"]["1001"]=json!({"left":["AuthoredFlexL"],"right":["AuthoredFlexR"],"center":[]});
         let merged=merge(base.clone(),json!({
             "auInfo":{"1001":{"name":"My elbow","faceArea":"Body","facePart":"Body"}},
             "auToBones":{"1001":[]},"auToMorphs":{"1001":{"left":[],"right":[],"center":[]}},
@@ -668,7 +669,7 @@ mod tests {
         assert_eq!(merged["auInfo"]["1001"]["name"],"My elbow");
         assert_eq!(merged["auInfo"]["1001"]["category"],"body");
         assert_eq!(merged["auInfo"]["1001"]["section"],"Arms");
-        assert_eq!(merged["auInfo"]["1001"]["controlLabel"],"Elbow flex / biceps");
+        assert_eq!(merged["auInfo"]["1001"]["controlLabel"],"Elbow flex");
         assert_eq!(merged["auInfo"]["1001"]["order"],3010.0);
         let profile:ProfileData=serde_json::from_value(merged).unwrap();
         let rows=crate::au_descriptors::resolve(&profile,None);
@@ -708,7 +709,8 @@ mod tests {
         let base=serde_json::to_value(crate::presets::load_profile("cc4").unwrap()).unwrap();
         let merged=merge(base.clone(),json!({
             "actionInfo":{"1001":{"category":"custom","section":"My arm controls"}},
-            "auToBones":{"1001":[]},"compositeRotations":[],"auMixDefaults":{"1001":0.25}
+            "auToBones":{"1001":[]},"compositeRotations":[],"auMixDefaults":{"1001":0.25},
+            "auToMorphs":{"1001":{"left":["AuthoredFlexL"],"right":["AuthoredFlexR"],"center":[]}}
         }));
         for field in ["id","name","faceArea","facePart"] {
             assert_eq!(merged["auInfo"]["1001"][field],base["auInfo"]["1001"][field]);

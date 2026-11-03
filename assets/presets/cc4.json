@@ -709,12 +709,8 @@
       "center": []
     },
     "1001": {
-      "left": [
-        "LL_Body_Bicep_Flex_L"
-      ],
-      "right": [
-        "LL_Body_Bicep_Flex_R"
-      ],
+      "left": [],
+      "right": [],
       "center": []
     },
     "1002": {
@@ -3667,13 +3663,13 @@
     },
     "1001": {
       "id": "1001",
-      "name": "Elbow flex / biceps",
+      "name": "Elbow flex",
       "faceArea": "Body",
       "facePart": "Body",
       "category": "body",
       "section": "Arms",
       "order": 3010,
-      "controlLabel": "Elbow flex / biceps"
+      "controlLabel": "Elbow flex"
     },
     "1002": {
       "id": "1002",
