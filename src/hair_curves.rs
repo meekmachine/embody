@@ -74,9 +74,9 @@ pub(crate) struct HairPlaybackConfig {
     #[serde(default)] pub enabled: bool,
     /// Angular-velocity force gain (local radians/second, unit-mass spring).
     #[serde(default)] pub inertia: f32,
-    /// Dimensionless pitch/gravity gain; mapped pitch settles through the spring.
+    /// Physical gravity force gain for spring sway, independent of pose groups.
     #[serde(default)] pub gravity: f32,
-    /// Final additive response strength, including ambient and gravity outputs.
+    /// Spring sway/ambient strength; pose groups retain their authored coefficients.
     #[serde(default = "default_one")] pub response_scale: f32,
     /// Seconds for legacy authored curve helpers; continuous response has no clip cycle.
     #[serde(default = "minimum_idle_duration")] pub idle_clip_duration: f32,
@@ -242,7 +242,7 @@ pub(crate) fn response_morph_values(
 ) -> std::collections::BTreeMap<String, f64> {
     let mut values = configured_targets(config).into_iter().map(|name| (name, 0.0)).collect::<std::collections::BTreeMap<_, _>>();
     if !config.enabled { return values; }
-    let [x, z, gravity_pitch] = offsets.map(f64::from);
+    let [x, z, observed_pitch] = offsets.map(f64::from);
     let scale = f64::from(config.response_scale);
     let morph = &config.curves.morph_targets;
     let left = positive_direction(x);
@@ -256,10 +256,11 @@ pub(crate) fn response_morph_values(
     ] {
         if let Some(value) = name.as_ref().and_then(|name| values.get_mut(name)) { *value += amount * scale; }
     }
-    for (group, pitch) in [(&morph.head_up, positive_direction(-gravity_pitch)), (&morph.head_down, positive_direction(gravity_pitch))] {
+    let pose_pitch = (observed_pitch * f64::from(config.direction.pitch_sign)).clamp(-1.0, 1.0);
+    for (group, pitch) in [(&morph.head_up, positive_direction(-pose_pitch)), (&morph.head_down, positive_direction(pose_pitch))] {
         if let Some(group) = group {
             for (name, amount) in group {
-                if let Some(value) = values.get_mut(name) { *value += f64::from(*amount).min(2.0) * pitch * scale; }
+                if let Some(value) = values.get_mut(name) { *value += f64::from(*amount).min(2.0) * pitch; }
             }
         }
     }
@@ -665,13 +666,58 @@ mod tests {
         assert_eq!(neutral.keys().collect::<Vec<_>>(), values.keys().collect::<Vec<_>>());
         assert!(neutral.values().all(|value| *value == 0.0));
         config.response_scale = 0.0;
-        assert!(response_morph_values(&config, [1.0;3]).values().all(|value| *value == 0.0));
+        let pose_only = response_morph_values(&config, [1.0;3]);
+        assert!((pose_only["shared"] - 1.6).abs() < 1e-6);
+        assert_eq!(pose_only["front"], 0.0);
+        assert_eq!(pose_only["right"], 0.0);
         config.response_scale = f32::MAX;
         assert!(response_morph_values(&config, [1.0;3]).values().all(|value| value.is_finite() && limit_response_morph(*value) <= 2.0));
         config.enabled = false;
         assert!(response_morph_values(&config, [1.0;3]).values().all(|value| *value == 0.0));
         let cleared = normalize_config(&config, &json!({"morphTargets":{}})).unwrap();
         assert!(response_morph_values(&cleared, [1.0;3]).is_empty());
+    }
+
+    #[test]
+    fn authored_pose_coefficients_ignore_dynamic_gains_and_preserve_direction_zeros_and_clears() {
+        let config = normalize_config(&HairPlaybackConfig::default(), &json!({
+            "enabled":true,"gravity":12,"responseScale":2.5,
+            "morphTargets":{"headUp":{"up":{"value":0.7,"axis":"pitch"}},"headDown":{"down":0.7,"zero":0}}
+        })).unwrap();
+        for (pitch, up, down) in [(-0.1,0.07,0.0),(0.1,0.0,0.07),(0.0,0.0,0.0),(0.02,0.0,0.0105)] {
+            let expected = response_morph_values(&config, [0.0,0.0,pitch]);
+            assert!((expected["up"] - up).abs() < 1e-6);
+            assert!((expected["down"] - down).abs() < 1e-6);
+            assert_eq!(expected["zero"], 0.0);
+            for patch in [json!({"gravity":0,"responseScale":0}),json!({"gravity":100,"responseScale":100})] {
+                let tuned = normalize_config(&config, &patch).unwrap();
+                assert_eq!(response_morph_values(&tuned, [0.0,0.0,pitch]), expected);
+            }
+        }
+        let reversed = normalize_config(&config, &json!({"direction":{"pitchSign":-1}})).unwrap();
+        assert!((response_morph_values(&reversed, [0.0,0.0,0.1])["up"] - 0.07).abs() < 1e-6);
+        let cleared = normalize_config(&config, &json!({"morphTargets":{"headUp":null,"headDown":{"down":null}}})).unwrap();
+        let values = response_morph_values(&cleared, [0.0,0.0,0.1]);
+        assert_eq!(values.len(), 1);
+        assert_eq!(values["zero"], 0.0);
+        assert!(response_morph_values(&normalize_config(&config, &json!({"morphTargets":{}})).unwrap(), [0.0,0.0,0.1]).is_empty());
+    }
+
+    #[test]
+    fn cc4_pose_groups_keep_directional_strengths_without_automatic_structural_targets() {
+        let profile = crate::presets::load_profile("cc4").unwrap();
+        let config = normalize_config(&HairPlaybackConfig::default(), &serde_json::to_value(&profile.hair_physics).unwrap()).unwrap();
+        let config = normalize_config(&config, &json!({"enabled":true})).unwrap();
+        for pitch in [-0.1,0.0,0.1] {
+            let values = response_morph_values(&config, [0.0,0.0,pitch]);
+            assert!(!values.contains_key("Length_Short"));
+            assert!(!values.contains_key("Hairline_High_ALL"));
+        }
+        // The saved CC4 pitchSign is -1: negative observed pitch selects headDown.
+        let down = response_morph_values(&config, [0.0,0.0,-0.1]);
+        assert!((down["L_Hair_Front"] - 0.2).abs() < 1e-6);
+        assert!((down["Fluffy_Bottom_ALL"] - 0.1).abs() < 1e-6);
+        assert!(response_morph_values(&config, [0.0;3]).values().all(|value| *value == 0.0));
     }
 
     #[test]

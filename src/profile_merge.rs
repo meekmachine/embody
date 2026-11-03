@@ -852,17 +852,15 @@ mod tests {
             assert!(normalized["morphTargets"]["headDown"].as_object().unwrap().is_empty());
             assert!(normalized["morphTargets"]["swayLeft"].is_null());
             assert!(normalized["morphTargets"]["swayRight"].is_string());
-            assert!(!normalized["morphTargets"]["headUp"].as_object().unwrap().is_empty());
+            assert!(normalized["morphTargets"]["headUp"].as_object().unwrap().is_empty());
         }
 
-        let preset_hair = serde_json::to_value(&base.hair_physics).unwrap();
         for group in ["headUp", "headDown"] {
-            let targets = preset_hair["morphTargets"][group].as_object().unwrap();
-            let removed = targets.keys().next().unwrap();
-            // Supply a sibling explicitly: the CC4 headUp group has only one
-            // target now that hair length is no longer driven by head motion.
+            // Author the tombstone fixture independently of default group size.
+            let removed = "RemovedHairLift";
             let retained = "AuthoredHairLift";
             let fixture = json!({"hairPhysics":{"morphTargets":{(group):{
+                (removed): {"value": 0.7, "axis": "pitch"},
                 (retained): {"value": 0.5, "axis": "pitch"}
             }}}});
             let base_with_sibling = extend_preset_with_profile(

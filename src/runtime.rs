@@ -822,7 +822,8 @@ impl RuntimeCore {
             return Err(JsError::new("Hair response intensityScale must be finite and nonnegative."));
         }
         let mut next = self.hair_response.clone();
-        next.advance(&self.hair_config, head, dt_seconds).map_err(|error| JsError::new(&error))?;
+        let observed_head = if self.hair_response_paused { None } else { head };
+        next.advance(&self.hair_config, observed_head, dt_seconds).map_err(|error| JsError::new(&error))?;
         let values = crate::hair_curves::response_morph_values(&self.hair_config, next.offsets());
         let mesh_names_json = serialize_runtime_json(&options.mesh_names, "hair mesh names")?;
         // Every output here belongs to this one response, so names resolving
@@ -2360,18 +2361,22 @@ mod tests {
     #[test]
     fn continuous_hair_limits_the_shared_native_morph_once_and_reverses_without_a_flat_clip() {
         let mut core = continuous_hair_core();
-        core.set_hair_config_json("{\"stiffness\":0,\"damping\":0,\"inertia\":0,\"gravity\":0,\"responseScale\":1}").unwrap();
+        core.set_hair_config_json("{\"morphTargets\":{\"headDown\":{}}}").unwrap();
+        core.set_hair_config_json("{\"stiffness\":0,\"damping\":0,\"inertia\":0,\"gravity\":0,\"responseScale\":1,\"morphTargets\":{\"headDown\":{\"L\":0.7}}}").unwrap();
         core.add_hair_response_impulse(8.0,0.0).unwrap();
-        let clip = response_clip(&mut core, "null", 0.25);
+        let pose = continuous_head_pose(0.0,0.1);
+        let pose_only = response_clip(&mut core, &pose, 0.0);
+        assert!((pose_only.tracks.iter().find(|track| track.target["morphTargetId"] == 1).unwrap().values[0] - 0.07).abs() < 1e-6);
+        let clip = response_clip(&mut core, &pose, 0.25);
         let shared = clip.tracks.iter().filter(|track| track.target["morphTargetId"] == 1).collect::<Vec<_>>();
         assert_eq!(shared.len(), 1);
-        // Sway L plus fluff L contribute 2 + .5. One knee on their sum
+        // Sway L, fluff L and authored pose contribute 2 + .5 + .07. One knee on their sum
         // differs from separately limiting each source and adding afterward.
-        let expected = 2.0 - 0.5 * (-2.0_f64).exp();
+        let expected = 2.0 - 0.5 * (-2.14_f64).exp();
         assert!((shared[0].values[0] - expected).abs() < 1e-5);
         assert!(shared[0].values[0] < 2.0);
         core.add_hair_response_impulse(-10.0,0.0).unwrap();
-        let reversing = response_clip(&mut core, "null", 1.0 / 60.0);
+        let reversing = response_clip(&mut core, &pose, 1.0 / 60.0);
         let output = reversing.tracks.iter().find(|track| track.target["morphTargetId"] == 1).unwrap();
         assert!(output.values[0] < shared[0].values[0]);
     }

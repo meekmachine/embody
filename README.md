@@ -530,14 +530,16 @@ playback clock or hair simulation.
 
 ### Hair motion
 
-The CC4 preset does not map `Length_Short` to hair physics: head movement
-should animate hair direction without changing its authored length. Saved
-profiles with an explicit length mapping must clear it or set its strength to zero.
+The CC4 preset excludes `Length_Short` and `Hairline_High_ALL` from automatic
+hair physics, so head motion preserves authored length and hairline position
+while directional hair motion remains mapped. Its default `headUp` group is
+empty. Explicit saved/custom mappings for either target remain supported; this
+preset correction does not rewrite account profiles or remove authored overrides.
 
 When the profile enables `hairPhysics` and its registered hair/eyebrow meshes
 contain mapped targets, the Three character host plays one additive native action,
 `__embody_hair_response`. Rust's `HairResponse` owns velocity, spring displacement,
-ambient phase and gravity response. `RuntimeCore.build_hair_response_clip` emits
+ambient phase and the last observed reference pitch. `RuntimeCore.build_hair_response_clip` emits
 zero-neutral morph offsets; the host replaces samples on the existing native
 action when its target bindings stay the same. Numeric tuning and head retargets
 preserve both the action identity and the simulation state.
@@ -553,9 +555,16 @@ A profile without a head role still supports idle and wind with no invented rig
 mapping. Rebinding primes head history only after restored live controls have
 sampled, avoiding a false rest-to-pose impulse.
 
-Rust combines observed angular velocity, idle/wind, and smoothed pitch gravity
+Rust combines observed angular velocity, idle/wind, and physical gravity force
 using `inertia`, `stiffness`, `damping`, `gravity`, `responseScale` and `direction`.
-Directional mapping approaches neutral with zero slope. Contributions sharing a
+The separate `headUp`/`headDown` pose groups follow actual reference pitch and
+`direction.pitchSign`, using each authored target coefficient without multiplying
+by global `gravity` or `responseScale`. They have no spring rebound: neutral pose
+releases their contribution, while directional sway can continue settling.
+Outside the existing 0.04-radian neutral transition, a coefficient of 0.7 at
+signed pitch 0.1 produces a 0.07 pose contribution. Within that transition,
+mapping approaches zero with zero slope; pitch 0.02 produces 0.0105 instead of
+the legacy linear 0.014. Contributions sharing a
 concrete morph add before a soft limit keeps that response within `[0, 2]`.
 The next native mixer sample applies the resulting offsets, so output trails the
 observed head by one render step. There is no second mixer update or hair timer.
@@ -567,6 +576,10 @@ the actual reversed pose determines motion direction. A renderer gap longer than
 250 ms re-primes head velocity and integrates at most 250 ms of settling. Numeric
 configuration edits preserve momentum and ambient phase. Clearing mappings releases
 native output without erasing simulation state; disabling hair resets dynamics.
+An actual pose supplied with zero elapsed time updates pose groups without
+advancing the spring or consuming an already primed dynamic head observation.
+A null zero-delta synchronization retains the last observed pitch; explicit pause
+continues to freeze both components.
 Registration, model rebind and profile replacement start a new response binding.
 Disposal removes its render hook and releases native output.
 
