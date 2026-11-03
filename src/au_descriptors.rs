@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn cc4_elbow_moves_bones_without_implicitly_mapping_muscle_morphs() {
-        let mut profile=crate::presets::load_profile("cc4").unwrap();
+        let mut profile=crate::presets::load_profile("cc4").unwrap().clone();
         // Even a model containing the old example names must not acquire an
         // elbow-to-muscle link without an authored profile assignment.
         let model:ModelData=serde_json::from_value(json!({
