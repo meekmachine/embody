@@ -128,13 +128,14 @@ mod tests {
     }
 
     #[test]
-    fn cc4_head_motion_does_not_drive_hair_length() {
+    fn cc4_head_motion_preserves_length_and_hairline_unless_explicitly_authored() {
         use crate::hair_curves::{normalize_config, response_morph_values, HairPlaybackConfig};
 
         let profile: serde_json::Value =
             serde_json::from_str(&merge_preset_with_override_json("cc4", "").unwrap()).unwrap();
         let targets = &profile["hairPhysics"]["morphTargets"];
         assert!(targets["headUp"].get("Length_Short").is_none());
+        assert!(targets["headUp"].as_object().unwrap().is_empty());
         let config = normalize_config(
             &HairPlaybackConfig::default(),
             &serde_json::json!({
@@ -146,12 +147,21 @@ mod tests {
         for pitch in [-1.0, 0.0, 1.0] {
             let values = response_morph_values(&config, [0.0, 0.0, pitch]);
             assert!(!values.contains_key("Length_Short"));
+            assert!(!values.contains_key("Hairline_High_ALL"));
         }
         let values = response_morph_values(&config, [0.0, 0.0, 1.0]);
         assert!(
             values["L_Hair_Front"] > 0.0,
             "directional hair motion remains mapped"
         );
+
+        let authored: serde_json::Value = serde_json::from_str(&merge_preset_with_override_json(
+            "cc4", r#"{"hairPhysics":{"enabled":true,"morphTargets":{"headUp":{"Hairline_High_ALL":{"value":0.7,"axis":"pitch"}}}}}"#,
+        ).unwrap()).unwrap();
+        let config = normalize_config(&HairPlaybackConfig::default(), &authored["hairPhysics"]).unwrap();
+        // Explicit saved mappings retain their coefficient and the CC4 pitch sign.
+        assert!((response_morph_values(&config, [0.0,0.0,0.1])["Hairline_High_ALL"] - 0.07).abs() < 1e-6);
+        assert_eq!(response_morph_values(&config, [0.0;3])["Hairline_High_ALL"], 0.0);
     }
 
     #[test]
@@ -175,7 +185,7 @@ mod tests {
             }
         }
         assert_eq!(
-            cc4["hairPhysics"]["morphTargets"]["headUp"]["Hairline_High_ALL"]["axis"],
+            cc4["hairPhysics"]["morphTargets"]["swayFront"]["axis"],
             "pitch"
         );
         assert!(

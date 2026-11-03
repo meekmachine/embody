@@ -119,8 +119,7 @@ impl HairPhysicsState {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct HairResponse {
     state: HairPhysicsState,
-    gravity_pitch: f32,
-    gravity_velocity: f32,
+    observed_pitch: f32,
     time: f64,
     previous_head: Option<[f32; 2]>,
     head_drive: [f64; 2],
@@ -199,6 +198,10 @@ impl HairResponse {
             *self = Self::default();
             return Ok(());
         }
+        // Pose groups follow the observed reference pitch, independently of
+        // spring swing. Null zero-delta sync retains the last real observation.
+        if let Some(head) = head { self.observed_pitch = head[1]; }
+        else if dt_seconds > 0.0 { self.observed_pitch = 0.0; }
         if dt_seconds == 0.0 {
             // Binding may prime at zero delta. Once primed, a zero-delta frame
             // cannot consume motion that belongs to the next advancing frame.
@@ -245,16 +248,14 @@ impl HairResponse {
             response_spring_step(&mut self.state.z, &mut self.state.vz,
                 wind * f64::from(curves.wind_direction_z),
                 inertia_z + f64::from(config.gravity) * pitch.sin() * 0.1, stiffness, damping, dt);
-            response_spring_step(&mut self.gravity_pitch, &mut self.gravity_velocity,
-                (pitch * f64::from(config.gravity)).clamp(-1.0, 1.0), 0.0, stiffness, damping, dt);
         }
         Ok(())
     }
 
-    /// Signed sway and smoothed gravity pitch; profile mapping stays in the
-    /// runtime's hair curve module rather than in a renderer adapter.
+    /// Spring sway and observed reference pitch. Saved direction signs and
+    /// per-target pose coefficients belong to the profile-aware morph mapper.
     pub(crate) fn offsets(&self) -> [f32; 3] {
-        [self.state.x, self.state.z, self.gravity_pitch]
+        [self.state.x, self.state.z, self.observed_pitch]
     }
 }
 
@@ -495,18 +496,18 @@ mod tests {
     }
 
     #[test]
-    fn stationary_pitch_settles_gravity_and_ambient_motion_uses_the_same_response() {
+    fn observed_pose_returns_to_neutral_while_physical_gravity_and_ambient_keep_their_response() {
         let mut config = continuous_config();
         config.gravity = 1.0;
         let mut response = HairResponse::default();
         response.advance(&config, Some([0.0, 0.4]), 0.0).unwrap();
         for _ in 0..600 { response.advance(&config, Some([0.0, 0.4]), 1.0 / 120.0).unwrap(); }
-        assert!((response.gravity_pitch - 0.4).abs() < 0.001);
-        assert!(response.gravity_velocity.abs() < 0.001);
+        assert_eq!(response.observed_pitch, 0.4);
+        assert!(response.state.vz.abs() < 0.001);
         assert!(response.state.vx.abs() < 1e-6);
-        let pitched = response.gravity_pitch;
         response.advance(&config, Some([0.0, 0.0]), 1.0 / 120.0).unwrap();
-        assert!(response.gravity_pitch < pitched && response.gravity_pitch > 0.3);
+        assert_eq!(response.observed_pitch, 0.0);
+        assert!(response.state.z > 0.0); // Existing physical swing is not a pose-group input.
 
         config.gravity = 0.0;
         config.curves.idle_sway_amount = 0.2;
@@ -554,7 +555,8 @@ mod tests {
         reversed.advance(&reversed_config, Some([0.0,0.0]), 0.0).unwrap();
         forward.advance(&config, Some([0.1,0.1]), 0.02).unwrap();
         reversed.advance(&reversed_config, Some([0.1,0.1]), 0.02).unwrap();
-        for (a, b) in forward.offsets().iter().zip(reversed.offsets()) { assert!((*a + b).abs() < 1e-6); }
+        for (a, b) in forward.offsets()[..2].iter().zip(&reversed.offsets()[..2]) { assert!((*a + *b).abs() < 1e-6); }
+        assert_eq!(forward.observed_pitch, reversed.observed_pitch);
         let mut free = forward.clone();
         let mut free_config = config.clone();
         free_config.curves.stiffness = 0.0;
@@ -580,6 +582,35 @@ mod tests {
         }
         assert!(steady.state.x < 0.0 && steady.state.z > 0.0);
         assert_ne!(steady.state, turbulent.state);
+    }
+
+    #[test]
+    fn zero_delta_pose_reversal_updates_only_observed_pitch_without_consuming_dynamic_history() {
+        let config = crate::hair_curves::normalize_config(&continuous_config(), &serde_json::json!({
+            "gravity":12,"responseScale":2.5,"morphTargets":{"headUp":{"up":0.7},"headDown":{"down":0.7}}
+        })).unwrap();
+        let mut response = HairResponse::default();
+        response.advance(&config, Some([0.0,0.0]), 0.0).unwrap();
+        response.add_impulse(0.5,0.5).unwrap();
+        response.advance(&config, Some([0.1,0.1]), 1.0 / 60.0).unwrap();
+        let before = response.clone();
+        response.advance(&config, Some([0.2,-0.1]), 0.0).unwrap();
+        assert_eq!(response.state, before.state);
+        assert_eq!(response.time, before.time);
+        assert_eq!(response.previous_head, before.previous_head);
+        assert_eq!(response.head_drive, before.head_drive);
+        let reversed = crate::hair_curves::response_morph_values(&config, response.offsets());
+        assert!((reversed["up"] - 0.07).abs() < 1e-6);
+        assert_eq!(reversed["down"], 0.0);
+        response.advance(&config, None, 0.0).unwrap();
+        assert_eq!(response.observed_pitch, -0.1);
+        response.advance(&config, Some([0.2,-0.1]), 1.0 / 60.0).unwrap();
+        assert!(response.head_drive[0] > before.head_drive[0]);
+        response.advance(&config, Some([0.2,0.0]), 0.0).unwrap();
+        let neutral = crate::hair_curves::response_morph_values(&config, response.offsets());
+        assert_eq!(neutral["up"], 0.0);
+        assert_eq!(neutral["down"], 0.0);
+        assert_ne!(response.state.to_values().as_ref(), &[0.0;4]);
     }
 
     #[test]
