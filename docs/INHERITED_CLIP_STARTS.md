@@ -104,10 +104,32 @@ the hair owner running.
 `stiffness` is the unit-mass spring coefficient and `damping` is linear drag for
 continuous physics. Legacy authored curve helpers use those fields as oscillation
 frequency/decay controls; continuous physics does not promise identical motion.
-Preset values remain unchanged. The core smooths observed angular velocity over
+Numerical spring tuning remains unchanged. The core smooths observed angular velocity over
 35 ms and integrates steps no longer than 1/120 second. The mapping has a 0.04
 neutral transition band and a soft output limit above 1.5, after shared concrete
 morph contributions add. These rules remain in Rust, not a host-side filter.
+
+`headUp` and `headDown` are pose mappings, not additional spring forces. Their
+input is the actual observed reference pitch with `direction.pitchSign`, capped
+to magnitude 1, multiplied by the authored per-target coefficient. Global
+`gravity` and `responseScale` tune dynamic sway without amplifying these pose
+coefficients. The pose groups switch with the actual pose and return to zero at
+neutral, even while swing momentum remains. The existing C1 neutral transition
+is deliberate: coefficient 0.7 at signed pitch 0.1 contributes 0.07, while pitch
+0.02 contributes 0.0105 rather than the legacy linear 0.014.
+
+A zero-delta actual observation can update that pose component while retaining
+spring position, velocity, ambient time and already primed dynamic head history.
+First-observation priming remains unchanged. Null zero-delta synchronization
+retains the last observed pitch, and explicit physical pause still freezes it.
+Saved keys, zero coefficients and cleared groups remain authoritative; the
+runtime does not replace them with preset targets.
+
+CC4's automatic defaults exclude the structural `Length_Short` and
+`Hairline_High_ALL` targets; its `headUp` group is empty while directional
+targets remain mapped. Explicit saved/custom pose mappings still work, including
+an authored hairline coefficient. The runtime does not blacklist those names or
+rewrite account data.
 
 Regression source covers actual CC4 tuning, abrupt turns and reversals, matched
 renderer cadences, mapping edits, explicit pause, and rebind priming. CI owns

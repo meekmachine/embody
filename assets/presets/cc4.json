@@ -5351,16 +5351,7 @@
         "key": "Fluffy_Bottom_ALL",
         "axis": "pitch"
       },
-      "headUp": {
-        "Hairline_High_ALL": {
-          "value": 0.45,
-          "axis": "pitch"
-        },
-        "Length_Short": {
-          "value": 0.65,
-          "axis": "pitch"
-        }
-      },
+      "headUp": {},
       "headDown": {
         "L_Hair_Front": {
           "value": 2,
