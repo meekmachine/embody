@@ -437,6 +437,74 @@ impl RuntimeCore {
         serde_json::to_string(&targets).expect("concrete target list")
     }
 
+    /// Resolve a live command before changing canonical control values. The
+    /// adapter compares these destinations with native actions, including
+    /// paused, held and fading actions which still own concrete outputs.
+    #[wasm_bindgen]
+    pub fn live_control_targets_json(&self, query_json: &str) -> Result<String, JsError> {
+        let query: serde_json::Value = deserialize_json(query_json, "Invalid live control query")
+            .map_err(|error| JsError::new(&error))?;
+        let mut targets = BTreeSet::new();
+        let id = |key: &str| -> Result<u32, JsError> {
+            query[key].as_u64().filter(|id| *id <= u32::MAX as u64).map(|id| id as u32)
+                .ok_or_else(|| JsError::new(&format!("Live control {key} must be an unsigned integer.")))
+        };
+        match query["kind"].as_str() {
+            Some("au") => {
+                let au = id("id")?;
+                targets.extend(self.au_target_keys(au));
+                if let Some((paired, _)) = self.continuum_pairs.get(&au) { targets.extend(self.au_target_keys(*paired)); }
+            }
+            Some("continuum") => {
+                targets.extend(self.au_target_keys(id("negative")?));
+                targets.extend(self.au_target_keys(id("positive")?));
+            }
+            Some("viseme") => {
+                let index = if let Some(name) = query["id"].as_str() {
+                    self.viseme_slot_ids.iter().position(|candidate| candidate == name)
+                        .ok_or_else(|| JsError::new("Unknown viseme control."))?
+                } else { id("id")? as usize };
+                if index >= self.viseme_values.len() { return Err(JsError::new("Unknown viseme control.")); }
+                targets.extend(self.viseme_target_keys(index));
+            }
+            Some("morph") => {
+                let meshes = query.get("meshNames").cloned().unwrap_or_else(|| serde_json::json!([]));
+                let _: Vec<String> = serde_json::from_value(meshes.clone())
+                    .map_err(|_| JsError::new("Morph meshNames must be a string list."))?;
+                let key = &query["key"];
+                let index = key.as_i64().map(|index| i32::try_from(index))
+                    .transpose().map_err(|_| JsError::new("Morph index is out of range."))?;
+                if index.is_none() && !key.is_string() { return Err(JsError::new("Morph key must be a name or integer.")); }
+                for (mesh, target) in self.resolve_morph_targets(key.as_str().unwrap_or(""), index, &meshes.to_string()) {
+                    targets.insert(serde_json::json!({"kind":"morphTarget", "meshId":mesh, "morphTargetId":target}).to_string());
+                }
+            }
+            Some("bone") => {
+                let name = query["name"].as_str().ok_or_else(|| JsError::new("A bone query needs a name."))?;
+                let property = query["property"].as_str().ok_or_else(|| JsError::new("A bone query needs a property."))?;
+                if !["rotation", "position", "scale"].contains(&property) { return Err(JsError::new("Unknown bone property.")); }
+                let model = self.model.as_ref().ok_or_else(|| JsError::new("Bind a character before querying bone targets."))?;
+                let resolved = self.profile.as_ref().and_then(|profile| profile.bone_nodes.get(name)).map(String::as_str).unwrap_or(name);
+                let bones: Vec<_> = model.bones.iter().filter(|bone| bone.name == resolved).collect();
+                if bones.len() != 1 { return Err(JsError::new("Bone query does not resolve to one current bone.")); }
+                targets.insert(serde_json::json!({"kind":"boneTransform", "boneId":bones[0].id, "property":property}).to_string());
+            }
+            Some("all") => {
+                if let Some(model) = &self.model {
+                    for morph in &model.morph_targets {
+                        targets.insert(serde_json::json!({"kind":"morphTarget", "meshId":morph.mesh_id, "morphTargetId":morph.id}).to_string());
+                    }
+                    for bone in &model.bones { for property in ["rotation", "position", "scale"] {
+                        targets.insert(serde_json::json!({"kind":"boneTransform", "boneId":bone.id, "property":property}).to_string());
+                    } }
+                }
+            }
+            _ => return Err(JsError::new("Unknown live control query kind.")),
+        }
+        let values: Vec<serde_json::Value> = targets.iter().map(|target| serde_json::from_str(target).expect("concrete target")).collect();
+        Ok(serde_json::to_string(&values).expect("concrete target list"))
+    }
+
     fn touch_morph(&mut self, mesh_id: u32, morph_target_id: u32) {
         self.live_command_targets.insert(serde_json::json!({
             "kind":"morphTarget", "meshId":mesh_id, "morphTargetId":morph_target_id,
@@ -453,43 +521,53 @@ impl RuntimeCore {
         }
     }
 
-    fn touch_au(&mut self, id: u32) {
-        self.touch_au_morphs(id);
+    fn au_target_keys(&self, id: u32) -> BTreeSet<String> {
+        let mut targets = BTreeSet::new();
+        for binding in &self.au_bindings { if binding.au_id == id {
+            targets.insert(serde_json::json!({"kind":"morphTarget", "meshId":binding.mesh_id, "morphTargetId":binding.morph_target_id}).to_string());
+        } }
         for axis in &self.composite_axes {
             if axis.value_rows.iter().any(|row| row.au_id == id) || axis.binding_rows.iter().any(|row| row.au_id == id) {
-                self.live_command_targets.insert(serde_json::json!({
+                targets.insert(serde_json::json!({
                     "kind":"boneTransform", "boneId":axis.bone_id, "property":"rotation",
                 }).to_string());
             }
         }
         for row in &self.translation_rows {
             if row.au_id == id {
-                self.live_command_targets.insert(serde_json::json!({
+                targets.insert(serde_json::json!({
                     "kind":"boneTransform", "boneId":row.bone_id, "property":"position",
                 }).to_string());
             }
         }
+        targets
     }
 
-    fn touch_viseme(&mut self, index: usize) {
+    fn touch_au(&mut self, id: u32) { self.live_command_targets.extend(self.au_target_keys(id)); }
+
+    fn viseme_target_keys(&self, index: usize) -> BTreeSet<String> {
+        let mut targets = BTreeSet::new();
         for binding in &self.viseme_bindings {
             if binding.viseme_index as usize == index {
-                self.live_command_targets.insert(serde_json::json!({
+                targets.insert(serde_json::json!({
                     "kind":"morphTarget", "meshId":binding.mesh_id, "morphTargetId":binding.morph_target_id,
                 }).to_string());
             }
         }
         let tongue_aus: Vec<_> = self.viseme_tongue_targets.get(index)
             .map(|targets| targets.keys().copied().collect()).unwrap_or_default();
-        for id in tongue_aus { self.touch_au(id); }
+        for id in tongue_aus { targets.extend(self.au_target_keys(id)); }
         if self.viseme_jaw_amounts.get(index).copied().unwrap_or(0.0) != 0.0 {
             if let Some(jaw) = self.jaw_binding {
-                self.live_command_targets.insert(serde_json::json!({
+                targets.insert(serde_json::json!({
                     "kind":"boneTransform", "boneId":jaw.bone_id, "property":"rotation",
                 }).to_string());
             }
         }
+        targets
     }
+
+    fn touch_viseme(&mut self, index: usize) { self.live_command_targets.extend(self.viseme_target_keys(index)); }
 
     /// Carry canonical controls across a renderer rebind. Model-local IDs and
     /// reference values belong to the new binding and are never copied.
@@ -612,6 +690,65 @@ impl RuntimeCore {
             Some(slot) if time.is_finite() && weight.is_finite() => au_map_json(&slot.values_at(time, weight)).to_string(),
             _ => "null".into(),
         }
+    }
+
+    /// Conservative exact transfer: unsupported encodings, partial mixer
+    /// weights and ambiguous shared targets are rejected without writes.
+    #[wasm_bindgen]
+    pub fn semantic_keep_pose_status(&self, name: &str, time: f64, weight: f64, options_json: &str) -> Result<String, JsError> {
+        let options: ClipBuildOptions = parse_runtime_json(options_json, "keep-pose options")?;
+        let status = self.keep_pose_values(name, time, weight, &options);
+        Ok(match status {
+            Ok(_) => serde_json::json!({"accepted":true}),
+            Err(reason) => serde_json::json!({"accepted":false,"reason":reason}),
+        }.to_string())
+    }
+
+    /// Only the adapter can establish native isolation/release. Values are
+    /// evaluated and transferred in Rust, never reconstructed by the host UI.
+    #[wasm_bindgen]
+    pub fn transfer_semantic_slot_to_live(&mut self, name: &str, time: f64, weight: f64, options_json: &str) -> Result<String, JsError> {
+        let options: ClipBuildOptions = parse_runtime_json(options_json, "keep-pose options")?;
+        let values = match self.keep_pose_values(name, time, weight, &options) {
+            Ok(values) => values,
+            Err(reason) => return Ok(serde_json::json!({"accepted":false,"reason":reason}).to_string()),
+        };
+        self.begin_live_command();
+        for (id, value) in values {
+            let balance = options.balance_map.get(&id.to_string()).copied().unwrap_or(options.balance.unwrap_or(0.0));
+            self.set_au(id, value as f32, balance);
+        }
+        Ok(serde_json::json!({"accepted":true}).to_string())
+    }
+
+    /// A constant AU-only saved pose can transfer from an isolated full-weight
+    /// normal action only when the same compiler produces equivalent physical
+    /// live outputs. This is not an inverse solver for arbitrary native tracks.
+    #[wasm_bindgen]
+    pub fn pose_keep_pose_status(&self, pose_json: &str, options_json: &str) -> String {
+        let result = self.pose_live_candidate(pose_json, options_json);
+        match result {
+            Ok(_) => serde_json::json!({"accepted":true}),
+            Err(reason) => serde_json::json!({"accepted":false,"reason":reason}),
+        }.to_string()
+    }
+
+    #[wasm_bindgen]
+    pub fn transfer_pose_to_live(&mut self, pose_json: &str, options_json: &str) -> String {
+        let candidate = match self.pose_live_candidate(pose_json, options_json) {
+            Ok(candidate) => candidate,
+            Err(reason) => return serde_json::json!({"accepted":false,"reason":reason}).to_string(),
+        };
+        self.copy_live_state_from(&candidate);
+        self.begin_live_command();
+        let mut pose: serde_json::Value = serde_json::from_str(pose_json).expect("Prevalidated saved pose");
+        if pose.get("semanticPose").is_some_and(|value| !value.is_null()) {
+            pose = crate::saved_animation::decode_pose(pose, &serde_json::to_value(&self.profile).expect("Current profile")).expect("Prevalidated semantic pose");
+        }
+        if let Some(values) = pose["aus"].as_object() {
+            for key in values.keys() { self.live_command_targets.extend(self.au_target_keys(key.parse().expect("Prevalidated AU id"))); }
+        }
+        serde_json::json!({"accepted":true}).to_string()
     }
 
     /// Live AU state plus every listed slot's contribution. `slots_json` is
@@ -1021,6 +1158,109 @@ impl RuntimeCore {
         self.animation
             .insert_clip(clip, options.source.as_deref().unwrap_or("snippet"))
             .map_err(|error| JsError::new(&error))?;
+        Ok(serialized)
+    }
+
+    /// Compile a saved pose through the same AU mappings and concrete target
+    /// contract as ordinary snippets. Raw transforms remain native tracks.
+    #[wasm_bindgen]
+    pub fn build_pose_clip(&mut self, clip_name: &str, pose_json: &str, options_json: &str) -> Result<String, JsError> {
+        let mut pose: serde_json::Value = deserialize_json(pose_json, "Invalid saved pose")
+            .map_err(|error| JsError::new(&error))?;
+        if !pose.is_object() { return Err(JsError::new("A saved pose must be an object.")); }
+        if pose["migrationError"].as_str().is_some_and(|message| !message.is_empty()) {
+            return Err(JsError::new("The saved pose has an unresolved migration error."));
+        }
+        if pose.get("semanticPose").is_some_and(|value| !value.is_null()) {
+            let profile = serde_json::to_value(&self.profile).map_err(|error| JsError::new(&error.to_string()))?;
+            pose = crate::saved_animation::decode_pose(pose, &profile).map_err(|error| JsError::new(&error))?;
+        }
+        let mut options: ClipBuildOptions = parse_runtime_json(options_json, "pose clip options")?;
+        if let Some(balances) = pose.get("auBalances") {
+            options.balance_map = serde_json::from_value(balances.clone()).map_err(|error| JsError::new(&format!("Invalid pose balances: {error}")))?;
+        }
+        if let Some(weights) = pose.get("auMixWeights") {
+            options.mix_weights = serde_json::from_value(weights.clone()).map_err(|error| JsError::new(&format!("Invalid pose morph strengths: {error}")))?;
+        }
+        let mut curves = BTreeMap::new();
+        if let Some(aus) = pose.get("aus") {
+            let aus = aus.as_object().ok_or_else(|| JsError::new("Pose aus must be an object."))?;
+            for (id, value) in aus {
+                if id.parse::<u32>().is_err() { return Err(JsError::new("Saved pose AU keys must be numeric.")); }
+                let value = value.as_f64().filter(|value| value.is_finite()).ok_or_else(|| JsError::new("Pose AU values must be finite."))?;
+                curves.insert(id.clone(), vec![RuntimeCurvePoint { time: 0.0, intensity: value, inherit: false }, RuntimeCurvePoint { time: 1.0, intensity: value, inherit: false }]);
+            }
+        }
+        let mut clip = self.compile_curves(clip_name, curves, &options)?;
+        let mapped_targets: BTreeSet<String> = clip.tracks.iter().map(|track| track.target.to_string()).collect();
+        let mut occupied = mapped_targets.clone();
+        let mapped_pose = pose.get("auBalances").is_some() || pose.get("auMixWeights").is_some();
+        let model = self.model.as_ref().ok_or_else(|| JsError::new("Bind a character before compiling a pose."))?;
+        let profile = self.profile.as_ref();
+        let mut append = |target: serde_json::Value, value_type: &str, values: Vec<f64>, mapped_wins: bool| -> Result<(), JsError> {
+            if values.iter().any(|value| !value.is_finite()) { return Err(JsError::new("Pose transform values must be finite.")); }
+            if !occupied.insert(target.to_string()) {
+                if mapped_wins && mapped_targets.contains(&target.to_string()) { return Ok(()); }
+                return Err(JsError::new("The saved pose assigns the same concrete target more than once."));
+            }
+            let count = clip.tracks.len() as u32 + 1;
+            clip.tracks.push(ClipTrackIR { id: count, channel_id: 1, target, value_type: value_type.into(),
+                times: vec![0.0, 1.0], values: values.iter().chain(&values).copied().collect(), interpolation: Some("linear".into()), inherit_start: false, source_name: None });
+            Ok(())
+        };
+        if let Some(bones) = pose.get("bones") {
+            for (key, transform) in bones.as_object().ok_or_else(|| JsError::new("Pose bones must be an object."))? {
+                if !transform.is_object() { return Err(JsError::new("Saved bone transforms must be objects.")); }
+                let name = transform["rawName"].as_str().filter(|name| !name.is_empty())
+                    .or_else(|| profile.and_then(|profile| profile.bone_nodes.get(key).map(String::as_str)))
+                    .unwrap_or(key);
+                let matches: Vec<_> = model.bones.iter().filter(|bone| bone.name == name).collect();
+                if matches.len() != 1 { return Err(JsError::new(&format!("Saved bone {key} does not resolve to one current model bone."))); }
+                let bone = matches[0];
+                let vector = |field: &str, length: usize| -> Result<Option<Vec<f64>>, JsError> {
+                    let Some(value) = transform.get(field) else { return Ok(None); };
+                    let values: Vec<f64> = serde_json::from_value(value.clone()).map_err(|_| JsError::new("Saved bone vector must contain finite numbers."))?;
+                    if values.len() != length || values.iter().any(|value| !value.is_finite()) { return Err(JsError::new("Saved bone vector has an invalid length or value.")); }
+                    Ok(Some(values))
+                };
+                let rotation = if let Some(euler) = transform.get("rotationEuler") {
+                    let order = euler["order"].as_str().unwrap_or("XYZ");
+                    if !["XYZ", "YXZ", "ZXY", "ZYX", "YZX", "XZY"].contains(&order) { return Err(JsError::new("Unknown saved Euler order.")); }
+                    if euler.get("unit").is_some_and(|unit| unit != "degrees") { return Err(JsError::new("Saved Euler rotations use degrees.")); }
+                    let mut quaternion = [0.0_f32, 0.0, 0.0, 1.0];
+                    for axis in order.chars() {
+                        let (field, channel) = match axis { 'X' => ("pitch", 0), 'Y' => ("yaw", 1), _ => ("roll", 2) };
+                        let value = euler[field].as_f64().filter(|value| value.is_finite()).ok_or_else(|| JsError::new("Saved Euler values must be finite."))?;
+                        quaternion = multiply_quat(quaternion, quat_from_channel(channel, value.to_radians() as f32));
+                    }
+                    Some(quaternion.into_iter().map(|value| value as f64).collect())
+                } else { vector("rotation", 4)? };
+                if let Some(values) = rotation {
+                    let length = values.iter().map(|value| value * value).sum::<f64>().sqrt();
+                    if length < 1e-12 { return Err(JsError::new("Saved quaternion must have nonzero length.")); }
+                    append(serde_json::json!({"kind":"boneTransform", "boneId":bone.id, "property":"rotation"}), "quat", values.iter().map(|value| value / length).collect(), mapped_pose)?;
+                }
+                for field in ["position", "scale"] {
+                    if let Some(values) = vector(field, 3)? {
+                        append(serde_json::json!({"kind":"boneTransform", "boneId":bone.id, "property":field}), "vec3", values, mapped_pose)?;
+                    }
+                }
+            }
+        }
+        if let Some(morphs) = pose.get("morphs") {
+            for (name, value) in morphs.as_object().ok_or_else(|| JsError::new("Pose morphs must be an object."))? {
+                let value = value.as_f64().filter(|value| value.is_finite()).ok_or_else(|| JsError::new("Saved morph values must be finite."))?;
+                let targets = self.resolve_morph_targets(name, None, &serde_json::to_string(&options.mesh_names).unwrap_or_default());
+                if targets.is_empty() { return Err(JsError::new(&format!("Saved morph {name} has no current target."))); }
+                for (mesh, target) in targets {
+                    append(serde_json::json!({"kind":"morphTarget", "meshId":mesh, "morphTargetId":target}), "scalar", vec![value], mapped_pose)?;
+                }
+            }
+        }
+        if clip.tracks.is_empty() { return Err(JsError::new("The saved pose has no playable targets.")); }
+        clip.duration_seconds = 1.0;
+        let serialized = serialize_runtime_json(&clip, "pose clip")?;
+        self.animation.insert_clip(clip, "pose").map_err(|error| JsError::new(&error))?;
         Ok(serialized)
     }
 
@@ -1543,6 +1783,90 @@ impl RuntimeCore {
             }),
             "scene frame",
         )
+    }
+
+    fn pose_live_candidate(&self, pose_json: &str, options_json: &str) -> Result<RuntimeCore, String> {
+        let mut pose: serde_json::Value = serde_json::from_str(pose_json).map_err(|error| format!("Invalid pose: {error}"))?;
+        let profile = self.profile.as_ref().ok_or("A current profile is required for pose transfer.")?;
+        let model = self.model.as_ref().ok_or("A current model is required for pose transfer.")?;
+        if pose.get("semanticPose").is_some_and(|value| !value.is_null()) {
+            pose = crate::saved_animation::decode_pose(pose, &serde_json::to_value(profile).map_err(|error| error.to_string())?)?;
+        }
+        if ["bones", "morphs"].iter().any(|key| pose.get(*key).is_some_and(|value| value.as_object().map_or(true, |map| !map.is_empty()))) {
+            return Err("Keep pose cannot invert saved raw bone or morph outputs into AU state.".into());
+        }
+        let values = pose["aus"].as_object().filter(|values| !values.is_empty()).ok_or("The pose has no AU values to transfer.")?;
+        let mut options: ClipBuildOptions = serde_json::from_str(options_json).map_err(|error| format!("Invalid pose options: {error}"))?;
+        if !options.face_curves.is_empty() || options.snippet_category.as_deref() == Some("visemeSnippet") { return Err("Supplemental face/viseme outputs cannot transfer to AU state.".into()); }
+        if let Some(balances) = pose.get("auBalances") { options.balance_map = serde_json::from_value(balances.clone()).map_err(|error| error.to_string())?; }
+        if let Some(weights) = pose.get("auMixWeights") { options.mix_weights = serde_json::from_value(weights.clone()).map_err(|error| error.to_string())?; }
+        let mut candidate = RuntimeCore::new(0);
+        candidate.configure_with_profile(&serde_json::to_string(profile).map_err(|error| error.to_string())?, &serde_json::to_string(model).map_err(|error| error.to_string())?)
+            .map_err(|_| "The current profile cannot be prepared for an exact pose transfer.".to_string())?;
+        candidate.copy_live_state_from(self);
+        candidate.mix_weights.extend(options.mix_weights.clone());
+        let mut curves = BTreeMap::new();
+        for (key, value) in values {
+            let id = key.parse::<u32>().map_err(|_| "Saved pose AU keys must be numeric.".to_string())?;
+            let value = value.as_f64().filter(|value| value.is_finite()).ok_or("Saved pose AU values must be finite.")?;
+            let live_value = value * options.intensity_scale.unwrap_or(1.0);
+            if !(0.0..=1.0).contains(&live_value) { return Err("The pose contribution is outside live AU bounds.".into()); }
+            candidate.set_au(id, live_value as f32, options.balance_map.get(key).copied().unwrap_or(options.balance.unwrap_or(0.0)));
+            curves.insert(key.clone(), vec![RuntimeCurvePoint { time: 0.0, intensity: value, inherit: false }, RuntimeCurvePoint { time: 1.0, intensity: value, inherit: false }]);
+        }
+        let expected = self.compile_curves("pose-transfer", curves, &options).map_err(|_| "The pose cannot compile with the current profile.".to_string())?;
+        let live: ClipIR = serde_json::from_str(&candidate.build_live_clip("pose-transfer-live", 0.0).map_err(|_| "The live candidate cannot compile.".to_string())?)
+            .map_err(|error| error.to_string())?;
+        for track in &expected.tracks {
+            let actual = live.tracks.iter().find(|candidate| candidate.target == track.target).map(|track| {
+                let size = track.values.len() / track.times.len();
+                track.values[track.values.len() - size..].to_vec()
+            }).unwrap_or_else(|| {
+                let id = track.target["boneId"].as_u64().unwrap_or_default() as u32;
+                if track.target["kind"] == "morphTarget" {
+                    vec![self.initial_morph_values.get(&(track.target["meshId"].as_u64().unwrap_or_default() as u32, track.target["morphTargetId"].as_u64().unwrap_or_default() as u32)).copied().unwrap_or(0.0) as f64]
+                } else if track.target["property"] == "rotation" {
+                    self.bone_rest_transforms.get(&id).map(|rest| rest.rotation).unwrap_or([0.0, 0.0, 0.0, 1.0]).iter().map(|value| *value as f64).collect()
+                } else { self.bone_rest_transforms.get(&id).map(|rest| rest.position).unwrap_or([0.0; 3]).iter().map(|value| *value as f64).collect() }
+            });
+            let size = track.values.len() / track.times.len();
+            let expected = &track.values[track.values.len() - size..];
+            let equivalent = |sign: f64| actual.len() == expected.len() && actual.iter().zip(expected).all(|(a, b)| (a - sign * b).abs() <= 1e-5);
+            if !equivalent(1.0) && !(track.value_type == "quat" && equivalent(-1.0)) {
+                return Err("The saved pose cannot transfer exactly with the current live controls and profile mappings.".into());
+            }
+        }
+        Ok(candidate)
+    }
+
+    fn keep_pose_values(&self, name: &str, time: f64, weight: f64, options: &ClipBuildOptions) -> Result<BTreeMap<u32, f64>, &'static str> {
+        if !time.is_finite() || weight != 1.0 { return Err("Keep pose requires a full-weight, non-fading additive AU action."); }
+        if !options.face_curves.is_empty() || options.snippet_category.as_deref() == Some("visemeSnippet") {
+            return Err("Keep pose does not support viseme or supplemental face curves.");
+        }
+        let Some(slot) = self.semantic_slots.get(name) else { return Err("The animation has no transferable semantic AU record."); };
+        let values = slot.values_at(time, weight);
+        if values.is_empty() { return Err("The animation has no transferable AU values."); }
+        let mut occupied = BTreeSet::new();
+        for (id, value) in &values {
+            if !value.is_finite() || !(0.0..=1.0).contains(value) { return Err("The current AU contribution is outside the live control range."); }
+            if self.get_au(*id) != 0.0 { return Err("Existing live AU state prevents an exact pose transfer."); }
+            if options.mix_weights.get(id).is_some_and(|weight| *weight != self.get_au_mix_weight(*id)) {
+                return Err("The animation and live control use different morph mixing strengths.");
+            }
+            let targets = self.au_target_keys(*id);
+            if targets.is_empty() || targets.iter().any(|target| !occupied.insert(target.clone())) {
+                return Err("Shared or unmapped AU targets prevent an exact pose transfer.");
+            }
+        }
+        let mut live_targets = BTreeSet::new();
+        for (id, value) in &self.au_values { if *value != 0.0 { live_targets.extend(self.au_target_keys(*id)); } }
+        for (index, value) in self.viseme_values.iter().enumerate() { if *value != 0.0 { live_targets.extend(self.viseme_target_keys(index)); } }
+        for (mesh, target) in self.direct_morph_values.keys() {
+            live_targets.insert(serde_json::json!({"kind":"morphTarget", "meshId":mesh, "morphTargetId":target}).to_string());
+        }
+        if !occupied.is_disjoint(&live_targets) { return Err("An existing live control drives a transferred concrete target."); }
+        Ok(values)
     }
 
     fn resolve_morph_targets(
@@ -2302,6 +2626,68 @@ fn clamp_signed(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn live_ownership_core() -> RuntimeCore {
+        let mut core = RuntimeCore::new(0);
+        core.configure_with_profile(&serde_json::json!({
+            "auToMorphs":{"200":{"center":["A"]},"201":{"center":["A"]}},
+            "morphToMesh":{"face":["Face"]}, "visemeKeys":["A"], "compositeRotations":[],
+            "boneNodes":{"HEAD":"Head"}, "hairPhysics":{"enabled":false}
+        }).to_string(), &serde_json::json!({
+            "bones":[{"id":1,"name":"Head"},{"id":2,"name":"Extra"}],
+            "meshes":[{"id":1,"name":"Face","morphTargetIds":[1]}],
+            "morphTargets":[{"id":1,"meshId":1,"name":"A","initialValue":0}]
+        }).to_string()).unwrap();
+        core
+    }
+
+    #[test]
+    fn live_control_target_queries_resolve_aliases_without_mutating_control_state() {
+        let mut core = live_ownership_core();
+        core.set_au(200, 0.3, -0.4);
+        let before = core.live_command_targets_json();
+        let au: serde_json::Value = serde_json::from_str(&core.live_control_targets_json("{\"kind\":\"au\",\"id\":200}").unwrap()).unwrap();
+        let alias: serde_json::Value = serde_json::from_str(&core.live_control_targets_json("{\"kind\":\"morph\",\"key\":\"A\"}").unwrap()).unwrap();
+        assert_eq!(au, alias);
+        assert_eq!(core.get_au(200), 0.3);
+        assert_eq!(core.get_au_balance(200), -0.4);
+        assert_eq!(core.live_command_targets_json(), before);
+        let bone: serde_json::Value = serde_json::from_str(&core.live_control_targets_json("{\"kind\":\"bone\",\"name\":\"HEAD\",\"property\":\"scale\"}").unwrap()).unwrap();
+        assert_eq!(bone[0]["boneId"], 1);
+        assert_eq!(bone[0]["property"], "scale");
+    }
+
+    #[test]
+    fn saved_pose_compiles_au_and_unmapped_raw_transforms_without_live_writes() {
+        let mut core = live_ownership_core();
+        let pose = serde_json::json!({"aus":{"200":0.6}, "bones":{"extra":{
+            "rawName":"Extra", "rotation":[0,0,0,1], "position":[1,2,3], "scale":[1,2,1]
+        }}});
+        let clip: ClipIR = serde_json::from_str(&core.build_pose_clip("saved", &pose.to_string(), "{}").unwrap()).unwrap();
+        assert_eq!(clip.tracks.len(), 4);
+        assert!(clip.tracks.iter().any(|track| track.target["kind"] == "morphTarget" && track.values[0] == 0.6));
+        assert!(clip.tracks.iter().any(|track| track.target["boneId"] == 2 && track.target["property"] == "scale" && track.values[0..3] == [1.0,2.0,1.0]));
+        assert_eq!(core.get_au(200), 0.0, "preparation never applies pose values live");
+    }
+
+    #[test]
+    fn exact_au_pose_transfer_uses_candidate_compiler_and_rejects_conflicting_aliases() {
+        let mut core = live_ownership_core();
+        core.set_au(200, 0.2, 0.0);
+        let pose = "{\"aus\":{\"200\":0.6}}";
+        let status: serde_json::Value = serde_json::from_str(&core.pose_keep_pose_status(pose, "{}")).unwrap();
+        assert_eq!(status["accepted"], true);
+        core.set_au(201, 0.9, 0.0);
+        let status: serde_json::Value = serde_json::from_str(&core.transfer_pose_to_live(pose, "{}")).unwrap();
+        assert_eq!(status["accepted"], false);
+        assert_eq!(core.get_au(200), 0.2, "rejected transfer does not change live state");
+        core.set_au(201, 0.0, 0.0);
+        let status: serde_json::Value = serde_json::from_str(&core.transfer_pose_to_live(pose, "{}")).unwrap();
+        assert_eq!(status["accepted"], true);
+        assert!((core.get_au(200) - 0.6).abs() < 1e-6);
+        let raw: serde_json::Value = serde_json::from_str(&core.pose_keep_pose_status("{\"aus\":{\"200\":0.2},\"bones\":{\"Head\":{\"position\":[1,0,0]}}}", "{}")).unwrap();
+        assert_eq!(raw["accepted"], false, "raw transforms are not inverted into semantic controls");
+    }
 
     fn continuous_hair_core() -> RuntimeCore {
         let mut core = RuntimeCore::new(1);
