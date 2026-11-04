@@ -121,103 +121,105 @@ for (const setter of ['AU', 'viseme', 'morph']) {
   });
 }
 
-test('a live track and a changing clip share their target through native normal blending', async () => {
+test('live setters reject atomically while a changing clip owns the concrete target', async () => {
   const rig = await fixture();
   try {
     rig.play([morphTrack(0, [0.2, 1])]);
     renderHostFrame(rig.host, 0.25);
-    rig.host.setAU(200, 0.9);
+    const before = [...rig.mesh.morphTargetInfluences];
+    for (const command of [() => rig.host.setAU(200, 0.9), () => rig.host.setViseme(0, 1),
+      () => rig.host.setMorph('A', 1), () => rig.host.setAUMixWeight(200, 0.2)]) {
+      assert.throws(command, error => error.code === 'LIVE_CONTROL_LOCKED' && error.availability.blockers[0].name === 'underlying');
+    }
+    assert.equal(rig.host.getAU(200), 0);
+    assert.equal(rig.host.getViseme(0), 0);
+    assert.equal(rig.host.getAUMixWeight(200), 1);
+    assert.deepEqual(rig.mesh.morphTargetInfluences, before);
     renderHostFrame(rig.host, 0.25);
-    near(rig.mesh.morphTargetInfluences[0], (0.4 + 0.9) / 2, 'equal native weights mix both clips');
-    renderHostFrame(rig.host, 0.5);
-    near(rig.mesh.morphTargetInfluences[0], (0.6 + 0.9) / 2, 'underlying clip continues advancing');
-    rig.host.setAU(200, 0);
+    near(rig.mesh.morphTargetInfluences[0], 0.4, 'native clip alone continues');
+    rig.host.stopAnimation('underlying');
+    rig.host.setAU(200, 0.9);
     renderHostFrame(rig.host, 0);
-    near(rig.mesh.morphTargetInfluences[0], 0.6, 'release reveals current clip sample');
+    near(rig.mesh.morphTargetInfluences[0], 0.9, 'release permits the next explicit live edit');
   } finally { rig.dispose(); }
 });
 
 for (const pause of ['none', 'action', 'mixer', 'finished-held']) {
-  test(`releasing a live track reveals the clip with ${pause} paused`, async () => {
+  test(`live targets remain locked with ${pause} playback`, async () => {
     const rig = await fixture();
     try {
+      rig.host.setAU(200, 0.4);
       const name = rig.play([morphTrack(0)], 'underlying', { loop: pause !== 'finished-held', finalPose: 'hold' });
       renderHostFrame(rig.host, 0.1);
-      rig.host.setAU(200, 0.4);
-      renderHostFrame(rig.host, 0.1);
-      near(rig.mesh.morphTargetInfluences[0], 0.6, 'both actions contribute');
       if (pause === 'action') rig.host.pauseAnimation(name);
       if (pause === 'mixer') rig.host.setAnimationTimeScale(0);
       if (pause === 'finished-held') renderHostFrame(rig.host, 2);
+      assert.equal(rig.host.getLiveControlAvailability({ kind: 'au', id: 200 }).available, false);
+      assert.throws(() => rig.host.setAU(200, 0), /driven by animation/);
+      assert.equal(rig.host.getAU(200), 0.4, 'rejection retains the accepted live value');
+      rig.host.stopAnimation(name);
+      assert.equal(rig.host.getLiveControlAvailability({ kind: 'au', id: 200 }).available, true);
       rig.host.setAU(200, 0);
-      renderHostFrame(rig.host, 0);
-      near(rig.mesh.morphTargetInfluences[0], 0.8, 'release exposes native held or paused sample');
     } finally { rig.dispose(); }
   });
 }
 
-test('Rust aggregates semantic targets before their live track participates in native blending', async () => {
+test('Rust aggregates semantic controls before live track application', async () => {
   const rig = await fixture();
   try {
-    rig.play([morphTrack(0)]);
     rig.host.setAU(200, 0.3);
     rig.host.setAU(202, 0.6);
     renderHostFrame(rig.host, 0.1);
-    near(rig.mesh.morphTargetInfluences[0], 0.7, 'Rust max AU value 0.6 mixes with native 0.8');
+    near(rig.mesh.morphTargetInfluences[0], 0.6, 'Rust resolves the maximum mapped AU contribution');
     rig.host.setAU(202, 0);
     rig.host.setViseme(0, 0.5);
     renderHostFrame(rig.host, 0);
-    near(rig.mesh.morphTargetInfluences[0], 0.65, 'Rust resolves viseme and AU before native mixing');
+    near(rig.mesh.morphTargetInfluences[0], 0.5, 'Rust resolves viseme and AU in one live contribution');
     rig.host.setMorph('A', 0);
     renderHostFrame(rig.host, 0);
-    near(rig.mesh.morphTargetInfluences[0], 0.4, 'explicit direct zero stays a native contribution');
+    near(rig.mesh.morphTargetInfluences[0], 0, 'explicit direct zero remains authoritative');
     near(rig.host.getAU(200), 0.3, 'direct morph leaves canonical AU state intact');
     rig.host.releaseMorph('A');
     renderHostFrame(rig.host, 0);
-    near(rig.mesh.morphTargetInfluences[0], 0.65, 'releasing direct target reveals semantic contribution');
+    near(rig.mesh.morphTargetInfluences[0], 0.5, 'releasing direct target reveals semantic contribution');
     rig.host.setViseme(0, 0);
     rig.host.setAU(200, 0);
     renderHostFrame(rig.host, 0);
-    near(rig.mesh.morphTargetInfluences[0], 0.8, 'releasing semantic targets leaves the clip');
+    near(rig.mesh.morphTargetInfluences[0], 0, 'releasing semantic targets restores the base');
   } finally { rig.dispose(); }
 });
 
-test('bone position and quaternion tracks blend and release independently', async () => {
+test('bone position and quaternion locks are concrete and release independently', async () => {
   const rig = await fixture();
   try {
-    const name = rig.play([positionTrack(), rotationTrack()]);
+    const name = rig.play([rotationTrack()]);
     renderHostFrame(rig.host, 0.1);
-    rig.host.setAU(210, 1);
-    renderHostFrame(rig.host, 0);
-    assertRotation(rig.bone, (0.9 + Math.PI / 6) / 2, 'native quaternion blend');
-    rig.bone.position.toArray().forEach((v, i) => near(v, [3, 4, 5][i], 'unrelated position'));
+    assert.throws(() => rig.host.setAU(210, 1), /driven by animation/);
     rig.host.setAU(211, 0.5);
     renderHostFrame(rig.host, 0);
-    rig.bone.position.toArray().forEach((v, i) => near(v, [2, 2, 2.5][i], 'native position blend'));
+    assertRotation(rig.bone, 0.9, 'rotation remains with its action');
+    near(rig.bone.position.x, 1, 'independent live translation remains editable');
     rig.host.pauseAnimation(name);
-    rig.host.setAU(210, 0);
+    assert.throws(() => rig.host.transitionAU(210, 0, 100), /driven by animation/);
+    rig.host.stopAnimation(name);
+    rig.host.setAU(210, 1);
     renderHostFrame(rig.host, 0);
-    assertRotation(rig.bone, 0.9, 'rotation releases to paused clip');
-    near(rig.bone.position.x, 2, 'translation remains active');
-    rig.host.setAU(211, 0);
-    renderHostFrame(rig.host, 0);
-    rig.bone.position.toArray().forEach((v, i) => near(v, [3, 4, 5][i], 'translation releases'));
+    assertRotation(rig.bone, Math.PI / 6, 'native release permits live rotation');
   } finally { rig.dispose(); }
 });
 
-test('clear releases live tracks while same-model rebind retains canonical controls', async () => {
+test('clear rejects before live state mutation and rebind retains accepted controls', async () => {
   const rig = await fixture();
   try {
-    rig.play([morphTrack(0), rotationTrack()]);
     rig.host.setAU(200, 0.4);
     rig.host.setAU(210, 1);
-    renderHostFrame(rig.host, 0.1);
+    rig.play([morphTrack(0), rotationTrack()]);
+    assert.throws(() => rig.host.clear(), /driven by animation/);
+    assert.equal(rig.host.getAU(200), 0.4);
+    assert.equal(rig.host.getAU(210), 1);
+    rig.host.stopAllAnimations();
     rig.host.clear();
-    renderHostFrame(rig.host, 0);
-    near(rig.mesh.morphTargetInfluences[0], 0.8, 'clear leaves public clip');
-    assertRotation(rig.bone, 0.9, 'clear releases live rotation');
     rig.host.setAU(200, 0.4);
-    renderHostFrame(rig.host, 0);
     rig.host.bindModel();
     renderHostFrame(rig.host, 0);
     near(rig.host.getAU(200), 0.4, 'rebind retains canonical value');
@@ -228,22 +230,24 @@ test('clear releases live tracks while same-model rebind retains canonical contr
   } finally { rig.dispose(); }
 });
 
-test('completion listeners can replace live tracks after native mixer sampling', async () => {
+test('completion listeners release a held action before editing its live controls', async () => {
   const rig = await fixture();
   try {
-    const name = rig.play([new NumberKeyframeTrack('Face.morphTargetInfluences[0]', [0, 1], [0.2, 0.8])], 'finish', { loop: false, finalPose: 'hold' });
-    // The fixture clip has a two-second duration even though its last key is at one second.
     rig.host.setAU(200, 0.4);
+    const name = rig.play([new NumberKeyframeTrack('Face.morphTargetInfluences[0]', [0, 1], [0.2, 0.8])], 'finish', { loop: false, finalPose: 'hold' });
     const handle = rig.host.playAnimation(name, { loop: false, finalPose: 'hold' });
     let calls = 0;
-    handle.subscribe(event => { if (event.type === 'completed') { calls++; rig.host.setAU(200, 0.6); } });
+    handle.subscribe(event => {
+      if (event.type !== 'completed') return;
+      calls++;
+      assert.throws(() => rig.host.setAU(200, 0.6), /driven by animation/);
+      rig.host.stopAnimation(name);
+      rig.host.setAU(200, 0.6);
+    });
     renderHostFrame(rig.host, 2);
-    assert.equal(calls, 1, 'completion delivered once after the native frame');
+    assert.equal(calls, 1);
     renderHostFrame(rig.host, 0);
-    near(rig.mesh.morphTargetInfluences[0], 0.7, 'listener command participates in the next native sample');
-    rig.host.setAU(200, 0);
-    renderHostFrame(rig.host, 0);
-    near(rig.mesh.morphTargetInfluences[0], 0.8, 'held clip remains');
+    near(rig.mesh.morphTargetInfluences[0], 0.6, 'listener edits after successful release');
   } finally { rig.dispose(); }
 });
 
@@ -276,10 +280,10 @@ test('stopAllAnimations releases running and held public clips while preserving 
       new AnimationClip('running', 2, [morphTrack(0)]),
       new AnimationClip('held', 0.2, [new NumberKeyframeTrack('Face.morphTargetInfluences[1]', [0, 0.2], [0.7, 0.7])]),
     ]);
-    rig.host.playAnimation('running', { loop: true });
-    rig.host.playAnimation('held', { loop: false, finalPose: 'hold' });
     rig.host.setAU(200, 0.4);
     rig.host.setAU(201, 0.3);
+    rig.host.playAnimation('running', { loop: true });
+    rig.host.playAnimation('held', { loop: false, finalPose: 'hold' });
     renderHostFrame(rig.host, 0.3);
     assert.equal(rig.host.getAnimationState('running').playing, true);
     assert.equal(rig.host.getAnimationState('held').completed, true);
@@ -334,11 +338,12 @@ test('profile replacement clears live state and model replacement keeps each ref
 test('registering optional clips leaves paused native actions and live contributions intact', async () => {
   const rig = await fixture(0.15);
   try {
+    rig.host.setAU(200, 0.4);
     const name = rig.play([morphTrack(0)]);
     renderHostFrame(rig.host, 0.4);
     rig.host.pauseAnimation(name);
     const time = rig.host.getAnimationState(name).time;
-    rig.host.setAU(200, 0.4);
+    assert.throws(() => rig.host.setAU(200, 0.4), /driven by animation/);
     renderHostFrame(rig.host, 0);
     rig.host.registerAnimationClips([
       new AnimationClip('optional', 2, [morphTrack(1, [0.2, 0.2])]),
@@ -347,14 +352,141 @@ test('registering optional clips leaves paused native actions and live contribut
     renderHostFrame(rig.host, 0);
     near(rig.mesh.morphTargetInfluences[0], 0.6, 'native blend remains');
     near(rig.host.getAnimationState(name).time, time, 'registration does not advance paused action');
-    rig.host.setAU(200, 0);
+    assert.throws(() => rig.host.setAU(200, 0), /driven by animation/);
     renderHostFrame(rig.host, 0.1);
-    near(rig.mesh.morphTargetInfluences[0], 0.8, 'registration does not replace the existing paused action');
+    near(rig.mesh.morphTargetInfluences[0], 0.6, 'registration does not replace the existing paused action');
     rig.host.stopAllAnimations();
+    rig.host.setAU(200, 0);
     renderHostFrame(rig.host, 0);
     near(rig.mesh.morphTargetInfluences[0], 0.15, 'releasing the last action restores the captured reference');
     rig.host.playAnimation(name, { loop: true, fadeInSec: 0 });
     renderHostFrame(rig.host, 0.1);
     near(rig.mesh.morphTargetInfluences[0], 0.6, 'the next playback uses the replacement source');
+  } finally { rig.dispose(); }
+});
+
+test('availability subscriptions report exact action IDs, aliases, release and stale bindings', async () => {
+  const rig = await fixture();
+  const snapshots = [];
+  const unsubscribe = rig.host.subscribeLiveControlAvailability(snapshot => snapshots.push(snapshot));
+  try {
+    assert.equal(snapshots[0].available, true);
+    rig.play([morphTrack(0)], 'first');
+    rig.play([morphTrack(0)], 'second');
+    const availability = rig.host.getLiveControlAvailability({ kind: 'au', id: 202 });
+    assert.equal(availability.blockers.length, 2, 'different AU IDs sharing one morph share its locks');
+    assert.deepEqual(availability.blockers.map(item => item.actionId).sort(),
+      ['first', 'second'].map(name => rig.host.getAnimationState(name).actionId).sort());
+    assert.equal(rig.host.getLiveControlAvailability({ kind: 'au', id: 201 }).available, true);
+    assert.throws(() => rig.host.playAnimation('first', { easing: 'invalid' }), /Unknown playback easing/);
+    assert.equal(rig.host.getLiveControlAvailability({ kind: 'morph', key: 'A' }).blockers.length, 2,
+      'failed replacement retains both predecessor locks');
+    rig.host.stopAnimation('first');
+    assert.equal(rig.host.getLiveControlAvailability({ kind: 'au', id: 200 }).blockers.length, 1);
+    const old = rig.host.buildPoseClip('obsolete', { aus: { 200: 0.4 } });
+    const generation = snapshots.at(-1).bindingGeneration;
+    rig.host.bindModel();
+    assert.equal(snapshots.at(-1).available, true);
+    assert.ok(snapshots.at(-1).bindingGeneration > generation);
+    assert.throws(() => old.play(), /obsolete model binding/);
+    unsubscribe(); unsubscribe();
+    const count = snapshots.length;
+    rig.play([morphTrack(0)], 'after-unsubscribe');
+    assert.equal(snapshots.length, count);
+  } finally { unsubscribe(); rig.dispose(); }
+});
+
+test('crossfade outgoing targets remain locked until their native fade releases', async () => {
+  const rig = await fixture();
+  try {
+    rig.play([morphTrack(0)], 'outgoing');
+    rig.host.registerAnimationClips([new AnimationClip('incoming', 2, [morphTrack(1)])]);
+    rig.host.crossfadeTo('incoming', 0.5, { loop: true });
+    renderHostFrame(rig.host, 0.25);
+    assert.equal(rig.host.getLiveControlAvailability({ kind: 'au', id: 200 }).available, false);
+    assert.throws(() => rig.host.transitionMorph('A', 0.2), /driven by animation/);
+    renderHostFrame(rig.host, 0.3);
+    assert.equal(rig.host.getLiveControlAvailability({ kind: 'au', id: 200 }).available, true);
+    assert.equal(rig.host.getLiveControlAvailability({ kind: 'au', id: 201 }).available, false);
+  } finally { rig.dispose(); }
+});
+
+test('normal saved pose preview replaces its live baseline and restores it on release', async () => {
+  const rig = await fixture();
+  try {
+    rig.host.setAU(200, 0.2);
+    const preview = rig.host.playPose('preview', { aus: { 200: 0.8 } }, { blendMode: 'replace', finalPose: 'hold' });
+    renderHostFrame(rig.host, 0);
+    near(rig.mesh.morphTargetInfluences[0], 0.8, 'pose is absolute, without live baseline doubling');
+    rig.host.setAU(201, 0.4);
+    renderHostFrame(rig.host, 0);
+    near(rig.mesh.morphTargetInfluences[0], 0.8, 'unrelated live edit does not resurrect the baseline');
+    preview.stop();
+    renderHostFrame(rig.host, 0);
+    near(rig.mesh.morphTargetInfluences[0], 0.2, 'preview release reveals previous live pose');
+    near(rig.mesh.morphTargetInfluences[1], 0.4, 'independent live edit survives');
+  } finally { rig.dispose(); }
+});
+
+test('exact AU-only pose transfer keeps displayed output and unrelated live transition clocks', async () => {
+  const rig = await fixture();
+  try {
+    rig.host.setAU(200, 0.2);
+    rig.host.transitionAU(201, 1, 1000);
+    renderHostFrame(rig.host, 0.25);
+    near(rig.mesh.morphTargetInfluences[1], 0.25, 'unrelated transition is in flight');
+    rig.host.playPose('apply', { aus: { 200: 0.7 } }, { blendMode: 'replace', finalPose: 'hold' });
+    renderHostFrame(rig.host, 0);
+    assert.equal(rig.host.getLiveControlAvailability({ kind: 'au', id: 200 }).blockers[0].keepPoseSupported, true);
+    assert.deepEqual(rig.host.stopAnimationKeepPose('apply'), { accepted: true });
+    renderHostFrame(rig.host, 0);
+    near(rig.mesh.morphTargetInfluences[0], 0.7, 'transfer preserves pose');
+    near(rig.mesh.morphTargetInfluences[1], 0.25, 'transfer does not complete an unrelated transition');
+    renderHostFrame(rig.host, 0.25);
+    near(rig.mesh.morphTargetInfluences[1], 0.5, 'unrelated clock continues');
+    rig.host.setAU(200, 0.5);
+    renderHostFrame(rig.host, 0);
+    near(rig.mesh.morphTargetInfluences[0], 0.5, 'transferred control becomes editable');
+  } finally { rig.dispose(); }
+});
+
+test('mixed saved AU and raw bone pose preserves outputs and refuses unsupported transfer unchanged', async () => {
+  const rig = await fixture();
+  try {
+    const pose = { aus: { 200: 0.6 }, bones: { extra: {
+      rawName: 'Unbound', rotation: [0, 0, 0, 1], position: [1, 2, 3], scale: [1, 2, 1],
+    } } };
+    const prepared = rig.host.buildPoseClip('mixed-pose', pose, { finalPose: 'hold' });
+    assert.equal(rig.host.getLiveControlAvailability().available, true, 'preparation owns no targets');
+    prepared.play();
+    renderHostFrame(rig.host, 0);
+    const extra = rig.model.getObjectByName('Unbound');
+    assert.deepEqual(extra.position.toArray(), [1, 2, 3]);
+    assert.deepEqual(extra.scale.toArray(), [1, 2, 1]);
+    assert.equal(rig.host.getLiveControlAvailability({ kind: 'bone', name: 'Unbound', property: 'scale' }).available, false);
+    near(rig.mesh.morphTargetInfluences[0], 0.6, 'mapped morph survives raw pose compilation');
+    const id = rig.host.getAnimationState('mixed-pose').actionId;
+    assert.equal(rig.host.stopAnimationKeepPose('mixed-pose').accepted, false);
+    assert.equal(rig.host.getAnimationState('mixed-pose').actionId, id, 'unsupported transfer retains action');
+    assert.equal(rig.host.getAU(200), 0, 'unsupported transfer retains canonical live state');
+    assert.throws(() => rig.host.buildPoseClip('invalid-pose', { bones: { missing: { position: [1, 2, 3] } } }), /does not resolve/);
+    assert.equal(rig.host.getAnimationState('mixed-pose').actionId, id);
+  } finally { rig.dispose(); }
+});
+
+test('additive AU transfer preserves both mapped bone and morph outputs', async () => {
+  const rig = await fixture();
+  try {
+    rig.host.playSnippet('additive', {
+      200: [{ time: 0, intensity: 0.5 }, { time: 1, intensity: 0.5 }],
+      210: [{ time: 0, intensity: 0.6 }, { time: 1, intensity: 0.6 }],
+    }, { blendMode: 'additive', finalPose: 'hold' });
+    renderHostFrame(rig.host, 0.25);
+    const before = rig.bone.quaternion.clone();
+    assert.equal(rig.host.stopAnimationKeepPose('additive').accepted, true);
+    renderHostFrame(rig.host, 0);
+    near(rig.mesh.morphTargetInfluences[0], 0.5, 'mapped morph is retained');
+    near(before.normalize().angleTo(rig.bone.quaternion.clone().normalize()), 0, 'mapped bone is retained');
+    assert.equal(rig.host.getLiveControlAvailability().available, true);
   } finally { rig.dispose(); }
 });

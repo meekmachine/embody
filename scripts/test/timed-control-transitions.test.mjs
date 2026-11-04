@@ -446,11 +446,12 @@ test('timed AU writes preserve unrelated constant mixer channels and unmapped mo
 test('AU release fades native weight toward the changing underlying clip without an endpoint jump', async () => {
   const rig = await fixture();
   try {
-    rig.play(0);
-    renderHostFrame(rig.host, 0.25);
     rig.host.setAU(200, 0.9);
+    const release = rig.host.transitionAU(200, 0, 200);
+    const underlying = rig.play(0);
+    underlying.seek(0.25);
     renderHostFrame(rig.host, 0);
-    const done = observe(rig.host.transitionAU(200, 0, 200));
+    const done = observe(release);
     near(rig.host.getAU(200), 0, 'canonical AU releases at command time');
     near(rig.value(), 0.6, 'release keeps the equal-weight native mixed pose');
     renderHostFrame(rig.host, 0.05);
@@ -470,11 +471,11 @@ test('AU release fades native weight toward the changing underlying clip without
 test('pausing a release preserves its native fade weight while the public clip advances', async () => {
   const rig = await fixture();
   try {
-    rig.play(0);
-    renderHostFrame(rig.host, 0.25);
     rig.host.setAU(200, 0.9);
-    renderHostFrame(rig.host, 0);
     const handle = rig.host.transitionAU(200, 0, 200);
+    const underlying = rig.play(0);
+    underlying.seek(0.25);
+    renderHostFrame(rig.host, 0);
     const done = observe(handle);
     renderHostFrame(rig.host, 0.05);
     near(rig.value(), (0.32 + 0.9 * 0.75) / 1.75, 'release has consumed one quarter of its fade');

@@ -99,6 +99,48 @@ not fall back to unselected skin/clothing targets.
 or saved profile defaults. The same compiler emits all saved bone and morph
 outputs. Native playback owns timing, interpolation, cancellation and blending.
 
+### Live control availability and saved poses
+
+Caller animation actions own their concrete emitted targets until native release,
+including paused actions, completed held actions, and actions fading out. Before
+writing canonical state, live AU, continuum, viseme, morph, mix-strength, clear,
+and transition setters reject intersecting targets with `LiveControlLockedError`
+(`code: 'LIVE_CONTROL_LOCKED'`, `availability`). Unrelated targets remain editable.
+Internal live transitions and hair actions do not create these caller locks.
+
+`getLiveControlAvailability(query?)` returns `{bindingGeneration, revision,
+available, blockers}`. Each blocker contains `{name, actionId, targets,
+keepPoseSupported}` from its actual native clip. Queries select an AU, continuum,
+viseme, morph, exact bone name/role plus rotation/position/scale property, or
+concrete targets. AU queries include both directions of a configured continuum.
+`subscribeLiveControlAvailability(listener)` sends an initial snapshot and native
+lifecycle changes; unsubscribe is idempotent. Hosts subscribe rather than poll
+frames. Old model handles cannot admit playback after rebinding.
+
+`buildPoseClip(name, pose, options)` prepares a native handle without applying
+live values; `playPose` prepares and plays it. `CharacterPoseInput` accepts sparse
+`aus`, `auBalances`, `auMixWeights`, `morphs`, and `bones`. Raw bones retain local
+quaternion or Euler rotation (degrees and explicit order), position and scale.
+Rust resolves exact current names/profile roles and rejects unresolved or
+ambiguous bindings before native admission. The caller supplies its intended AU
+selection and explicit clears; `includeFacialExpression` is metadata rather than
+a second target-selection policy. For mapped saved poses, AU-emitted destinations
+win over duplicate saved raw outputs; other duplicate raw destinations reject.
+
+A normal saved pose temporarily replaces overlapping internal live native
+outputs. Its release restores that live baseline, without restarting unrelated
+live transitions. Unrelated edits cannot recreate the baseline under a held pose.
+`stopAnimationKeepPose(name)` explicitly releases a transferable action and makes
+its pose editable; held completion alone does not release ownership. The result
+is `{accepted, reason?}`. Supported cases are isolated, full-weight additive
+numeric-AU clips with compatible live mappings, and constant AU-only normal saved
+poses whose candidate live outputs Rust proves equivalent to compiled outputs.
+Overlapping actions, partial weights/fades, baked or typed sources, raw bone/morph
+poses, conflicting live mappings and out-of-range values reject without releasing
+the action or changing live state. This API does not infer AU values from arbitrary
+rendered tracks. `readAUState().total` remains semantic aggregation, not an inverse
+of the final blended rig pose.
+
 Reset controls by setting the selected mapped AU IDs to zero. There is no
 separate Body reset owner or cached list of named-control action IDs.
 

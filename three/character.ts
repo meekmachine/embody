@@ -46,6 +46,37 @@ export type CharacterAUState = {
 };
 export type CharacterAUGoalMeasurement = { distance: number; reversal: boolean; current: Record<string, number> };
 export type CharacterPlaybackEvent = ThreeNativePlaybackEvent & { actionId: string; clipName: string };
+export type CharacterLiveControlQuery =
+  | { kind: 'au'; id: number }
+  | { kind: 'continuum'; negative: number; positive: number }
+  | { kind: 'viseme'; id: number | string }
+  | { kind: 'morph'; key: number | string; meshNames?: string[] }
+  | { kind: 'bone'; name: string; property: 'rotation' | 'position' | 'scale' }
+  | { kind: 'targets'; targets: ClipIRTrack['target'][] };
+export type CharacterLiveControlBlocker = {
+  name: string; actionId: string; targets: ClipIRTrack['target'][]; keepPoseSupported: boolean;
+};
+export type CharacterLiveControlAvailability = {
+  bindingGeneration: number; revision: number; available: boolean; blockers: CharacterLiveControlBlocker[];
+};
+export type CharacterKeepPoseResult = { accepted: boolean; reason?: string };
+/** Plain saved-pose data; native Rust resolves mappings and raw bone transforms. */
+export type CharacterPoseInput = {
+  aus?: Record<string, number>; auBalances?: Record<string, number>; auMixWeights?: Record<string, number>;
+  morphs?: Record<string, number>; includeFacialExpression?: boolean; semanticPose?: unknown; migrationError?: string;
+  bones?: Record<string, {
+    rawName?: string; displayName?: string; semanticKeys?: string[]; source?: string;
+    rotation?: [number, number, number, number]; position?: [number, number, number]; scale?: [number, number, number];
+    rotationEuler?: { pitch: number; yaw: number; roll: number; order?: 'XYZ' | 'YXZ' | 'ZXY' | 'ZYX' | 'YZX' | 'XZY'; unit?: 'degrees' };
+  }>;
+};
+export class LiveControlLockedError extends Error {
+  readonly code = 'LIVE_CONTROL_LOCKED';
+  constructor(readonly availability: CharacterLiveControlAvailability) {
+    super(`Live control is driven by animation: ${availability.blockers.map((blocker) => blocker.name).join(', ')}.`);
+    this.name = 'LiveControlLockedError';
+  }
+}
 export interface CharacterPlaybackHandle {
   readonly name: string;
   actionId?: string;
@@ -75,7 +106,7 @@ export interface CharacterTransitionHandle {
 
 type Source =
   | { name: string; kind: 'native'; clip: AnimationClip }
-  | { name: string; kind: 'curves' | 'typed'; input: any; options: CharacterPlaybackOptions }
+  | { name: string; kind: 'curves' | 'typed' | 'pose'; input: any; options: CharacterPlaybackOptions }
   | { name: string; kind: 'compiled'; clip: ClipIR };
 /**
  * Who requested a playback. Stop All and crossfade act only on `caller`
@@ -91,6 +122,7 @@ type Playback = {
   connector: ThreeNativePlaybackConnector;
   terminal: boolean;
   inheritedStarts: Map<string, number[]>;
+  targets: ClipIRTrack['target'][];
   replay(options: CharacterPlaybackOptions): CharacterPlaybackHandle;
   notify(event: CharacterPlaybackEvent): void;
 };
@@ -160,10 +192,16 @@ export class Embody {
   private readonly pendingEvents: ThreeNativePlaybackEvent[] = [];
   private readonly pendingReleases: Playback[] = [];
   private bindingGeneration = 0;
+  private availabilityRevision = 0;
+  private availabilitySignature = '';
+  private readonly availabilityListeners = new Set<(value: CharacterLiveControlAvailability) => void>();
   private disposed = false;
   private rendering = true;
   private timeScale = 1;
   private nextLiveTarget = 0;
+  private readonly suppressedLiveTargets = new Set<string>();
+  private syncingLiveTargets = false;
+  private releasingBinding = false;
   private readonly liveTargets = new Map<string, { track: ClipIRTrack; handle: CharacterPlaybackHandle; releasing: boolean }>();
   private readonly hairObjects = new Map<string, Mesh>();
   private hairHeadObservation?: HairHeadObservation;
@@ -246,8 +284,10 @@ export class Embody {
         }
       }
     } catch (error) { core.free(); throw error; }
+    this.releasingBinding = true;
     try { this.connector?.dispose(); }
     catch (error) { core.free(); throw error; }
+    finally { this.releasingBinding = false; }
     this.core.free();
     this.core = core;
     if (replacingModel) { this.sources.clear(); this.vrmAnimations.clear(); }
@@ -261,6 +301,7 @@ export class Embody {
     this.playbacks.clear();
     this.current.clear();
     this.liveTargets.clear();
+    this.suppressedLiveTargets.clear();
     this.meshes.splice(0, this.meshes.length, ...(inspection.morphMeshes.length ? inspection.morphMeshes : inspection.allMeshes));
     this.meshByName = inspection.meshByName;
     this.bones = inspection.bones;
@@ -294,6 +335,7 @@ export class Embody {
     this.bindHairHead(model, inspection);
     this.registerHairObjects(inspection.allMeshes.filter((mesh) => ['hair', 'eyebrow'].includes(this.meshCategory(mesh))));
     if (preserveLiveState) this.commitLive();
+    this.publishLiveControlAvailability();
   }
 
   bindModel(meshes?: Mesh[]): void {
@@ -333,6 +375,7 @@ export class Embody {
     playback.terminal = true;
     if (!playback.connector.getAction(playback.id)) this.forget(playback);
     playback.notify({ ...event, actionId: event.handle, clipName: playback.source.name });
+    this.publishLiveControlAvailability();
   }
   private flushPendingPlaybackEvents(): void {
     while (!this.playDepth && this.pendingReleases.length) {
@@ -346,6 +389,7 @@ export class Embody {
     switch (source.kind) {
       case 'curves': return parse(this.core.build_clip(source.name, json(source.input), json(buildOptions)));
       case 'typed': return parse(this.core.build_typed_clip(source.name, json(source.input), json(buildOptions)));
+      case 'pose': return parse(this.core.build_pose_clip(source.name, json(source.input), json(buildOptions)));
       case 'compiled': return source.clip;
       case 'native': throw new Error('Native animation sources do not require AU compilation.');
     }
@@ -574,6 +618,7 @@ export class Embody {
       const connector = this.requireConnector();
       const inheritedStarts = new Map<string, number[]>();
       const clip = this.materialize(source, options, inheritedStarts);
+      const [concreteClip] = serializeAnimationClips(this.requireModel(), [clip], this.inspection!);
       // Admission performs no hair work: hair observes the rendered head pose
       // once per render step instead (sampleHairResponse).
       const previous = this.current.get(source.name);
@@ -610,6 +655,7 @@ export class Embody {
       }
       const playback: Playback = {
         id, source, owner, options: { ...options, intensityScale: intensity(options) }, connector, terminal: false, inheritedStarts,
+        targets: concreteClip.tracks.map((track) => track.target),
         replay: (next) => { options = next; return start(); },
         notify: (event) => {
           if (settled) return;
@@ -669,6 +715,7 @@ export class Embody {
         this.playDepth -= 1;
         this.flushPendingPlaybackEvents();
       }
+      this.publishLiveControlAvailability();
       return result;
     };
     result.play = () => { if (current) options = { ...current.options }; return start(); };
@@ -706,6 +753,7 @@ export class Embody {
       this.current.delete(playback.source.name);
       this.core.release_semantic_slot(playback.source.name);
     }
+    this.publishLiveControlAvailability();
   }
   private updatePlayback(playback: Playback, patch: CharacterPlaybackOptions): void {
     this.validateEasing(patch);
@@ -720,7 +768,9 @@ export class Embody {
     if ('weight' in patch || 'intensity' in patch || 'intensityScale' in patch) options.intensityScale = intensity(patch);
     if (['weight', 'intensity', 'intensityScale', 'blendMode', 'easing', 'balance', 'balanceMap', 'mixWeights'].some((key) => key in patch)) {
       const clip = this.materialize(playback.source, options, playback.inheritedStarts);
+      const [concrete] = serializeAnimationClips(this.requireModel(), [clip], this.inspection!);
       connector.replaceClip(playback.id, clip);
+      playback.targets = concrete.tracks.map((track) => track.target);
       if (playback.source.kind === 'curves') this.core.restyle_semantic_slot(playback.source.name, intensity(options), options.easing ?? 'linear');
       if ('blendMode' in patch) connector.control(playback.id, { type: 'setBlendMode', blendMode: clip.blendMode === AdditiveAnimationBlendMode ? 'additive' : 'normal' });
     }
@@ -746,6 +796,7 @@ export class Embody {
     if ('clampWhenFinished' in patch || 'finalPose' in patch) connector.control(playback.id, { type: 'setFinalPose', finalPose: this.nativeOptions(options, action.getClip()).finalPose! });
     playback.options = options;
     if (!connector.getAction(playback.id)) this.forget(playback);
+    this.publishLiveControlAvailability();
   }
 
   supportsVrmAnimation(): boolean { return true; }
@@ -825,6 +876,12 @@ export class Embody {
     return this.build({ name, kind: 'typed', input: copy(channels), options: copy(options) }, options, false);
   }
   typedSnippetToClip(name: string, channels: any[], options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle { return this.buildTypedClip(name, channels, options); }
+  buildPoseClip(name: string, pose: CharacterPoseInput, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
+    return this.build({ name, kind: 'pose', input: copy(pose), options: copy(options) }, options, false);
+  }
+  playPose(name: string, pose: CharacterPoseInput, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
+    return this.buildPoseClip(name, pose, options).play();
+  }
   playSnippet(snippet: string | { name: string; curves: JsonObject }, curvesOrOptions: JsonObject = {}, options: CharacterPlaybackOptions = {}): CharacterPlaybackHandle {
     return typeof snippet === 'string' ? this.buildClip(snippet, curvesOrOptions, options).play() : this.buildClip(snippet.name, snippet.curves, curvesOrOptions).play();
   }
@@ -899,6 +956,121 @@ export class Embody {
   }
   getPlayingAnimations(): string[] { return [...this.current.keys()].filter((name) => this.getAnimationState(name).playing); }
 
+  private controlTargets(query: CharacterLiveControlQuery | { kind: 'all' }): ClipIRTrack['target'][] {
+    return query.kind === 'targets' ? query.targets : parse(this.core.live_control_targets_json(json(query)));
+  }
+  private keepPoseStatus(playback: Playback): CharacterKeepPoseResult {
+    const action = playback.connector.getAction(playback.id);
+    const absolutePose = playback.source.kind === 'pose' && action?.blendMode === NormalAnimationBlendMode;
+    if (!action || (!absolutePose && (playback.source.kind !== 'curves' || action.blendMode !== AdditiveAnimationBlendMode ||
+        Object.keys(playback.source.input).some((key) => !/^\d+$/.test(key))))) {
+      return { accepted: false, reason: 'Keep pose supports isolated additive numeric-AU clips or equivalent AU-only saved poses.' };
+    }
+    if (absolutePose && action.getEffectiveWeight() !== 1) return { accepted: false, reason: 'Pose transfer requires a full-weight normal action.' };
+    const selected = new Set(playback.targets.map(targetKey));
+    for (const other of this.playbacks.values()) {
+      if (other === playback || !other.connector.getAction(other.id)) continue;
+      if (other.targets.some((target) => selected.has(targetKey(target)))) {
+        return { accepted: false, reason: 'Another live or animated contribution drives the same target.' };
+      }
+    }
+    return absolutePose
+      ? parse(this.core.pose_keep_pose_status(json((playback.source as Extract<Source, { kind: 'curves' | 'typed' | 'pose' }>).input), json(playback.options)))
+      : parse(this.core.semantic_keep_pose_status(playback.source.name, action.time, action.getEffectiveWeight(), json(playback.options)));
+  }
+  /** No frame sampling: native action membership remains authoritative while paused, held or fading. */
+  getLiveControlAvailability(query?: CharacterLiveControlQuery): CharacterLiveControlAvailability {
+    this.assertAlive();
+    const selected = query && new Set(this.controlTargets(query).map(targetKey));
+    const blockers: CharacterLiveControlBlocker[] = [];
+    for (const playback of this.playbacks.values()) {
+      if (playback.owner !== 'caller' || playback.connector !== this.connector || !playback.connector.getAction(playback.id)) continue;
+      if (selected && !playback.targets.some((target) => selected.has(targetKey(target)))) continue;
+      blockers.push({ name: playback.source.name, actionId: playback.id, targets: copy(playback.targets), keepPoseSupported: this.keepPoseStatus(playback).accepted });
+    }
+    return { bindingGeneration: this.bindingGeneration, revision: this.availabilityRevision, available: blockers.length === 0, blockers };
+  }
+  /** Initial snapshot, then actual native admission/release changes; unsubscribe is idempotent. */
+  subscribeLiveControlAvailability(listener: (value: CharacterLiveControlAvailability) => void): () => void {
+    this.assertAlive();
+    this.availabilityListeners.add(listener);
+    try { listener(this.getLiveControlAvailability()); }
+    catch (error) { this.availabilityListeners.delete(listener); throw error; }
+    return () => { this.availabilityListeners.delete(listener); };
+  }
+  /** A normal saved pose temporarily replaces only its concrete live baseline. */
+  private syncPoseLiveTargets(): void {
+    if (this.syncingLiveTargets || this.playDepth || !this.connector || this.disposed) return;
+    this.syncingLiveTargets = true;
+    try {
+      const selected = new Set<string>();
+      for (const playback of this.playbacks.values()) {
+        const action = playback.connector.getAction(playback.id);
+        if (playback.source.kind === 'pose' && action?.blendMode === NormalAnimationBlendMode)
+          for (const target of playback.targets) selected.add(targetKey(target));
+      }
+      for (const [key, live] of this.liveTargets) {
+        if (!selected.has(key) || this.suppressedLiveTargets.has(key)) continue;
+        this.suppressedLiveTargets.add(key);
+        live.handle.stop();
+      }
+      let restore = false;
+      for (const key of this.suppressedLiveTargets) {
+        if (selected.has(key)) continue;
+        this.suppressedLiveTargets.delete(key);
+        this.liveTargets.delete(key);
+        restore = true;
+      }
+      if (restore) {
+        this.core.begin_live_command();
+        this.commitLive();
+      }
+    } finally { this.syncingLiveTargets = false; }
+  }
+  private publishLiveControlAvailability(): void {
+    if (this.disposed || this.playDepth || this.releasingBinding) return;
+    this.syncPoseLiveTargets();
+    const snapshot = this.getLiveControlAvailability();
+    const signature = json([snapshot.bindingGeneration, snapshot.blockers]);
+    if (signature === this.availabilitySignature) return;
+    this.availabilitySignature = signature;
+    snapshot.revision = ++this.availabilityRevision;
+    for (const listener of [...this.availabilityListeners]) {
+      try { listener(copy(snapshot)); }
+      catch (error) { queueMicrotask(() => { throw error; }); }
+    }
+  }
+  private assertLiveControlAvailable(query: CharacterLiveControlQuery | { kind: 'all' }): void {
+    const availability = this.getLiveControlAvailability({ kind: 'targets', targets: this.controlTargets(query) });
+    if (!availability.available) throw new LiveControlLockedError(availability);
+  }
+  /** Release only an exactly transferable contribution; unsupported cases have no effects. */
+  stopAnimationKeepPose(name: string): CharacterKeepPoseResult {
+    this.requireModel();
+    const playback = this.current.get(name);
+    if (!playback) return { accepted: false, reason: 'The animation is not active.' };
+    const status = this.keepPoseStatus(playback);
+    if (!status.accepted) return status;
+    const action = playback.connector.getAction(playback.id)!;
+    const time = action.time;
+    const weight = action.getEffectiveWeight();
+    this.playDepth += 1;
+    try {
+      playback.connector.control(playback.id, { type: 'stop' });
+      const accepted: CharacterKeepPoseResult = playback.source.kind === 'pose'
+        ? parse(this.core.transfer_pose_to_live(json(playback.source.input), json(playback.options)))
+        : parse(this.core.transfer_semantic_slot_to_live(name, time, weight, json(playback.options)));
+      if (!accepted.accepted) throw new Error('A prevalidated keep-pose transfer changed during native release.');
+      this.forget(playback);
+      this.commitLive();
+    } finally {
+      this.playDepth -= 1;
+      this.flushPendingPlaybackEvents();
+      this.publishLiveControlAvailability();
+    }
+    return { accepted: true };
+  }
+
   private commitLive(durationMs = 0): CharacterPlaybackHandle[] {
     const connector = this.requireConnector();
     const duration = Math.max(0, durationMs) / 1000;
@@ -930,6 +1102,7 @@ export class Embody {
       handles.push(handle);
     }
     for (const [key, track] of tracks) {
+      if (this.suppressedLiveTargets.has(key)) continue;
       const previous = this.liveTargets.get(key);
       const endpoint = (value: ClipIRTrack) => value.values.slice(value.values.length / value.times.length * (value.times.length - 1));
       // Rust identifies semantic command destinations. Concrete targets outside
@@ -952,8 +1125,9 @@ export class Embody {
     }
     return handles;
   }
-  private mutateLive(mutate: () => void, durationMs = 0): CharacterPlaybackHandle[] {
+  private mutateLive(mutate: () => void, durationMs = 0, query: CharacterLiveControlQuery | { kind: 'all' } = { kind: 'all' }): CharacterPlaybackHandle[] {
     this.requireModel();
+    this.assertLiveControlAvailable(query);
     this.core.begin_live_command();
     mutate();
     return this.commitLive(durationMs);
@@ -973,11 +1147,11 @@ export class Embody {
     };
     return { promise, pause: () => control('pause'), resume: () => control('resume'), cancel: () => control('cancel') };
   }
-  setAU(id: number, value: number, balance = this.core.get_au_balance(id)): void { this.mutateLive(() => this.core.set_au_signed(id, value, balance)); }
+  setAU(id: number, value: number, balance = this.core.get_au_balance(id)): void { this.mutateLive(() => this.core.set_au_signed(id, value, balance), 0, { kind: 'au', id }); }
   getAU(id: number): number { return this.core.get_au(id); }
   getAUBalance(id: number): number { return this.core.get_au_balance(id); }
   getAUDescriptors(): AUDescriptor[] { return parse(this.core.get_au_descriptors_json()); }
-  setContinuum(negative: number, positive: number, value: number, balance = NaN): void { this.mutateLive(() => this.core.set_continuum(negative, positive, value, balance)); }
+  setContinuum(negative: number, positive: number, value: number, balance = NaN): void { this.mutateLive(() => this.core.set_continuum(negative, positive, value, balance), 0, { kind: 'continuum', negative, positive }); }
   getContinuum(negative: number, positive: number): number { return this.core.get_continuum(negative, positive); }
   /**
    * One clip slot's own semantic AU contribution right now (`{auId: value}`),
@@ -1018,25 +1192,25 @@ export class Embody {
     return parse(this.core.measure_au_goal(name, action?.time ?? Number.NaN, action?.getEffectiveWeight() ?? Number.NaN,
       json(destinations), unfinished));
   }
-  transitionAU(id: number, value: number, durationMs = 200, balance = this.core.get_au_balance(id)): CharacterTransitionHandle { return this.transition(this.mutateLive(() => this.core.set_au_signed(id, value, balance), durationMs)); }
-  setViseme(index: number, value: number, jawScale = 1): void { this.mutateLive(() => { this.core.set_viseme(index, value); this.core.set_viseme_jaw_scale(index, jawScale); }); }
+  transitionAU(id: number, value: number, durationMs = 200, balance = this.core.get_au_balance(id)): CharacterTransitionHandle { return this.transition(this.mutateLive(() => this.core.set_au_signed(id, value, balance), durationMs, { kind: 'au', id })); }
+  setViseme(index: number, value: number, jawScale = 1): void { this.mutateLive(() => { this.core.set_viseme(index, value); this.core.set_viseme_jaw_scale(index, jawScale); }, 0, { kind: 'viseme', id: index }); }
   getViseme(index: number): number { return this.core.get_viseme(index); }
   getVisemeJawScale(index: number): number { return this.core.get_viseme_jaw_scale(index); }
   setVisemeById(id: string, value: number, jawScale = 1): void { const index = this.core.viseme_slot_index(id); if (index < 0) throw new Error(`Unknown viseme: ${id}`); this.setViseme(index, value, jawScale); }
-  transitionViseme(index: number, value: number, durationMs = 80, jawScale = 1): CharacterTransitionHandle { return this.transition(this.mutateLive(() => { this.core.set_viseme(index, value); this.core.set_viseme_jaw_scale(index, jawScale); }, durationMs)); }
+  transitionViseme(index: number, value: number, durationMs = 80, jawScale = 1): CharacterTransitionHandle { return this.transition(this.mutateLive(() => { this.core.set_viseme(index, value); this.core.set_viseme_jaw_scale(index, jawScale); }, durationMs, { kind: 'viseme', id: index })); }
   transitionVisemeById(id: string, value: number, durationMs = 80, jawScale = 1): CharacterTransitionHandle { const index = this.core.viseme_slot_index(id); if (index < 0) return this.transition([]); return this.transitionViseme(index, value, durationMs, jawScale); }
   setAUMixWeight(id: number, value: number): void {
     const weight = Math.max(0, Math.min(1, value));
-    this.mutateLive(() => this.core.set_au_mix_weight(id, weight));
+    this.mutateLive(() => this.core.set_au_mix_weight(id, weight), 0, { kind: 'au', id });
     (this.profile.auMixDefaults ??= {})[id] = weight;
     (this.profileSource.auMixDefaults ??= {})[id] = weight;
   }
   getAUMixWeight(id: number): number { return this.core.get_au_mix_weight(id); }
   hasLeftRightBones(id: number): boolean { return this.core.has_left_right_bones(id); }
-  setMorph(key: string | number, value: number, meshNames: string[] = []): void { this.mutateLive(() => { if (typeof key === 'number') this.core.set_morph_index(key, value, json(meshNames)); else this.core.set_morph(key, value, json(meshNames)); }); }
+  setMorph(key: string | number, value: number, meshNames: string[] = []): void { this.mutateLive(() => { if (typeof key === 'number') this.core.set_morph_index(key, value, json(meshNames)); else this.core.set_morph(key, value, json(meshNames)); }, 0, { kind: 'morph', key, meshNames }); }
   setMorphOnMeshes(meshNames: string[], key: string | number, value: number): void { this.setMorph(key, value, meshNames); }
-  releaseMorph(key: string | number, meshNames: string[] = []): void { this.mutateLive(() => { if (typeof key === 'number') this.core.release_morph_index(key, json(meshNames)); else this.core.release_morph(key, json(meshNames)); }); }
-  transitionMorph(key: string | number, value: number, durationMs = 120, meshNames: string[] = []): CharacterTransitionHandle { return this.transition(this.mutateLive(() => { if (typeof key === 'number') this.core.set_morph_index(key, value, json(meshNames)); else this.core.set_morph(key, value, json(meshNames)); }, durationMs)); }
+  releaseMorph(key: string | number, meshNames: string[] = []): void { this.mutateLive(() => { if (typeof key === 'number') this.core.release_morph_index(key, json(meshNames)); else this.core.release_morph(key, json(meshNames)); }, 0, { kind: 'morph', key, meshNames }); }
+  transitionMorph(key: string | number, value: number, durationMs = 120, meshNames: string[] = []): CharacterTransitionHandle { return this.transition(this.mutateLive(() => { if (typeof key === 'number') this.core.set_morph_index(key, value, json(meshNames)); else this.core.set_morph(key, value, json(meshNames)); }, durationMs, { kind: 'morph', key, meshNames })); }
 
   getMorphTargets(): Record<string, string[]> { return Object.fromEntries(this.meshes.map((mesh) => [mesh.name, Object.keys(mesh.morphTargetDictionary ?? {}).sort()])); }
   getMorphTargetIndices(): Record<string, { name: string; index: number }[]> { return Object.fromEntries(this.meshes.map((mesh) => [mesh.name, Object.entries(mesh.morphTargetDictionary ?? {}).map(([name, index]) => ({ name, index })).sort((a, b) => a.index - b.index)])); }
@@ -1185,9 +1359,10 @@ export class Embody {
   resetToNeutral(): void { this.clear(); }
   dispose(): void {
     if (this.disposed) return;
-    this.connector?.dispose();
+    this.releasingBinding = true;
+    try { this.connector?.dispose(); }
+    finally { this.releasingBinding = false; }
     this.applier.clearMeshHighlights();
-    this.core.free();
     this.playbacks.clear();
     this.current.clear();
     this.sources.clear();
@@ -1198,9 +1373,13 @@ export class Embody {
     this.meshByName.clear();
     this.bones = {};
     this.liveTargets.clear();
+    this.suppressedLiveTargets.clear();
     this.connector = undefined;
     this.inspection = undefined;
     this.boundModel = undefined;
+    this.publishLiveControlAvailability();
+    this.availabilityListeners.clear();
+    this.core.free();
     this.disposed = true;
   }
 }

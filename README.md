@@ -29,7 +29,8 @@ These readers do not consolidate eye mappings, assign FACS/body namespaces,
 convert curve snippets into explicit channels, or change native playback. Those
 migrations require profile-specific equivalence and compiler parity work under
 [Polymer epic #325](https://github.com/meekmachine/Polymer/issues/325). Semantic
-readback and slider ownership remain separate integration work.
+readback and slider ownership use the native APIs below; Polymer and host UI
+integration remains a separate adoption step.
 
 ## Architecture
 
@@ -919,6 +920,22 @@ Native playback owns interpolation, pause, resume, cancellation and blending.
 Reset an authored control by setting its mapped AU values to zero. Hosts select
 which mapped AU IDs to reset; unrelated face state and saved mix strengths remain
 under their existing owners.
+
+### Live control ownership and saved poses
+
+Live setters reject conflicting caller animation targets before changing canonical
+state. Paused, held and fading native actions remain owners until release.
+`getLiveControlAvailability` and `subscribeLiveControlAvailability` expose exact
+action IDs and concrete targets without frame polling. Queries cover AU,
+continuum, viseme, morph and named bone/property controls.
+`stopAnimationKeepPose` explicitly transfers supported isolated AU contributions;
+unsupported cases return `{accepted:false, reason}` unchanged.
+
+`buildPoseClip` / `playPose` compile sparse `CharacterPoseInput` data through Rust,
+including mapped AU outputs and raw bone quaternion/position/scale. Normal saved
+pose previews replace overlapping live outputs and reveal their previous live
+baseline on release. See [control ownership and pose contracts](docs/body-controls.md#live-control-availability-and-saved-poses)
+for query shapes, exact-transfer limits and caller selection responsibilities.
 
 ### Reading current AU state
 
