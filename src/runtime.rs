@@ -888,6 +888,25 @@ impl RuntimeCore {
         self.profile.as_ref().map(|profile| crate::au_descriptors::resolve(profile,self.model.as_ref()).to_string()).unwrap_or_else(|| "[]".into())
     }
 
+    /// Calibrate accepted saved AU sources without changing live state, slots,
+    /// mappings, or native playback. Reference frames come from the native
+    /// adapter's captured neutral hierarchy, never from the current pose.
+    #[wasm_bindgen]
+    pub fn get_gaze_binding_calibration_json(&self, bindings_json: &str, reference_frames_json: &str) -> Result<String, JsError> {
+        let profile = self.profile.as_ref().ok_or_else(|| JsError::new("Gaze calibration requires a configured profile"))?;
+        let model = self.model.as_ref().ok_or_else(|| JsError::new("Gaze calibration requires a model descriptor"))?;
+        crate::gaze_calibration::calibrate(profile, model, bindings_json, reference_frames_json)
+            .map_err(|error| JsError::new(&error))
+    }
+
+    /// Current resolved roles, including exact authored names and affixes.
+    #[wasm_bindgen]
+    pub fn get_gaze_geometry_roles_json(&self) -> String {
+        self.profile.as_ref().zip(self.model.as_ref())
+            .map(|(profile, model)| serde_json::to_string(&crate::gaze_calibration::role_bones(profile, model)).unwrap())
+            .unwrap_or_else(|| "{}".into())
+    }
+
     /// Forget ownership when renderer bindings are discarded. Before replacing
     /// bindings, apply release_procedural_morph_frame through the old IDs.
     /// Normal clear/reset deliberately retain tracking for the next frame.

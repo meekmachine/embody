@@ -4,6 +4,7 @@ import type { CharacterSceneRenderer } from '../scene';
 import { bindSceneRendering, reportSceneRenderingFailure } from '../sceneRenderingBinding';
 import { prepareModelSkinning } from '../modelSkinning';
 import { renderScenePlayback } from '../playbackRendering';
+import { publishSceneObservations } from '../sceneObservations';
 import { compileModelForRender, drawModelForRender } from './modelRenderPreparation';
 import { resolveAnnotationCharacterConfig } from './adapter';
 import { CameraDOMControls } from './DOMControls';
@@ -323,6 +324,7 @@ export class ThreeAnnotationController {
           if (preparationDraw) { preparationDraw(); return; }
           if (samplePlayback) renderScenePlayback(this.scene, this.playbackTimer);
           this.update();
+          publishSceneObservations(this.scene);
           const frame = this.renderFrame
             ? this.renderFrame(this.renderer!, this.scene, this.camera)
             : this.renderer!.render(this.scene, this.camera);

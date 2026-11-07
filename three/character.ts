@@ -1,9 +1,10 @@
 import {
   AdditiveAnimationBlendMode, AnimationClip, AnimationUtils, LoopOnce, LoopPingPong,
-  NormalAnimationBlendMode, PropertyBinding, Quaternion, Euler, InterpolateDiscrete, InterpolateLinear,
+  NormalAnimationBlendMode, PropertyBinding, Quaternion, Vector3, Euler, InterpolateDiscrete, InterpolateLinear,
 } from 'three';
-import type { AnimationAction, KeyframeTrack, Mesh, Object3D } from 'three';
-import type { AUDescriptor } from '@lovelace_lol/embody/wasm';
+import type { AnimationAction, Camera, KeyframeTrack, Mesh, Object3D, PerspectiveCamera } from 'three';
+import type { AUDescriptor, GazeBindingCalibration } from '@lovelace_lol/embody/wasm';
+import type { GazeGeometryFacts } from './gazeGeometry';
 import { initEmbodyCore, requireInitializedEmbodyCore, DEFAULT_HAIR_COLOR_APPEARANCE } from '@lovelace_lol/embody/wasm';
 import type { RuntimeCore } from '@lovelace_lol/embody/wasm';
 import {
@@ -160,6 +161,13 @@ export class Embody {
   private readonly pendingEvents: ThreeNativePlaybackEvent[] = [];
   private readonly pendingReleases: Playback[] = [];
   private bindingGeneration = 0;
+  private gazeReferenceRevision = -1;
+  private gazeReferenceFrames = '[]';
+  private gazeRolesRevision = -1;
+  private gazeRoles: Record<string, Object3D> = {};
+  private readonly gazeScratch = { cameraPosition: new Vector3(), cameraRotation: new Quaternion(),
+    modelPosition: new Vector3(), modelRotation: new Quaternion(), modelScale: new Vector3(),
+    cameraScale: new Vector3(), origin: new Vector3(), point: new Vector3() };
   private disposed = false;
   private rendering = true;
   private timeScale = 1;
@@ -322,6 +330,77 @@ export class Embody {
     this.bind(this.boundModel, reference, inspection, source, profile, false);
   }
   getProfile(): Partial<Profile> { return this.profile; }
+  getGazeBindingRevision(): number { return this.bindingGeneration; }
+  private gazeRoleBones(): Record<string, Object3D> {
+    if (this.gazeRolesRevision !== this.bindingGeneration) {
+      const roles = parse<Record<string, number>>(this.core.get_gaze_geometry_roles_json());
+      this.gazeRoles = Object.fromEntries(Object.entries(roles).flatMap(([role, id]) => {
+        const bone = this.inspection?.boneBindings.get(id); return bone ? [[role, bone]] : [];
+      }));
+      this.gazeRolesRevision = this.bindingGeneration;
+    }
+    return this.gazeRoles;
+  }
+  /** Plain scene observations; does not calculate policy or mutate playback. */
+  getGazeGeometryFacts(camera: Camera): GazeGeometryFacts {
+    const model = this.requireModel();
+    const perspective = camera as PerspectiveCamera;
+    if (!perspective?.isPerspectiveCamera) throw new Error('Gaze geometry requires a perspective camera.');
+    if (perspective.view?.enabled || perspective.filmOffset) throw new Error('Gaze geometry does not support cropped or shifted camera projections.');
+    const s = this.gazeScratch;
+    model.updateWorldMatrix(true, false); camera.updateWorldMatrix(true, false);
+    model.getWorldPosition(s.modelPosition); model.getWorldQuaternion(s.modelRotation); model.getWorldScale(s.modelScale);
+    camera.getWorldPosition(s.cameraPosition); camera.getWorldQuaternion(s.cameraRotation); camera.getWorldScale(s.cameraScale);
+    for (const scale of [s.modelScale, s.cameraScale]) {
+      const largest = Math.max(scale.x, scale.y, scale.z), smallest = Math.min(scale.x, scale.y, scale.z);
+      if (!(smallest > 0) || largest - smallest > 1e-6 * largest) throw new Error('Gaze geometry requires positive uniform world scale.');
+    }
+    const roles = this.gazeRoleBones();
+    const mapped = (role: string): Object3D | undefined => roles[role];
+    const eyes = [mapped('leftEye'), mapped('rightEye')].filter((eye): eye is Object3D => !!eye);
+    const origins = eyes.length ? eyes : [mapped('head')].filter((head): head is Object3D => !!head);
+    if (!origins.length) throw new Error('Gaze geometry requires mapped eye or head humanoid roles.');
+    s.origin.set(0, 0, 0);
+    for (const bone of origins) { bone.updateWorldMatrix(true, false); s.origin.add(bone.getWorldPosition(s.point)); }
+    s.origin.multiplyScalar(1 / origins.length);
+    const facts: GazeGeometryFacts = {
+      cameraPosition: s.cameraPosition.toArray() as [number, number, number],
+      cameraQuaternion: s.cameraRotation.toArray() as [number, number, number, number],
+      characterWorldQuaternion: s.modelRotation.toArray() as [number, number, number, number],
+      eyeOriginWorld: s.origin.toArray() as [number, number, number],
+      verticalFovDegrees: perspective.getEffectiveFOV(), aspect: perspective.aspect,
+      characterWorldPosition: s.modelPosition.toArray() as [number, number, number],
+      characterWorldScale: s.modelScale.toArray() as [number, number, number],
+      bindingRevision: this.bindingGeneration,
+    };
+    const values = [...facts.cameraPosition, ...facts.cameraQuaternion, ...facts.characterWorldQuaternion,
+      ...facts.eyeOriginWorld, ...facts.characterWorldPosition, ...facts.characterWorldScale, facts.verticalFovDegrees, facts.aspect];
+    if (!values.every(Number.isFinite) || !(facts.verticalFovDegrees > 0 && facts.verticalFovDegrees < 180) || !(facts.aspect > 0)
+      || s.cameraPosition.distanceToSquared(s.origin) <= 1e-20) throw new Error('Gaze scene geometry is invalid or coincident.');
+    return facts;
+  }
+  /** Read saved source calibration from the current resolved profile/reference. */
+  getGazeBindingCalibration(bindings: unknown): GazeBindingCalibration {
+    const model = this.requireModel();
+    if (this.gazeReferenceRevision !== this.bindingGeneration) {
+      const rotations = new Map<Object3D, Quaternion>();
+      const referenceRotation = (object: Object3D): Quaternion => {
+        if (object === model) return new Quaternion();
+        const accepted = rotations.get(object); if (accepted) return accepted;
+        const reference = this.referenceBindings.get(object);
+        if (!reference || !object.parent) throw new Error('Gaze calibration reference hierarchy is unavailable.');
+        const { rotation, scale } = reference.transform;
+        if (Math.min(scale.x, scale.y, scale.z) <= 0 || Math.max(scale.x, scale.y, scale.z) - Math.min(scale.x, scale.y, scale.z) > 1e-6 * Math.max(scale.x, scale.y, scale.z)) throw new Error('Gaze calibration requires positive uniform reference scale.');
+        const result = referenceRotation(object.parent).clone().multiply(new Quaternion(rotation.x, rotation.y, rotation.z, rotation.w));
+        rotations.set(object, result); return result;
+      };
+      const gazeBones = new Set(Object.values(this.gazeRoleBones()));
+      this.gazeReferenceFrames = json([...this.inspection!.boneBindings].filter(([, bone]) => gazeBones.has(bone))
+        .map(([boneId, bone]) => ({ boneId, rotation: referenceRotation(bone).toArray() })));
+      this.gazeReferenceRevision = this.bindingGeneration;
+    }
+    return parse(this.core.get_gaze_binding_calibration_json(json(bindings), this.gazeReferenceFrames));
+  }
   getProfileMode(): 'preset' | 'profile' { return this.profileMode; }
   getPresetId(): string | null { return this.profileMode === 'preset' ? this.preset : null; }
   supportsPreset(value?: string): boolean { return supportsRustEmbodyPreset(value); }

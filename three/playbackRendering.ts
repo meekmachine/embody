@@ -1,5 +1,6 @@
 import { Timer } from 'three';
 import type { AnimationMixer, Object3D } from 'three';
+import { publishSceneObservations } from './sceneObservations';
 
 type Binding = { mixer: AnimationMixer; enabled: boolean; disposed: boolean; afterFrame: (deltaSeconds: number) => void; afterSample?: (deltaSeconds: number) => void };
 const bindings = new WeakMap<Object3D, Set<Binding>>();
@@ -58,8 +59,9 @@ export function createScenePlaybackFrame(scene: Object3D, document?: Document) {
       if (disposed) return;
       timer.update(timestamp);
       // The first render establishes this renderer's timestamp origin.
-      if (!initialized) { initialized = true; return; }
+      if (!initialized) { initialized = true; publishSceneObservations(scene); return; }
       renderScenePlayback(scene, timer);
+      publishSceneObservations(scene);
     },
     dispose() { if (!disposed) { disposed = true; timer.dispose(); } },
   };

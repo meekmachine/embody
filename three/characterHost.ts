@@ -14,6 +14,8 @@ import type { CharacterSceneBackend, CharacterSceneConfiguration, CharacterScene
 import { ThreeAnnotationController } from './annotations/ThreeAnnotationController';
 import type { AnnotationCharacterConfig, ThreeAnnotationControllerConfig } from './annotations/types';
 import type { Profile } from './authoringTypes';
+import { createGazeGeometryObservationSource } from './gazeGeometry';
+import type { GazeGeometryObservation } from './gazeGeometry';
 
 export interface CharacterHostCharacterOptions extends CharacterModelTransform {
   modelUrl: string;
@@ -77,6 +79,7 @@ export interface CharacterHost extends CharacterModelLoadResult {
   container: HTMLElement;
   setCharacter(character: CharacterHostCharacterOptions, loader?: CharacterModelLoadOptions, signal?: AbortSignal): Promise<void>;
   resize(): void;
+  subscribeGazeGeometry(listener: (event: GazeGeometryObservation) => void): () => void;
   dispose(): Promise<void>;
 }
 
@@ -95,6 +98,7 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
   let activeChange: AbortController | undefined;
   let request = 0;
   let mountedCanvas: HTMLCanvasElement | undefined;
+  let gazeObservations: ReturnType<typeof createGazeGeometryObservationSource> | undefined;
   const previousBackground = options.container.style?.background ?? '';
   let backgroundRevision = 0;
   const applyCharacterBackground = (value: CharacterModelLoadResult, character: CharacterHostCharacterOptions) => {
@@ -176,12 +180,18 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
   };
   const dispose = (): Promise<void> => {
     if (disposal) return disposal;
+    // Memoize before notifying observers: a synchronous detach callback may
+    // dispose the same host again, but must not release native resources twice.
+    let resolveDisposal!: () => void;
+    let rejectDisposal!: (error: unknown) => void;
+    disposal = new Promise<void>((resolve, reject) => { resolveDisposal = resolve; rejectDisposal = reject; });
     disposed = true;
+    gazeObservations?.dispose();
     backgroundRevision += 1;
     if (options.container.style) options.container.style.background = previousBackground;
     cancel();
     options.signal?.removeEventListener('abort', cancelCreation);
-    disposal = (async () => {
+    void (async () => {
       let failure: unknown;
       const attempt = async (release: () => unknown) => { try { await release(); } catch (error) { failure ??= error; } };
       // Cancel a preparation draw before joining an operation waiting on that draw.
@@ -193,7 +203,7 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
       if (loaded) await attempt(() => releaseModel(loaded!));
       mountedCanvas?.remove();
       if (failure !== undefined) throw failure;
-    })();
+    })().then(resolveDisposal, rejectDisposal);
     return disposal;
   };
   const prepare = async (value: CharacterModelLoadResult, next: Embody, character: CharacterHostCharacterOptions, signal: AbortSignal) => {
@@ -231,6 +241,7 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
     loaded = await acquireModel(options.character, options.loader, initial.signal);
     check(initial.signal);
     state = options.external ?? await createDefaultCharacterSceneAsync(options.container, { ...options.scene, ...options.character.scene, signal: initial.signal });
+    gazeObservations = createGazeGeometryObservationSource(state.scene, () => !disposed && engine && state ? { engine, camera: state.camera } : null);
     check(initial.signal);
     await initEmbodyCore();
     check(initial.signal);
@@ -269,6 +280,7 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
       lighting: 'lighting' in state ? state.lighting : null,
       ownsScene: !options.external, container: options.container,
       resize() { if ('resize' in sceneState) sceneState.resize(); },
+      subscribeGazeGeometry: listener => gazeObservations!.subscribe(listener),
       setCharacter(character, loader = options.loader, signal) {
         if (disposed || lifetime.signal.aborted) return Promise.reject(aborted());
         if (!character.modelUrl) return Promise.reject(new Error('setCharacter requires character.modelUrl'));
@@ -312,6 +324,7 @@ export async function createCharacterHost(options: CharacterHostOptions): Promis
             previous.model.visible = false;
             next.model.visible = visibility.get(next.model) ?? true;
             if (options.autoStart !== false) engine.start();
+            gazeObservations!.invalidate('character-replaced');
           } catch (error) {
             if (loaded !== next) {
               try { state?.setSceneSettings?.(sceneSettings(currentCharacter)); } catch { /* Preserve replacement failure. */ }

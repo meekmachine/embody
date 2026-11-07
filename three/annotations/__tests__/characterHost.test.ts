@@ -69,6 +69,23 @@ beforeEach(() => {
 });
 
 describe('character host acquisition and disposal', () => {
+  it('invalidates geometry before cleanup and memoizes reentrant observer disposal', async () => {
+    acquisition.scene.mockResolvedValueOnce(scene()); acquisition.load.mockResolvedValueOnce(model());
+    const host = await createCharacterHost({ container, character: { modelUrl: 'geometry-lifetime.glb' } });
+    host.engine.getGazeGeometryFacts = () => ({ cameraPosition: [0, 0, 5], cameraQuaternion: [0, 0, 0, 1],
+      characterWorldQuaternion: [0, 0, 0, 1], eyeOriginWorld: [0, 0, 0], characterWorldPosition: [0, 0, 0],
+      characterWorldScale: [1, 1, 1], bindingRevision: 1, verticalFovDegrees: 60, aspect: 1 });
+    let nested: Promise<void> | undefined;
+    host.subscribeGazeGeometry(event => {
+      if (!event.available && event.reason === 'disposed') {
+        expect(acquisition.engines[0].dispose).not.toHaveBeenCalled();
+        nested = host.dispose();
+      }
+    });
+    const disposal = host.dispose(); expect(nested).toBe(disposal); await disposal;
+    expect(acquisition.engines[0].dispose).toHaveBeenCalledOnce();
+    expect(acquisition.controllerDisposed).toHaveBeenCalledOnce();
+  });
   it('uses application asset delivery, prepares authored edits and respects saved camera configuration', async () => {
     const owned = scene(); const loaded = model();
     loaded.animations.push(new AnimationClip('Deferred', 1, []));
