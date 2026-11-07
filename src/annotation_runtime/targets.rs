@@ -153,6 +153,8 @@ pub fn make_region(
         .unwrap_or_else(|| {
             if target_type == "au" {
                 format!("AU {target}: {}", bone.or(mesh).unwrap_or(target))
+            } else if target_type == "morph" {
+                format!("Morph: {target}")
             } else {
                 format!("Bone: {target}")
             }
@@ -183,11 +185,15 @@ pub fn make_region(
     }
     if options["projectToSurface"].is_boolean() {
         anchor["projectToSurface"] = options["projectToSurface"].clone()
+    } else if bone.is_some() {
+        // Bone rotation callouts identify the posed bone itself; a hair surface
+        // hit must not move that target. Surface placement remains opt-in.
+        anchor["projectToSurface"] = json!(false);
     }
     region["markerAnchor"] = anchor;
     let mut style = json!({});
-    if mesh.is_some() && !morphs.is_empty() {
-        // Generic region defaults must not point a transient morph callout inward.
+    if bone.is_some() || (mesh.is_some() && !morphs.is_empty()) {
+        // Transient targets use current camera/pose placement, independent of saved defaults.
         style["lineDirection"] = json!("radial");
     }
     for key in [

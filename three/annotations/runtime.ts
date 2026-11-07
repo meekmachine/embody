@@ -11,6 +11,7 @@ export interface MarkerDescriptor {
   label: string;
   title: string;
   htmlText: string;
+  runtimePreview?: boolean;
   style: Required<Omit<MarkerStyleOverrides, 'line'>> & { line: Required<LineConfig> };
   radius: number;
   arrowLength: number;

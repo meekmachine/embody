@@ -343,14 +343,21 @@ HTML overlays align with the canvas rectangle inside its container, update on
 resize/rebind, and restore borrowed parent positioning when the final view is
 disposed. These coordinates assume axis-aligned CSS boxes without transforms.
 
-AU morph anchors follow morph and skeletal animation on each annotation update.
-Their default radial leaders also refresh with the posed anchor and camera,
-extending horizontally away from the character's projected center. Runtime AU
-previews temporarily hide saved regions and other runtime annotations, then
-restore the preceding visibility setting on cleanup without changing saved
-selection, solo or expansion settings. See the
-[callout configuration contract](ANNOTATION_CONFIGURATION.md#transient-au-morph-callouts)
-for centered anchors, authored directions and viewport limits.
+AU and standalone morph anchors follow morph and skeletal animation on each
+annotation update. Generated bone and morph leaders refresh with the posed
+anchor and camera, extending horizontally away from the character's center
+after perspective projection, including panned views. Transient AU, bone and
+morph previews use their own visibility channel: they show with ordinary markers
+turned off, hide saved regions while active and leave the saved visibility,
+selection, solo and expansion preferences intact. Their sphere, leader, label
+and arrow render above native meshes/hair; HTML previews bypass model occlusion.
+Use `showRuntimeMorphAnnotation(meshName, morphName, options)` for one concrete
+morph or `showRuntimeBoneAnnotation(boneName, options)` for one bone, without an
+AU binding. Bone callouts attach to the posed bone by default; explicit
+`projectToSurface: true` retains surface projection. New requests replace previous transient targets by default;
+`clearRuntimeAnnotations()` removes the preview and resumes the ordinary marker
+display. See the [callout configuration contract](ANNOTATION_CONFIGURATION.md#independent-transient-callouts)
+for retaining multiple targets, centered anchors and viewport limits.
 Rust selects and caches affected vertices and their influence weights during
 marker preparation, using mesh-space geometry so rotating a character cannot
 change the selected semantic band. The adapter evaluates those vertices in the

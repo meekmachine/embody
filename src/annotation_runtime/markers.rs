@@ -64,7 +64,7 @@ fn outward(
     camera: Point,
 ) -> Point {
     let view = sub3(camera, model.bounds.center());
-    if let Some(direction) = morph_outward(
+    if let Some(direction) = runtime_outward(
         region,
         style,
         anchor,
@@ -72,6 +72,7 @@ fn outward(
         left,
         camera,
         [view[2], 0., -view[0]],
+        None,
     ) {
         return direction;
     }
@@ -157,10 +158,10 @@ fn outward(
     }
 }
 
-/// Morph callouts leave the character's projected center horizontally. A small
+/// Runtime callouts leave the character's projected center horizontally. A small
 /// camera-facing component lifts front-side labels off the surface without
 /// sending a rear-side leader through the character.
-pub fn morph_outward(
+pub fn runtime_outward(
     region: &Value,
     style: &Value,
     anchor: Point,
@@ -168,20 +169,28 @@ pub fn morph_outward(
     left: f32,
     camera: Point,
     camera_right: Point,
+    view_projection: Option<&[f32]>,
 ) -> Option<Point> {
-    if strings(&region["runtimeAnnotation"]["morphNames"]).is_empty()
+    if (strings(&region["runtimeAnnotation"]["morphNames"]).is_empty()
+        && !["au", "bone", "morph"].contains(&text(&region["runtimeAnnotation"], "targetType")))
         || text(style, "lineDirection") != "radial"
     {
         return None;
     }
     let mut right = camera_right;
-    if distance3(right, [0.; 3]) < 0.001 {
+    if !right.iter().all(|value| value.is_finite()) || distance3(right, [0.; 3]) < 0.001 {
         right = model.direction([1., 0., 0.]);
     }
     let right = normalize3(right);
     let radial = sub3(anchor, model.bounds.center());
-    let horizontal = dot3(radial, right);
-    let sign = if horizontal.abs() > model.bounds.size()[1] * 0.0001 {
+    // A world-space horizontal offset is insufficient after perspective panning:
+    // the nearer point can project across the model center despite that offset.
+    let projected = view_projection.and_then(|matrix| {
+        Some(projected_x(matrix, anchor)? - projected_x(matrix, model.bounds.center())?)
+    });
+    let horizontal = projected.unwrap_or_else(|| dot3(radial, right));
+    let epsilon = if projected.is_some() { 0.0001 } else { model.bounds.size()[1] * 0.0001 };
+    let sign = if horizontal.abs() > epsilon {
         horizontal.signum()
     } else {
         // Centered anchors still need a visible leader. Prefer the authored
@@ -206,6 +215,14 @@ pub fn morph_outward(
         toward_camera,
         lift,
     )))
+}
+pub fn projected_x(matrix: &[f32], position: Point) -> Option<f32> {
+    let position = clip(matrix, position);
+    if position.iter().all(|value| value.is_finite()) && position[3] > 1e-6 {
+        Some(position[0] / position[3])
+    } else {
+        None
+    }
 }
 pub fn mesh_side_offset(region: &Value, sign: f32, size: Point) -> Option<Point> {
     let metadata = &region["runtimeAnnotation"];

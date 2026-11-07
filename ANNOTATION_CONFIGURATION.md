@@ -168,25 +168,53 @@ Controls the annotation line direction for marker placement.
 
 Controls line style, curve, arrow head, thickness, and length for marker rendering.
 
-### Transient AU morph callouts
+### Independent transient callouts
 
-`showRuntimeAUAnnotations()` gives generated morph callouts a radial leader even
-when general marker defaults specify another direction. Rust recomputes the
-leader on each update from the posed anchor and camera view. It extends toward
-the outside of the character's horizontal projection; centered targets use the
-mapped side when available, otherwise screen-right. Explicit directions on
-authored regions retain their meaning. Label fitting still respects the viewport
-and minimum leader length, so a callout can hide when there is insufficient room.
+`showRuntimeAUAnnotations(auId, profile, options, morphTargetsByMesh)` previews
+an AU's mapped target. `showRuntimeBoneAnnotation(boneName, options)` previews
+one bone, and `showRuntimeMorphAnnotation(meshName, morphName, options)` previews
+one concrete morph target without an AU binding. The standalone morph method
+requires a loaded mesh and an existing morph dictionary name. Bone previews
+resolve through the configured bone aliases/affixes. An unavailable target
+fails without changing the preceding preview. Generated bone callouts, including
+AU bone targets, anchor at the posed bone by default instead of raycasting onto
+hair or skin. Pass `projectToSurface: true` to opt into surface projection.
 
-While runtime AU annotations exist, only those AU annotations are shown. Saved
-regions and other runtime bone annotations hide immediately. Saved selection,
-solo and expansion settings remain intact and do not suppress the AU preview.
-`clearRuntimeAnnotations()` removes the temporary regions and restores the
-visibility setting from before the first AU preview. Visibility changes made
-during a preview become the setting restored on cleanup. Switching AU sides or
-refreshing the preview does not overwrite that setting. Clearing/replacing the
-model or configuration also releases the preview state. An unmapped AU error
-leaves the current preview unchanged.
+All three methods use an independent transient visibility channel. They show
+without turning on the saved annotations or changing `getMarkersVisible()` and
+the Markers checkbox. Saved regions hide immediately during a preview, including
+mid-fade. Their visibility preference, selection, solo and expansion remain
+intact; solo and collapsed groups do not suppress a transient callout. Requests
+replace previous transient targets by default. Set `replaceExisting: false` to
+retain multiple requested targets; `maxTargets: 1` selects one mapped AU target.
+`clearRuntimeAnnotations()` removes only transient targets, revealing saved
+regions only when their current visibility preference is enabled. A visibility
+edit during a preview changes that saved preference without hiding the preview.
+Replacing/clearing the model or annotation configuration removes all transient
+requests. An unmapped AU or unavailable standalone bone/morph leaves the preview
+unchanged.
+
+Generated bone and morph callouts use radial leaders even when general marker
+defaults specify another direction. Rust recomputes their direction from the
+posed anchor and current camera view on each update. It compares the anchor and
+character center after perspective projection, so orbiting and panning retain
+the outward side. Horizontally centered targets use the mapped side when it has
+a visible projection, otherwise screen-right. Explicit directions on authored
+regions keep their meaning. Label fitting still respects viewport bounds and
+minimum leader length, so a callout can hide when insufficient room remains.
+
+Transient marker spheres, leader lines, labels and arrowheads render above the
+native character and hair with depth testing/writing disabled; ordinary saved
+annotations retain their depth behavior. Transient HTML callouts also bypass
+model occlusion. This is an authoring overlay; it does not change the model's
+materials, render order or visibility.
+
+```ts
+controller.showRuntimeMorphAnnotation('Face', 'CustomSmile', { label: 'Smile' });
+controller.showRuntimeBoneAnnotation('Jaw', { label: 'Jaw rotation' });
+// The bone request replaces the preceding morph callout; saved markers stay hidden.
+controller.clearRuntimeAnnotations();
+```
 
 ## Geometry Target Fields
 

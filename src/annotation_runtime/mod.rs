@@ -110,7 +110,6 @@ pub struct AnnotationRuntime {
     hovered: Option<u32>,
     expanded: BTreeMap<String, bool>,
     runtime_names: BTreeSet<String>,
-    au_preview_visibility: Option<bool>,
     ids: BTreeMap<String, u32>,
     next_id: u32,
     visible: bool,
@@ -176,7 +175,6 @@ impl AnnotationRuntime {
         self.config = json!({});
         self.config_revision = self.config_revision.wrapping_add(1);
         self.runtime_names.clear();
-        self.restore_au_preview_visibility();
         self.current = None;
         self.expanded.clear();
         self.solo = None;
@@ -200,7 +198,10 @@ impl AnnotationRuntime {
     pub fn tracked_objects(&self) -> Box<[u32]> {
         self.markers
             .iter()
-            .filter(|m| self.visible || m.current_visibility || m.transition.is_some())
+            .filter(|m| {
+                self.visible || self.runtime_names.contains(text(&m.region, "name"))
+                    || m.current_visibility || m.transition.is_some()
+            })
             .filter(|m| m.anchor_resolved && m.animated_anchor.is_none())
             .filter_map(|m| m.track)
             .collect::<BTreeSet<_>>()
@@ -369,6 +370,7 @@ impl AnnotationRuntime {
         if self.disposed
             || !self.loaded
             || (!self.visible
+                && !self.has_runtime_preview()
                 && self
                     .markers
                     .iter()
@@ -380,10 +382,10 @@ impl AnnotationRuntime {
             return Box::new([]);
         };
         let left = self.left_side;
-        let au_preview = self.has_au_preview();
+        let runtime_preview = self.has_runtime_preview();
         let distance = distance3(self.camera.position, model.bounds.center());
         let threshold = model.bounds.size()[1] * if self.style == "html" { 2.5 } else { 2. };
-        if !au_preview
+        if !runtime_preview
             && self
                 .last_distance
                 .is_some_and(|previous| previous <= threshold)
@@ -396,19 +398,16 @@ impl AnnotationRuntime {
             self.descriptor_revision += 1;
         }
         self.last_distance = Some(distance);
-        // Recompute morph leaders from the current pose/view, then retain the
-        // existing endpoint separation among the callouts that can be shown.
-        let mut morph_indices = Vec::new();
+        // Runtime morph and bone leaders follow the current pose and view.
+        // Saved explicit directions keep their authored meaning.
+        let mut runtime_indices = Vec::new();
         for (index, marker) in self.markers.iter_mut().enumerate() {
             let name = text(&marker.region, "name");
-            if au_preview
-                && (!self.runtime_names.contains(name)
-                    || text(&marker.region["runtimeAnnotation"], "targetType") != "au")
-            {
+            if runtime_preview && !self.runtime_names.contains(name) {
                 continue;
             }
             marker.observe_anchor(model);
-            if let Some(direction) = markers::morph_outward(
+            if let Some(direction) = markers::runtime_outward(
                 &marker.region,
                 &marker.style,
                 marker.start,
@@ -416,17 +415,18 @@ impl AnnotationRuntime {
                 left,
                 self.camera.position,
                 [0, 4, 8].map(|i| view_projection.get(i).copied().unwrap_or(0.)),
+                Some(view_projection),
             ) {
                 marker.direction = direction;
-                morph_indices.push(index);
+                runtime_indices.push(index);
             }
         }
-        if morph_indices.len() > 1 {
-            let starts = morph_indices
+        if runtime_indices.len() > 1 {
+            let starts = runtime_indices
                 .iter()
                 .flat_map(|i| self.markers[*i].start)
                 .collect::<Vec<_>>();
-            let ends = morph_indices
+            let ends = runtime_indices
                 .iter()
                 .flat_map(|i| {
                     let marker = &self.markers[*i];
@@ -439,11 +439,19 @@ impl AnnotationRuntime {
                 &model.bounds.center(),
                 model.bounds.size()[1],
             );
-            for (index, end) in morph_indices.into_iter().zip(adjusted.chunks_exact(3)) {
+            for (index, end) in runtime_indices.into_iter().zip(adjusted.chunks_exact(3)) {
                 let marker = &mut self.markers[index];
                 let direction = normalize3(sub3([end[0], end[1], end[2]], marker.start));
-                // Endpoint separation must not turn a leader back into the model.
-                if crate::annotation_camera::dot3(direction, marker.direction) > 0.5 {
+                // Endpoint separation must preserve the chosen projected side.
+                let outward = match (
+                    markers::projected_x(view_projection, marker.start),
+                    markers::projected_x(view_projection, add_scaled3(marker.start, marker.direction, marker.length)),
+                    markers::projected_x(view_projection, [end[0], end[1], end[2]]),
+                ) {
+                    (Some(start), Some(original), Some(adjusted)) => (original - start) * (adjusted - start) > 0.,
+                    _ => true,
+                };
+                if outward && crate::annotation_camera::dot3(direction, marker.direction) > 0.5 {
                     marker.direction = direction;
                 }
             }
@@ -460,21 +468,23 @@ impl AnnotationRuntime {
             let expanded = parent
                 .map(|p| self.expanded.get(p) == Some(&true))
                 .unwrap_or(true);
-            let included = if au_preview {
-                self.runtime_names.contains(&name)
-                    && text(&marker.region["runtimeAnnotation"], "targetType") == "au"
+            let preview_marker = self.runtime_names.contains(&name);
+            let included = if runtime_preview {
+                preview_marker
             } else {
-                expanded && self.solo.as_ref().map(|s| s == &name).unwrap_or(true)
+                self.visible && expanded && self.solo.as_ref().map(|s| s == &name).unwrap_or(true)
             };
-            if au_preview && !included {
+            if runtime_preview && !included {
                 // Cancel even an already-running hide animation: no other
                 // labels may remain onscreen underneath a slider preview.
                 marker.current_visibility = false;
                 marker.transition = None;
             }
-            let structural = self.visible
-                && included
-                && marker.region["isFallback"] != true;
+            if preview_marker {
+                // Transient callouts remain readable through hair and other meshes.
+                marker.occluded = false;
+            }
+            let structural = included && marker.region["isFallback"] != true;
             values.extend_from_slice(&marker.frame(
                 now_ms,
                 model,
@@ -487,7 +497,7 @@ impl AnnotationRuntime {
                 self.current.as_deref() == Some(name.as_str()),
                 self.hovered == Some(marker.id),
                 self.style == "html",
-                !self.visible,
+                !self.visible && !runtime_preview,
             ));
         }
         values.into_boxed_slice()
@@ -503,6 +513,10 @@ impl AnnotationRuntime {
         };
         let mut values = Vec::new();
         for marker in &mut self.markers {
+            if self.runtime_names.contains(text(&marker.region, "name")) {
+                marker.occluded = false;
+                continue;
+            }
             if !marker.ready || !marker.anchor_resolved {
                 continue;
             }
@@ -611,23 +625,27 @@ impl AnnotationRuntime {
         let Some(model) = self.model.as_ref() else {
             return;
         };
-        let starts = self
-            .markers
-            .iter()
-            .flat_map(|m| m.start)
+        let runtime_preview = self.has_runtime_preview();
+        let indices = self.markers.iter().enumerate()
+            .filter(|(_, marker)| {
+                text(&marker.style, "lineDirection") == "radial"
+                    && (!runtime_preview || self.runtime_names.contains(text(&marker.region, "name")))
+            })
+            .map(|(index, _)| index)
             .collect::<Vec<_>>();
-        let ends = self
-            .markers
-            .iter()
-            .flat_map(|m| add_scaled3(m.start, m.direction, m.length))
-            .collect::<Vec<_>>();
+        let starts = indices.iter().flat_map(|index| self.markers[*index].start).collect::<Vec<_>>();
+        let ends = indices.iter().flat_map(|index| {
+            let marker = &self.markers[*index];
+            add_scaled3(marker.start, marker.direction, marker.length)
+        }).collect::<Vec<_>>();
         let adjusted = crate::annotation_markers::separate_overlapping_marker_endpoints(
             &starts,
             &ends,
             &model.bounds.center(),
             model.bounds.size()[1],
         );
-        for (marker, end) in self.markers.iter_mut().zip(adjusted.chunks_exact(3)) {
+        for (index, end) in indices.into_iter().zip(adjusted.chunks_exact(3)) {
+            let marker = &mut self.markers[index];
             marker.direction = normalize3(sub3([end[0], end[1], end[2]], marker.start))
         }
     }
@@ -671,7 +689,6 @@ impl AnnotationRuntime {
             hovered: None,
             expanded: BTreeMap::new(),
             runtime_names: BTreeSet::new(),
-            au_preview_visibility: None,
             ids: BTreeMap::new(),
             next_id: 1,
             visible: false,
@@ -779,7 +796,7 @@ impl AnnotationRuntime {
                 self.markers
                     .iter()
                     .map(|m| {
-                        m.descriptor(
+                        let mut descriptor = m.descriptor(
                             model,
                             self.expanded
                                 .get(text(&m.region, "name"))
@@ -790,7 +807,9 @@ impl AnnotationRuntime {
                                 .position(|r| r["name"] == m.region["name"])
                                 .unwrap_or(0)
                                 + 1,
-                        )
+                        );
+                        descriptor["runtimePreview"] = json!(self.runtime_names.contains(text(&m.region, "name")));
+                        descriptor
                     })
                     .collect::<Vec<_>>()
             })
@@ -820,7 +839,6 @@ impl AnnotationRuntime {
         self.markers.retain(|m| text(&m.region, "name") != name);
         self.expanded.remove(name);
         self.runtime_names.remove(name);
-        self.restore_au_preview_visibility();
         if self.current.as_deref() == Some(name) {
             self.current = None
         }
@@ -830,18 +848,8 @@ impl AnnotationRuntime {
         self.changed_regions();
         self.descriptor_revision += 1
     }
-    fn has_au_preview(&self) -> bool {
-        self.regions.iter().any(|region| {
-            self.runtime_names.contains(text(region, "name"))
-                && text(&region["runtimeAnnotation"], "targetType") == "au"
-        })
-    }
-    fn restore_au_preview_visibility(&mut self) {
-        if !self.has_au_preview() {
-            if let Some(visible) = self.au_preview_visibility.take() {
-                self.visible = visible;
-            }
-        }
+    fn has_runtime_preview(&self) -> bool {
+        !self.runtime_names.is_empty()
     }
     fn execute(&mut self, op: &str, p: Value, now: f64) -> Result<Value, String> {
         if !now.is_finite() {
@@ -887,7 +895,6 @@ impl AnnotationRuntime {
                 self.config = config;
                 self.regions = regions;
                 self.runtime_names.clear();
-                self.restore_au_preview_visibility();
                 self.expanded.clear();
                 self.solo = None;
                 self.hovered = None;
@@ -910,7 +917,6 @@ impl AnnotationRuntime {
                 }
                 self.regions.clear();
                 self.runtime_names.clear();
-                self.restore_au_preview_visibility();
                 self.expanded.clear();
                 self.current = None;
                 self.solo = None;
@@ -1036,7 +1042,10 @@ impl AnnotationRuntime {
                     .find_map(|id| {
                         self.markers
                             .iter()
-                            .find(|m| m.id == id as u32 && m.current_visibility && self.visible)
+                            .find(|m| {
+                                m.id == id as u32 && m.current_visibility
+                                    && (self.visible || self.runtime_names.contains(text(&m.region, "name")))
+                            })
                     })
                     .map(|m| m.region.clone());
                 if let Some(region) = picked {
@@ -1061,9 +1070,6 @@ impl AnnotationRuntime {
                 self.visible = p["visible"]
                     .as_bool()
                     .ok_or("Marker visibility must be boolean")?;
-                if self.au_preview_visibility.is_some() {
-                    self.au_preview_visibility = Some(self.visible);
-                }
                 Value::Null
             }
             "style" => {
@@ -1139,7 +1145,7 @@ impl AnnotationRuntime {
                 .find(|m| text(&m.region, "name") == name && m.anchor_resolved)
                 .map(|m| point_json(m.start))
                 .unwrap_or(Value::Null),
-            "runtimeBone" | "runtimeAU" => {
+            "runtimeBone" | "runtimeAU" | "runtimeMorph" => {
                 let target = p["target"]
                     .as_str()
                     .map(str::to_owned)
@@ -1151,6 +1157,21 @@ impl AnnotationRuntime {
                 let options = &p["options"];
                 let generated = if op == "runtimeAU" {
                     targets::au_regions(&self.config, &p["profile"], target, &p["meshes"], options)?
+                } else if op == "runtimeMorph" {
+                    let mesh = text(&p, "mesh").trim();
+                    let mapped = self.model.as_ref().is_some_and(|model| {
+                        model.objects.iter().any(|object| {
+                            object.kind == "Mesh" && object.name == mesh
+                                && object.morph_names.iter().any(|name| name == target)
+                        })
+                    });
+                    if !mapped {
+                        return Err(format!("Morph {target} is not available on mesh {mesh}"));
+                    }
+                    vec![targets::make_region(
+                        "morph", target, None, Some(mesh), &[target.to_owned()],
+                        options["targetSide"].as_str().or_else(|| side(target)), options,
+                    )]
                 } else {
                     vec![targets::make_region(
                         "bone",
@@ -1162,6 +1183,19 @@ impl AnnotationRuntime {
                         options,
                     )]
                 };
+                if op == "runtimeBone" {
+                    let resolved = anchor_region(&generated[0]);
+                    if !self.model.as_ref().is_some_and(|model| {
+                        !model.resolve(&resolved["region"], &self.config).is_empty()
+                    }) {
+                        return Err(format!("Bone {target} is not available on the loaded model"));
+                    }
+                }
+                let target_type = match op {
+                    "runtimeAU" => "au",
+                    "runtimeMorph" => "morph",
+                    _ => "bone",
+                };
                 let wanted = generated
                     .iter()
                     .map(|r| text(r, "name").to_owned())
@@ -1172,11 +1206,10 @@ impl AnnotationRuntime {
                     .filter(|r| {
                         self.runtime_names.contains(text(r, "name"))
                             && !wanted.contains(text(r, "name"))
-                            && (options["replaceExisting"] == true
+                            && (options["replaceExisting"] != false
                                 || (!options["targetSide"].is_null()
                                     && text(&r["runtimeAnnotation"], "target") == target
-                                    && text(&r["runtimeAnnotation"], "targetType")
-                                        == if op == "runtimeAU" { "au" } else { "bone" }))
+                                    && text(&r["runtimeAnnotation"], "targetType") == target_type))
                     })
                     .map(|r| text(r, "name").to_owned())
                     .collect::<BTreeSet<_>>();
@@ -1195,9 +1228,6 @@ impl AnnotationRuntime {
                     }
                 }
                 validate_regions(&regions)?;
-                if op == "runtimeAU" && self.au_preview_visibility.is_none() {
-                    self.au_preview_visibility = Some(self.visible);
-                }
                 if self.regions != regions {
                     self.regions = regions;
                     self.markers
@@ -1222,9 +1252,7 @@ impl AnnotationRuntime {
                     self.descriptor_revision += 1;
                 }
                 self.runtime_names.extend(wanted);
-                self.restore_au_preview_visibility();
-                self.visible = true;
-                if op == "runtimeBone" {
+                if op != "runtimeAU" {
                     targets::summary(&generated[0])
                 } else {
                     Value::Array(generated.iter().map(targets::summary).collect())

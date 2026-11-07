@@ -563,7 +563,6 @@ fn au_previews_hide_other_markers_and_restore_saved_visibility_and_selection() {
             r.execute("expand", json!({"name":"head","duration":0}), 0.).unwrap();
             r.execute("solo", json!({"name":"saved"}), 0.).unwrap();
             r.execute("select", json!({"name":"saved"}), 0.).unwrap();
-            r.execute("runtimeBone", json!({"target":"LeftEye","options":{"projectToSurface":false}}), 0.).unwrap();
             r.execute("visibility", json!({"visible":true}), 0.).unwrap();
             r.plan_markers("{}").unwrap();
             r.marker_frame(0., &IDENTITY, &IDENTITY, 800., 600.);
@@ -573,12 +572,14 @@ fn au_previews_hide_other_markers_and_restore_saved_visibility_and_selection() {
                 r.marker_frame(300., &IDENTITY, &IDENTITY, 800., 600.);
             }
             assert_eq!(r.markers.iter().find(|m| m.region["name"] == "saved").unwrap().current_visibility, initially_visible);
+            r.execute("runtimeBone", json!({"target":"LeftEye","options":{"projectToSurface":false}}), 300.).unwrap();
 
             let profile = json!({"auToBones":{"1":[{"node":"LeftEye"},{"node":"RightEye"}]}});
             for side in ["left", "right"] {
                 let generated = r.execute("runtimeAU", json!({"target":"1","profile":profile,
                     "options":{"targetSide":side,"projectToSurface":false}}), 301.).unwrap();
                 let name = generated[0]["name"].as_str().unwrap();
+                assert_eq!(r.visible, initially_visible, "preview must not change saved visibility");
                 r.plan_markers("{}").unwrap();
                 let frame = r.marker_frame(302., &IDENTITY, &IDENTITY, 800., 600.);
                 for (marker, record) in r.markers.iter().zip(frame.chunks_exact(markers::FRAME_STRIDE)) {
@@ -611,10 +612,11 @@ fn au_preview_cleanup_respects_visibility_edits_and_character_replacement() {
     for end in ["clearRuntime", "clearModel", "configure"] {
         let mut r = runtime(json!([point_region("saved")]));
         r.execute("runtimeAU", json!({"target":"1","profile":{"auToBones":{"1":["LeftEye"]}}}), 0.).unwrap();
-        assert!(r.visible);
+        assert!(!r.visible, "AU preview is independent of saved visibility");
+        assert!(r.has_runtime_preview());
         r.execute(end, json!({"config":{"characterId":"replacement","regions":[]}}), 1.).unwrap();
         assert!(!r.visible);
-        assert!(r.au_preview_visibility.is_none());
+        assert!(!r.has_runtime_preview());
     }
     let mut r = runtime(json!([]));
     r.execute("runtimeAU", json!({"target":"1","profile":{"auToBones":{"1":["LeftEye"]}}}), 0.).unwrap();
@@ -622,6 +624,184 @@ fn au_preview_cleanup_respects_visibility_edits_and_character_replacement() {
     r.execute("clearRuntime", json!({}), 2.).unwrap();
     assert!(r.visible);
 }
+fn panned_projection(pan: f32) -> [f32; 16] {
+    // Perspective camera (pan, 1, 2), looking along -Z. Near=.1, far=10,
+    // with focal scale 1: clip.w = 2-z and clip.x = x-pan.
+    let depth = 10.1 / 9.9;
+    let offset = -2. / 9.9;
+    [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., -depth, -1.,
+        -pan, -1., 2. * depth + offset, 2.]
+}
+
+#[test]
+fn runtime_leaders_use_perspective_projected_side_after_panning() {
+    let model = model();
+    for pan in [-0.5, 0.5] {
+        let camera = [pan, 1., 2.];
+        let matrix = panned_projection(pan);
+        // This near-center anchor crosses projected center because it is nearer
+        // than the model center. Its world X offset has the opposite sign.
+        let anchor = [pan * 0.02, 1., 0.1];
+        let center_x = markers::projected_x(&matrix, model.bounds.center()).unwrap();
+        let anchor_x = markers::projected_x(&matrix, anchor).unwrap();
+        assert!((anchor_x - center_x) * anchor[0] < 0.);
+        for (kind, bone, mesh, morphs) in [
+            ("bone", Some("LeftEye"), None, vec![]),
+            ("morph", None, Some("Body"), vec!["Brow_Left".to_owned()]),
+        ] {
+            let region = targets::make_region(kind, "target", bone, mesh, &morphs, None, &json!({}));
+            let style = markers::merged_style(&region, &json!({}));
+            let direction = markers::runtime_outward(&region, &style, anchor, &model, -1., camera,
+                [1., 0., 0.], Some(&matrix)).unwrap();
+            let end = add_scaled3(anchor, direction, 0.3);
+            let end_x = markers::projected_x(&matrix, end).unwrap();
+            assert!((end_x - anchor_x) * (anchor_x - center_x) > 0.,
+                "{kind} leader must leave the projected center after pan {pan}");
+            assert!((end_x - center_x).abs() > (anchor_x - center_x).abs());
+        }
+    }
+}
+
+#[test]
+fn invalid_projection_uses_a_finite_runtime_leader_fallback() {
+    let model = model();
+    let region = targets::make_region("bone", "LeftEye", Some("LeftEye"), None, &[], None, &json!({}));
+    let style = markers::merged_style(&region, &json!({}));
+    let invalid = [f32::NAN; 16];
+    let direction = markers::runtime_outward(&region, &style, [-0.2, 1.6, 0.1], &model,
+        -1., [0., 1., 3.], [f32::NAN, 0., 0.], Some(&invalid)).unwrap();
+    assert!(direction.iter().all(|value| value.is_finite()));
+    assert!(direction[0] < 0.);
+}
+
+#[test]
+fn standalone_bone_and_morph_previews_do_not_need_saved_annotations_enabled() {
+    for style in ["3d", "html"] {
+        for initially_visible in [false, true] {
+            for op in ["runtimeBone", "runtimeMorph"] {
+                let mut saved = point_region("saved");
+                saved["markerAnchor"]["position"] = json!({"x":0.,"y":0.,"z":0.});
+                saved["style"] = json!({"lineDirection":{"x":-1.,"y":0.,"z":0.}});
+                let mut r = runtime(json!([saved]));
+                r.execute("style", json!({"style":style}), 0.).unwrap();
+                r.execute("visibility", json!({"visible":initially_visible}), 0.).unwrap();
+                r.execute("solo", json!({"name":"saved"}), 0.).unwrap();
+                r.execute("select", json!({"name":"saved"}), 0.).unwrap();
+                r.plan_markers("{}").unwrap();
+                r.marker_frame(0., &IDENTITY, &IDENTITY, 800., 600.);
+                r.marker_frame(300., &IDENTITY, &IDENTITY, 800., 600.);
+                let target = if op == "runtimeMorph" { "Brow_Left" } else { "LeftEye" };
+                let summary = r.execute(op, json!({"target":target,"mesh":"Body",
+                    "options":{"projectToSurface":false}}), 301.).unwrap();
+                let name = summary["name"].as_str().unwrap();
+                r.plan_markers(&json!({(name):[0.2,0.1,0.1]}).to_string()).unwrap();
+                // Even a native hair hit cannot suppress a transient HTML marker.
+                let id = r.markers.iter().find(|m| m.region["name"] == name).unwrap().id;
+                r.observe_occlusion(&[id as f32, 0.01]);
+                let frame = r.marker_frame(302., &IDENTITY, &IDENTITY, 800., 600.);
+                assert_eq!(r.visible, initially_visible);
+                assert_eq!(r.current.as_deref(), Some("saved"));
+                assert_eq!(r.solo.as_deref(), Some("saved"));
+                for (marker, record) in r.markers.iter().zip(frame.chunks_exact(markers::FRAME_STRIDE)) {
+                    assert_eq!(record[1], if text(&marker.region, "name") == name { 1. } else { 0. });
+                }
+                assert!(r.snapshot_value()["descriptors"].as_array().unwrap().iter()
+                    .filter(|d| d["runtimePreview"] == true).all(|d| d["name"] == name));
+                assert_eq!(r.execute("pick", json!({"ids":[id]}), 302.).unwrap(), name);
+                assert!(!r.occlusion_queries().chunks_exact(8).any(|query| query[0] == id as f32));
+                r.execute("clearRuntime", json!({}), 303.).unwrap();
+                r.marker_frame(600., &IDENTITY, &IDENTITY, 800., 600.);
+                assert_eq!(r.visible, initially_visible);
+                assert_eq!(r.markers.len(), 1);
+                assert_eq!(r.markers[0].current_visibility, initially_visible);
+            }
+        }
+    }
+}
+
+#[test]
+fn transient_marker_rebuilds_preserve_authored_directions_and_track_hidden_bones() {
+    let mut first = point_region("first");
+    first["style"] = json!({"lineDirection":{"x":1.,"y":0.,"z":0.}});
+    let mut second = first.clone();
+    second["name"] = json!("second");
+    let mut r = runtime(json!([first, second]));
+    r.plan_markers("{}").unwrap();
+    r.finish_markers(r.generation());
+    let directions = r.markers.iter().map(|marker| marker.direction).collect::<Vec<_>>();
+    assert_eq!(directions, vec![[1., 0., 0.], [1., 0., 0.]]);
+    assert!(!r.visible);
+    r.execute("runtimeBone", json!({"target":"LeftEye","options":{"projectToSurface":false}}), 0.).unwrap();
+    r.plan_markers("{}").unwrap();
+    r.finish_markers(r.generation());
+    assert_eq!(&r.markers[..2].iter().map(|marker| marker.direction).collect::<Vec<_>>(), &directions);
+    assert!(r.tracked_objects().contains(&2));
+    let mut moved = IDENTITY;
+    moved[12] = 0.4;
+    r.observe_transforms(&[&[2.][..], &moved[..]].concat());
+    r.marker_frame(1., &IDENTITY, &IDENTITY, 800., 600.);
+    let bone = r.markers.iter().find(|marker| text(&marker.region["runtimeAnnotation"], "targetType") == "bone").unwrap();
+    assert!((bone.start[0] - 0.2).abs() < 1e-5);
+    r.execute("clearRuntime", json!({}), 2.).unwrap();
+    r.plan_markers("{}").unwrap();
+    r.finish_markers(r.generation());
+    assert_eq!(r.markers.iter().map(|marker| marker.direction).collect::<Vec<_>>(), directions);
+}
+
+#[test]
+fn bone_previews_anchor_at_the_posed_bone_unless_surface_projection_is_requested() {
+    let mut r = runtime(json!([]));
+    for (op, payload) in [
+        ("runtimeBone", json!({"target":"LeftEye"})),
+        ("runtimeAU", json!({"target":"1","profile":{"auToBones":{"1":["LeftEye"]}}})),
+    ] {
+        r.execute(op, payload, 0.).unwrap();
+        let queries = r.plan_markers("{}").unwrap();
+        assert!(parse(&queries).unwrap().as_array().unwrap().is_empty());
+        assert_eq!(r.markers.len(), 1);
+        let marker = &r.markers[0];
+        assert!(!marker.project);
+        assert!(marker.ready);
+        assert_eq!(marker.track, Some(2));
+        assert_eq!(marker.start, [-0.2, 1.6, 0.1]);
+        assert_eq!(marker.region["markerAnchor"]["projectToSurface"], false);
+    }
+    r.execute("runtimeBone", json!({"target":"LeftEye","options":{"projectToSurface":true}}), 1.).unwrap();
+    let queries = r.plan_markers("{}").unwrap();
+    assert_eq!(parse(&queries).unwrap().as_array().unwrap().len(), 1);
+    assert!(r.markers[0].project);
+    assert!(!r.markers[0].ready);
+}
+
+#[test]
+fn runtime_previews_replace_by_default_and_invalid_morph_requests_are_atomic() {
+    let mut r = runtime(json!([]));
+    r.execute("runtimeBone", json!({"target":"LeftEye"}), 0.).unwrap();
+    let morph = r.execute("runtimeMorph", json!({"mesh":"Body","target":"Brow_Left"}), 1.).unwrap();
+    assert_eq!(r.runtime_names.len(), 1);
+    assert_eq!(morph["targetType"], "morph");
+    assert_eq!(morph["label"], "Morph: Brow_Left");
+    assert_eq!(morph["morphs"], json!(["Brow_Left"]));
+    let before = r.snapshot_value();
+    for request in [json!({"mesh":"Missing","target":"Brow_Left"}), json!({"mesh":"Body","target":"Missing"})] {
+        assert!(r.execute("runtimeMorph", request, 2.).is_err());
+        assert_eq!(r.snapshot_value(), before);
+    }
+    assert!(r.execute("runtimeBone", json!({"target":"Missing"}), 2.).is_err());
+    assert_eq!(r.snapshot_value(), before);
+    r.config["profile"] = json!({"boneNodes":{"left_eye":"LeftEye"}});
+    let alias = r.execute("runtimeBone", json!({"target":"left_eye","options":{"replaceExisting":false}}), 3.).unwrap();
+    assert_eq!(alias["bones"], json!(["left_eye"]));
+    assert_eq!(r.runtime_names.len(), 2);
+    r.execute("visibility", json!({"visible":true}), 4.).unwrap();
+    assert!(r.has_runtime_preview());
+    r.execute("visibility", json!({"visible":false}), 5.).unwrap();
+    assert!(r.has_runtime_preview());
+    r.execute("clearRuntime", json!({}), 6.).unwrap();
+    assert!(!r.visible);
+    assert!(!r.has_runtime_preview());
+}
+
 #[test]
 fn html_and_three_share_expansion_solo_style_and_marker_identity() {
     let mut parent = point_region("head");
