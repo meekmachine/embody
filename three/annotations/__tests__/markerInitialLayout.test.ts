@@ -148,5 +148,6 @@ describe('initial marker layout', () => {
     expect(first.position.distanceTo(second.position)).toBeGreaterThan(0);
     f.advance(220);
     f.expectFitted(2, 0.085);
+    expect(first.position.distanceTo(second.position)).toBeGreaterThan(0);
   });
 });

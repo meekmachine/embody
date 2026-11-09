@@ -80,7 +80,7 @@ export interface AnnotationFocusTarget {
   cameraAngle?: number;
 }
 
-export type RuntimeAnnotationTargetType = 'bone' | 'au';
+export type RuntimeAnnotationTargetType = 'bone' | 'au' | 'morph';
 export type RuntimeAnnotationSide = 'left' | 'right' | 'center';
 
 export interface RuntimeAnnotationMetadata {
@@ -107,6 +107,7 @@ export interface RuntimeAnnotationOptions {
   maxTargets?: number;
   targetPreference?: 'bone' | 'mesh';
   targetSide?: RuntimeAnnotationSide;
+  /** Replace previous transient targets by default; false retains them alongside this request. */
   replaceExisting?: boolean;
 }
 

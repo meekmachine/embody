@@ -103,6 +103,48 @@ describe('Rust-owned annotation controller contract', () => {
     controller.controls.enabled = false; const disabled = controller.getCameraState(); wheel();
     expect(controller.getCameraState().position).toEqual(disabled.position);
   });
+  it('previews a single morph or bone without enabling saved annotations', () => {
+    const { controller, model } = fixture();
+    const body = model.getObjectByName('Body') as THREE.Mesh;
+    const deltas = new Float32Array(body.geometry.getAttribute('position').count * 3);
+    for (let index = 1; index < deltas.length; index += 3) deltas[index] = 0.1;
+    body.geometry.morphTargetsRelative = true;
+    body.geometry.morphAttributes.position = [new THREE.BufferAttribute(deltas, 3)];
+    body.morphTargetDictionary = { CustomRaise: 0 };
+    body.morphTargetInfluences = [0];
+    controller.setModel(model);
+    controller.prepareRegionsForReveal({ characterId: 'individual-targets', regions: [{
+      name: 'saved', markerAnchor: { type: 'point', position: { x: 0, y: 0.8, z: 0.3 } },
+    }] });
+    controller.setCurrentRegion('saved');
+    controller.soloMarker('saved');
+    const stateChanged = vi.fn();
+    const unsubscribe = controller.subscribeMarkerState(stateChanged);
+    stateChanged.mockClear();
+    try {
+      const morph = controller.showRuntimeMorphAnnotation('Body', 'CustomRaise');
+      expect(morph).toMatchObject({ targetType: 'morph', target: 'CustomRaise', meshes: ['Body'], morphs: ['CustomRaise'] });
+      expect(controller.getRegionNames()).toEqual(['saved', morph.name]);
+      expect(controller.getMarkersVisible()).toBe(false);
+      expect(stateChanged).not.toHaveBeenCalled();
+      const beforeFailure = controller.getAnnotationRegions();
+      expect(() => controller.showRuntimeMorphAnnotation('Body', 'Missing')).toThrow(/not available/);
+      expect(controller.getAnnotationRegions()).toEqual(beforeFailure);
+      expect(() => controller.showRuntimeBoneAnnotation('Missing')).toThrow(/not available/);
+      expect(controller.getAnnotationRegions()).toEqual(beforeFailure);
+
+      const bone = controller.showRuntimeBoneAnnotation('Head', { projectToSurface: false });
+      expect(controller.getRegionNames()).toEqual(['saved', bone.name]);
+      expect(controller.getMarkersVisible()).toBe(false);
+      expect(controller.getCurrentRegion()).toBe('saved');
+      expect(controller.getSoloedMarker()).toBe('saved');
+      controller.setMarkersVisible(true);
+      controller.clearRuntimeAnnotations();
+      expect(controller.getRegionNames()).toEqual(['saved']);
+      expect(controller.getMarkersVisible()).toBe(true);
+      expect(controller.getCurrentRegion()).toBe('saved');
+    } finally { unsubscribe(); }
+  });
   it('keeps host metadata borrowed while runtime AU regions and authored edits live in Rust', () => {
     const { controller } = fixture(); const metadata: Record<string, unknown> = {}; metadata.self = metadata;
     const config = { characterId: 'metadata', regions: [{ name: 'saved', meshes: ['Body'] }], hostData: metadata };

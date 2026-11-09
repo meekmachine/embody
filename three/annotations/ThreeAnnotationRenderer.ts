@@ -40,6 +40,7 @@ function positionOverlayParent(parent: HTMLElement): () => void {
 /** Applies Rust frame records to native objects. No annotation state machine. */
 export class ThreeAnnotationRenderer {
   private readonly group = new THREE.Group();
+  private readonly previewGroup = new THREE.Group();
   private readonly objects = new Map<number, Objects>();
   private readonly overlay: HTMLDivElement;
   private readonly raycaster = new THREE.Raycaster();
@@ -61,6 +62,10 @@ export class ThreeAnnotationRenderer {
     private readonly onPick: (ids: number[]) => void,
     private readonly onHover: (id: number | null) => void,
   ) {
+    // A separate group keeps transparent hair's render order from covering a
+    // transient target, while saved annotations retain their normal depth rules.
+    this.previewGroup.renderOrder = Number.MAX_SAFE_INTEGER;
+    this.group.add(this.previewGroup);
     this.scene.add(this.group);
     this.overlay = document.createElement('div');
     this.overlay.style.cssText = 'position:absolute;pointer-events:none;overflow:hidden;';
@@ -148,7 +153,15 @@ export class ThreeAnnotationRenderer {
       element.addEventListener('click', event => { event.stopPropagation(); this.onPick([descriptor.id]); });
       this.overlay.appendChild(element);
     }
-    for (const object of [sphere, line, label, arrow]) if (object) { object.userData.annotationId = descriptor.id; object.visible = false; this.group.add(object); }
+    const group = descriptor.runtimePreview ? this.previewGroup : this.group;
+    for (const object of [sphere, line, label, arrow]) if (object) {
+      if (descriptor.runtimePreview) {
+        object.renderOrder = this.previewGroup.renderOrder;
+        object.material.depthTest = false;
+        object.material.depthWrite = false;
+      }
+      object.userData.annotationId = descriptor.id; object.visible = false; group.add(object);
+    }
     this.runtime.label_metrics(descriptor.id, canvas.width, canvas.height);
     return { descriptor: signature, sphere, line, label, texture, arrow, element };
   }
@@ -199,8 +212,8 @@ export class ThreeAnnotationRenderer {
   };
   private remove(id: number): void {
     const objects = this.objects.get(id); if (!objects) return;
-    for (const object of [objects.sphere, objects.line, objects.arrow]) if (object) { this.group.remove(object); object.geometry.dispose(); object.material.dispose(); }
-    this.group.remove(objects.label); objects.label.material.dispose(); objects.texture.dispose(); objects.element?.remove(); this.objects.delete(id);
+    for (const object of [objects.sphere, objects.line, objects.arrow]) if (object) { object.removeFromParent(); object.geometry.dispose(); object.material.dispose(); }
+    objects.label.removeFromParent(); objects.label.material.dispose(); objects.texture.dispose(); objects.element?.remove(); this.objects.delete(id);
   }
   clear(): void { for (const id of this.objects.keys()) this.remove(id); this.revision = -1; }
   dispose(): void {

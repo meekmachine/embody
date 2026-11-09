@@ -1,6 +1,6 @@
 use super::geometry::*;
 use crate::annotation_camera::{
-    add_scaled3, distance3, normalize3, quat_or_identity, rotate_by_quat, sub3,
+    add_scaled3, distance3, dot3, normalize3, quat_or_identity, rotate_by_quat, sub3,
 };
 use crate::annotation_markers as math;
 use serde_json::{json, Value};
@@ -15,6 +15,9 @@ pub struct Marker {
     pub style: Value,
     pub start: Point,
     pub direction: Point,
+    // Keep endpoint separation separate from the authored direction so a
+    // preview rebuild cannot fan an already adjusted saved leader again.
+    pub layout_direction: Option<Point>,
     pub length: f32,
     pub track: Option<u32>,
     pub local: Point,
@@ -63,6 +66,19 @@ fn outward(
     left: f32,
     camera: Point,
 ) -> Point {
+    let view = sub3(camera, model.bounds.center());
+    if let Some(direction) = runtime_outward(
+        region,
+        style,
+        anchor,
+        model,
+        left,
+        camera,
+        [view[2], 0., -view[0]],
+        None,
+    ) {
+        return direction;
+    }
     if let Some(p) = point(&style["lineDirection"]) {
         return normalize3(p);
     }
@@ -142,6 +158,73 @@ fn outward(
         world([0., 0., 1.])
     } else {
         normalize3(delta)
+    }
+}
+
+/// Runtime callouts leave the character's projected center horizontally. A small
+/// camera-facing component lifts front-side labels off the surface without
+/// sending a rear-side leader through the character.
+pub fn runtime_outward(
+    region: &Value,
+    style: &Value,
+    anchor: Point,
+    model: &Model,
+    left: f32,
+    camera: Point,
+    camera_right: Point,
+    view_projection: Option<&[f32]>,
+) -> Option<Point> {
+    if (strings(&region["runtimeAnnotation"]["morphNames"]).is_empty()
+        && !["au", "bone", "morph"].contains(&text(&region["runtimeAnnotation"], "targetType")))
+        || text(style, "lineDirection") != "radial"
+    {
+        return None;
+    }
+    let mut right = camera_right;
+    if !right.iter().all(|value| value.is_finite()) || distance3(right, [0.; 3]) < 0.001 {
+        right = model.direction([1., 0., 0.]);
+    }
+    let right = normalize3(right);
+    let radial = sub3(anchor, model.bounds.center());
+    // A world-space horizontal offset is insufficient after perspective panning:
+    // the nearer point can project across the model center despite that offset.
+    let projected = view_projection.and_then(|matrix| {
+        Some(projected_x(matrix, anchor)? - projected_x(matrix, model.bounds.center())?)
+    });
+    let horizontal = projected.unwrap_or_else(|| dot3(radial, right));
+    let epsilon = if projected.is_some() { 0.0001 } else { model.bounds.size()[1] * 0.0001 };
+    let sign = if horizontal.abs() > epsilon {
+        horizontal.signum()
+    } else {
+        // Centered anchors still need a visible leader. Prefer the authored
+        // side when it has a horizontal projection; use screen-right otherwise.
+        let projected_side = side(text(&region["runtimeAnnotation"], "side"))
+            .map(|s| dot3(model.direction([side_sign(s, left), 0., 0.]), right))
+            .unwrap_or(0.);
+        if projected_side < -0.001 {
+            -1.
+        } else {
+            1.
+        }
+    };
+    let toward_camera = normalize3(sub3(camera, anchor));
+    let lift = if dot3(radial, toward_camera) >= 0. {
+        0.35
+    } else {
+        0.
+    };
+    Some(normalize3(add_scaled3(
+        right.map(|v| v * sign),
+        toward_camera,
+        lift,
+    )))
+}
+pub fn projected_x(matrix: &[f32], position: Point) -> Option<f32> {
+    let position = clip(matrix, position);
+    if position.iter().all(|value| value.is_finite()) && position[3] > 1e-6 {
+        Some(position[0] / position[3])
+    } else {
+        None
     }
 }
 pub fn mesh_side_offset(region: &Value, sign: f32, size: Point) -> Option<Point> {
@@ -353,6 +436,7 @@ impl Marker {
             style,
             start,
             direction,
+            layout_direction: None,
             length,
             track,
             local,
@@ -473,7 +557,7 @@ impl Marker {
         let label_x = label_y * self.label_aspect;
         let end = add_scaled3(
             self.start,
-            self.direction,
+            self.layout_direction.unwrap_or(self.direction),
             self.length * if zoom { 0.3 } else { 1. },
         );
         let projected_start = clip(view_projection, self.start);
