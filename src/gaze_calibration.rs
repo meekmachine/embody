@@ -2,7 +2,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
-use crate::bones::{composite_axis_value, select_axis_binding, side_scale, AxisBindingRow, AxisValueRow, CompositeAxis};
+use crate::bones::{composite_axis_value, select_axis_binding, side_scale, AxisBindingRow, AxisValueRow, CompositeAxis, GROUP_NEGATIVE, GROUP_PLAIN, GROUP_POSITIVE};
 use crate::profile::{compile_tables, ModelData, NameResolver, ProfileData};
 
 const AXES: [&str; 5] = ["headYaw", "headPitch", "headRoll", "eyeYaw", "eyePitch"];
@@ -163,8 +163,17 @@ fn calibrate_axis(profile: &ProfileData, model: &ModelData, frames: &[ReferenceF
         if relevant {
             let frame = frames.iter().find(|frame| frame.bone_id == bone).ok_or("Reference frame for mapped actuator is unavailable")?;
             let rotation = crate::gaze_geometry::quaternion(frame.rotation)?;
+            let binding_rows = &packed[value_end..binding_end];
+            // Match select_axis_binding: each reachable direction prefers its
+            // directional rows and uses plain rows only when those are absent.
+            // CC4 retains both lists, whose unused plain rows have opposite signs.
+            let directions: &[u8] = if directional { &[GROUP_NEGATIVE, GROUP_POSITIVE] } else { &[GROUP_POSITIVE] };
+            let selectable_groups: BTreeSet<u8> = directions.iter().map(|group| {
+                if binding_rows.chunks_exact(6).any(|row| row[1] as u8 == *group) { *group } else { GROUP_PLAIN }
+            }).collect();
             let mut bindings = Vec::new();
-            for row in packed[value_end..binding_end].chunks_exact(6) {
+            for row in binding_rows.chunks_exact(6) {
+                if !selectable_groups.contains(&(row[1] as u8)) { continue; }
                 let mut channel_axis = [0.0; 3]; channel_axis[row[3] as usize] = 1.0;
                 let axis = crate::gaze_geometry::rotate(rotation, channel_axis);
                 // Yaw/pitch are subject-right/up. Authored roll follows the
@@ -377,6 +386,56 @@ mod tests {
     fn allocation(head_enabled: bool, head_strength: f64, target: f64) -> SolveInput {
         SolveInput { head_angles_degrees: Angles {yaw:target,pitch:0.,roll:0.}, eye_angles_degrees:Angles {yaw:target,pitch:0.,roll:0.},
             head_enabled,eyes_enabled:true,head_intensity:head_strength,eye_intensity:1.,intensity:1. }
+    }
+    #[test]
+    fn directional_bindings_take_precedence_over_opposing_plain_rows() {
+        let (profile,model,bindings,frames)=fixture();
+        let mut profile=serde_json::to_value(profile).unwrap();
+        // The embedded CC4 preset keeps `aus` alongside both direction lists.
+        // The compiler emits all three groups, but native playback never selects
+        // the plain bindings when the requested directional bindings exist.
+        for (axis, ids) in profile["compositeRotations"].as_array_mut().unwrap().iter_mut()
+            .zip([json!([8001,8002]),json!([9001,9002]),json!([9001,9002])]) {
+            axis["yaw"]["aus"]=ids;
+        }
+        let profile:ProfileData=serde_json::from_value(profile).unwrap();
+        let result:Calibrations=serde_json::from_str(&calibrate(&profile,&model,&bindings,&frames).unwrap()).unwrap();
+        for (axis, negative, positive) in [("headYaw",-50.,80.),("eyeYaw",-25.,25.)] {
+            let calibrated=&result[axis];
+            assert!(calibrated.available,"{axis}: {:?}",calibrated.reason);
+            assert!((calibrated.samples.first().unwrap().angle_degrees-negative).abs()<1e-5);
+            assert!((calibrated.samples.last().unwrap().angle_degrees-positive).abs()<1e-5);
+            assert!(calibrated.evaluator.as_ref().unwrap().actuators.iter()
+                .all(|actuator|actuator.bindings.iter().all(|row|row.group!=GROUP_PLAIN)));
+        }
+    }
+    #[test]
+    fn missing_directional_bindings_keep_the_native_plain_fallback() {
+        let (profile,model,bindings,frames)=fixture();
+        let mut profile=serde_json::to_value(profile).unwrap();
+        profile["compositeRotations"][0]["yaw"]=json!({"axis":"ry","negative":8001,"positive":8999,"aus":[8002]});
+        let profile:ProfileData=serde_json::from_value(profile).unwrap();
+        let mut bindings:serde_json::Value=serde_json::from_str(&bindings).unwrap();
+        // The positive selector contributes direction without its own bone
+        // binding; the authored plain binding supplies the selected range.
+        bindings["headYaw"]["snippet"]["curves"]["8999"]=bindings["headYaw"]["snippet"]["curves"]["8002"].clone();
+        let result:Calibrations=serde_json::from_str(&calibrate(&profile,&model,&bindings.to_string(),&frames).unwrap()).unwrap();
+        let head=&result["headYaw"];
+        assert!(head.available,"{:?}",head.reason);
+        assert!((inverse(head,-25.).unwrap()+0.5).abs()<1e-5);
+        assert!((inverse(head,40.).unwrap()-0.5).abs()<1e-5);
+        assert!(head.evaluator.as_ref().unwrap().actuators[0].bindings.iter().any(|row|row.group==GROUP_PLAIN));
+    }
+    #[test]
+    fn competing_reachable_directional_ranges_remain_unavailable() {
+        let (profile,model,bindings,frames)=fixture();
+        let mut profile=serde_json::to_value(profile).unwrap();
+        profile["auToBones"]["8003"]=json!([{"node":"head","channel":"ry","scale":-1,"maxDegrees":40}]);
+        profile["compositeRotations"][0]["yaw"]=json!({"axis":"ry","negative":8001,"positive":[8002,8003],"aus":[8001,8002,8003]});
+        let profile:ProfileData=serde_json::from_value(profile).unwrap();
+        let result:Calibrations=serde_json::from_str(&calibrate(&profile,&model,&bindings,&frames).unwrap()).unwrap();
+        assert!(!result["headYaw"].available);
+        assert_eq!(result["headYaw"].reason.as_deref(),Some("Competing actuator ranges can switch discontinuously within a direction"));
     }
     #[test]
     fn calibrates_custom_aus_asymmetric_ranges_and_nonlinear_saved_amplitudes() {

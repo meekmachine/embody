@@ -66,9 +66,15 @@ describe('dedicated camera-relative character geometry', () => {
       const calibration = engine.getGazeBindingCalibration({ headYaw: bind(51, 52), headPitch: bind(54, 53), headRoll: bind(55, 56),
         eyeYaw: bind(61, 62), eyePitch: bind(64, 63) });
       for (const axis of ['headYaw', 'headPitch', 'headRoll', 'eyeYaw', 'eyePitch'] as const) {
-        expect(calibration[axis], axis).toMatchObject({ available: true });
+        expect(calibration[axis], `${axis}: ${calibration[axis]?.reason ?? 'missing calibration'}`).toMatchObject({ available: true });
         expect(calibration[axis]?.samples[0].angleDegrees, axis).toBeLessThan(0);
         expect(calibration[axis]?.samples.at(-1)?.angleDegrees, axis).toBeGreaterThan(0);
+      }
+      for (const [axis, degrees] of [['headYaw', 60], ['headPitch', 30], ['headRoll', 25], ['eyeYaw', 25], ['eyePitch', 20]] as const) {
+        expect(calibration[axis]?.samples[0].angleDegrees, axis).toBeCloseTo(-degrees);
+        expect(calibration[axis]?.samples.at(-1)?.angleDegrees, axis).toBeCloseTo(degrees);
+        const targets = mapGazeAnglesToBindingTargets(calibration, { [axis]: degrees / 2 });
+        expect(targets.targets[axis], axis).toBeCloseTo(0.5);
       }
       expect(calibration.eyeYaw?.samples.at(-1)?.angleDegrees).toBeCloseTo(25);
       expect(mapGazeAnglesToBindingTargets(calibration, { eyeYaw: 12.5 }).targets.eyeYaw).toBeCloseTo(0.5);

@@ -1061,7 +1061,9 @@ when they differ, reject the old observation until the next scene fact arrives.
 captured neutral actuator frames for the five saved head/eye axes. Calibration
 samples preserve source landmarks, piecewise-linear curves, AU IDs, amplitudes,
 balance, asymmetric mapped ranges and native intensity clipping. Its versioned
-numeric evaluator is opaque to consumers. Missing/morph-only angular calibration,
+numeric evaluator is opaque to consumers. As in native playback, directional
+bindings take precedence over a retained plain AU list; plain bindings calibrate
+only where native selection can fall back to them. Missing/morph-only angular calibration,
 misaligned or competing actuators, nonmonotonic source motion and mixed/typed
 sources report unavailable per axis. The saved sources and all mapped bone/morph
 outputs remain unchanged; manual AU/clip playback remains supported.
