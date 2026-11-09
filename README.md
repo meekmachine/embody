@@ -1067,12 +1067,29 @@ only where native selection can fall back to them. Missing/morph-only angular ca
 misaligned or competing actuators, nonmonotonic source motion and mixed/typed
 sources report unavailable per axis. The saved sources and all mapped bone/morph
 outputs remain unchanged; manual AU/clip playback remains supported.
+Axes in one body part must have disjoint saved AU curve keys, and a role bone's
+compiled axes must be contiguous and follow yaw, pitch, roll order. Calibration
+reports overlapping sources or unsupported composite ordering unavailable rather
+than merging contributions or assuming a different native order.
 
 `solveGazeBindingTargets(calibration, policy)` maps desired head/eye angles to
 source coordinates before ordinary destination-strength scaling. It evaluates
-the clipped/scaled requested head contribution, then assigns the remaining
-bearing to eyes. Head delay/disable means zero head contribution. It reports
-unavailable axes and angular residuals beyond the requested contributions. This
-is endpoint allocation; independently timed native transitions are not measured
-optical fixation. Polymer retains participation, freshness, scheduling and
-Animation request ownership; Embody/Three retain compilation and playback.
+the clipped/scaled requested head yaw, pitch and roll together, then transforms
+the desired direction through that rotation's inverse before assigning eye yaw
+and pitch. `headRollTarget`, when provided, is the normalized saved roll-source
+coordinate; calibration supplies its physical angle. Otherwise
+`headAnglesDegrees.roll` supplies an angular goal. Nonzero uncalibrated roll
+reports its axis and dependent eye axes unavailable when head strength is nonzero.
+Head delay/disable means zero head contribution.
+
+Consumers must compile each body's participating axes together: one ordinary
+head AU snippet and one eye AU snippet. The compiler orders each bone's axes
+yaw, pitch, roll. Separate additive axis actions can change composition order
+when replaced and do not satisfy this solver's contract. Saved sources and mapped
+outputs remain intact; the combined snippets describe only their destinations.
+`residualAnglesDegrees` reports signed yaw/pitch error between the desired and
+composed head/eye forward directions, including strength and clipping. This is
+endpoint allocation; native transitions do not promise continuous optical
+fixation or measured rendered arrival. Polymer retains participation, freshness,
+scheduling and Animation request ownership; Embody/Three retain compilation and
+playback.

@@ -459,6 +459,7 @@ const calibratedBindings: GazeBindingCalibration = {};
 const sourceCoordinate: number | undefined = mapGazeAnglesToBindingTargets(calibratedBindings, { headYaw: characterBearingDegrees }).targets.headYaw;
 const remainingYaw: number = solveGazeBindingTargets(calibratedBindings, {
   headAnglesDegrees: { yaw: 10, pitch: 0, roll: 0 }, eyeAnglesDegrees: { yaw: 10, pitch: 0 },
+  headRollTarget: 0.25,
   headEnabled: true, eyesEnabled: true, headIntensity: 1, eyeIntensity: 1, intensity: 1,
 }).residualAnglesDegrees.yaw;
 declare const geometryHost: CharacterHost;

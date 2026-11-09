@@ -147,6 +147,8 @@ fn calibrate_axis(profile: &ProfileData, model: &ModelData, frames: &[ReferenceF
     }
     let packed = &tables.composite_axes;
     let mut actuators = Vec::new();
+    let mut last_axis_order = BTreeMap::new();
+    let mut previous_bone = None;
     let mut index = 0;
     while index + 8 <= packed.len() {
         let bone = packed[index] as u32;
@@ -158,6 +160,19 @@ fn calibrate_axis(profile: &ProfileData, model: &ModelData, frames: &[ReferenceF
         let value_end = index + value_count * 3;
         let binding_end = value_end + binding_count * 6;
         if binding_end > packed.len() { return Err("Incomplete composite calibration table".into()); }
+        if bones.contains(&bone) {
+            // Authored profiles can split a bone across composite entries.
+            // Grouping snippets only fixes composition when its compiled rows
+            // still apply each axis once in the solver's canonical order.
+            let order = match semantic { 1 => 0, 0 => 1, _ => 2 };
+            if previous_bone != Some(bone) && last_axis_order.contains_key(&bone) {
+                return Err("Mapped actuator axes must compile in one contiguous group".into());
+            }
+            if last_axis_order.insert(bone, order).is_some_and(|previous| previous >= order) {
+                return Err("Mapped actuator axes must compile once in yaw, pitch, roll order".into());
+            }
+        }
+        previous_bone = Some(bone);
         let relevant = bones.contains(&bone) && semantic == semantic_axis;
         let values: Vec<ValueRow> = packed[index..value_end].chunks_exact(3).map(|row| ValueRow { au_id: row[0] as u32, group: row[1] as u8, side: row[2] as u8 }).collect();
         if relevant {
@@ -244,10 +259,25 @@ pub(crate) fn calibrate(profile: &ProfileData, model: &ModelData, bindings_json:
     let bindings: BTreeMap<String, Binding> = serde_json::from_str(bindings_json).map_err(|error| format!("Invalid saved bindings: {error}"))?;
     let frames: Vec<ReferenceFrame> = serde_json::from_str(frames_json).map_err(|error| format!("Invalid reference frames: {error}"))?;
     let mut result = Calibrations::new();
-    for (name, binding) in bindings {
+    for (name, binding) in &bindings {
         if !AXES.contains(&name.as_str()) { return Err(format!("Unknown gaze axis {name}")); }
-        let calibration = calibrate_axis(profile, model, &frames, &name, binding).unwrap_or_else(unavailable);
-        result.insert(name, calibration);
+        let calibration = calibrate_axis(profile, model, &frames, name, binding.clone()).unwrap_or_else(unavailable);
+        result.insert(name.clone(), calibration);
+    }
+    // A part is compiled as one numeric AU snippet. Two source axes sharing an
+    // AU cannot retain independent contributions/balance metadata in that one
+    // curve, even when the shared AU has only morph mappings.
+    let mut overlapping = BTreeSet::new();
+    for (left, source) in &bindings {
+        for (right, other) in &bindings {
+            if left < right && left.starts_with("head") == right.starts_with("head")
+                && source.snippet.curves.keys().any(|id| other.snippet.curves.contains_key(id)) {
+                overlapping.insert(left.clone()); overlapping.insert(right.clone());
+            }
+        }
+    }
+    for axis in overlapping {
+        result.insert(axis, unavailable("Grouped gaze axes share source AU curves"));
     }
     serde_json::to_string(&result).map_err(|error| error.to_string())
 }
@@ -317,35 +347,96 @@ pub fn map_gaze_angles_to_binding_targets(calibration_json: &str, angles_json: &
 struct Angles { yaw: f64, pitch: f64, #[serde(default)] roll: f64 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SolveInput { head_angles_degrees: Angles, eye_angles_degrees: Angles, head_enabled: bool, eyes_enabled: bool, head_intensity: f64, eye_intensity: f64, intensity: f64 }
+struct SolveInput {
+    head_angles_degrees: Angles,
+    eye_angles_degrees: Angles,
+    /// Face roll remains a saved-source coordinate, not a guessed angle range.
+    #[serde(default)] head_roll_target: Option<f64>,
+    head_enabled: bool,
+    eyes_enabled: bool,
+    head_intensity: f64,
+    eye_intensity: f64,
+    intensity: f64,
+}
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Solved { targets: BTreeMap<String, f64>, unavailable_axes: Vec<String>, residual_angles_degrees: BTreeMap<String, f64> }
+
+fn multiply_rotation(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
+    [a[3]*b[0]+a[0]*b[3]+a[1]*b[2]-a[2]*b[1],
+     a[3]*b[1]-a[0]*b[2]+a[1]*b[3]+a[2]*b[0],
+     a[3]*b[2]+a[0]*b[1]-a[1]*b[0]+a[2]*b[3],
+     a[3]*b[3]-a[0]*b[0]-a[1]*b[1]-a[2]*b[2]]
+}
+fn axis_rotation(axis: usize, degrees: f64) -> [f64; 4] {
+    let half = (degrees % 360.0).to_radians() / 2.0;
+    let mut result = [0.0, 0.0, 0.0, half.cos()];
+    result[axis] = half.sin();
+    result
+}
+fn composed_rotation(angles: &Angles) -> [f64; 4] {
+    // This is the compiler's yaw -> pitch -> roll order, expressed in the
+    // calibrated character frame. Consumers must compile each part together;
+    // separate additive actions do not retain this order across replacement.
+    multiply_rotation(multiply_rotation(axis_rotation(1, -angles.yaw),
+                                        axis_rotation(0, -angles.pitch)),
+                      axis_rotation(2, angles.roll))
+}
+fn direction_angles(direction: [f64; 3]) -> Angles {
+    Angles { yaw: -direction[0].atan2(direction[2]).to_degrees(),
+             pitch: direction[1].atan2(direction[0].hypot(direction[2])).to_degrees(), roll: 0.0 }
+}
+fn angular_difference(goal: f64, achieved: f64) -> f64 {
+    ((goal % 360.0) - achieved + 180.0).rem_euclid(360.0) - 180.0
+}
 fn solve_targets(calibration: &Calibrations, input: SolveInput) -> Result<Solved, String> {
     if [input.head_intensity, input.eye_intensity].iter().any(|value| !value.is_finite() || !(0.0..=1.0).contains(value)) || !input.intensity.is_finite() || !(0.0..=2.0).contains(&input.intensity)
+        || input.head_roll_target.is_some_and(|value| !value.is_finite() || !(-1.0..=1.0).contains(&value))
         || [input.head_angles_degrees.yaw, input.head_angles_degrees.pitch, input.head_angles_degrees.roll, input.eye_angles_degrees.yaw, input.eye_angles_degrees.pitch, input.eye_angles_degrees.roll].iter().any(|value| !value.is_finite()) { return Err("Finite angles and supported tracking strengths are required".into()); }
     let mut result = Solved { targets: BTreeMap::new(), unavailable_axes: vec![], residual_angles_degrees: BTreeMap::new() };
-    for (suffix, head_goal, eye_goal) in [("Yaw", input.head_angles_degrees.yaw, input.eye_angles_degrees.yaw), ("Pitch", input.head_angles_degrees.pitch, input.eye_angles_degrees.pitch), ("Roll", input.head_angles_degrees.roll, 0.0)] {
+    let mut head = Angles { yaw: 0.0, pitch: 0.0, roll: 0.0 };
+    let mut roll_unavailable = false;
+    for (suffix, head_goal, achieved) in [("Yaw", input.head_angles_degrees.yaw, &mut head.yaw),
+                                         ("Pitch", input.head_angles_degrees.pitch, &mut head.pitch),
+                                         ("Roll", input.head_angles_degrees.roll, &mut head.roll)] {
         let head_name = format!("head{suffix}");
-        let mut head_achieved = 0.0;
-        if input.head_enabled && calibration.contains_key(&head_name) {
-            if let Some((axis, value)) = calibration.get(&head_name).and_then(|axis| inverse(axis, head_goal).map(|value| (axis, value))) {
-                head_achieved = axis.evaluator.as_ref().and_then(|evaluator| evaluate(evaluator, value, input.head_intensity * input.intensity)).ok_or("Scaled head calibration became ambiguous")?;
+        if !input.head_enabled { continue; }
+        let roll_target = if suffix == "Roll" { input.head_roll_target } else { None };
+        if let Some(axis) = calibration.get(&head_name) {
+            let value = if axis.available { roll_target.or_else(|| inverse(axis, head_goal)) } else { None };
+            if let Some(value) = value {
+                *achieved = axis.evaluator.as_ref().and_then(|evaluator| evaluate(evaluator, value, input.head_intensity * input.intensity)).ok_or("Scaled head calibration became ambiguous")?;
                 result.targets.insert(head_name.clone(), value);
             } else { result.unavailable_axes.push(head_name.clone()); }
         }
-        if suffix == "Roll" { continue; }
+        if suffix == "Roll" && !result.targets.contains_key(&head_name)
+            && roll_target.unwrap_or(head_goal).abs() > 1e-10
+            && input.head_intensity * input.intensity > 0.0 {
+            roll_unavailable = true;
+            if !result.unavailable_axes.contains(&head_name) { result.unavailable_axes.push(head_name); }
+        }
+    }
+    let head_rotation = composed_rotation(&head);
+    let desired_direction = crate::gaze_geometry::rotate(composed_rotation(&input.eye_angles_degrees), [0.0, 0.0, 1.0]);
+    let inverse_head = [-head_rotation[0], -head_rotation[1], -head_rotation[2], head_rotation[3]];
+    let eye_goal = direction_angles(crate::gaze_geometry::rotate(inverse_head, desired_direction));
+    let mut eyes = Angles { yaw: 0.0, pitch: 0.0, roll: 0.0 };
+    for (suffix, angle, achieved) in [("Yaw", eye_goal.yaw, &mut eyes.yaw),
+                                    ("Pitch", eye_goal.pitch, &mut eyes.pitch)] {
         let eye_name = format!("eye{suffix}");
-        let residual = eye_goal - head_achieved;
-        let mut eye_achieved = 0.0;
         if input.eyes_enabled && calibration.contains_key(&eye_name) {
-            if let Some((axis, value)) = calibration.get(&eye_name).and_then(|axis| inverse(axis, residual).map(|value| (axis, value))) {
-                eye_achieved = axis.evaluator.as_ref().and_then(|evaluator| evaluate(evaluator, value, input.eye_intensity * input.intensity)).ok_or("Scaled eye calibration became ambiguous")?;
+            if let Some((axis, value)) = calibration.get(&eye_name).filter(|_| !roll_unavailable)
+                .and_then(|axis| inverse(axis, angle).map(|value| (axis, value))) {
+                *achieved = axis.evaluator.as_ref().and_then(|evaluator| evaluate(evaluator, value, input.eye_intensity * input.intensity)).ok_or("Scaled eye calibration became ambiguous")?;
                 result.targets.insert(eye_name.clone(), value);
             } else { result.unavailable_axes.push(eye_name); }
         }
-        result.residual_angles_degrees.insert(suffix.to_lowercase(), residual - eye_achieved);
     }
+    let achieved = direction_angles(crate::gaze_geometry::rotate(
+        multiply_rotation(head_rotation, composed_rotation(&eyes)), [0.0, 0.0, 1.0]));
+    let desired = direction_angles(desired_direction);
+    result.residual_angles_degrees.insert("yaw".into(), angular_difference(desired.yaw, achieved.yaw));
+    result.residual_angles_degrees.insert("pitch".into(), desired.pitch - achieved.pitch);
     Ok(result)
 }
 #[wasm_bindgen]
@@ -385,7 +476,146 @@ mod tests {
     }
     fn allocation(head_enabled: bool, head_strength: f64, target: f64) -> SolveInput {
         SolveInput { head_angles_degrees: Angles {yaw:target,pitch:0.,roll:0.}, eye_angles_degrees:Angles {yaw:target,pitch:0.,roll:0.},
-            head_enabled,eyes_enabled:true,head_intensity:head_strength,eye_intensity:1.,intensity:1. }
+            head_roll_target: None,head_enabled,eyes_enabled:true,head_intensity:head_strength,eye_intensity:1.,intensity:1. }
+    }
+    fn compound_fixture() -> (ProfileData, ModelData, String, String) {
+        let (profile, model, bindings, frames) = fixture();
+        let mut profile = serde_json::to_value(profile).unwrap();
+        let mut bindings: serde_json::Value = serde_json::from_str(&bindings).unwrap();
+        for (axis, negative, positive, channel, range, nodes) in [
+            ("headPitch", "8101", "8102", "rx", 40.0, vec!["head"]),
+            ("headRoll", "8201", "8202", "rz", 30.0, vec!["head"]),
+            ("eyePitch", "9101", "9102", "rx", 25.0, vec!["leftEye", "rightEye"]),
+        ] {
+            let positive_sign = if axis == "headRoll" { 1.0 } else { -1.0 };
+            for (id, sign) in [(negative, -positive_sign), (positive, positive_sign)] {
+                profile["auToBones"][id] = json!(nodes.iter().map(|node|
+                    json!({"node":node,"channel":channel,"scale":sign,"maxDegrees":range})).collect::<Vec<_>>());
+            }
+            let semantic = if axis == "headRoll" { "roll" } else { "pitch" };
+            for index in if axis.starts_with("head") { vec![0] } else { vec![1, 2] } {
+                profile["compositeRotations"][index][semantic] = json!({"axis":channel,
+                    "negative":negative.parse::<u32>().unwrap(),"positive":positive.parse::<u32>().unwrap()});
+            }
+            let mut binding = bindings[if axis.starts_with("head") { "headYaw" } else { "eyeYaw" }].clone();
+            binding["snippet"]["curves"] = json!({
+                negative:[{"time":0,"intensity":1},{"time":1,"intensity":0},{"time":2,"intensity":0}],
+                positive:[{"time":0,"intensity":0},{"time":1,"intensity":0},{"time":2,"intensity":1}]
+            });
+            bindings[axis] = binding;
+        }
+        (serde_json::from_value(profile).unwrap(), model, bindings.to_string(), frames)
+    }
+    fn compiled_direction(profile: &ProfileData, model: &ModelData, calibration: &Calibrations,
+                          solved: &Solved, head_strength: f64, eye_strength: f64) -> [f64; 3] {
+        let mut curves = serde_json::Map::new();
+        for (axis, value) in &solved.targets {
+            let evaluator = calibration[axis].evaluator.as_ref().unwrap();
+            let time = source_time(&evaluator.binding, *value);
+            let strength = if axis.starts_with("head") { head_strength } else { eye_strength };
+            for (id, points) in &evaluator.binding.snippet.curves {
+                curves.insert(id.clone(), json!([{"time":0,"intensity":0},
+                    {"time":1,"intensity":(sample(points,time)*strength).clamp(0.0,2.0)}]));
+            }
+        }
+        // Exercise the actual native compiler, not the allocator's rotation
+        // helpers. Each bone's complete endpoint compiles in its native order.
+        let mut core = crate::RuntimeCore::new(0);
+        core.configure_with_profile(&serde_json::to_string(profile).unwrap(), &serde_json::to_string(model).unwrap()).unwrap();
+        let clip: serde_json::Value = serde_json::from_str(&core.build_clip("paired", &json!(curves).to_string(), "{}").unwrap()).unwrap();
+        let rotation = |bone| {
+            let track = clip["tracks"].as_array().unwrap().iter()
+                .find(|track| track["target"]["boneId"] == bone && track["target"]["property"] == "rotation").unwrap();
+            let values = track["values"].as_array().unwrap();
+            std::array::from_fn(|index| values[values.len()-4+index].as_f64().unwrap() as f32)
+        };
+        let actual = crate::bones::multiply_quat(rotation(1), rotation(2));
+        crate::gaze_geometry::rotate(actual.map(f64::from), [0.0,0.0,1.0])
+    }
+    #[test]
+    fn compound_endpoints_include_scaled_head_rotation_and_saved_roll_before_eye_allocation() {
+        let (profile, model, bindings, frames) = compound_fixture();
+        let calibration: Calibrations = serde_json::from_str(&calibrate(&profile,&model,&bindings,&frames).unwrap()).unwrap();
+        for (yaw, pitch, roll, head_strength) in [(30.0,20.0,0.0,0.5),(-25.0,15.0,0.6,0.5),
+                                                (20.0,-15.0,-0.5,0.4),(20.0,10.0,0.6,0.0)] {
+            let mut input = allocation(true,head_strength,yaw);
+            input.head_angles_degrees.pitch = pitch;
+            input.eye_angles_degrees.pitch = pitch;
+            input.head_roll_target = Some(roll);
+            let solved = solve_targets(&calibration,input).unwrap();
+            assert!(solved.unavailable_axes.is_empty());
+            assert!((solved.targets["headRoll"]-roll).abs()<1e-8);
+            let actual = compiled_direction(&profile,&model,&calibration,&solved,head_strength,1.0);
+            let (yaw,pitch) = (yaw.to_radians(),pitch.to_radians());
+            let expected = [-yaw.sin()*pitch.cos(),pitch.sin(),yaw.cos()*pitch.cos()];
+            for index in 0..3 { assert!((actual[index]-expected[index]).abs()<1e-5,"{actual:?} != {expected:?}"); }
+            assert!(solved.residual_angles_degrees.values().all(|value|value.abs()<1e-4));
+        }
+    }
+    #[test]
+    fn unavailable_nonzero_roll_is_not_a_guessed_eye_rotation_and_zero_strength_is_known_zero() {
+        let (profile,model,bindings,frames) = compound_fixture();
+        let mut calibration: Calibrations = serde_json::from_str(&calibrate(&profile,&model,&bindings,&frames).unwrap()).unwrap();
+        calibration.insert("headRoll".into(),unavailable("morph-only roll"));
+        let mut input = allocation(true,0.5,20.0); input.head_roll_target = Some(0.5);
+        let solved = solve_targets(&calibration,input).unwrap();
+        assert!(!solved.targets.contains_key("eyeYaw"));
+        assert!(!solved.targets.contains_key("eyePitch"));
+        assert!(solved.unavailable_axes.contains(&"headRoll".into()));
+        let mut input = allocation(true,0.0,20.0); input.head_roll_target = Some(0.5);
+        let solved = solve_targets(&calibration,input).unwrap();
+        assert!((solved.targets["eyeYaw"]-0.8).abs()<1e-5);
+        let mut input = allocation(true,1.0,20.0); input.head_roll_target = Some(1.1);
+        assert!(solve_targets(&calibration,input).is_err());
+    }
+    #[test]
+    fn grouped_axes_with_shared_morph_only_aus_report_unavailable_without_dropping_source_outputs() {
+        let (profile,model,bindings,frames) = compound_fixture();
+        let mut bindings: serde_json::Value = serde_json::from_str(&bindings).unwrap();
+        for axis in ["headYaw","headPitch"] {
+            bindings[axis]["snippet"]["curves"]["9999"] = json!([
+                {"time":0,"intensity":0.5},{"time":1,"intensity":0},{"time":2,"intensity":0.5}]);
+        }
+        let result: Calibrations = serde_json::from_str(&calibrate(&profile,&model,&bindings.to_string(),&frames).unwrap()).unwrap();
+        for axis in ["headYaw","headPitch"] {
+            assert!(!result[axis].available);
+            assert_eq!(result[axis].reason.as_deref(),Some("Grouped gaze axes share source AU curves"));
+        }
+        assert!(result["headRoll"].available);
+        assert!(result["eyeYaw"].available);
+        assert_eq!(bindings["headYaw"]["snippet"]["curves"]["9999"][0]["intensity"],0.5);
+    }
+    #[test]
+    fn split_composites_with_noncanonical_native_order_are_unavailable() {
+        let (profile,model,bindings,frames) = compound_fixture();
+        let mut profile = serde_json::to_value(profile).unwrap();
+        let composites = profile["compositeRotations"].clone();
+        profile["compositeRotations"] = json!([
+            {"node":"head","pitch":composites[0]["pitch"]},
+            {"node":"head","yaw":composites[0]["yaw"],"roll":composites[0]["roll"]},
+            composites[1],composites[2]
+        ]);
+        let profile: ProfileData = serde_json::from_value(profile).unwrap();
+        let result: Calibrations = serde_json::from_str(&calibrate(&profile,&model,&bindings,&frames).unwrap()).unwrap();
+        assert!(!result["headYaw"].available);
+        assert!(!result["headPitch"].available);
+        assert!(result["eyeYaw"].available);
+        assert!(result["eyePitch"].available);
+    }
+    #[test]
+    fn split_composites_separated_by_another_bone_are_unavailable() {
+        let (profile,model,bindings,frames) = compound_fixture();
+        let mut profile = serde_json::to_value(profile).unwrap();
+        let composites = profile["compositeRotations"].clone();
+        profile["compositeRotations"] = json!([
+            {"node":"head","yaw":composites[0]["yaw"]},composites[1],
+            {"node":"head","pitch":composites[0]["pitch"],"roll":composites[0]["roll"]},composites[2]
+        ]);
+        let profile: ProfileData = serde_json::from_value(profile).unwrap();
+        let result: Calibrations = serde_json::from_str(&calibrate(&profile,&model,&bindings,&frames).unwrap()).unwrap();
+        assert!(!result["headYaw"].available);
+        assert!(!result["headPitch"].available);
+        assert!(result["eyeYaw"].available);
     }
     #[test]
     fn directional_bindings_take_precedence_over_opposing_plain_rows() {

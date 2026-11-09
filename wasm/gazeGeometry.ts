@@ -46,6 +46,8 @@ export type GazeBindingTargets = { targets: Partial<Record<GazeAxis, number>>; u
 export interface GazeBindingTargetInput {
   headAnglesDegrees: GazeAnglesDegrees;
   eyeAnglesDegrees: Omit<GazeAnglesDegrees, 'roll'> & { roll?: number };
+  /** Optional normalized saved roll coordinate. Its calibrated, scaled rotation participates in the eye solve. */
+  headRollTarget?: number;
   headEnabled: boolean;
   eyesEnabled: boolean;
   headIntensity: number;
@@ -55,7 +57,7 @@ export interface GazeBindingTargetInput {
 export function mapGazeAnglesToBindingTargets(calibration: GazeBindingCalibration, angles: Partial<Record<GazeAxis, number>>): GazeBindingTargets {
   return JSON.parse(requireInitializedEmbodyCore().map_gaze_angles_to_binding_targets(JSON.stringify(calibration), JSON.stringify(angles))) as GazeBindingTargets;
 }
-/** Desired source coordinates precede ordinary destination-strength scaling. */
+/** Compile each part's axes in one snippet (yaw, pitch, roll). Source coordinates precede destination-strength scaling. */
 export function solveGazeBindingTargets(calibration: GazeBindingCalibration, input: GazeBindingTargetInput): GazeBindingTargets & { residualAnglesDegrees: { yaw: number; pitch: number } } {
   return JSON.parse(requireInitializedEmbodyCore().solve_gaze_binding_targets(JSON.stringify(calibration), JSON.stringify(input))) as GazeBindingTargets & { residualAnglesDegrees: { yaw: number; pitch: number } };
 }
