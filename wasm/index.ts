@@ -54,6 +54,7 @@ export async function initEmbodyCore(): Promise<EmbodyCore> {
 export const getEmbodyCore = initEmbodyCore;
 export * from './compatibility';
 export * from './savedAnimation';
+export * from './gazeGeometry';
 
 export function requireInitializedEmbodyCore(): EmbodyCore {
   if (!loaded) throw new Error('Embody Wasm core is not initialized. Await initEmbodyCore() first.');

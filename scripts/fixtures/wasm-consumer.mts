@@ -444,3 +444,28 @@ annotationRuntime.dispose(); annotationRuntime.free();
 const lifecycle = new core.AnnotationLifecycle('preview', 1200);
 const deadline: number | undefined = lifecycle.deadline();
 lifecycle.free();
+
+// Camera geometry is a renderer-neutral public computation, independent of annotations.
+import { solveGazeGeometry, mapGazeAnglesToBindingTargets, solveGazeBindingTargets,
+  type GazeGeometryInput, type GazeBindingCalibration } from '@lovelace_lol/embody/wasm';
+import type { GazeGeometryObservation } from '@lovelace_lol/embody/three';
+const geometryInput: GazeGeometryInput = {
+  cameraPosition: [0, 0, 5], cameraQuaternion: [0, 0, 0, 1],
+  characterWorldQuaternion: [0, 0, 0, 1], eyeOriginWorld: [0, 0, 0],
+  verticalFovDegrees: 60, aspect: 1, target: { kind: 'screen', x: 0, y: 0 },
+};
+const characterBearingDegrees: number = solveGazeGeometry(geometryInput).cameraAnglesDegrees.yaw;
+const calibratedBindings: GazeBindingCalibration = {};
+const sourceCoordinate: number | undefined = mapGazeAnglesToBindingTargets(calibratedBindings, { headYaw: characterBearingDegrees }).targets.headYaw;
+const remainingYaw: number = solveGazeBindingTargets(calibratedBindings, {
+  headAnglesDegrees: { yaw: 10, pitch: 0, roll: 0 }, eyeAnglesDegrees: { yaw: 10, pitch: 0 },
+  headRollTarget: 0.25,
+  headEnabled: true, eyesEnabled: true, headIntensity: 1, eyeIntensity: 1, intensity: 1,
+}).residualAnglesDegrees.yaw;
+declare const geometryHost: CharacterHost;
+const detachGeometry: () => void = geometryHost.subscribeGazeGeometry((event: GazeGeometryObservation) => {
+  if (event.available) { const revision: number = event.facts.bindingRevision; void revision; }
+});
+// @ts-expect-error Geometry targets use a declared coordinate mode, not renderer handles.
+solveGazeGeometry({ ...geometryInput, target: { kind: 'mesh', name: 'Head' } });
+void sourceCoordinate; void remainingYaw; void detachGeometry;

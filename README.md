@@ -1019,3 +1019,77 @@ restores the container's original inline background. Explicit saved backgrounds,
 including `null` transparency, non-studio scene types and external scenes retain
 their authored appearance. Polymer forwards the host; applications do not sample
 textures or construct a second scene background.
+
+## Camera-relative tracking geometry
+
+`solveGazeGeometry(input)` is a stateless Rust/Wasm query, separate from the
+annotation subsystem. Initialize Embody before calling it. Inputs are world-space
+camera position/orientation, character world orientation, an eye origin,
+`verticalFovDegrees`, `aspect`, and a screen or world target. Quaternions are XYZW
+and normalized; positions/depth share scene units. The neutral character frame
+uses +Z forward and +Y up. Returned yaw is positive subject-right, pitch positive
+up; independently authored target roll is not inferred from screen offsets.
+
+A screen target `{ kind: 'screen', x, y, depth? }` uses display-right/up NDC.
+Zero follows the eye-to-camera bearing even when the character is framed off
+center. Offsets lie on a viewer plane through the camera, using camera right/up,
+perspective FOV and depth (default eye-camera distance). Canvas pointer NDC is
+interpreted on this viewer plane, not as a ray picking a surface beneath the
+cursor. Webcam consumers supply their viewer-calibration FOV, aspect and depth;
+they must not silently substitute the rendered camera's projection. A world
+target supplies an exact world position and does not use FOV/aspect.
+
+`engine.getGazeGeometryFacts(camera)` observes the native scene, with the mapped
+eye midpoint (head fallback), current model-root orientation, world position,
+scale, effective camera FOV including zoom, aspect, and `bindingRevision`.
+Missing roles, coincident geometry, nonfinite values, mirrored/nonuniform scale
+and cropped/shifted camera projections report unavailable rather than inventing
+an angle. No recursive model update or annotation lookup is required.
+
+`CharacterHost.subscribeGazeGeometry(listener)` immediately publishes a plain
+available/unavailable observation. Later changed facts publish at most 30 Hz
+from the existing renderer after camera update and native sampling, even when
+playback is paused. It starts no timer or render loop. Generation changes retire
+model/profile bindings; disposal invalidates before releasing native resources.
+The last unsubscribe removes the scene reader. External renderers use the
+existing `createScenePlaybackFrame` integration after updating their camera.
+Profile rebind clears native playback synchronously. Before projecting a target,
+consumers compare `engine.getGazeBindingRevision()` with the fact's revision;
+when they differ, reject the old observation until the next scene fact arrives.
+
+`engine.getGazeBindingCalibration(bindings)` reads current profile mappings and
+captured neutral actuator frames for the five saved head/eye axes. Calibration
+samples preserve source landmarks, piecewise-linear curves, AU IDs, amplitudes,
+balance, asymmetric mapped ranges and native intensity clipping. Its versioned
+numeric evaluator is opaque to consumers. As in native playback, directional
+bindings take precedence over a retained plain AU list; plain bindings calibrate
+only where native selection can fall back to them. Missing/morph-only angular calibration,
+misaligned or competing actuators, nonmonotonic source motion and mixed/typed
+sources report unavailable per axis. The saved sources and all mapped bone/morph
+outputs remain unchanged; manual AU/clip playback remains supported.
+Axes in one body part must have disjoint saved AU curve keys, and a role bone's
+compiled axes must be contiguous and follow yaw, pitch, roll order. Calibration
+reports overlapping sources or unsupported composite ordering unavailable rather
+than merging contributions or assuming a different native order.
+
+`solveGazeBindingTargets(calibration, policy)` maps desired head/eye angles to
+source coordinates before ordinary destination-strength scaling. It evaluates
+the clipped/scaled requested head yaw, pitch and roll together, then transforms
+the desired direction through that rotation's inverse before assigning eye yaw
+and pitch. `headRollTarget`, when provided, is the normalized saved roll-source
+coordinate; calibration supplies its physical angle. Otherwise
+`headAnglesDegrees.roll` supplies an angular goal. Nonzero uncalibrated roll
+reports its axis and dependent eye axes unavailable when head strength is nonzero.
+Head delay/disable means zero head contribution.
+
+Consumers must compile each body's participating axes together: one ordinary
+head AU snippet and one eye AU snippet. The compiler orders each bone's axes
+yaw, pitch, roll. Separate additive axis actions can change composition order
+when replaced and do not satisfy this solver's contract. Saved sources and mapped
+outputs remain intact; the combined snippets describe only their destinations.
+`residualAnglesDegrees` reports signed yaw/pitch error between the desired and
+composed head/eye forward directions, including strength and clipping. This is
+endpoint allocation; native transitions do not promise continuous optical
+fixation or measured rendered arrival. Polymer retains participation, freshness,
+scheduling and Animation request ownership; Embody/Three retain compilation and
+playback.
