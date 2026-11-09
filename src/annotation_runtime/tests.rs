@@ -730,11 +730,14 @@ fn transient_marker_rebuilds_preserve_authored_directions_and_track_hidden_bones
     r.finish_markers(r.generation());
     let directions = r.markers.iter().map(|marker| marker.direction).collect::<Vec<_>>();
     assert_eq!(directions, vec![[1., 0., 0.], [1., 0., 0.]]);
+    let layout = r.markers.iter().map(|marker| marker.layout_direction).collect::<Vec<_>>();
+    assert!(distance3(layout[0].unwrap(), layout[1].unwrap()) > 0.01);
     assert!(!r.visible);
     r.execute("runtimeBone", json!({"target":"LeftEye","options":{"projectToSurface":false}}), 0.).unwrap();
     r.plan_markers("{}").unwrap();
     r.finish_markers(r.generation());
     assert_eq!(&r.markers[..2].iter().map(|marker| marker.direction).collect::<Vec<_>>(), &directions);
+    assert_eq!(r.markers[..2].iter().map(|marker| marker.layout_direction).collect::<Vec<_>>(), layout);
     assert!(r.tracked_objects().contains(&2));
     let mut moved = IDENTITY;
     moved[12] = 0.4;
@@ -746,6 +749,7 @@ fn transient_marker_rebuilds_preserve_authored_directions_and_track_hidden_bones
     r.plan_markers("{}").unwrap();
     r.finish_markers(r.generation());
     assert_eq!(r.markers.iter().map(|marker| marker.direction).collect::<Vec<_>>(), directions);
+    assert_eq!(r.markers.iter().map(|marker| marker.layout_direction).collect::<Vec<_>>(), layout);
 }
 
 #[test]

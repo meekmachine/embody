@@ -418,6 +418,7 @@ impl AnnotationRuntime {
                 Some(view_projection),
             ) {
                 marker.direction = direction;
+                marker.layout_direction = None;
                 runtime_indices.push(index);
             }
         }
@@ -628,8 +629,7 @@ impl AnnotationRuntime {
         let runtime_preview = self.has_runtime_preview();
         let indices = self.markers.iter().enumerate()
             .filter(|(_, marker)| {
-                text(&marker.style, "lineDirection") == "radial"
-                    && (!runtime_preview || self.runtime_names.contains(text(&marker.region, "name")))
+                !runtime_preview || self.runtime_names.contains(text(&marker.region, "name"))
             })
             .map(|(index, _)| index)
             .collect::<Vec<_>>();
@@ -646,7 +646,7 @@ impl AnnotationRuntime {
         );
         for (index, end) in indices.into_iter().zip(adjusted.chunks_exact(3)) {
             let marker = &mut self.markers[index];
-            marker.direction = normalize3(sub3([end[0], end[1], end[2]], marker.start))
+            marker.layout_direction = Some(normalize3(sub3([end[0], end[1], end[2]], marker.start)));
         }
     }
     pub fn label_metrics(&mut self, id: u32, width: f32, height: f32) {

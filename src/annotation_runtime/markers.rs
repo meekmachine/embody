@@ -15,6 +15,9 @@ pub struct Marker {
     pub style: Value,
     pub start: Point,
     pub direction: Point,
+    // Keep endpoint separation separate from the authored direction so a
+    // preview rebuild cannot fan an already adjusted saved leader again.
+    pub layout_direction: Option<Point>,
     pub length: f32,
     pub track: Option<u32>,
     pub local: Point,
@@ -433,6 +436,7 @@ impl Marker {
             style,
             start,
             direction,
+            layout_direction: None,
             length,
             track,
             local,
@@ -553,7 +557,7 @@ impl Marker {
         let label_x = label_y * self.label_aspect;
         let end = add_scaled3(
             self.start,
-            self.direction,
+            self.layout_direction.unwrap_or(self.direction),
             self.length * if zoom { 0.3 } else { 1. },
         );
         let projected_start = clip(view_projection, self.start);

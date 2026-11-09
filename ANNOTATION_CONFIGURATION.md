@@ -164,6 +164,10 @@ Controls the annotation line direction for marker placement.
 - This changes where the marker line projects.
 - It does not set the camera orbit angle.
 
+Overlapping saved leaders can fan apart during endpoint layout, including named
+and explicit vector directions. Layout retains the authored direction as its
+input, so starting and clearing a temporary preview does not accumulate offsets.
+
 ### `style.line`
 
 Controls line style, curve, arrow head, thickness, and length for marker rendering.
